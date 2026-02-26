@@ -117,6 +117,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     error ITEM_NOT_DEPLOYED();
     error ITEM_NOT_REGISTERED();
     error ITEM_NOT_REMOVED();
+    error ITEM_STILL_REGISTERED();
     error REMOVAL_FINALIZATION_PENDING();
     error REGISTRATION_NOT_PENDING();
     error REMOVAL_NOT_PENDING();
