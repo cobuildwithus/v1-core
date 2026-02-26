@@ -23,6 +23,7 @@ contract MockBudgetChildFlow {
     address private _sweeper;
     address private immutable _owner;
     address private immutable _parent;
+    address private immutable _strategy;
 
     int96 private _maxSafeFlowRate;
     int96 private _totalFlowRate;
@@ -35,7 +36,8 @@ contract MockBudgetChildFlow {
         address flowOperator_,
         address sweeper_,
         address owner_,
-        address parent_
+        address parent_,
+        address strategy_
     ) {
         _superToken = superToken_;
         _recipientAdmin = recipientAdmin_;
@@ -43,6 +45,7 @@ contract MockBudgetChildFlow {
         _sweeper = sweeper_;
         _owner = owner_;
         _parent = parent_;
+        _strategy = strategy_;
     }
 
     function superToken() external view returns (ISuperToken) {
@@ -63,6 +66,12 @@ contract MockBudgetChildFlow {
 
     function parent() external view returns (address) {
         return _parent;
+    }
+
+    function strategies() external view returns (IAllocationStrategy[] memory s) {
+        if (_strategy == address(0)) return new IAllocationStrategy[](0);
+        s = new IAllocationStrategy[](1);
+        s[0] = IAllocationStrategy(_strategy);
     }
 
     function getMaxSafeFlowRate() external view returns (int96) {
@@ -207,9 +216,10 @@ contract MockGoalFlowForBudgetTCR {
         address flowOperator,
         address sweeper,
         address,
-        IAllocationStrategy[] calldata
+        IAllocationStrategy[] calldata strategies
     ) external returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
+        address strategy = strategies.length == 0 ? address(0) : address(strategies[0]);
 
         MockBudgetChildFlow child =
             new MockBudgetChildFlow(
@@ -218,7 +228,8 @@ contract MockGoalFlowForBudgetTCR {
                 flowOperator,
                 sweeper,
                 address(this),
-                address(this)
+                address(this),
+                strategy
             );
         recipients[newRecipientId] = RecipientInfo({ recipient: address(child), isRemoved: false });
         return (newRecipientId, address(child));

@@ -155,6 +155,12 @@ contract BudgetTCRStackDeploymentLibPermissiveFallbackTreasury {
     }
 }
 
+contract BudgetTCRStackDeploymentLibNoStrategyChildFlow {
+    function strategies() external pure returns (IAllocationStrategy[] memory s) {
+        s = new IAllocationStrategy[](0);
+    }
+}
+
 contract BudgetTCRStackDeploymentLibTest is Test {
     BudgetTCRStackDeploymentLibHarness internal harness;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
@@ -478,6 +484,87 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
         vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
         guardedDeployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
+    }
+
+    function test_registerChildFlowRecipient_registersRecipientAndRejectsDuplicateFlow() public {
+        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            bytes32(uint256(1))
+        );
+
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
+            address(this),
+            address(goalToken),
+            prepared.strategy
+        );
+
+        bytes32 recipientId = bytes32(uint256(77));
+        deployer.registerChildFlowRecipient(recipientId, address(childFlow));
+
+        (bytes32 registeredRecipientId, bool registered) =
+            IBudgetFlowRouterStrategy(prepared.strategy).recipientIdForFlow(address(childFlow));
+        assertTrue(registered);
+        assertEq(registeredRecipientId, recipientId);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetFlowRouterStrategy.FLOW_ALREADY_REGISTERED.selector, address(childFlow))
+        );
+        deployer.registerChildFlowRecipient(bytes32(uint256(88)), address(childFlow));
+    }
+
+    function test_registerChildFlowRecipient_revertsWhenChildFlowUsesDifferentStrategy() public {
+        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            bytes32(uint256(1))
+        );
+
+        address otherStrategy = makeAddr("other-strategy");
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
+            address(this),
+            address(goalToken),
+            otherStrategy
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetFlowRouterStrategy.INVALID_FLOW_STRATEGY.selector,
+                address(childFlow),
+                prepared.strategy,
+                otherStrategy
+            )
+        );
+        deployer.registerChildFlowRecipient(bytes32(uint256(99)), address(childFlow));
+    }
+
+    function test_registerChildFlowRecipient_revertsWhenChildFlowHasZeroStrategies() public {
+        deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            bytes32(uint256(1))
+        );
+
+        BudgetTCRStackDeploymentLibNoStrategyChildFlow childFlow = new BudgetTCRStackDeploymentLibNoStrategyChildFlow();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetFlowRouterStrategy.INVALID_FLOW_STRATEGY_COUNT.selector, address(childFlow), 0
+            )
+        );
+        deployer.registerChildFlowRecipient(bytes32(uint256(100)), address(childFlow));
     }
 
     function test_prepareBudgetStack_reusesSharedStrategyAndRejectsLedgerMismatch() public {

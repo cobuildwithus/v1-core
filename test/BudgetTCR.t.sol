@@ -19,6 +19,7 @@ import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
@@ -544,6 +545,42 @@ contract BudgetTCRTest is TestUtils {
         assertEq(strategiesB.length, 1);
         assertEq(address(strategiesA[0]), address(strategiesB[0]));
         assertEq(address(strategiesA[0]), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
+    }
+
+    function test_activateRegisteredBudget_registersRecipientIdsPerChildFlowOnSharedStrategy() public {
+        _approveAddCost(requester);
+        bytes32 itemA = _submitListing(requester, _defaultListing());
+
+        IBudgetTCR.BudgetListing memory listingB = _defaultListing();
+        listingB.metadata.title = "Budget B";
+        listingB.metadata.url = "https://example.com/budget-b";
+
+        _approveAddCost(requester);
+        bytes32 itemB = _submitListing(requester, listingB);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemA);
+        budgetTcr.executeRequest(itemB);
+
+        budgetTcr.activateRegisteredBudget(itemA);
+        budgetTcr.activateRegisteredBudget(itemB);
+
+        (address childFlowA,) = goalFlow.recipients(itemA);
+        (address childFlowB,) = goalFlow.recipients(itemB);
+
+        address sharedStrategy = BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy();
+        IBudgetFlowRouterStrategy strategy = IBudgetFlowRouterStrategy(sharedStrategy);
+        (bytes32 recipientA, bool registeredA) = strategy.recipientIdForFlow(childFlowA);
+        (bytes32 recipientB, bool registeredB) = strategy.recipientIdForFlow(childFlowB);
+
+        assertTrue(registeredA);
+        assertTrue(registeredB);
+        assertEq(recipientA, itemA);
+        assertEq(recipientB, itemB);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetFlowRouterStrategy.FLOW_ALREADY_REGISTERED.selector, childFlowA));
+        vm.prank(address(budgetTcr));
+        BudgetTCRDeployer(stackDeployer).registerChildFlowRecipient(itemA, childFlowA);
     }
 
     function test_finalizeRemovedBudget_reverts_when_not_pending() public {

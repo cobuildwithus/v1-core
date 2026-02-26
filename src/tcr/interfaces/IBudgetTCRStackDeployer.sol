@@ -33,4 +33,6 @@ interface IBudgetTCRStackDeployer {
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) external returns (address budgetTreasury);
+
+    function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external;
 }

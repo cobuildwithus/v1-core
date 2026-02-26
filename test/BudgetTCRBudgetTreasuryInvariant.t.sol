@@ -12,7 +12,6 @@ import {
 } from "test/mocks/MockBudgetTCRSystem.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
@@ -67,6 +66,8 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     ) external returns (address budgetTreasury) {
         budgetTreasury = deployedBudgetTreasury;
     }
+
+    function registerChildFlowRecipient(bytes32, address) external { }
 }
 
 contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
@@ -81,7 +82,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
 
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
-    address internal itemValidator;
     address internal stackDeployer;
 
     address internal owner = makeAddr("owner");
@@ -129,7 +129,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
                 makeAddr("deployedBudgetTreasury")
             )
         );
-        itemValidator = address(new BudgetTCRValidator());
 
         bytes memory arbInit = abi.encodeCall(
             ERC20VotesArbitrator.initialize,
@@ -188,7 +187,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
-            itemValidator: itemValidator,
             budgetSuccessResolver: owner,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
