@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-02-25
+Last verified: 2026-02-26
 
 ## Purpose
 
@@ -20,6 +20,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/PLANS.md` | Execution plan workflow and quality bar. | `agent-docs/exec-plans/**` | Protocol Maintainers | Per process change | Medium | 2026-02-18 |
 | `agent-docs/operations/verification-and-runtime.md` | Verification lanes, required-check matrix, queue behavior, and runtime guardrails. | `package.json`, `scripts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process/CI change | High | 2026-02-24 |
 | `agent-docs/operations/completion-workflow.md` | Post-implementation simplify, coverage-audit, and completion-audit sequence. | `agent-docs/prompts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-02-24 |
+| `agent-docs/operations/deployment-notes.md` | Deployment-time security guardrails for initializer-based clone/proxy flows. | `src/goals/**`, `src/hooks/**`, `src/tcr/**`, deployment procedures | Protocol Maintainers | Per deployment-model PR | High | 2026-02-26 |
 | `agent-docs/prompts/simplify.md` | Prompt for behavior-preserving simplification pass after implementation. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | Medium | 2026-02-23 |
 | `agent-docs/prompts/test-coverage-audit.md` | Prompt for post-simplify subagent pass that audits coverage and implements highest-impact tests. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-02-23 |
 | `agent-docs/prompts/task-finish-review.md` | Prompt for final completion audit pass before handoff. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-02-23 |
