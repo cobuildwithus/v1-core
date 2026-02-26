@@ -35,23 +35,6 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         uint256 parentAllocationKey,
         bytes32 reason
     );
-    event BudgetTreasurySyncAttempted(
-        address indexed budgetTreasury,
-        address parentFlow,
-        address parentStrategy,
-        uint256 parentAllocationKey,
-        bool success
-    );
-    event BudgetTreasurySyncFailed(
-        address indexed budgetTreasury,
-        address parentFlow,
-        address parentStrategy,
-        uint256 parentAllocationKey,
-        bytes4 revertSelector,
-        bytes32 revertDataHash,
-        uint256 revertDataLength,
-        bytes revertDataTruncated
-    );
 
     bytes32 internal constant CHILD_SYNC_SKIP_NO_COMMITMENT = "NO_COMMITMENT";
     bytes32 internal constant CHILD_SYNC_SKIP_TARGET_UNAVAILABLE = "TARGET_UNAVAILABLE";
@@ -157,7 +140,7 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
     }
 
-    function test_allocate_withChildSync_attemptsBudgetTreasurySync_forChangedBudget() public {
+    function test_allocate_withChildSync_doesNotAttemptBudgetTreasurySync_forChangedBudget() public {
         uint256 initialWeight = 12e24;
         uint256 reducedWeight = 3e24;
 
@@ -187,236 +170,10 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
 
         _setParentWeight(reducedWeight);
 
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, true);
-
         vm.prank(allocator);
         flow.allocate(parentRecipientIds, parentBps);
 
-        assertEq(budgetTreasury.syncCalls(), syncCallsBefore + 1);
-    }
-
-    function test_allocate_withChildSync_continuesWhenBudgetTreasurySyncReverts() public {
-        uint256 initialWeight = 12e24;
-        uint256 reducedWeight = 3e24;
-
-        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
-        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
-        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
-
-        _setParentWeight(initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            parentAllocationData,
-            address(strategy),
-            address(flow),
-            parentRecipientIds,
-            parentBps
-        );
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            _emptyAllocationData(),
-            address(budgetStrategy),
-            address(childFlow),
-            childRecipientIds,
-            childBps
-        );
-        budgetTreasury.setSyncShouldRevert(true);
-
-        _setParentWeight(reducedWeight);
-
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, false);
-
-        vm.prank(allocator);
-        flow.allocate(parentRecipientIds, parentBps);
-
-        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
-    }
-
-    function test_allocate_withChildSync_emitsBudgetTreasurySyncFailedDiagnostics_forErrorStringRevert() public {
-        uint256 initialWeight = 12e24;
-        uint256 reducedWeight = 3e24;
-
-        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
-        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
-        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
-
-        _setParentWeight(initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            parentAllocationData,
-            address(strategy),
-            address(flow),
-            parentRecipientIds,
-            parentBps
-        );
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            _emptyAllocationData(),
-            address(budgetStrategy),
-            address(childFlow),
-            childRecipientIds,
-            childBps
-        );
-
-        budgetTreasury.setSyncShouldRevert(true);
-        bytes memory expectedRevertData = abi.encodeWithSelector(bytes4(keccak256("Error(string)")), "SYNC_REVERT");
-
-        _setParentWeight(reducedWeight);
-
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncFailed(
-            address(budgetTreasury),
-            address(flow),
-            address(strategy),
-            parentKey,
-            bytes4(keccak256("Error(string)")),
-            keccak256(expectedRevertData),
-            expectedRevertData.length,
-            expectedRevertData
-        );
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, false);
-
-        vm.prank(allocator);
-        flow.allocate(parentRecipientIds, parentBps);
-
-        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
-    }
-
-    function test_allocate_withChildSync_emitsBudgetTreasurySyncFailedDiagnostics_withTruncatedRawRevertData()
-        public
-    {
-        uint256 initialWeight = 12e24;
-        uint256 reducedWeight = 3e24;
-
-        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
-        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
-        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
-
-        _setParentWeight(initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            parentAllocationData,
-            address(strategy),
-            address(flow),
-            parentRecipientIds,
-            parentBps
-        );
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            _emptyAllocationData(),
-            address(budgetStrategy),
-            address(childFlow),
-            childRecipientIds,
-            childBps
-        );
-
-        bytes memory longRevertData = _bytesRange(4096);
-        budgetTreasury.setSyncRevertData(longRevertData);
-        bytes memory truncatedRevertData = _slicePrefix(longRevertData, 160);
-
-        _setParentWeight(reducedWeight);
-
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncFailed(
-            address(budgetTreasury),
-            address(flow),
-            address(strategy),
-            parentKey,
-            bytes4(0x01020304),
-            keccak256(truncatedRevertData),
-            longRevertData.length,
-            truncatedRevertData
-        );
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, false);
-
-        vm.prank(allocator);
-        flow.allocate(parentRecipientIds, parentBps);
-
-        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
-    }
-
-    function test_allocate_withChildSync_appliesBudgetTreasurySyncGasStipend() public {
-        uint256 initialWeight = 12e24;
-        uint256 reducedWeight = 3e24;
-
-        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
-        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
-        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
-
-        _setParentWeight(initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            parentAllocationData,
-            address(strategy),
-            address(flow),
-            parentRecipientIds,
-            parentBps
-        );
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            _emptyAllocationData(),
-            address(budgetStrategy),
-            address(childFlow),
-            childRecipientIds,
-            childBps
-        );
-
-        budgetTreasury.setMaxSyncGas(550_000);
-        uint256 syncCallsBefore = budgetTreasury.syncCalls();
-        _setParentWeight(reducedWeight);
-
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, true);
-
-        vm.prank(allocator);
-        flow.allocate(parentRecipientIds, parentBps);
-
-        assertEq(budgetTreasury.syncCalls(), syncCallsBefore + 1);
-    }
-
-    function test_allocate_withChildSync_budgetSyncStipendFailure_doesNotBlockChildSync() public {
-        uint256 initialWeight = 12e24;
-        uint256 reducedWeight = 3e24;
-
-        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
-        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
-        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
-
-        _setParentWeight(initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            parentAllocationData,
-            address(strategy),
-            address(flow),
-            parentRecipientIds,
-            parentBps
-        );
-        _allocateWithPrevStateForStrategy(
-            allocator,
-            _emptyAllocationData(),
-            address(budgetStrategy),
-            address(childFlow),
-            childRecipientIds,
-            childBps
-        );
-
-        budgetTreasury.setMaxSyncGas(450_000);
-        uint256 budgetKey = uint256(uint160(allocator));
-        _setParentWeight(reducedWeight);
-
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, false);
-        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
-        emit ChildAllocationSyncAttempted(address(budgetTreasury), address(childFlow), address(budgetStrategy), budgetKey, address(flow), address(strategy), parentKey, true);
-
-        vm.prank(allocator);
-        flow.allocate(parentRecipientIds, parentBps);
-
-        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
+        assertEq(budgetTreasury.syncCalls(), syncCallsBefore);
     }
 
     function test_allocate_withChildSync_autoSyncsWithoutManualRequestPayload() public {
@@ -915,20 +672,18 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         uint256 syncCallsBefore = budgetTreasury.syncCalls();
         _setParentWeight(reducedWeight);
 
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, true);
         vm.expectEmit(true, true, false, true, address(ledgerPipeline));
         emit ChildAllocationSyncSkipped(address(budgetTreasury), address(childFlow), address(flow), address(strategy), parentKey, CHILD_SYNC_SKIP_GAS_BUDGET);
 
         vm.prank(other);
         flow.syncAllocation{ gas: 1_500_000 }(address(strategy), parentKey);
 
-        assertEq(budgetTreasury.syncCalls(), syncCallsBefore + 1);
+        assertEq(budgetTreasury.syncCalls(), syncCallsBefore);
         assertEq(flow.distributionPool().getUnits(address(childFlow)), _units(reducedWeight, 1_000_000));
         assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), initialChildUnits);
     }
 
-    function test_syncAllocation_withChildSync_veryLowGas_skipsBudgetSyncAndChildSync() public {
+    function test_syncAllocation_withChildSync_veryLowGas_skipsChildSync() public {
         uint256 initialWeight = 12e24;
         uint256 reducedWeight = 3e24;
 
@@ -960,8 +715,6 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         uint256 syncCallsBefore = budgetTreasury.syncCalls();
         _setParentWeight(reducedWeight);
 
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, false);
         vm.expectEmit(true, true, false, true, address(ledgerPipeline));
         emit ChildAllocationSyncSkipped(address(budgetTreasury), address(childFlow), address(flow), address(strategy), parentKey, CHILD_SYNC_SKIP_GAS_BUDGET);
 
@@ -1004,8 +757,6 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
 
         _setParentWeight(reducedWeight);
 
-        vm.expectEmit(true, false, false, true, address(ledgerPipeline));
-        emit BudgetTreasurySyncAttempted(address(budgetTreasury), address(flow), address(strategy), parentKey, true);
         vm.expectEmit(true, true, false, true, address(ledgerPipeline));
         emit ChildAllocationSyncSkipped(address(budgetTreasury), address(childFlow), address(flow), address(strategy), parentKey, CHILD_SYNC_SKIP_GAS_BUDGET);
 
@@ -2006,26 +1757,6 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         data[0][0] = "";
     }
 
-    function _bytesRange(uint256 length) internal pure returns (bytes memory data) {
-        data = new bytes(length);
-        for (uint256 i = 0; i < length; ) {
-            data[i] = bytes1(uint8(i + 1));
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _slicePrefix(bytes memory data, uint256 length) internal pure returns (bytes memory prefix) {
-        prefix = new bytes(length);
-        for (uint256 i = 0; i < length; ) {
-            prefix[i] = data[i];
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     function _deployChildFlow(address parentFlow, address childStrategy) internal returns (CustomFlow deployed) {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
@@ -2094,9 +1825,6 @@ contract FlowBudgetAutoSyncBudgetTreasury {
     uint64 public fundingDeadline = type(uint64).max;
     uint64 public executionDuration = 10;
     uint256 public syncCalls;
-    bool public syncShouldRevert;
-    bytes internal _syncRevertData;
-    uint256 public maxSyncGas = type(uint256).max;
 
     constructor(address flow_) {
         flow = flow_;
@@ -2111,27 +1839,7 @@ contract FlowBudgetAutoSyncBudgetTreasury {
         resolvedAt = resolvedAt_;
     }
 
-    function setSyncShouldRevert(bool shouldRevert) external {
-        syncShouldRevert = shouldRevert;
-    }
-
-    function setSyncRevertData(bytes calldata revertData_) external {
-        _syncRevertData = revertData_;
-    }
-
-    function setMaxSyncGas(uint256 maxSyncGas_) external {
-        maxSyncGas = maxSyncGas_;
-    }
-
     function sync() external {
-        bytes memory revertData = _syncRevertData;
-        if (revertData.length != 0) {
-            assembly ("memory-safe") {
-                revert(add(revertData, 0x20), mload(revertData))
-            }
-        }
-        if (gasleft() > maxSyncGas) revert("SYNC_GAS_TOO_HIGH");
-        if (syncShouldRevert) revert("SYNC_REVERT");
         unchecked {
             ++syncCalls;
         }
