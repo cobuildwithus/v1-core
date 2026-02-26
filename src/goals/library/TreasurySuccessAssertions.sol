@@ -122,6 +122,10 @@ library TreasurySuccessAssertions {
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) internal view returns (bool isResolved, bool truthful, FailClosedReason failClosedReason) {
+        bytes32 activeAssertionId = self.pendingId;
+        if (activeAssertionId == bytes32(0)) return (false, false, FailClosedReason.None);
+        if (assertionId != activeAssertionId) return (false, false, FailClosedReason.None);
+
         IUMATreasurySuccessResolverConfig resolverConfig = IUMATreasurySuccessResolverConfig(successResolver);
 
         OptimisticOracleV3Interface assertionOracle;
