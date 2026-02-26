@@ -85,6 +85,11 @@ contract GoalTreasuryTest is Test {
         );
         owner = address(successResolverConfig);
         superToken = new SharedMockSuperToken(address(underlyingToken));
+        SharedMockSuperfluidHost host = new SharedMockSuperfluidHost();
+        SharedMockCFA cfa = new SharedMockCFA();
+        cfa.setDepositPerFlowRate(0);
+        host.setCFA(address(cfa));
+        superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
         flow.setMaxSafeFlowRate(type(int96).max);
         stakeVault = new SharedMockStakeVault();
@@ -1349,6 +1354,19 @@ contract GoalTreasuryTest is Test {
         assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
         assertGt(flow.targetOutflowRate(), 0);
         assertEq(flow.targetOutflowRate(), treasury.targetFlowRate());
+    }
+
+    function test_activate_failsClosedWhenHostDependencyMissing() public {
+        superToken.setHost(address(0));
+        superToken.mint(address(flow), 300e18);
+        vm.prank(hook);
+        assertTrue(treasury.recordHookFunding(100e18));
+
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertGt(treasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
     }
 
     function test_activate_fallsBackToZeroWhenTargetWriteRevertsWithoutBufferCap() public {

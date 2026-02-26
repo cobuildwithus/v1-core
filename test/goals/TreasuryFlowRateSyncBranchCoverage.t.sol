@@ -39,6 +39,15 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
         assertEq(flow.targetOutflowRate(), 0);
     }
 
+    function test_applyCappedFlowRate_failsClosedWhenSuperTokenMissing() public {
+        flow.setTargetOutflowRateForTest(5);
+        flow.setSuperToken(address(0));
+
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 50);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
     function test_applyLinearSpendDownWithFallback_returnsZeroWhenTreasuryBalanceIsZero() public {
         flow.setTargetOutflowRateForTest(1);
         flow.setSuperToken(address(0));
@@ -68,9 +77,10 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyLinearSpendDownWithFallback_appliesTargetWhenDirectWriteSucceeds() public {
         flow.setTargetOutflowRateForTest(0);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(500);
 
-        int96 applied = harness.applyLinearSpendDownWithFallback(IFlow(address(flow)), 200, 1, 1);
+        int96 applied = harness.applyLinearSpendDownWithFallback(IFlow(address(flow)), 200, 1_000, 1);
         assertEq(applied, 200);
         assertEq(flow.targetOutflowRate(), 200);
     }
@@ -105,24 +115,44 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
         assertEq(flow.targetOutflowRate(), 80);
     }
 
-    function test_applyCappedFlowRate_ignoresBufferLimitWhenHostAgreementLookupReverts() public {
+    function test_applyCappedFlowRate_failsClosedWhenHostAgreementLookupReverts() public {
         flow.setTargetOutflowRateForTest(0);
         superToken.setBalance(1);
         host.setRevertGetAgreementClass(true);
 
         int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 200);
-        assertEq(applied, 200);
-        assertEq(flow.targetOutflowRate(), 200);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
     }
 
-    function test_applyCappedFlowRate_ignoresBufferLimitWhenAgreementAddressIsZero() public {
+    function test_applyCappedFlowRate_failsClosedWhenHostLookupReverts() public {
+        flow.setTargetOutflowRateForTest(0);
+        superToken.setBalance(1);
+        superToken.setRevertGetHost(true);
+
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 200);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_applyCappedFlowRate_failsClosedWhenAgreementAddressIsZero() public {
         flow.setTargetOutflowRateForTest(0);
         superToken.setBalance(1);
         host.setAgreement(address(0));
 
         int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 200);
-        assertEq(applied, 200);
-        assertEq(flow.targetOutflowRate(), 200);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_applyCappedFlowRate_failsClosedWhenCfaMaxRateLookupReverts() public {
+        flow.setTargetOutflowRateForTest(0);
+        superToken.setBalance(1);
+        cfa.setRevertGetMaxRate(true);
+
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 200);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
     }
 
     function test_applyCappedFlowRate_clampsToZeroWhenCfaReturnsNegativeMaxRate() public {
@@ -158,7 +188,8 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyCappedFlowRate_refreshesWhenTargetAlreadySet() public {
         flow.setTargetOutflowRateForTest(25);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(50);
 
         int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 25);
 
@@ -169,7 +200,8 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyCappedFlowRate_emitsManualInterventionWhenRefreshReverts() public {
         flow.setTargetOutflowRateForTest(25);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(50);
         flow.setRevertRefresh(true);
 
         vm.expectEmit(true, false, false, true, address(harness));
@@ -183,7 +215,8 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyCappedFlowRate_fallsBackWhenTargetWriteReverts() public {
         flow.setTargetOutflowRateForTest(10);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(80);
         flow.setRevertOnRate(80, true);
 
         int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 80);
@@ -194,7 +227,8 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyLinearSpendDownWithFallback_fallsBackWhenTargetWriteReverts() public {
         flow.setTargetOutflowRateForTest(10);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(100);
         flow.setRevertOnRate(50, true);
 
         int96 applied = harness.applyLinearSpendDownWithFallback(IFlow(address(flow)), 50, 1, 1);
@@ -205,7 +239,8 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
 
     function test_applyCappedFlowRate_emitsManualInterventionWhenFallbackAndZeroWritesRevert() public {
         flow.setTargetOutflowRateForTest(10);
-        flow.setSuperToken(address(0));
+        superToken.setBalance(1);
+        cfa.setMaxRate(50);
         flow.setRevertAllWrites(true);
 
         vm.expectEmit(true, false, false, true, address(harness));
@@ -287,6 +322,7 @@ contract TreasuryFlowRateSyncMockFlow {
 contract TreasuryFlowRateSyncMockSuperToken {
     uint256 private _balance;
     address private _host;
+    bool private _revertGetHost;
 
     function setBalance(uint256 balance_) external {
         _balance = balance_;
@@ -296,11 +332,16 @@ contract TreasuryFlowRateSyncMockSuperToken {
         _host = host_;
     }
 
+    function setRevertGetHost(bool shouldRevert) external {
+        _revertGetHost = shouldRevert;
+    }
+
     function balanceOf(address) external view returns (uint256) {
         return _balance;
     }
 
     function getHost() external view returns (address) {
+        if (_revertGetHost) revert("getHost");
         return _host;
     }
 }

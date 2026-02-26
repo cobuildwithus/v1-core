@@ -57,6 +57,11 @@ contract BudgetTreasuryTest is Test {
         );
         owner = address(successResolverConfig);
         superToken = new SharedMockSuperToken(address(underlyingToken));
+        SharedMockSuperfluidHost host = new SharedMockSuperfluidHost();
+        SharedMockCFA cfa = new SharedMockCFA();
+        cfa.setDepositPerFlowRate(1);
+        host.setCFA(address(cfa));
+        superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
         flow.setMaxSafeFlowRate(type(int96).max);
         stakeVault = new SharedMockStakeVault();
@@ -197,6 +202,49 @@ contract BudgetTreasuryTest is Test {
         candidate.initialize(owner, _defaultBudgetConfig());
     }
 
+    function test_initialize_revertsWhenFlowOperatorIsNotTreasury() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        stakeVault.setGoalTreasury(address(candidate));
+        address unexpectedOperator = address(0xDEAD);
+        flow.setFlowOperator(unexpectedOperator);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTreasury.FLOW_AUTHORITY_MISMATCH.selector,
+                address(candidate),
+                unexpectedOperator,
+                address(candidate)
+            )
+        );
+        candidate.initialize(owner, _defaultBudgetConfig());
+    }
+
+    function test_initialize_revertsWhenSweeperIsNotTreasury() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        stakeVault.setGoalTreasury(address(candidate));
+        address unexpectedSweeper = address(0xDEAD);
+        flow.setSweeper(unexpectedSweeper);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTreasury.FLOW_AUTHORITY_MISMATCH.selector,
+                address(candidate),
+                address(candidate),
+                unexpectedSweeper
+            )
+        );
+        candidate.initialize(owner, _defaultBudgetConfig());
+    }
+
+    function test_initialize_revertsWhenParentFlowMissing() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        stakeVault.setGoalTreasury(address(candidate));
+        flow.setParent(address(0));
+
+        vm.expectRevert(IBudgetTreasury.PARENT_FLOW_NOT_CONFIGURED.selector);
+        candidate.initialize(owner, _defaultBudgetConfig());
+    }
+
     function test_canAcceptFunding_falseWhenFundingWindowEnds() public {
         vm.warp(treasury.fundingDeadline() + 1);
         assertFalse(treasury.canAcceptFunding());
@@ -230,6 +278,8 @@ contract BudgetTreasuryTest is Test {
         feeFlow.setMaxSafeFlowRate(type(int96).max);
         SharedMockStakeVault feeStakeVault = new SharedMockStakeVault();
         BudgetTreasury feeTreasury = _cloneBudgetTreasury();
+        feeFlow.setFlowOperator(address(feeTreasury));
+        feeFlow.setSweeper(address(feeTreasury));
         feeStakeVault.setGoalTreasury(address(feeTreasury));
         feeTreasury.initialize(
             owner,
@@ -294,6 +344,8 @@ contract BudgetTreasuryTest is Test {
         reentrantFlow.setMaxSafeFlowRate(type(int96).max);
         SharedMockStakeVault reentrantStakeVault = new SharedMockStakeVault();
         BudgetTreasury reentrantTreasury = _cloneBudgetTreasury();
+        reentrantFlow.setFlowOperator(address(reentrantTreasury));
+        reentrantFlow.setSweeper(address(reentrantTreasury));
         reentrantStakeVault.setGoalTreasury(address(reentrantTreasury));
         reentrantTreasury.initialize(
             owner,
@@ -417,6 +469,18 @@ contract BudgetTreasuryTest is Test {
 
         treasury.sync();
         assertEq(flow.targetOutflowRate(), 100);
+    }
+
+    function test_sync_fundingActivation_failsClosedWhenHostDependencyMissing() public {
+        superToken.setHost(address(0));
+        superToken.mint(address(flow), 2_000_000e18);
+        _setIncomingFlowRate(2_000);
+
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertGt(treasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
     }
 
     function test_sync_afterFundingDeadline_withThresholdReached_activates() public {
@@ -1780,6 +1844,8 @@ contract BudgetTreasuryTest is Test {
 
     function _cloneBudgetTreasury() internal returns (BudgetTreasury deployed) {
         deployed = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
+        flow.setFlowOperator(address(deployed));
+        flow.setSweeper(address(deployed));
     }
 
     function _openReassertGraceWindow(BudgetTreasury target) internal returns (uint64 graceDeadline) {
