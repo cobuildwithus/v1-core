@@ -60,7 +60,6 @@ interface IBudgetTCR is IGeneralizedTCR {
 
     struct DeploymentConfig {
         address stackDeployer;
-        address itemValidator;
         address budgetSuccessResolver;
         IFlow goalFlow;
         IGoalTreasury goalTreasury;
@@ -116,7 +115,6 @@ interface IBudgetTCR is IGeneralizedTCR {
     error INVALID_BOUNDS();
     error ITEM_NOT_DEPLOYED();
     error ITEM_NOT_REGISTERED();
-    error ITEM_NOT_REMOVED();
     error REMOVAL_FINALIZATION_PENDING();
     error REGISTRATION_NOT_PENDING();
     error REMOVAL_NOT_PENDING();

@@ -52,7 +52,6 @@ interface IFlowEvents {
         address indexed flowImplementation,
         address flowOperator,
         address sweeper,
-        address connectPoolAdmin,
         address managerRewardPool,
         address allocationPipeline,
         address parent,
@@ -172,9 +171,6 @@ interface IFlow is IFlowEvents, IManagedFlow {
     /// @dev Reverts if pool connection fails
     error POOL_CONNECTION_FAILED();
 
-    /// @dev Reverts when token transferFrom returns false
-    error TRANSFER_FROM_FAILED();
-
     /// @dev Reverts when token transfer returns false
     error TRANSFER_FAILED();
 
@@ -228,7 +224,6 @@ interface IFlow is IFlowEvents, IManagedFlow {
         address managerRewardPool;
         address allocationPipeline;
         address parent;
-        address connectPoolAdmin;
         FlowParams flowParams;
         FlowTypes.RecipientMetadata metadata;
     }
@@ -301,7 +296,6 @@ interface ICustomFlow is IFlow {
      * @param managerRewardPool The address of the manager reward pool
      * @param allocationPipeline The address of the allocation pipeline, or zero for no pipeline.
      * @param parent The address of the parent flow contract (optional)
-     * @param connectPoolAdmin The address of the admin that can connect the pool
      * @param flowParams The parameters for the flow contract
      * @param metadata The metadata for the flow contract
      * @param strategies The allocation strategies to use.
@@ -315,7 +309,6 @@ interface ICustomFlow is IFlow {
         address managerRewardPool,
         address allocationPipeline,
         address parent,
-        address connectPoolAdmin,
         FlowParams memory flowParams,
         FlowTypes.RecipientMetadata memory metadata,
         IAllocationStrategy[] calldata strategies
