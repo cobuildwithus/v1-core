@@ -153,7 +153,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         emit BudgetStackRemovalQueued(itemID);
     }
 
-    function retryRemovedBudgetResolution(bytes32 itemID) external override returns (bool terminallyResolved) {
+    function retryRemovedBudgetResolution(bytes32 itemID) external override nonReentrant returns (bool terminallyResolved) {
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address budgetTreasury = deployment.budgetTreasury;
         if (budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
