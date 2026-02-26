@@ -12,8 +12,8 @@ importers:
         specifier: ^0.0.2
         version: 0.0.2
       '@cobuild/review-gpt':
-        specifier: ^0.2.3
-        version: 0.2.3
+        specifier: ^0.2.6
+        version: 0.2.6
       '@openzeppelin/contracts':
         specifier: 5.4.0
         version: 5.4.0
@@ -45,8 +45,8 @@ packages:
     resolution: {integrity: sha512-BZDwUUES7kIEwqsXUMn7B/yc7Xdvn+Sun+Huk6GtXSxgKZwhguL2YSqdOksFcsOqA/YZFKHqBbRh2hi3M+f3Ag==}
     engines: {node: '>=20.0.0'}
 
-  '@cobuild/review-gpt@0.2.3':
-    resolution: {integrity: sha512-eCJvZ3hAQ7toqE+GupxAqO0q7NHchXYk86Q/Fw/LsS5HWhu/A+oeTc1mMa8uD3r6tyJgVSFmgZau7OBaB6GBnw==}
+  '@cobuild/review-gpt@0.2.6':
+    resolution: {integrity: sha512-esvAPY7J9/I6rVEtt7Vj5hYbCI219WMdn5R2pzXYmTp2aLHivHbmTYXSw1RkDLRbemKJVaj0LF72NkGqvpSyEw==}
     hasBin: true
 
   '@openzeppelin/contracts-upgradeable@5.4.0':
@@ -94,7 +94,7 @@ snapshots:
 
   '@bananapus/permission-ids-v5@0.0.2': {}
 
-  '@cobuild/review-gpt@0.2.3': {}
+  '@cobuild/review-gpt@0.2.6': {}
 
   '@openzeppelin/contracts-upgradeable@5.4.0(@openzeppelin/contracts@5.4.0)':
     dependencies:
