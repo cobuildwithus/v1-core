@@ -15,6 +15,7 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 contract BudgetTCRFactory {
     uint256 internal constant BPS_DENOMINATOR = 10_000;
     uint256 internal constant HEALTHY_ARBITRATION_COST_MULTIPLIER = 6; // Healthy lower bound: 6x arb cost.
+    bytes32 internal constant BUDGET_TCR_SALT_DOMAIN = keccak256("BudgetTCRFactory.BudgetTCR");
 
     error ADDRESS_ZERO();
     error INVALID_ESCROW_BOND_BPS(uint256 escrowBondBps);
@@ -102,7 +103,14 @@ contract BudgetTCRFactory {
         address stakeVault = IGoalTreasury(address(deploymentConfig.goalTreasury)).stakeVault();
         if (stakeVault == address(0)) revert ADDRESS_ZERO();
 
-        address budgetTCR = Clones.clone(budgetTCRImplementation);
+        bytes32 budgetTCRSalt = deriveBudgetTCRSalt(
+            msg.sender,
+            address(deploymentConfig.goalFlow),
+            address(deploymentConfig.goalTreasury),
+            deploymentConfig.goalRevnetId,
+            token
+        );
+        address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
         address itemValidator = Clones.clone(itemValidatorImplementation);
@@ -158,6 +166,27 @@ contract BudgetTCRFactory {
         );
 
         deployed = DeployedBudgetTCRStack({ budgetTCR: budgetTCR, arbitrator: arbitrator, token: token });
+    }
+
+    function deriveBudgetTCRSalt(
+        address sender,
+        address goalFlow,
+        address goalTreasury,
+        uint256 goalRevnetId,
+        address votingToken
+    ) public pure returns (bytes32 salt) {
+        salt = keccak256(abi.encode(BUDGET_TCR_SALT_DOMAIN, sender, goalFlow, goalTreasury, goalRevnetId, votingToken));
+    }
+
+    function predictBudgetTCRAddress(
+        address sender,
+        address goalFlow,
+        address goalTreasury,
+        uint256 goalRevnetId,
+        address votingToken
+    ) external view returns (address predicted) {
+        bytes32 budgetTCRSalt = deriveBudgetTCRSalt(sender, goalFlow, goalTreasury, goalRevnetId, votingToken);
+        predicted = Clones.predictDeterministicAddress(budgetTCRImplementation, budgetTCRSalt, address(this));
     }
 
     function _buildRegistryConfig(
