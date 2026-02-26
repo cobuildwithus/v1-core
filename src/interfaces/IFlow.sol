@@ -10,7 +10,7 @@ import { IAllocationStrategy } from "./IAllocationStrategy.sol";
  * @dev This interface defines the events for the Flow contract.
  */
 interface IFlowEvents {
-    /// @notice Emitted when an allocation commitment is updated for a strategy/key
+    /// @notice Emitted with the latest committed allocation hash and weight after each successful apply/sync.
     event AllocationCommitted(address indexed strategy, uint256 indexed allocationKey, bytes32 commit, uint256 weight);
 
     /// @notice Emitted when an allocation commit hash changes and a new packed snapshot is persisted.
