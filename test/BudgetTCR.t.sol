@@ -679,7 +679,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Failed));
     }
 
-    function test_finalizeRemovedBudget_forceZerosFlowRate_whenBudgetWasActive() public {
+    function test_finalizeRemovedBudget_forceZerosFlowRate_whenBudgetWasActive_butOutflowFailsClosedWithoutHost() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
@@ -689,7 +689,7 @@ contract BudgetTCRTest is TestUtils {
         superToken.mint(childFlow, 1_000e18);
         IBudgetTreasury(budgetTreasury).sync();
 
-        assertGt(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
+        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
 
         _queueRemovalRequest(itemID);
@@ -1100,7 +1100,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(succeeded, 0);
     }
 
-    function test_syncBudgetTreasuries_permissionless_activatesFundedBudget() public {
+    function test_syncBudgetTreasuries_permissionless_activatesFundedBudget_butOutflowFailsClosedWithoutHost() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
@@ -1118,7 +1118,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
-        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 500);
+        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
     function test_syncBudgetTreasuries_permissionless_expiresUnfundedBudgetAfterFundingDeadline() public {

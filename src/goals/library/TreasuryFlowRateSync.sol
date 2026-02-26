@@ -134,7 +134,7 @@ library TreasuryFlowRateSync {
 
     function _maxBufferConstrainedRate(IFlow flow) private view returns (int96 maxBufferRate) {
         ISuperToken token = flow.superToken();
-        if (address(token) == address(0)) return type(int96).max;
+        if (address(token) == address(0)) return 0;
 
         uint256 available = token.balanceOf(address(flow));
         if (available == 0) return 0;
@@ -143,17 +143,17 @@ library TreasuryFlowRateSync {
         try token.getHost() returns (address host_) {
             hostAddress = host_;
         } catch {
-            return type(int96).max;
+            return 0;
         }
-        if (hostAddress == address(0)) return type(int96).max;
+        if (hostAddress == address(0)) return 0;
 
         ISuperAgreement cfaAgreement;
         try ISuperfluid(hostAddress).getAgreementClass(CFA_V1_TYPE) returns (ISuperAgreement agreement_) {
             cfaAgreement = agreement_;
         } catch {
-            return type(int96).max;
+            return 0;
         }
-        if (address(cfaAgreement) == address(0)) return type(int96).max;
+        if (address(cfaAgreement) == address(0)) return 0;
 
         try IConstantFlowAgreementV1(address(cfaAgreement)).getMaximumFlowRateFromDeposit(token, available) returns (
             int96 maxRate
@@ -161,7 +161,7 @@ library TreasuryFlowRateSync {
             if (maxRate < 0) return 0;
             return maxRate;
         } catch {
-            return type(int96).max;
+            return 0;
         }
     }
 }
