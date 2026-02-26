@@ -9,8 +9,11 @@ import { BudgetStakeLedgerMath } from "./library/BudgetStakeLedgerMath.sol";
 import { FlowUnitMath } from "../library/FlowUnitMath.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { SortedRecipientMerge } from "../library/SortedRecipientMerge.sol";
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 contract BudgetStakeLedger is IBudgetStakeLedger {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     struct UserBudgetCheckpoint {
         uint256 allocatedStake;
         uint256 unmaturedStake;
@@ -61,7 +64,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     mapping(address => uint256) private _preparedSuccessfulPointsPlusOne;
     mapping(address => uint256) private _preparedSuccessfulPointsCursor;
 
-    address[] private _trackedBudgets;
+    EnumerableSet.AddressSet private _trackedBudgets;
 
     constructor(address goalTreasury_) {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
@@ -161,7 +164,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
         _budgetByRecipientId[recipientId] = budget;
         info.isTracked = true;
-        _trackedBudgets.push(budget);
+        _trackedBudgets.add(budget);
         info.scoringEndsAt = scoringEndsAt;
         info.maturationPeriodSeconds = maturationPeriodSeconds;
 
@@ -178,6 +181,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         if (info.removedAt == 0) {
             info.removedAt = uint64(block.timestamp);
         }
+        _trackedBudgets.remove(budget);
         emit BudgetRemoved(recipientId, budget);
     }
 
@@ -214,13 +218,13 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function trackedBudgetCount() external view override returns (uint256) {
-        return _trackedBudgets.length;
+        return _trackedBudgets.length();
     }
 
     function allTrackedBudgetsResolved() external view override returns (bool) {
-        uint256 trackedCount = _trackedBudgets.length;
+        uint256 trackedCount = _trackedBudgets.length();
         for (uint256 i = 0; i < trackedCount; ) {
-            if (_effectiveBudgetResolvedOrRemovedAt(_trackedBudgets[i]) == 0) return false;
+            if (_effectiveBudgetResolvedOrRemovedAt(_trackedBudgets.at(i)) == 0) return false;
             unchecked {
                 ++i;
             }
@@ -229,7 +233,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function trackedBudgetAt(uint256 index) external view override returns (address) {
-        return _trackedBudgets[index];
+        return _trackedBudgets.at(index);
     }
 
     function budgetPoints(address budget) external view override returns (uint256) {
@@ -246,10 +250,10 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         (bool prepared, uint256 preparedPoints, ) = preparedUserSuccessfulPoints(account);
         if (prepared) return preparedPoints;
 
-        uint256 trackedCount = _trackedBudgets.length;
+        uint256 trackedCount = _trackedBudgets.length();
 
         for (uint256 i = 0; i < trackedCount; ) {
-            address budget = _trackedBudgets[i];
+            address budget = _trackedBudgets.at(i);
             if (_budgetInfo[budget].wasSuccessfulAtFinalization) {
                 UserBudgetCheckpoint storage checkpoint = _userBudgetCheckpoints[account][budget];
                 uint64 cutoff = _effectiveUserCutoff(budget);
@@ -271,7 +275,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
         if (maxBudgets == 0) revert INVALID_STEP_SIZE();
 
-        uint256 trackedCount = _trackedBudgets.length;
+        uint256 trackedCount = _trackedBudgets.length();
         uint256 cursor = _clampCursorToTrackedCount(_preparedSuccessfulPointsCursor[account], trackedCount);
         uint256 cachedPointsPlusOne = _preparedSuccessfulPointsPlusOne[account];
         points = _decodeCachedSuccessfulPoints(cachedPointsPlusOne);
@@ -286,7 +290,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint256 endExclusive = _boundedEndExclusive(cursor, maxBudgets, trackedCount);
 
         for (uint256 i = cursor; i < endExclusive; ) {
-            address budget = _trackedBudgets[i];
+            address budget = _trackedBudgets.at(i);
             if (_budgetInfo[budget].wasSuccessfulAtFinalization) {
                 UserBudgetCheckpoint storage checkpoint = _userBudgetCheckpoints[account][budget];
                 uint64 cutoff = _effectiveUserCutoff(budget);
@@ -310,7 +314,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             return (true, 0, 0);
         }
 
-        uint256 trackedCount = _trackedBudgets.length;
+        uint256 trackedCount = _trackedBudgets.length();
         uint256 cursor = _clampCursorToTrackedCount(_preparedSuccessfulPointsCursor[account], trackedCount);
         points = _decodeCachedSuccessfulPoints(_preparedSuccessfulPointsPlusOne[account]);
         nextCursor = cursor;
@@ -369,7 +373,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint256 start,
         uint256 count
     ) external view override returns (TrackedBudgetSummary[] memory summaries) {
-        uint256 total = _trackedBudgets.length;
+        uint256 total = _trackedBudgets.length();
         if (start >= total || count == 0) return new TrackedBudgetSummary[](0);
 
         uint256 endExclusive = _boundedEndExclusive(start, count, total);
@@ -378,7 +382,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         summaries = new TrackedBudgetSummary[](length);
 
         for (uint256 i = 0; i < length; ) {
-            address budget = _trackedBudgets[start + i];
+            address budget = _trackedBudgets.at(start + i);
             BudgetInfo storage info = _budgetInfo[budget];
             summaries[i] = TrackedBudgetSummary({
                 budget: budget,
@@ -393,7 +397,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function _advanceSuccessFinalization(uint256 maxBudgets) internal returns (bool done, uint256 processed) {
-        uint256 trackedCount = _trackedBudgets.length;
+        uint256 trackedCount = _trackedBudgets.length();
         uint256 cursor = finalizeCursor;
         if (cursor >= trackedCount) {
             _completeFinalization(_finalizingPointsSnapshot);
@@ -407,7 +411,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint256 nextCursor = cursor;
 
         for (; nextCursor < endExclusive; ) {
-            address budget = _trackedBudgets[nextCursor];
+            address budget = _trackedBudgets.at(nextCursor);
             BudgetInfo storage info = _budgetInfo[budget];
             uint64 resolvedAt = IBudgetTreasury(budget).resolvedAt();
             if (info.removedAt == 0 && resolvedAt == 0) break;
