@@ -115,7 +115,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     // slither-disable-next-line reentrancy-no-eth
     function finalizeRemovedBudget(bytes32 itemID) external override nonReentrant returns (bool terminallyResolved) {
         if (!_pendingRemovalFinalizations[itemID]) revert REMOVAL_NOT_PENDING();
-        if (items[itemID].status == Status.Registered) revert ITEM_STILL_REGISTERED();
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address childFlow = deployment.childFlow;

@@ -85,14 +85,6 @@ contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
         budgetTcr.addItem(abi.encode(listing));
     }
 
-    function test_finalizeRemovedBudget_reverts_when_pending_and_status_registered() public {
-        bytes32 itemID = _registerDefaultListing();
-        stdstore.target(address(budgetTcr)).sig("isRemovalPending(bytes32)").with_key(itemID).checked_write(true);
-
-        vm.expectRevert(IBudgetTCR.ITEM_STILL_REGISTERED.selector);
-        budgetTcr.finalizeRemovedBudget(itemID);
-    }
-
     function test_finalizeRemovedBudget_returns_true_when_pending_and_status_is_registration_requested() public {
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
         _approveAddCost(requester);
