@@ -553,6 +553,42 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
     }
 
+    function test_syncAllocation_withChildSync_doesNotAttemptBudgetTreasurySync_forChangedBudget() public {
+        uint256 initialWeight = 12e24;
+        uint256 reducedWeight = 3e24;
+
+        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
+        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
+        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
+
+        _setParentWeight(initialWeight);
+        _allocateWithPrevStateForStrategy(
+            allocator,
+            parentAllocationData,
+            address(strategy),
+            address(flow),
+            parentRecipientIds,
+            parentBps
+        );
+        _allocateWithPrevStateForStrategy(
+            allocator,
+            _emptyAllocationData(),
+            address(budgetStrategy),
+            address(childFlow),
+            childRecipientIds,
+            childBps
+        );
+
+        uint256 syncCallsBefore = budgetTreasury.syncCalls();
+
+        _setParentWeight(reducedWeight);
+        vm.prank(other);
+        flow.syncAllocation(address(strategy), parentKey);
+
+        assertEq(budgetTreasury.syncCalls(), syncCallsBefore);
+        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), _units(reducedWeight, 1_000_000));
+    }
+
     function test_syncAllocation_withChildSync_recordsFailedAttemptWhenChildSyncCallFails() public {
         uint256 initialWeight = 12e24;
         uint256 reducedWeight = 3e24;
@@ -984,6 +1020,41 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         vm.prank(other);
         flow.clearStaleAllocation(address(strategy), parentKey);
 
+        assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), uint128(0));
+    }
+
+    function test_clearStaleAllocation_withChildSync_doesNotAttemptBudgetTreasurySync_forChangedBudget() public {
+        uint256 initialWeight = 12e24;
+
+        bytes[][] memory parentAllocationData = _defaultAllocationDataForKey(parentKey);
+        (bytes32[] memory parentRecipientIds, uint32[] memory parentBps) = _singleParentAllocation();
+        (bytes32[] memory childRecipientIds, uint32[] memory childBps) = _singleChildAllocation();
+
+        _setParentWeight(initialWeight);
+        _allocateWithPrevStateForStrategy(
+            allocator,
+            parentAllocationData,
+            address(strategy),
+            address(flow),
+            parentRecipientIds,
+            parentBps
+        );
+        _allocateWithPrevStateForStrategy(
+            allocator,
+            _emptyAllocationData(),
+            address(budgetStrategy),
+            address(childFlow),
+            childRecipientIds,
+            childBps
+        );
+
+        uint256 syncCallsBefore = budgetTreasury.syncCalls();
+
+        _setParentWeight(0);
+        vm.prank(other);
+        flow.clearStaleAllocation(address(strategy), parentKey);
+
+        assertEq(budgetTreasury.syncCalls(), syncCallsBefore);
         assertEq(childFlow.distributionPool().getUnits(CHILD_RECIPIENT), uint128(0));
     }
 

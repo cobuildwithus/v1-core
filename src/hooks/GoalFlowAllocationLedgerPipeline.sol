@@ -5,7 +5,6 @@ import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccou
 import { IAllocationPipeline } from "../interfaces/IAllocationPipeline.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
-import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
@@ -15,8 +14,6 @@ import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
  * @dev Bind one pipeline instance to one ledger via constructor (ledger may be zero to disable all behavior).
  */
 contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
-    uint256 private constant _BUDGET_TREASURY_SYNC_REVERT_DATA_MAX_BYTES = 160;
-
     address public immutable allocationLedger;
 
     mapping(address flow => GoalFlowLedgerMode.ValidationCache cache) private _validationCacheByFlow;
@@ -40,23 +37,6 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address parentStrategy,
         uint256 parentAllocationKey,
         bytes32 reason
-    );
-    event BudgetTreasurySyncAttempted(
-        address indexed budgetTreasury,
-        address parentFlow,
-        address parentStrategy,
-        uint256 parentAllocationKey,
-        bool success
-    );
-    event BudgetTreasurySyncFailed(
-        address indexed budgetTreasury,
-        address parentFlow,
-        address parentStrategy,
-        uint256 parentAllocationKey,
-        bytes4 revertSelector,
-        bytes32 revertDataHash,
-        uint256 revertDataLength,
-        bytes revertDataTruncated
     );
 
     constructor(address allocationLedger_) {
@@ -104,7 +84,6 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         );
         if (changedBudgetTreasuries.length == 0) return;
 
-        _syncBudgetTreasuriesBestEffort(changedBudgetTreasuries, flow, strategy, allocationKey);
         _executeAndEmitChildSync(account, changedBudgetTreasuries, flow, strategy, allocationKey);
     }
 
@@ -288,79 +267,5 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                 ++i;
             }
         }
-    }
-
-    function _syncBudgetTreasuriesBestEffort(
-        address[] memory budgetTreasuries,
-        address parentFlow,
-        address parentStrategy,
-        uint256 parentAllocationKey
-    ) private {
-        uint256 count = budgetTreasuries.length;
-        uint256 gasAtStart = gasleft();
-        uint256 budgetSyncGasStipend = GoalFlowLedgerMode.budgetTreasurySyncGasStipend();
-        uint256 minGasReserve = GoalFlowLedgerMode.syncMinGasReserve(gasAtStart);
-        uint256 minGasForBudgetSyncAttempt = minGasReserve + budgetSyncGasStipend;
-        for (uint256 i = 0; i < count; ) {
-            address budgetTreasury = budgetTreasuries[i];
-            bool success;
-            if (budgetTreasury.code.length != 0 && gasleft() > minGasForBudgetSyncAttempt) {
-                try IBudgetTreasury(budgetTreasury).sync{ gas: budgetSyncGasStipend }() {
-                    success = true;
-                } catch {
-                    (
-                        bytes4 revertSelector,
-                        bytes32 revertDataHash,
-                        uint256 revertDataLength,
-                        bytes memory revertDataTruncated
-                    ) = _captureRevertDiagnostics(_BUDGET_TREASURY_SYNC_REVERT_DATA_MAX_BYTES);
-                    emit BudgetTreasurySyncFailed(
-                        budgetTreasury,
-                        parentFlow,
-                        parentStrategy,
-                        parentAllocationKey,
-                        revertSelector,
-                        revertDataHash,
-                        revertDataLength,
-                        revertDataTruncated
-                    );
-                }
-            }
-            emit BudgetTreasurySyncAttempted(budgetTreasury, parentFlow, parentStrategy, parentAllocationKey, success);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _revertSelector(bytes memory reason) private pure returns (bytes4 selector) {
-        if (reason.length >= 4) {
-            assembly ("memory-safe") {
-                selector := mload(add(reason, 0x20))
-            }
-        }
-    }
-
-    function _captureRevertDiagnostics(
-        uint256 maxLength
-    ) private pure returns (bytes4 selector, bytes32 dataHash, uint256 dataLength, bytes memory dataTruncated) {
-        uint256 copyLength;
-        assembly ("memory-safe") {
-            dataLength := returndatasize()
-            copyLength := dataLength
-            if gt(copyLength, maxLength) {
-                copyLength := maxLength
-            }
-
-            dataTruncated := mload(0x40)
-            mstore(dataTruncated, copyLength)
-            returndatacopy(add(dataTruncated, 0x20), 0, copyLength)
-
-            let roundedCopyLength := and(add(copyLength, 0x1f), not(0x1f))
-            mstore(0x40, add(add(dataTruncated, 0x20), roundedCopyLength))
-        }
-
-        selector = _revertSelector(dataTruncated);
-        dataHash = keccak256(dataTruncated);
     }
 }
