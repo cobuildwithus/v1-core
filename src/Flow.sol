@@ -201,7 +201,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         emit RecipientRemoved(recipientAddress, recipientId);
 
         FlowPools.removeFromPools(_cfgStorage(), recipientAddress);
-        _setFlowRate(targetOutflowRate());
+        _bestEffortRefreshOutflowFromCachedTarget(targetOutflowRate());
     }
 
     /**
@@ -211,7 +211,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     // slither-disable-next-line reentrancy-no-eth
     function bulkRemoveRecipients(bytes32[] calldata recipientIds) external onlyRecipientAdmin nonReentrant {
         FlowRecipients.bulkRemoveRecipients(_cfgStorage(), _recipientsStorage(), _childFlowsSet(), recipientIds);
-        _setFlowRate(targetOutflowRate());
+        _bestEffortRefreshOutflowFromCachedTarget(targetOutflowRate());
     }
 
     /**
@@ -317,6 +317,10 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         if (msg.sender != address(this)) revert ONLY_SELF_OUTFLOW_REFRESH();
         if (_ratesStorage().cachedFlowRate != expectedTargetOutflowRate) return;
         _setFlowRate(expectedTargetOutflowRate);
+    }
+
+    function _bestEffortRefreshOutflowFromCachedTarget(int96 expectedTargetOutflowRate) internal {
+        try this._refreshOutflowFromCachedTarget(expectedTargetOutflowRate) {} catch {}
     }
 
     function _bestEffortRefreshOutflowAfterUnitsCrossing(Config storage cfg, uint128 totalUnitsBefore) internal {

@@ -11,6 +11,7 @@ import {FlowRecipients} from "src/library/FlowRecipients.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract FlowRecipientsTest is FlowTestBase {
     bytes32 internal constant RECIPIENT_CREATED_SIG =
@@ -146,6 +147,63 @@ contract FlowRecipientsTest is FlowTestBase {
         flow.removeRecipient(bytes32(uint256(2)));
     }
 
+    function test_removeRecipient_tailOutflowRefreshRevert_isBestEffort() public {
+        bytes32 recipientId = bytes32(uint256(501));
+        address recipientAddr = address(0x501);
+
+        vm.prank(owner);
+        flow.setTargetOutflowRate(1_000);
+        _addRecipient(recipientId, recipientAddr);
+
+        _mockDistributionRefreshFailure(900, bytes("remove-refresh-failed"));
+
+        vm.prank(manager);
+        flow.removeRecipient(recipientId);
+
+        FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
+        assertEq(r.isRemoved, true);
+        assertEq(flow.recipientExists(recipientAddr), false);
+        assertEq(flow.activeRecipientCount(), 0);
+        assertEq(flow.targetOutflowRate(), 1_000);
+
+        vm.prank(owner);
+        vm.expectRevert(bytes("remove-refresh-failed"));
+        flow.refreshTargetOutflowRate();
+    }
+
+    function test_removeRecipient_tailOutflowRefreshRevert_isBestEffort_withNonZeroUnits() public {
+        bytes32 recipientId = bytes32(uint256(502));
+        address recipientAddr = address(0x502);
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = recipientId;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        vm.prank(owner);
+        flow.setTargetOutflowRate(1_000);
+        _addRecipient(recipientId, recipientAddr);
+
+        vm.prank(allocator);
+        flow.allocate(recipientIds, scaled);
+        assertGt(flow.distributionPool().getUnits(recipientAddr), 0);
+
+        _mockDistributionRefreshFailure(900, bytes("remove-refresh-failed"));
+
+        vm.prank(manager);
+        flow.removeRecipient(recipientId);
+
+        FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
+        assertEq(r.isRemoved, true);
+        assertEq(flow.recipientExists(recipientAddr), false);
+        assertEq(flow.activeRecipientCount(), 0);
+        assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
+        assertEq(flow.targetOutflowRate(), 1_000);
+
+        vm.prank(owner);
+        vm.expectRevert(bytes("remove-refresh-failed"));
+        flow.refreshTargetOutflowRate();
+    }
+
     function test_bulkRemoveRecipients_happyAndReverts() public {
         (bytes32[] memory ids, address[] memory recipients) = _addNRecipients(2);
 
@@ -162,6 +220,57 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         vm.expectRevert(IFlow.TOO_FEW_RECIPIENTS.selector);
         flow.bulkRemoveRecipients(emptyIds);
+    }
+
+    function test_bulkRemoveRecipients_tailOutflowRefreshRevert_isBestEffort() public {
+        (bytes32[] memory ids, address[] memory recipients) = _addNRecipients(2);
+
+        vm.prank(owner);
+        flow.setTargetOutflowRate(1_000);
+        _mockDistributionRefreshFailure(900, bytes("bulk-remove-refresh-failed"));
+
+        vm.prank(manager);
+        flow.bulkRemoveRecipients(ids);
+
+        assertEq(flow.activeRecipientCount(), 0);
+        assertEq(flow.recipientExists(recipients[0]), false);
+        assertEq(flow.recipientExists(recipients[1]), false);
+        assertEq(flow.targetOutflowRate(), 1_000);
+
+        vm.prank(owner);
+        vm.expectRevert(bytes("bulk-remove-refresh-failed"));
+        flow.refreshTargetOutflowRate();
+    }
+
+    function test_bulkRemoveRecipients_tailOutflowRefreshRevert_isBestEffort_withNonZeroUnits() public {
+        (bytes32[] memory ids, address[] memory recipients) = _addNRecipients(2);
+        uint32[] memory scaled = new uint32[](2);
+        scaled[0] = 500_000;
+        scaled[1] = 500_000;
+
+        vm.prank(owner);
+        flow.setTargetOutflowRate(1_000);
+
+        vm.prank(allocator);
+        flow.allocate(ids, scaled);
+        assertGt(flow.distributionPool().getUnits(recipients[0]), 0);
+        assertGt(flow.distributionPool().getUnits(recipients[1]), 0);
+
+        _mockDistributionRefreshFailure(900, bytes("bulk-remove-refresh-failed"));
+
+        vm.prank(manager);
+        flow.bulkRemoveRecipients(ids);
+
+        assertEq(flow.activeRecipientCount(), 0);
+        assertEq(flow.recipientExists(recipients[0]), false);
+        assertEq(flow.recipientExists(recipients[1]), false);
+        assertEq(flow.distributionPool().getUnits(recipients[0]), 0);
+        assertEq(flow.distributionPool().getUnits(recipients[1]), 0);
+        assertEq(flow.targetOutflowRate(), 1_000);
+
+        vm.prank(owner);
+        vm.expectRevert(bytes("bulk-remove-refresh-failed"));
+        flow.refreshTargetOutflowRate();
     }
 
     function test_bulkRemoveRecipients_midBatchInvalidId_revertsAtomically() public {
@@ -698,5 +807,19 @@ contract FlowRecipientsTest is FlowTestBase {
     function test_getRecipientById_notFound() public {
         vm.expectRevert(IFlow.RECIPIENT_NOT_FOUND.selector);
         flow.getRecipientById(bytes32(uint256(12345)));
+    }
+
+    function _mockDistributionRefreshFailure(int96 distributionFlowRate, bytes memory reason) internal {
+        bytes memory distributeCallData = abi.encodeWithSelector(
+            sf.gda.distributeFlow.selector,
+            ISuperToken(address(superToken)),
+            address(flow),
+            flow.distributionPool(),
+            distributionFlowRate,
+            new bytes(0)
+        );
+        bytes memory hostCallData =
+            abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, distributeCallData, new bytes(0));
+        vm.mockCallRevert(address(sf.host), hostCallData, reason);
     }
 }
