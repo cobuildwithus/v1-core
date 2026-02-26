@@ -21,7 +21,7 @@ contract FlowRecipientsTest is FlowTestBase {
     bytes32 internal constant CHILD_FLOW_DEPLOYED_SIG =
         keccak256("ChildFlowDeployed(bytes32,address,address,address,address,address,address)");
     bytes32 internal constant FLOW_INITIALIZED_SIG =
-        keccak256("FlowInitialized(address,address,address,address,address,address,address,address,address,address,uint32,address)");
+        keccak256("FlowInitialized(address,address,address,address,address,address,address,address,address,uint32,address)");
 
     function _isChildFlow(address childAddr) internal view returns (bool) {
         address[] memory children = flow.getChildFlows();
@@ -43,7 +43,6 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(r.isRemoved, false);
         assertEq(uint8(r.recipientType), uint8(FlowTypes.RecipientType.ExternalAccount));
         assertEq(flow.recipientExists(recipientAddr), true);
-        assertEq(flow.activeRecipientCount(), 1);
         assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
     }
 
@@ -84,7 +83,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.expectRevert(FlowRecipients.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED.selector);
         flow.addRecipient(recipientId, managerRewardPool, recipientMetadata);
 
-        assertEq(flow.activeRecipientCount(), 0);
         assertFalse(flow.recipientExists(managerRewardPool));
         assertEq(flow.distributionPool().getUnits(managerRewardPool), 0);
     }
@@ -112,7 +110,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         _assertCallFails(address(flow), legacyCallData);
 
-        assertEq(flow.activeRecipientCount(), 0);
         assertFalse(flow.recipientExists(addrs[0]));
         assertFalse(flow.recipientExists(addrs[1]));
         assertEq(flow.distributionPool().getUnits(addrs[0]), 0);
@@ -122,6 +119,21 @@ contract FlowRecipientsTest is FlowTestBase {
         flow.getRecipientById(ids[0]);
         vm.expectRevert(IFlow.RECIPIENT_NOT_FOUND.selector);
         flow.getRecipientById(ids[1]);
+    }
+
+    function test_removedActiveRecipientCount_selector_notExposed_andCannotMutateState() public {
+        bytes32 recipientId = bytes32(uint256(43));
+        address recipientAddr = address(0x143);
+        _addRecipient(recipientId, recipientAddr);
+
+        bytes memory legacyCallData = abi.encodeWithSignature("activeRecipientCount()");
+        _assertCallFails(address(flow), legacyCallData);
+
+        FlowTypes.FlowRecipient memory recipient = flow.getRecipientById(recipientId);
+        assertEq(recipient.recipient, recipientAddr);
+        assertEq(recipient.isRemoved, false);
+        assertEq(flow.recipientExists(recipientAddr), true);
+        assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
     }
 
     function test_removeRecipient_eoa_happyAndReverts() public {
@@ -135,7 +147,6 @@ contract FlowRecipientsTest is FlowTestBase {
         FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
         assertEq(r.isRemoved, true);
         assertEq(flow.recipientExists(recipientAddr), false);
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
 
         vm.prank(manager);
@@ -163,7 +174,6 @@ contract FlowRecipientsTest is FlowTestBase {
         FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
         assertEq(r.isRemoved, true);
         assertEq(flow.recipientExists(recipientAddr), false);
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.targetOutflowRate(), 1_000);
 
         vm.prank(owner);
@@ -195,7 +205,6 @@ contract FlowRecipientsTest is FlowTestBase {
         FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
         assertEq(r.isRemoved, true);
         assertEq(flow.recipientExists(recipientAddr), false);
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
         assertEq(flow.targetOutflowRate(), 1_000);
 
@@ -210,7 +219,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         flow.bulkRemoveRecipients(ids);
 
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.recipientExists(recipients[0]), false);
         assertEq(flow.recipientExists(recipients[1]), false);
         assertEq(flow.distributionPool().getUnits(recipients[0]), 0);
@@ -232,7 +240,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         flow.bulkRemoveRecipients(ids);
 
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.recipientExists(recipients[0]), false);
         assertEq(flow.recipientExists(recipients[1]), false);
         assertEq(flow.targetOutflowRate(), 1_000);
@@ -261,7 +268,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         flow.bulkRemoveRecipients(ids);
 
-        assertEq(flow.activeRecipientCount(), 0);
         assertEq(flow.recipientExists(recipients[0]), false);
         assertEq(flow.recipientExists(recipients[1]), false);
         assertEq(flow.distributionPool().getUnits(recipients[0]), 0);
@@ -283,7 +289,6 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.expectRevert(IFlow.INVALID_RECIPIENT_ID.selector);
         flow.bulkRemoveRecipients(removeIds);
 
-        assertEq(flow.activeRecipientCount(), 2);
         assertTrue(flow.recipientExists(recipients[0]));
         assertTrue(flow.recipientExists(recipients[1]));
         assertEq(flow.distributionPool().getUnits(recipients[0]), 0);
@@ -337,7 +342,6 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(child.recipientAdmin(), manager);
         assertEq(address(child.superToken()), address(superToken));
         assertEq(child.flowImplementation(), address(flowImplementation));
-        assertEq(child.connectPoolAdmin(), connectPoolAdmin);
         assertEq(child.managerRewardPool(), managerRewardPool);
         assertEq(child.managerRewardPoolFlowRatePpm(), flow.managerRewardPoolFlowRatePpm());
         assertEq(child.allocationPipeline(), address(0));
@@ -596,7 +600,6 @@ contract FlowRecipientsTest is FlowTestBase {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
