@@ -1,6 +1,6 @@
 # BudgetTCR Removal Finalization vs Re-Registration
 
-Status: in_progress
+Status: completed
 Created: 2026-02-26
 Updated: 2026-02-26
 
@@ -35,6 +35,7 @@ Ensure accepted budget removals remain permissionlessly finalizable even if anyo
 
 - 2026-02-26: Confirmed current head still gates finalize on `Status.Absent` and allows Absent->RegistrationRequested transition via `addItem`.
 - 2026-02-26: User approved implementation of safe fix set.
+- 2026-02-26: Implemented `addItem` pending-removal guard + decoupled finalize status gate; completion workflow passes run and `pnpm -s verify:required` passed.
 
 ## Open risks
 
