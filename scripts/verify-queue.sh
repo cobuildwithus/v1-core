@@ -12,7 +12,7 @@ Usage:
 
 Commands:
   submit  Enqueue a verification request. Default mode is "required".
-          Mode "required" runs: pnpm -s build && pnpm -s test:lite:shared
+          Mode "required" runs: pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
           Mode "full" runs:     pnpm -s verify:full
   worker  Process queued requests in batches. Requests are grouped by workspace fingerprint.
           Multiple workers can run in parallel across different fingerprints.
@@ -660,7 +660,11 @@ run_worker() {
     else
       if env "${lane_env[@]}" pnpm -s build 2>&1 | tee -a "$log_file"; then
         if env "${lane_env[@]}" pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
-          run_exit=0
+          if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
+            run_exit=0
+          else
+            run_exit=$?
+          fi
         else
           run_exit=$?
         fi

@@ -53,6 +53,11 @@ jobs:
           pnpm -s build:sizes
         id: build
 
+      - name: Run Forge invariants (required lane)
+        run: |
+          pnpm -s test:invariant:shared
+        id: invariant
+
       - name: Run Forge coverage (lines + branches)
         run: |
           pnpm -s test:coverage:ci

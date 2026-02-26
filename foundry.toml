@@ -17,8 +17,8 @@ optimizer_runs = 200
 runs = 64
 
 [profile.ci.invariant]
-runs = 32
-depth = 64
+runs = 64
+depth = 128
 
 [profile.fast-local]
 via_ir = true
@@ -44,7 +44,7 @@ optimizer = false
 runs = 64
 
 [profile.coverage-ci.invariant]
-runs = 16
-depth = 64
+runs = 32
+depth = 128
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

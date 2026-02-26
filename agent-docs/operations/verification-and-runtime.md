@@ -1,6 +1,6 @@
 # Verification and Runtime
 
-Last verified: 2026-02-24
+Last verified: 2026-02-26
 
 ## Verification Commands
 
@@ -9,6 +9,7 @@ Last verified: 2026-02-24
 - Serialized full gate with shared logs: `pnpm -s verify:full`
 - Strict freshness full gate: `pnpm -s verify:full:strict`
 - Follow active full gate logs: `pnpm -s verify:full:tail`
+- Required gate composition: `pnpm -s build` + `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
 
 ## Temporary Slither Exception
 

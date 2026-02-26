@@ -1,6 +1,6 @@
 # Quality Score
 
-Snapshot date: 2026-02-24
+Snapshot date: 2026-02-26
 
 Scoring rubric:
 - `5`: strong guardrails + tests/docs + enforced CI checks
@@ -16,7 +16,7 @@ Scoring rubric:
 | TCR/arbitrator lifecycle safety | 4 | TCR and arbitrator modules have broad scenario coverage and invariants. | Keep arbitration timeout/economics docs aligned with parameter updates. |
 | Upgrade/storage safety posture | 3 | Upgradeable modules use dedicated storage contracts and upgrade patterns. | Add regular storage-layout diff checks to process docs. |
 | Access control and callback boundaries | 3 | Role modifiers and callback entrypoints are explicit in core modules. | Continue hardening and documenting callback trust assumptions. |
-| Test and CI coverage posture | 4 | Foundry build, coverage gate (`lines>=85`, `branches>=85`), size gate with explicit exemptions, and Slither workflow present. | Maintain branch+line coverage at or above the hard floor as tests evolve. |
+| Test and CI coverage posture | 4 | Foundry build, required invariant lane (`FOUNDRY_PROFILE=ci` with `profile.ci.invariant runs=64/depth=128`), coverage gate (`lines>=85`, `branches>=85`), strict size gate policy (no exemptions), and Slither workflow present. | Keep required invariant intensity and PR runtime balanced as suite size grows. |
 | Agent-doc enforceability | 4 | Drift + gardening scripts and workflow automation exist. | Keep references and ownership/cadence fields current. |
 
 ## Top Risk Register

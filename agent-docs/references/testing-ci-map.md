@@ -24,6 +24,7 @@
 - Observe active full-gate output: `pnpm -s verify:full:tail`.
 - Shared verification request queue (batched build/test receipts): `pnpm -s verify:queue:required`.
 - Shared verification request queue for full gate: `pnpm -s verify:queue:full`.
+- Required queue lane now includes an explicit invariant pass: `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`.
 - Shared verification queue status/worker tools: `pnpm -s verify:queue:status`, `pnpm -s verify:queue:worker`.
 - Queue defaults: `VERIFY_QUEUE_BATCH_WINDOW_SECONDS=5`, `VERIFY_QUEUE_MAX_BATCH=50`, `VERIFY_QUEUE_WORKER_LANES=4`.
 - Queue coalescing: duplicate pending requests for the same fingerprint are coalesced (`required` can reuse pending `required/full`; `full` reuses pending `full`).
@@ -58,6 +59,7 @@
 ## Workflow Coverage
 
 - Main CI: `.github/workflows/test.yml`
+- Main CI required lane includes a dedicated invariant step (`FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`) before coverage.
 - Static analysis: `.github/workflows/slither.yml`
 - Doc maintenance: `.github/workflows/doc-gardening.yml`
 - Foundry toolchain pin (test + slither workflows): `v1.6.0-rc1`.
