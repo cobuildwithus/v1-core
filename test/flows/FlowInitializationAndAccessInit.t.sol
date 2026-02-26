@@ -7,14 +7,14 @@ import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
-import {FlowInitialization} from "src/library/FlowInitialization.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase {
     bytes32 internal constant METADATA_SET_SIG = keccak256("MetadataSet((string,string,string,string,string))");
     bytes32 internal constant FLOW_INITIALIZED_SIG =
-        keccak256("FlowInitialized(address,address,address,address,address,address,address,address,address,address,uint32,address)");
+        keccak256("FlowInitialized(address,address,address,address,address,address,address,address,address,uint32,address)");
     bytes32 internal constant ALLOCATION_STRATEGY_REGISTERED_SIG =
         keccak256("AllocationStrategyRegistered(address,address,string)");
 
@@ -26,14 +26,16 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
         assertEq(flow.managerRewardPool(), managerRewardPool);
         assertEq(flow.flowImplementation(), address(flowImplementation));
         assertEq(flow.strategies().length, 1);
-        assertEq(flow.ppmScale(), 1_000_000);
-        assertEq(FlowInitialization.ppmScale, 1_000_000);
-        assertEq(flow.ppmScale(), FlowInitialization.ppmScale);
+        assertEq(FlowProtocolConstants.PPM_SCALE, 1_000_000);
         assertEq(flow.managerRewardPoolFlowRatePpm(), flowParams.managerRewardPoolFlowRatePpm);
-        assertEq(flow.connectPoolAdmin(), connectPoolAdmin);
         assertEq(address(flow.superToken()), address(superToken));
         assertTrue(address(flow.distributionPool()) != address(0));
         assertEq(flow.distributionPool().getUnits(address(flow)), 0);
+    }
+
+    function test_initialize_ppmScaleGetterSelectorNotExposed() public {
+        _assertCallFails(address(flow), abi.encodeWithSignature("ppmScale()"));
+        assertEq(flow.managerRewardPoolFlowRatePpm(), flowParams.managerRewardPoolFlowRatePpm);
     }
 
     function test_initialize_emitsFlowInitialized_withRoleAndStrategySurface() public {
@@ -47,7 +49,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -63,18 +64,16 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
         (
             address flowOperator,
             address sweeper,
-            address emittedConnectPoolAdmin,
             address emittedManagerRewardPool,
             address allocationPipeline,
             address parent,
             address distributionPool,
             uint32 managerRewardPoolFlowRatePpm,
             address strategyAddress
-        ) = abi.decode(initializedLog.data, (address, address, address, address, address, address, address, uint32, address));
+        ) = abi.decode(initializedLog.data, (address, address, address, address, address, address, uint32, address));
 
         assertEq(flowOperator, manager);
         assertEq(sweeper, manager);
-        assertEq(emittedConnectPoolAdmin, connectPoolAdmin);
         assertEq(emittedManagerRewardPool, managerRewardPool);
         assertEq(allocationPipeline, address(0));
         assertEq(parent, address(0));
@@ -96,7 +95,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -116,7 +114,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -129,7 +126,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -144,7 +140,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             bad,
             strategies
@@ -157,7 +152,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             address(0),
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -172,7 +166,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             bad,
             strategies
@@ -187,7 +180,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             bad,
             strategies
@@ -204,7 +196,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             badParams,
             flowMetadata,
             _oneStrategy()
@@ -219,7 +210,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             address(0),
             address(0),
-            connectPoolAdmin,
             badParams,
             flowMetadata,
             _oneStrategy()
@@ -233,7 +223,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             emptyStrategies
@@ -251,7 +240,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             dupStrategies
@@ -266,7 +254,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             zeroStrategies
@@ -285,7 +272,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             _oneStrategy()
@@ -302,7 +288,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             _oneStrategy()
@@ -320,7 +305,6 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             manager,
             address(0),
             address(0),
-            connectPoolAdmin,
             params,
             flowMetadata,
             strategies
