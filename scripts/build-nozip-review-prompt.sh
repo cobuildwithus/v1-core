@@ -36,12 +36,13 @@ list_profiles() {
 single-balanced-250
 comprehensive-a-goals-logic
 comprehensive-b-flow-tcr-logic
+comprehensive-ab-flow-tcr-goals-combined
 EOF
 }
 
 strip_solidity() {
   local abs_path="$1"
-  perl -0777 -pe 's!/\*.*?\*/!!gs; s!//.*$!!gm; s/^[[:space:]]+//mg; s/[[:space:]]+/ /g; s/[ \t]*\n[ \t]*/\n/g; s/\belse\s+if\b/else if/g; s/\s*([(),{}\[\];:])\s*/$1/g; s/\s*(==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|\|=|&=|\^=|&&|\|\||<<=|>>=|->|[-+*\/%<>&|\^!:?=])\s*/$1/g; s/\}\s*else/}else/g' "$abs_path" | sed '/^[[:space:]]*$/d'
+  perl -0777 -pe 's!/\*.*?\*/!!gs; s!//.*$!!gm; s!^[[:space:]]*import[[:space:]].*?;\s*\n!!mg; s/^[[:space:]]+//mg; s/[[:space:]]+/ /g; s/[ \t]*\n[ \t]*/\n/g; s/\belse\s+if\b/else if/g; s/\s*([(),{}\[\];:])\s*/$1/g; s/\s*(==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|\|=|&=|\^=|&&|\|\||<<=|>>=|->|[-+*\/%<>&|\^!:?=])\s*/$1/g; s/\}\s*else/}else/g' "$abs_path" | sed '/^[[:space:]]*$/d'
 }
 
 emit_profile_files() {
@@ -123,7 +124,18 @@ src/tcr/utils/CappedMath.sol
 src/tcr/utils/VotingTokenCompatibility.sol
 src/tcr/BudgetTCRFactory.sol
 src/tcr/BudgetTCRValidator.sol
-src/library/AllocationSnapshot.sol
+src/tcr/library/BudgetTCRStackDeploymentLib.sol
+src/tcr/strategies/EscrowSubmissionDepositStrategy.sol
+src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol
+src/allocation-strategies/AddressKeyAllocationStrategy.sol
+src/allocation-strategies/BudgetStakeStrategy.sol
+src/allocation-strategies/GoalStakeVaultStrategy.sol
+src/allocation-strategies/SingleAllocatorStrategy.sol
+src/library/CustomFlowAllocationEngine.sol
+src/library/CustomFlowLibrary.sol
+src/library/CustomFlowPreview.sol
+src/library/CustomFlowPreviousState.sol
+src/library/CustomFlowRuntimeHelpers.sol
 src/Flow.sol
 src/flows/CustomFlow.sol
 src/storage/FlowStorage.sol
@@ -176,11 +188,14 @@ src/tcr/strategies/EscrowSubmissionDepositStrategy.sol
 src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol
 src/goals/library/GoalStakeVaultJurorMath.sol
 src/goals/library/GoalStakeVaultRentMath.sol
+src/goals/RewardEscrow.sol
 src/goals/library/GoalStakeVaultSlashMath.sol
 src/goals/TreasuryBase.sol
+src/goals/BudgetTreasury.sol
 src/goals/library/GoalSpendPatterns.sol
 src/goals/library/RewardEscrowMath.sol
 src/goals/library/BudgetStakeLedgerMath.sol
+src/goals/library/TreasuryFlowRateSync.sol
 src/goals/library/TreasuryDonations.sol
 src/goals/library/TreasurySuccessAssertions.sol
 src/tcr/utils/ArbitrationCostExtraData.sol
@@ -189,6 +204,66 @@ src/tcr/utils/VotingTokenCompatibility.sol
 src/goals/UMATreasurySuccessResolver.sol
 src/hooks/GoalRevnetSplitHook.sol
 src/storage/FlowStorage.sol
+EOF
+      ;;
+    comprehensive-ab-flow-tcr-goals-combined)
+      cat <<'EOF'
+src/Flow.sol
+src/flows/CustomFlow.sol
+src/storage/FlowStorage.sol
+src/hooks/GoalFlowAllocationLedgerPipeline.sol
+src/library/AllocationCommitment.sol
+src/library/AllocationSnapshot.sol
+src/library/CustomFlowAllocationEngine.sol
+src/library/CustomFlowLibrary.sol
+src/library/CustomFlowPreview.sol
+src/library/CustomFlowPreviousState.sol
+src/library/CustomFlowRuntimeHelpers.sol
+src/library/FlowAllocations.sol
+src/library/FlowInitialization.sol
+src/library/FlowPools.sol
+src/library/FlowProtocolConstants.sol
+src/library/FlowRates.sol
+src/library/FlowRecipients.sol
+src/library/FlowSets.sol
+src/library/FlowUnitMath.sol
+src/library/GoalFlowLedgerMode.sol
+src/library/SortedRecipientMerge.sol
+src/allocation-strategies/AddressKeyAllocationStrategy.sol
+src/allocation-strategies/BudgetStakeStrategy.sol
+src/allocation-strategies/GoalStakeVaultStrategy.sol
+src/allocation-strategies/SingleAllocatorStrategy.sol
+src/tcr/BudgetTCR.sol
+src/tcr/BudgetTCRDeployer.sol
+src/tcr/BudgetTCRFactory.sol
+src/tcr/BudgetTCRValidator.sol
+src/tcr/GeneralizedTCR.sol
+src/tcr/library/BudgetTCRItems.sol
+src/tcr/library/BudgetTCRStackDeploymentLib.sol
+src/tcr/library/TCRRounds.sol
+src/tcr/storage/ArbitratorStorageV1.sol
+src/tcr/storage/BudgetTCRStorageV1.sol
+src/tcr/storage/GeneralizedTCRStorageV1.sol
+src/tcr/strategies/EscrowSubmissionDepositStrategy.sol
+src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol
+src/goals/RewardEscrow.sol
+src/goals/TreasuryBase.sol
+src/goals/BudgetTreasury.sol
+src/goals/library/GoalSpendPatterns.sol
+src/goals/library/TreasuryDonations.sol
+src/goals/library/TreasurySuccessAssertions.sol
+src/tcr/utils/ArbitrationCostExtraData.sol
+src/tcr/utils/CappedMath.sol
+src/tcr/utils/VotingTokenCompatibility.sol
+src/goals/UMATreasurySuccessResolver.sol
+src/goals/library/GoalStakeVaultJurorMath.sol
+src/goals/library/GoalStakeVaultRentMath.sol
+src/goals/library/GoalStakeVaultSlashMath.sol
+src/goals/library/BudgetStakeLedgerMath.sol
+src/goals/library/RewardEscrowMath.sol
+src/goals/GoalTreasury.sol
+src/goals/GoalStakeVault.sol
+src/hooks/GoalRevnetSplitHook.sol
 EOF
       ;;
     *)

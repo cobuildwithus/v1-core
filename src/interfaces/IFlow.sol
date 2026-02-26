@@ -11,7 +11,10 @@ import { IAllocationStrategy } from "./IAllocationStrategy.sol";
  */
 interface IFlowEvents {
     /// @notice Emitted when an allocation commitment is updated for a strategy/key
-    event AllocationCommitted(
+    event AllocationCommitted(address indexed strategy, uint256 indexed allocationKey, bytes32 commit, uint256 weight);
+
+    /// @notice Emitted when an allocation commit hash changes and a new packed snapshot is persisted.
+    event AllocationSnapshotUpdated(
         address indexed strategy,
         uint256 indexed allocationKey,
         bytes32 commit,

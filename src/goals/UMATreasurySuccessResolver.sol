@@ -78,7 +78,10 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         domainId = domainId_;
     }
 
-    function assertSuccess(address treasury, string calldata evidence) external nonReentrant returns (bytes32 assertionId) {
+    function assertSuccess(
+        address treasury,
+        string calldata evidence
+    ) external nonReentrant returns (bytes32 assertionId) {
         if (bytes(evidence).length > EVIDENCE_MAX_LENGTH) {
             revert EVIDENCE_TOO_LONG(EVIDENCE_MAX_LENGTH, bytes(evidence).length);
         }

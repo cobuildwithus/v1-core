@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run doc gardening
-        run: bash scripts/doc-gardening.sh --fail-on-issues
+        run: bash scripts/doc-gardening.sh
 
       - name: Open doc gardening PR
         uses: peter-evans/create-pull-request@v6

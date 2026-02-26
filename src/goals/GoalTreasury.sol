@@ -812,7 +812,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     }
 
     function _isHookSourceToken(address token) internal view returns (bool) {
-        return token == address(superToken) || token == superToken.getUnderlyingToken();
+        return token == superToken.getUnderlyingToken();
     }
 
     function _requireTreasuryTokenBalance(IERC20 token, uint256 amount) internal view {

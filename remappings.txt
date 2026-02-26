@@ -7,5 +7,6 @@ forge-std/=lib/forge-std/src/
 @bananapus/core-v5/=lib/nana-core-v5/src/
 @bananapus/permission-ids-v5/=node_modules/@bananapus/permission-ids-v5/
 @prb/math/=node_modules/@prb/math/
+@uniswap/permit2/=node_modules/@uniswap/permit2/
 @uniswap/v4-core/=node_modules/@uniswap/v4-core/
 @uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery/

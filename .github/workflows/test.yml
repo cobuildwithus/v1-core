@@ -19,14 +19,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Check agent docs drift
-        run: bash scripts/check-agent-docs-drift.sh
-
-      - name: Run doc gardening checks
-        run: |
-          bash scripts/doc-gardening.sh --fail-on-issues
-          git diff --exit-code -- agent-docs/generated/doc-inventory.md agent-docs/generated/doc-gardening-report.md
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

@@ -1,6 +1,11 @@
 Objective:
 Perform a focused security audit of the attached repository snapshot.
 
+Severity policy:
+- Report only security issues that are explicitly High or Critical severity.
+- Ignore Medium/Low/Informational issues unless they are immediate blockers for High/Critical findings.
+- Prioritize exploitable or protocol-breaking defects with clear attacker paths and realistic execution.
+
 Review priorities:
 - Authorization and privilege boundaries (`onlyOwner`, manager/controller roles, trust assumptions).
 - Funds flow correctness (token custody, transfer paths, settlement paths, accounting drift).

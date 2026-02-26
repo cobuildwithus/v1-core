@@ -10,25 +10,10 @@ import { TreasuryDonations } from "./library/TreasuryDonations.sol";
 abstract contract TreasuryBase is ReentrancyGuard, ITreasuryDonations {
     event FlowRateZeroingFailed(address indexed flow, bytes reason);
 
-    function donateSuperToken(uint256 amount) external virtual override nonReentrant returns (uint256 received) {
-        return _donateSuperToken(amount);
-    }
-
     function donateUnderlyingAndUpgrade(
         uint256 amount
     ) external virtual override nonReentrant returns (uint256 received) {
         return _donateUnderlyingAndUpgrade(amount);
-    }
-
-    function _donateSuperToken(uint256 amount) internal returns (uint256 received) {
-        if (!_canAcceptDonation()) _revertInvalidState();
-        if (amount == 0) return 0;
-
-        ISuperToken token = _superToken();
-        received = TreasuryDonations.donateSuperTokenToFlow(token, msg.sender, _flowAddress(), amount);
-        if (received == 0) return 0;
-
-        _afterDonation(msg.sender, address(token), amount, received);
     }
 
     function _donateUnderlyingAndUpgrade(uint256 amount) internal returns (uint256 received) {

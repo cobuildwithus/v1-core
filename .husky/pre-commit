@@ -1,5 +1,7 @@
 #!/bin/sh
 
+bash scripts/doc-gardening.sh
+
 pnpm -s prettier:write
 
 git add -A

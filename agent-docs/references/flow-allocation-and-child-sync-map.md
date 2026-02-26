@@ -18,11 +18,14 @@
     read-only helper for SDK/indexer/relayer planning.
 11. Parent allocation commits do not run legacy child flow-rate queue processing; target-rate updates are owned by
     treasury/flow-operator sync paths.
-12. `allocationPipeline` is configured during flow initialization and validated before the flow finishes init.
-13. Pipeline instances may be configured with `allocationLedger == 0` for explicit no-op mode.
-14. Goal-flow ledger mode (`GoalFlowAllocationLedgerPipeline` + `GoalFlowLedgerMode`) validates goal treasury wiring and
+12. Allocation logging is split deterministically:
+   - `AllocationCommitted` always emits latest `(commit, weight)` for every apply/sync.
+   - `AllocationSnapshotUpdated` emits packed snapshot bytes only when `commit` changes.
+13. `allocationPipeline` is configured during flow initialization and validated before the flow finishes init.
+14. Pipeline instances may be configured with `allocationLedger == 0` for explicit no-op mode.
+15. Goal-flow ledger mode (`GoalFlowAllocationLedgerPipeline` + `GoalFlowLedgerMode`) validates goal treasury wiring and
 strategy compatibility, including account-based empty-aux probing via `allocationKey(account, "")`.
-15. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
+16. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
 `GoalFlowLedgerMode` as the validation capability surface.
 
 ## Child Flow Sync Path

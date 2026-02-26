@@ -97,7 +97,7 @@ library FlowAllocations {
             allocationScale
         );
         bytes32 newCommit = AllocationCommitment.hashMemory(newRecipientIds, newAllocationScaled);
-        bytes memory packedSnapshot = alloc.allocSnapshotPacked[strategy][allocationKey];
+        bytes memory packedSnapshot = new bytes(0);
         if (newCommit != oldCommit) {
             packedSnapshot = AllocationSnapshot.encodeMemory(recipients, newRecipientIds, newAllocationScaled);
             alloc.allocSnapshotPacked[strategy][allocationKey] = packedSnapshot;
@@ -115,14 +115,17 @@ library FlowAllocations {
             newPairs,
             newCommit
         );
-        emit IFlowEvents.AllocationCommitted(
-            strategy,
-            allocationKey,
-            newCommit,
-            newWeight,
-            SNAPSHOT_VERSION_V1,
-            packedSnapshot
-        );
+        emit IFlowEvents.AllocationCommitted(strategy, allocationKey, newCommit, newWeight);
+        if (newCommit != oldCommit) {
+            emit IFlowEvents.AllocationSnapshotUpdated(
+                strategy,
+                allocationKey,
+                newCommit,
+                newWeight,
+                SNAPSHOT_VERSION_V1,
+                packedSnapshot
+            );
+        }
     }
 
     // ============ Internal helpers ============

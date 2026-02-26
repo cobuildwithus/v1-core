@@ -10,8 +10,9 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         keccak256("MemberUnitsUpdated(address,address,uint128,uint128)");
     bytes32 internal constant REMOVED_ALLOCATION_SET_SIG =
         keccak256("AllocationSet(bytes32,address,uint256,uint256,uint256,uint256)");
-    bytes32 internal constant ALLOCATION_COMMITTED_SIG =
-        keccak256("AllocationCommitted(address,uint256,bytes32,uint256,uint8,bytes)");
+    bytes32 internal constant ALLOCATION_COMMITTED_SIG = keccak256("AllocationCommitted(address,uint256,bytes32,uint256)");
+    bytes32 internal constant ALLOCATION_SNAPSHOT_UPDATED_SIG =
+        keccak256("AllocationSnapshotUpdated(address,uint256,bytes32,uint256,uint8,bytes)");
     uint8 internal constant SNAPSHOT_VERSION_V1 = 1;
 
     function test_allocate_overflowReverts() public {
@@ -52,9 +53,10 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 1);
         assertEq(_countFlowEvents(logs, REMOVED_ALLOCATION_SET_SIG), 0);
 
-        bytes memory packedSnapshot = _getCommittedPackedSnapshot(logs);
+        bytes memory packedSnapshot = _getSnapshotUpdatedPackedSnapshot(logs);
         assertEq(packedSnapshot.length, 18);
         assertEq(_packedSnapshotCount(packedSnapshot), 2);
     }
@@ -83,9 +85,7 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         assertEq(_countPoolMemberUnitsUpdated(logs), 0);
         assertEq(_countFlowEvents(logs, REMOVED_ALLOCATION_SET_SIG), 0);
         assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
-        bytes memory packedSnapshot = _getCommittedPackedSnapshot(logs);
-        assertEq(packedSnapshot.length, 10);
-        assertEq(_packedSnapshotCount(packedSnapshot), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
     }
 
     function test_allocate_deltaDecreaseWithMixedCurrent_skipsOnlyNoopPoolWrite() public {
@@ -118,9 +118,7 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         assertEq(_countPoolMemberUnitsUpdated(logs), 1);
         assertEq(_countFlowEvents(logs, REMOVED_ALLOCATION_SET_SIG), 0);
         assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
-        bytes memory packedSnapshot = _getCommittedPackedSnapshot(logs);
-        assertEq(packedSnapshot.length, 18);
-        assertEq(_packedSnapshotCount(packedSnapshot), 2);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
     }
 
     function test_allocate_removedRecipientWithStaleCurrent_skipsNoopPoolWrite() public {
@@ -158,9 +156,67 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         assertEq(_countPoolMemberUnitsUpdated(logs), 1);
         assertEq(_countFlowEvents(logs, REMOVED_ALLOCATION_SET_SIG), 0);
         assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
-        bytes memory packedSnapshot = _getCommittedPackedSnapshot(logs);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 1);
+        bytes memory packedSnapshot = _getSnapshotUpdatedPackedSnapshot(logs);
         assertEq(packedSnapshot.length, 10);
         assertEq(_packedSnapshotCount(packedSnapshot), 1);
+    }
+
+    function test_syncAllocation_noopApply_emitsCommitOnlyWithoutSnapshot() public {
+        bytes32 id1 = bytes32(uint256(1));
+        address recipient = address(0x111);
+        _addRecipient(id1, recipient);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id1;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        uint256 key = 6;
+        _allocateSingleKey(key, ids, scaled);
+
+        vm.recordLogs();
+        vm.prank(other);
+        flow.syncAllocation(address(strategy), key);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
+        assertEq(_countPoolMemberUnitsUpdated(logs), 0);
+        assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
+
+        (bytes32 commit, uint256 weight) = _getCommittedCommitAndWeight(logs);
+        assertEq(commit, keccak256(abi.encode(ids, scaled)));
+        assertEq(weight, DEFAULT_WEIGHT);
+    }
+
+    function test_clearStaleAllocation_zeroWeight_emitsCommitOnlyWithoutSnapshot() public {
+        bytes32 id1 = bytes32(uint256(1));
+        address recipient = address(0x111);
+        _addRecipient(id1, recipient);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id1;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        uint256 key = 7;
+        _allocateSingleKey(key, ids, scaled);
+        strategy.setWeight(key, 0);
+
+        vm.recordLogs();
+        vm.prank(other);
+        flow.clearStaleAllocation(address(strategy), key);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(flow.distributionPool().getUnits(recipient), 0);
+        assertEq(_countPoolMemberUnitsUpdated(logs), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
+
+        (bytes32 commit, uint256 weight) = _getCommittedCommitAndWeight(logs);
+        assertEq(commit, keccak256(abi.encode(ids, scaled)));
+        assertEq(weight, 0);
     }
 
     function test_setDistributionUnits_allowsClearingFlowUnits() public {
@@ -190,15 +246,30 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         }
     }
 
-    function _getCommittedPackedSnapshot(Vm.Log[] memory logs) internal view returns (bytes memory packedSnapshot) {
+    function _getSnapshotUpdatedPackedSnapshot(Vm.Log[] memory logs) internal view returns (bytes memory packedSnapshot) {
         address flowAddress = address(flow);
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter != flowAddress) continue;
-            if (logs[i].topics.length == 0 || logs[i].topics[0] != ALLOCATION_COMMITTED_SIG) continue;
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != ALLOCATION_SNAPSHOT_UPDATED_SIG) continue;
             uint8 snapshotVersion;
             (, , snapshotVersion, packedSnapshot) = abi.decode(logs[i].data, (bytes32, uint256, uint8, bytes));
             assertEq(snapshotVersion, SNAPSHOT_VERSION_V1);
             return packedSnapshot;
+        }
+        revert("SNAPSHOT_EVENT_NOT_FOUND");
+    }
+
+    function _getCommittedCommitAndWeight(Vm.Log[] memory logs)
+        internal
+        view
+        returns (bytes32 commit, uint256 weight)
+    {
+        address flowAddress = address(flow);
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != flowAddress) continue;
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != ALLOCATION_COMMITTED_SIG) continue;
+            (commit, weight) = abi.decode(logs[i].data, (bytes32, uint256));
+            return (commit, weight);
         }
         revert("COMMIT_EVENT_NOT_FOUND");
     }

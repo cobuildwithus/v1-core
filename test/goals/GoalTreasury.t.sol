@@ -12,13 +12,11 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
-import { ITreasuryDonations } from "src/interfaces/ITreasuryDonations.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
-    SharedMockFeeOnTransferSuperToken,
     SharedMockStakeVault,
     SharedMockSuperToken,
     SharedMockUnderlying
@@ -906,15 +904,12 @@ contract GoalTreasuryTest is Test {
         treasury.processHookSplit(outsider, 1e18);
     }
 
-    function test_processHookSplit_revertsWhenInsufficientHeldSuperTokenBalance() public {
-        vm.warp(treasury.minRaiseDeadline() + 1);
+    function test_processHookSplit_revertsWhenSourceTokenIsSuperToken() public {
         uint256 amount = 5e18;
 
         vm.prank(hook);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IGoalTreasury.INSUFFICIENT_TREASURY_BALANCE.selector, address(superToken), amount, uint256(0)
-            )
+            abi.encodeWithSelector(IGoalTreasury.INVALID_HOOK_SOURCE_TOKEN.selector, address(superToken))
         );
         treasury.processHookSplit(address(superToken), amount);
     }
@@ -934,12 +929,12 @@ contract GoalTreasuryTest is Test {
 
     function test_processHookSplit_fundsWhenGoalCanStillAcceptFunding() public {
         uint256 amount = 42e18;
-        superToken.mint(address(treasury), amount);
+        underlyingToken.mint(address(treasury), amount);
         uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
 
         vm.prank(hook);
         (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            treasury.processHookSplit(address(superToken), amount);
+            treasury.processHookSplit(address(underlyingToken), amount);
 
         assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Funded));
         assertEq(superTokenAmount, amount);
@@ -977,14 +972,14 @@ contract GoalTreasuryTest is Test {
         vm.warp(treasury.deadline());
 
         uint256 amount = 13e18;
-        superToken.mint(address(treasury), amount);
+        underlyingToken.mint(address(treasury), amount);
         uint256 totalRaisedBefore = treasury.totalRaised();
         uint256 deferredBefore = treasury.deferredHookSuperTokenAmount();
         uint256 burnCallCountBefore = controller.burnCallCount();
 
         vm.prank(hook);
         (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            treasury.processHookSplit(address(superToken), amount);
+            treasury.processHookSplit(address(underlyingToken), amount);
 
         assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
         assertEq(superTokenAmount, amount);
@@ -1030,7 +1025,7 @@ contract GoalTreasuryTest is Test {
         assertEq(controller.lastBurnMemo(), "GOAL_SUCCESS_SETTLEMENT_BURN");
     }
 
-    function test_processHookSplit_successSettlementSuperTokenSource_splitsRewardAndBurn() public {
+    function test_processHookSplit_successSettlement_revertsWhenSourceTokenIsSuperToken() public {
         (GoalTreasury rewardTreasury, RewardEscrow rewardEscrow) =
             _deployWithRealRewardEscrow(uint64(block.timestamp + 3 days), 100e18, 250_000);
 
@@ -1045,26 +1040,20 @@ contract GoalTreasuryTest is Test {
         rewardTreasury.resolveSuccess();
 
         uint256 amount = 40e18;
-        uint256 expectedReward = 10e18;
-        uint256 expectedBurn = 30e18;
         uint256 burnCallCountBefore = controller.burnCallCount();
         uint256 rewardEscrowSuperBefore = superToken.balanceOf(address(rewardEscrow));
         uint256 rewardEscrowUnderlyingBefore = underlyingToken.balanceOf(address(rewardEscrow));
         superToken.mint(address(rewardTreasury), amount);
 
         vm.prank(hook);
-        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            rewardTreasury.processHookSplit(address(superToken), amount);
+        vm.expectRevert(
+            abi.encodeWithSelector(IGoalTreasury.INVALID_HOOK_SOURCE_TOKEN.selector, address(superToken))
+        );
+        rewardTreasury.processHookSplit(address(superToken), amount);
 
-        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.SuccessSettled));
-        assertEq(superTokenAmount, 0);
-        assertEq(rewardAmount, expectedReward);
-        assertEq(burnAmount, expectedBurn);
-        assertEq(superToken.balanceOf(address(rewardEscrow)), rewardEscrowSuperBefore + expectedReward);
+        assertEq(superToken.balanceOf(address(rewardEscrow)), rewardEscrowSuperBefore);
         assertEq(underlyingToken.balanceOf(address(rewardEscrow)), rewardEscrowUnderlyingBefore);
-        assertEq(controller.burnCallCount(), burnCallCountBefore + 1);
-        assertEq(controller.lastBurnAmount(), expectedBurn);
-        assertEq(controller.lastBurnMemo(), "GOAL_SUCCESS_SETTLEMENT_BURN");
+        assertEq(controller.burnCallCount(), burnCallCountBefore);
     }
 
     function test_processHookSplit_terminalSettlementConvertsThenBurnsWhenExpired() public {
@@ -1112,65 +1101,6 @@ contract GoalTreasuryTest is Test {
         }
     }
 
-    function test_donateSuperToken_updatesFlowBalanceAndTotalRaised() public {
-        superToken.mint(donor, 25e18);
-
-        vm.startPrank(donor);
-        superToken.approve(address(treasury), type(uint256).max);
-        uint256 received = treasury.donateSuperToken(25e18);
-        vm.stopPrank();
-
-        assertEq(received, 25e18);
-        assertEq(superToken.balanceOf(address(flow)), 25e18);
-        assertEq(treasury.totalRaised(), 25e18);
-    }
-
-    function test_donateSuperToken_usesBalanceDelta_whenSuperTokenChargesTransferFee() public {
-        SharedMockFeeOnTransferSuperToken feeSuperToken =
-            new SharedMockFeeOnTransferSuperToken(address(underlyingToken), 1_000, address(0xFEE));
-        SharedMockFlow feeFlow = new SharedMockFlow(ISuperToken(address(feeSuperToken)));
-        feeFlow.setMaxSafeFlowRate(type(int96).max);
-        SharedMockStakeVault feeStakeVault = new SharedMockStakeVault();
-        feeStakeVault.setGoalToken(IERC20(address(underlyingToken)));
-        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        feeStakeVault.setGoalTreasury(predicted);
-        feeFlow.setFlowOperator(predicted);
-        feeFlow.setSweeper(predicted);
-
-        GoalTreasury feeTreasury = new GoalTreasury(
-            owner,
-            IGoalTreasury.GoalConfig({
-                flow: address(feeFlow),
-                stakeVault: address(feeStakeVault),
-                rewardEscrow: address(0),
-                hook: hook,
-                goalRulesets: address(rulesets),
-                goalRevnetId: PROJECT_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
-            successResolver: owner,
-            successAssertionLiveness: uint64(1 days),
-            successAssertionBond: 10e18,
-            successOracleSpecHash: keccak256("goal-oracle-spec"),
-            successAssertionPolicyHash: keccak256("goal-assertion-policy")
-            })
-        );
-
-        uint256 amount = 25e18;
-        uint256 expected = (amount * 9_000) / 10_000;
-        feeSuperToken.mint(donor, amount);
-
-        vm.startPrank(donor);
-        feeSuperToken.approve(address(feeTreasury), type(uint256).max);
-        uint256 received = feeTreasury.donateSuperToken(amount);
-        vm.stopPrank();
-
-        assertEq(received, expected);
-        assertEq(feeSuperToken.balanceOf(address(feeFlow)), expected);
-        assertEq(feeTreasury.totalRaised(), expected);
-    }
-
     function test_donateUnderlyingAndUpgrade_updatesFlowBalanceAndTotalRaised() public {
         underlyingToken.mint(donor, 40e18);
 
@@ -1185,59 +1115,16 @@ contract GoalTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(treasury)), 0);
     }
 
-    function test_donateSuperToken_revertsWhenFundingNoLongerAccepted() public {
+    function test_donateUnderlyingAndUpgrade_revertsWhenFundingNoLongerAccepted() public {
         vm.warp(treasury.minRaiseDeadline() + 1);
 
-        superToken.mint(donor, 10e18);
+        underlyingToken.mint(donor, 10e18);
         vm.prank(donor);
-        superToken.approve(address(treasury), type(uint256).max);
+        underlyingToken.approve(address(treasury), type(uint256).max);
 
         vm.prank(donor);
         vm.expectRevert(IGoalTreasury.INVALID_STATE.selector);
-        treasury.donateSuperToken(10e18);
-    }
-
-    function test_donateSuperToken_revertsOnReentrantCall() public {
-        GoalReentrantSuperToken reentrantSuperToken = new GoalReentrantSuperToken(address(underlyingToken));
-        SharedMockFlow reentrantFlow = new SharedMockFlow(ISuperToken(address(reentrantSuperToken)));
-        reentrantFlow.setMaxSafeFlowRate(type(int96).max);
-        SharedMockStakeVault reentrantStakeVault = new SharedMockStakeVault();
-        reentrantStakeVault.setGoalToken(IERC20(address(underlyingToken)));
-        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        reentrantStakeVault.setGoalTreasury(predicted);
-        reentrantFlow.setFlowOperator(predicted);
-        reentrantFlow.setSweeper(predicted);
-
-        GoalTreasury reentrantTreasury = new GoalTreasury(
-            owner,
-            IGoalTreasury.GoalConfig({
-                flow: address(reentrantFlow),
-                stakeVault: address(reentrantStakeVault),
-                rewardEscrow: address(0),
-                hook: hook,
-                goalRulesets: address(rulesets),
-                goalRevnetId: PROJECT_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
-            successResolver: owner,
-            successAssertionLiveness: uint64(1 days),
-            successAssertionBond: 10e18,
-            successOracleSpecHash: keccak256("goal-oracle-spec"),
-            successAssertionPolicyHash: keccak256("goal-assertion-policy")
-            })
-        );
-
-        reentrantSuperToken.mint(donor, 10e18);
-        reentrantSuperToken.mint(address(reentrantSuperToken), 1e18);
-        reentrantSuperToken.approveForReentry(address(reentrantTreasury), 1e18, 0);
-
-        vm.startPrank(donor);
-        reentrantSuperToken.approve(address(reentrantTreasury), type(uint256).max);
-        reentrantSuperToken.armReentry(address(reentrantTreasury), ITreasuryDonations.donateSuperToken.selector);
-        vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
-        reentrantTreasury.donateSuperToken(10e18);
-        vm.stopPrank();
+        treasury.donateUnderlyingAndUpgrade(10e18);
     }
 
     function test_recordHookFunding_returnsFalseWhenGoalAlreadyResolved() public {
@@ -3258,6 +3145,20 @@ contract GoalTreasuryTest is Test {
         uint256 deferredBefore = target.deferredHookSuperTokenAmount();
         uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
         uint256 burnCallCountBefore = controller.burnCallCount();
+        if (!matrixCase.useUnderlyingSource && sourceAmount != 0) {
+            vm.prank(hook);
+            vm.expectRevert(
+                abi.encodeWithSelector(IGoalTreasury.INVALID_HOOK_SOURCE_TOKEN.selector, address(superToken))
+            );
+            target.processHookSplit(sourceToken, sourceAmount);
+
+            assertEq(target.totalRaised(), totalRaisedBefore);
+            assertEq(target.deferredHookSuperTokenAmount(), deferredBefore);
+            assertEq(superToken.balanceOf(address(flow)), flowBalanceBefore);
+            assertEq(controller.burnCallCount(), burnCallCountBefore);
+            return;
+        }
+
         IGoalTreasury.HookSplitAction expectedAction =
             _expectedHookSplitActionForMatrix(matrixCase.state, matrixCase.mintingOpen, matrixCase.zeroSourceAmount);
 
@@ -3466,46 +3367,6 @@ contract GoalTreasuryTest is Test {
         );
 
         rewardTreasury = _deploy(minRaiseDeadline, minRaise, address(rewardEscrow), settlementRewardEscrowScaled);
-    }
-}
-
-contract GoalReentrantSuperToken is SharedMockSuperToken {
-    address private immutable _underlyingToken;
-    address private _targetTreasury;
-    bytes4 private _targetSelector;
-    bool private _armed;
-    bool private _reentered;
-
-    constructor(address underlyingToken_) SharedMockSuperToken(underlyingToken_) {
-        _underlyingToken = underlyingToken_;
-    }
-
-    function armReentry(address targetTreasury_, bytes4 targetSelector_) external {
-        _targetTreasury = targetTreasury_;
-        _targetSelector = targetSelector_;
-        _armed = true;
-        _reentered = false;
-    }
-
-    function approveForReentry(address spender, uint256 superTokenAmount, uint256 underlyingAmount) external {
-        _approve(address(this), spender, superTokenAmount);
-        if (underlyingAmount != 0) IERC20(_underlyingToken).approve(spender, underlyingAmount);
-    }
-
-    function _update(address from, address to, uint256 value) internal override {
-        if (_armed && !_reentered && from != address(0) && to != address(0)) {
-            _reentered = true;
-            (bool ok, bytes memory returndata) = _targetTreasury.call(
-                abi.encodeWithSelector(_targetSelector, uint256(1e18))
-            );
-            if (!ok) {
-                assembly ("memory-safe") {
-                    revert(add(returndata, 0x20), mload(returndata))
-                }
-            }
-        }
-
-        super._update(from, to, value);
     }
 }
 
