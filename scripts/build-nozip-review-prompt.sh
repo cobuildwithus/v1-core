@@ -110,6 +110,7 @@ src/library/AllocationCommitment.sol
 src/library/CustomFlowPreviousState.sol
 src/library/FlowProtocolConstants.sol
 src/library/FlowSets.sol
+src/library/AllocationSnapshot.sol
 src/library/FlowUnitMath.sol
 src/library/SortedRecipientMerge.sol
 src/tcr/library/BudgetTCRItems.sol
@@ -120,6 +121,9 @@ src/tcr/storage/GeneralizedTCRStorageV1.sol
 src/tcr/utils/ArbitrationCostExtraData.sol
 src/tcr/utils/CappedMath.sol
 src/tcr/utils/VotingTokenCompatibility.sol
+src/tcr/BudgetTCRFactory.sol
+src/tcr/BudgetTCRValidator.sol
+src/library/AllocationSnapshot.sol
 src/Flow.sol
 src/flows/CustomFlow.sol
 src/storage/FlowStorage.sol
@@ -173,6 +177,7 @@ src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol
 src/goals/library/GoalStakeVaultJurorMath.sol
 src/goals/library/GoalStakeVaultRentMath.sol
 src/goals/library/GoalStakeVaultSlashMath.sol
+src/goals/TreasuryBase.sol
 src/goals/library/GoalSpendPatterns.sol
 src/goals/library/RewardEscrowMath.sol
 src/goals/library/BudgetStakeLedgerMath.sol
