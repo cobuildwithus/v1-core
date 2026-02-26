@@ -96,6 +96,7 @@ contract GoalTreasuryTest is Test {
         controllerTokens = new TreasuryMockTokens();
         controller = new TreasuryMockController(controllerTokens);
         directory.setController(PROJECT_ID, address(controller));
+        controllerTokens.setProjectIdOf(address(underlyingToken), PROJECT_ID);
         hookAdapter = new TreasuryMockHook(directory);
         hook = address(hookAdapter);
 
@@ -145,6 +146,144 @@ contract GoalTreasuryTest is Test {
     function test_constructor_setsCobuildRevnetIdZeroWhenCobuildTokenUnconfigured() public view {
         assertEq(treasury.goalRevnetId(), PROJECT_ID);
         assertEq(treasury.cobuildRevnetId(), 0);
+    }
+
+    function test_constructor_revertsWhenSuperTokenUnderlyingDiffersFromStakeVaultGoalToken() public {
+        SharedMockUnderlying foreignUnderlying = new SharedMockUnderlying();
+        SharedMockSuperToken foreignSuperToken = new SharedMockSuperToken(address(foreignUnderlying));
+        SharedMockFlow foreignFlow = new SharedMockFlow(ISuperToken(address(foreignSuperToken)));
+        foreignFlow.setMaxSafeFlowRate(type(int96).max);
+
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        foreignFlow.setFlowOperator(predicted);
+        foreignFlow.setSweeper(predicted);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH.selector,
+                address(underlyingToken),
+                address(foreignUnderlying)
+            )
+        );
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(foreignFlow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: hook,
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                treasurySettlementRewardEscrowScaled: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
+    }
+
+    function test_constructor_revertsWhenGoalTokenMapsToDifferentRevnetId() public {
+        uint256 foreignProjectId = PROJECT_ID + 1;
+        controllerTokens.setProjectIdOf(address(underlyingToken), foreignProjectId);
+
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        flow.setFlowOperator(predicted);
+        flow.setSweeper(predicted);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.GOAL_TOKEN_REVNET_MISMATCH.selector,
+                address(underlyingToken),
+                PROJECT_ID,
+                foreignProjectId
+            )
+        );
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: hook,
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                treasurySettlementRewardEscrowScaled: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
+    }
+
+    function test_constructor_revertsWhenGoalControllerMissingWithoutCobuildToken() public {
+        directory.setController(PROJECT_ID, address(0));
+
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        flow.setFlowOperator(predicted);
+        flow.setSweeper(predicted);
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_REVNET_CONTROLLER.selector, address(0)));
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: hook,
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                treasurySettlementRewardEscrowScaled: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
+    }
+
+    function test_constructor_revertsWhenGoalDirectoryNotDerivable() public {
+        TreasuryMockHook zeroDirectoryHook = new TreasuryMockHook(TreasuryMockDirectory(address(0)));
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        flow.setFlowOperator(predicted);
+        flow.setSweeper(predicted);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IGoalTreasury.GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE.selector, address(underlyingToken))
+        );
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: address(zeroDirectoryHook),
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                treasurySettlementRewardEscrowScaled: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
     }
 
     function test_constructor_revertsWhenCobuildTokenConfiguredAndGoalControllerMissing() public {
@@ -3050,6 +3189,7 @@ contract GoalTreasuryTest is Test {
 
         TreasuryMockTokens goalControllerTokens = new TreasuryMockTokens();
         goalControllerTokens.setProjectIdOf(address(cobuildUnderlying), cobuildProjectId);
+        goalControllerTokens.setProjectIdOf(address(underlyingToken), PROJECT_ID);
 
         TreasuryMockSupplyAwareController goalSupplyController = new TreasuryMockSupplyAwareController(goalControllerTokens);
         TreasuryMockSupplyAwareController cobuildSupplyController =

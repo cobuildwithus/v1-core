@@ -9,6 +9,8 @@ import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { ICustomFlow } from "src/interfaces/IFlow.sol";
 
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -36,14 +38,24 @@ contract GoalStakeVaultTest is Test {
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
     VaultMockRulesets internal goalRulesets;
+    VaultMockDirectory internal directory;
+    VaultMockTokens internal controllerTokens;
+    VaultMockController internal controller;
     GoalStakeVault internal vault;
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
         cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
         goalRulesets = new VaultMockRulesets();
+        directory = new VaultMockDirectory();
+        controllerTokens = new VaultMockTokens();
+        controller = new VaultMockController(controllerTokens);
 
         goalRulesets.setWeight(GOAL_PROJECT_ID, 2e18);
+        goalRulesets.setDirectory(IJBDirectory(address(directory)));
+        directory.setController(GOAL_PROJECT_ID, address(controller));
+        controllerTokens.setDefaultProjectId(GOAL_PROJECT_ID);
+        controllerTokens.setProjectIdOf(address(goalToken), GOAL_PROJECT_ID);
 
         vault = new GoalStakeVault(
             address(this),
@@ -188,6 +200,64 @@ contract GoalStakeVaultTest is Test {
             GOAL_PROJECT_ID,
             18,
             rentCollector,
+            0
+        );
+    }
+
+    function test_constructor_revertsWhenGoalProjectControllerMissing() public {
+        directory.setController(GOAL_PROJECT_ID, address(0));
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalStakeVault.INVALID_REVNET_CONTROLLER.selector, address(0)));
+        new GoalStakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            address(0),
+            0
+        );
+    }
+
+    function test_constructor_revertsWhenGoalDirectoryNotDerivable() public {
+        goalRulesets.setDirectory(IJBDirectory(address(0)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IGoalStakeVault.GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE.selector, address(goalToken))
+        );
+        new GoalStakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            address(0),
+            0
+        );
+    }
+
+    function test_constructor_revertsWhenGoalTokenMapsToDifferentRevnetId() public {
+        uint256 foreignProjectId = GOAL_PROJECT_ID + 1;
+        controllerTokens.setProjectIdOf(address(goalToken), foreignProjectId);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalStakeVault.GOAL_TOKEN_REVNET_MISMATCH.selector,
+                address(goalToken),
+                GOAL_PROJECT_ID,
+                foreignProjectId
+            )
+        );
+        new GoalStakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            address(0),
             0
         );
     }
@@ -1515,8 +1585,17 @@ contract GoalStakeVaultTest is Test {
 contract VaultMockRulesets {
     mapping(uint256 => uint112) internal _weightOf;
     bool internal _shouldRevertCurrent;
+    IJBDirectory internal _directory;
 
     error CURRENT_REVERT();
+
+    function setDirectory(IJBDirectory directory_) external {
+        _directory = directory_;
+    }
+
+    function DIRECTORY() external view returns (IJBDirectory) {
+        return _directory;
+    }
 
     function setWeight(uint256 projectId, uint112 weight) external {
         _weightOf[projectId] = weight;
@@ -1529,6 +1608,49 @@ contract VaultMockRulesets {
     function currentOf(uint256 projectId) external view returns (JBRuleset memory ruleset) {
         if (_shouldRevertCurrent) revert CURRENT_REVERT();
         ruleset.weight = _weightOf[projectId];
+    }
+}
+
+contract VaultMockDirectory {
+    mapping(uint256 => address) internal _controllerOf;
+
+    function setController(uint256 projectId, address controller) external {
+        _controllerOf[projectId] = controller;
+    }
+
+    function controllerOf(uint256 projectId) external view returns (address) {
+        return _controllerOf[projectId];
+    }
+}
+
+contract VaultMockTokens {
+    mapping(address => uint256) internal _projectIdOf;
+    uint256 internal _defaultProjectId;
+
+    function setProjectIdOf(address token, uint256 projectId) external {
+        _projectIdOf[token] = projectId;
+    }
+
+    function setDefaultProjectId(uint256 projectId) external {
+        _defaultProjectId = projectId;
+    }
+
+    function projectIdOf(IJBToken token) external view returns (uint256) {
+        uint256 projectId = _projectIdOf[address(token)];
+        if (projectId != 0) return projectId;
+        return _defaultProjectId;
+    }
+}
+
+contract VaultMockController {
+    VaultMockTokens internal _tokens;
+
+    constructor(VaultMockTokens tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (VaultMockTokens) {
+        return _tokens;
     }
 }
 
