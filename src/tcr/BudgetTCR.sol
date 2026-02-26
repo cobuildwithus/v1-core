@@ -182,7 +182,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function syncBudgetTreasuries(
         bytes32[] calldata itemIDs
-    ) external override returns (uint256 attempted, uint256 succeeded) {
+    ) external override nonReentrant returns (uint256 attempted, uint256 succeeded) {
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; i++) {
             bytes32 itemID = itemIDs[i];
