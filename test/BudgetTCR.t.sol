@@ -14,12 +14,11 @@ import {
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { BudgetTCRStackComponentDeployer } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
 
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
@@ -71,7 +70,6 @@ contract BudgetTCRTest is TestUtils {
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
     address internal stackDeployer;
-    address internal itemValidator;
 
     address internal owner = makeAddr("owner");
     address internal governor = makeAddr("governor");
@@ -110,12 +108,10 @@ contract BudgetTCRTest is TestUtils {
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer(address(stackComponentDeployer)));
+        stackDeployer = address(new BudgetTCRDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance);
-        itemValidator = address(new BudgetTCRValidator());
 
         bytes memory arbInit = abi.encodeCall(
             ERC20VotesArbitrator.initialize,
@@ -158,18 +154,6 @@ contract BudgetTCRTest is TestUtils {
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.stackDeployer = address(0);
-
-        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
-        freshTcr.initialize(registryConfig, deploymentConfig);
-    }
-
-    function test_initialize_reverts_when_item_validator_is_zero() public {
-        (
-            BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
-            IBudgetTCR.DeploymentConfig memory deploymentConfig
-        ) = _freshInitializeConfig();
-        deploymentConfig.itemValidator = address(0);
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
@@ -435,8 +419,7 @@ contract BudgetTCRTest is TestUtils {
         uint64 expectedLiveness = 4 days;
         uint256 expectedBond = 77e18;
 
-        BudgetTCRStackComponentDeployer freshComponentDeployer = new BudgetTCRStackComponentDeployer();
-        address freshStackDeployer = address(new BudgetTCRDeployer(address(freshComponentDeployer)));
+        address freshStackDeployer = address(new BudgetTCRDeployer());
         BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr));
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = abi.encodeCall(
@@ -532,6 +515,35 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.activateRegisteredBudget(itemB);
         assertFalse(budgetTcr.isRegistrationPending(itemB));
         assertEq(budgetStakeLedger.registerCallCount(), 2);
+    }
+
+    function test_activateRegisteredBudget_reusesSharedBudgetFlowStrategyAcrossBudgets() public {
+        _approveAddCost(requester);
+        bytes32 itemA = _submitListing(requester, _defaultListing());
+
+        IBudgetTCR.BudgetListing memory listingB = _defaultListing();
+        listingB.metadata.title = "Budget B";
+        listingB.metadata.url = "https://example.com/budget-b";
+
+        _approveAddCost(requester);
+        bytes32 itemB = _submitListing(requester, listingB);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemA);
+        budgetTcr.executeRequest(itemB);
+
+        budgetTcr.activateRegisteredBudget(itemA);
+        budgetTcr.activateRegisteredBudget(itemB);
+
+        (address childFlowA,) = goalFlow.recipients(itemA);
+        (address childFlowB,) = goalFlow.recipients(itemB);
+
+        IAllocationStrategy[] memory strategiesA = IFlow(childFlowA).strategies();
+        IAllocationStrategy[] memory strategiesB = IFlow(childFlowB).strategies();
+        assertEq(strategiesA.length, 1);
+        assertEq(strategiesB.length, 1);
+        assertEq(address(strategiesA[0]), address(strategiesB[0]));
+        assertEq(address(strategiesA[0]), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
     }
 
     function test_finalizeRemovedBudget_reverts_when_not_pending() public {
@@ -1419,7 +1431,6 @@ contract BudgetTCRTest is TestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
-            itemValidator: itemValidator,
             budgetSuccessResolver: owner,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),

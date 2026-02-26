@@ -6,47 +6,14 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
-import { BudgetStakeStrategy } from "src/allocation-strategies/BudgetStakeStrategy.sol";
-import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-
-contract BudgetTCRStackComponentDeployer {
-    error ADDRESS_ZERO();
-
-    function deployComponents(
-        address treasuryAnchor,
-        IERC20 goalToken,
-        IERC20 cobuildToken,
-        IJBRulesets goalRulesets,
-        uint256 goalRevnetId,
-        uint8 paymentTokenDecimals,
-        address budgetStakeLedger,
-        bytes32 recipientId
-    ) external returns (address stakeVault, address strategy) {
-        if (treasuryAnchor == address(0)) revert ADDRESS_ZERO();
-        if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
-
-        stakeVault = address(
-            new GoalStakeVault(
-                treasuryAnchor,
-                goalToken,
-                cobuildToken,
-                goalRulesets,
-                goalRevnetId,
-                paymentTokenDecimals,
-                address(0),
-                0
-            )
-        );
-        strategy = address(new BudgetStakeStrategy(IBudgetStakeLedger(budgetStakeLedger), recipientId));
-    }
-}
 
 library BudgetTCRStackDeploymentLib {
     error ADDRESS_ZERO();
     error INVALID_TREASURY_ANCHOR(address anchor);
     error INVALID_TREASURY_CONFIGURATION(address treasury);
+    error INVALID_STRATEGY(address strategy);
 
     struct PreparationResult {
         address stakeVault;
@@ -60,25 +27,23 @@ library BudgetTCRStackDeploymentLib {
         IJBRulesets goalRulesets,
         uint256 goalRevnetId,
         uint8 paymentTokenDecimals,
-        address stackComponentDeployer,
-        address budgetStakeLedger,
-        bytes32 recipientId
+        address strategy
     ) internal returns (PreparationResult memory result) {
         if (treasuryAnchor == address(0)) revert ADDRESS_ZERO();
-        if (stackComponentDeployer == address(0)) revert ADDRESS_ZERO();
-        if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
+        if (strategy == address(0) || strategy.code.length == 0) revert INVALID_STRATEGY(strategy);
 
-        (address stakeVault, address strategy) = BudgetTCRStackComponentDeployer(stackComponentDeployer)
-            .deployComponents(
+        address stakeVault = address(
+            new GoalStakeVault(
                 treasuryAnchor,
                 goalToken,
                 cobuildToken,
                 goalRulesets,
                 goalRevnetId,
                 paymentTokenDecimals,
-                budgetStakeLedger,
-                recipientId
-            );
+                address(0),
+                0
+            )
+        );
 
         result = PreparationResult({ stakeVault: stakeVault, strategy: strategy });
     }

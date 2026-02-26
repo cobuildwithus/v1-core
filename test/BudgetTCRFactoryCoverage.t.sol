@@ -6,14 +6,12 @@ import { Test } from "forge-std/Test.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
-import { BudgetTCRStackComponentDeployer } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 
@@ -28,27 +26,21 @@ contract BudgetTCRFactoryCoverageTest is Test {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
 
     function test_constructor_revertsWhenImplementationAddressIsZero() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validMockImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(address(0), arbImpl, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(address(0), arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, address(0), deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, address(0), deployerImpl, DEFAULT_ESCROW_BOND_BPS);
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, arbImpl, address(0), validatorImpl, DEFAULT_ESCROW_BOND_BPS);
-
-        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, arbImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_deployBudgetTCRStackForGoal_revertsOnZeroRegistryInputs() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validMockImplementations();
-        BudgetTCRFactory factory =
-            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -82,10 +74,8 @@ contract BudgetTCRFactoryCoverageTest is Test {
     }
 
     function test_deployBudgetTCRStackForGoal_revertsWhenGoalTreasuryStakeVaultIsZero() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validMockImplementations();
-        BudgetTCRFactory factory =
-            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -202,26 +192,22 @@ contract BudgetTCRFactoryCoverageTest is Test {
     function _realFactory() internal returns (BudgetTCRFactory) {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         return BudgetTCRFactory(
             new BudgetTCRFactory(
                 address(budgetImpl),
                 address(arbImpl),
                 address(deployerImpl),
-                address(validatorImpl),
                 DEFAULT_ESCROW_BOND_BPS
             )
         );
     }
 
-    function _validMockImplementations() internal returns (address a, address b, address c, address d) {
+    function _validMockImplementations() internal returns (address a, address b, address c) {
         a = address(new _MockImplementation());
         b = address(new _MockImplementation());
         c = address(new _MockImplementation());
-        d = address(new _MockImplementation());
     }
 
     function _defaultRegistryConfig(
@@ -268,7 +254,6 @@ contract BudgetTCRFactoryCoverageTest is Test {
     {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: makeAddr("placeholder-stack-deployer"),
-            itemValidator: makeAddr("placeholder-item-validator"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,

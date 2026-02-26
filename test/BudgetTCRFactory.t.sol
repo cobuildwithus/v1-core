@@ -6,15 +6,12 @@ import { Test } from "forge-std/Test.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { BudgetTCRStackComponentDeployer } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
-import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 
@@ -84,91 +81,79 @@ contract _MockStakeVaultForFactory {
 contract BudgetTCRFactoryTest is Test {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
 
-    function test_budgetTCRDeployer_constructor_reverts_when_stack_component_deployer_is_zero() public {
-        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
-        new BudgetTCRDeployer(address(0));
+    function test_budgetTCRDeployer_constructor_sets_budget_treasury_implementation() public {
+        BudgetTCRDeployer deployer = new BudgetTCRDeployer();
+        address implementation = deployer.budgetTreasuryImplementation();
+
+        assertTrue(implementation != address(0));
+        assertGt(implementation.code.length, 0);
     }
 
     function test_constructor_reverts_when_budget_tcr_implementation_has_no_code() public {
         address noCode = makeAddr("no-code-budget-tcr");
-        (, address arbImpl, address deployerImpl, address validatorImpl) = _validImplementations();
+        (, address arbImpl, address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(noCode, arbImpl, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(noCode, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_arbitrator_implementation_has_no_code() public {
         address noCode = makeAddr("no-code-arbitrator");
-        (address budgetImpl, , address deployerImpl, address validatorImpl) = _validImplementations();
+        (address budgetImpl, , address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(budgetImpl, noCode, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, noCode, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_stack_deployer_implementation_has_no_code() public {
         address noCode = makeAddr("no-code-deployer");
-        (address budgetImpl, address arbImpl, , address validatorImpl) = _validImplementations();
+        (address budgetImpl, address arbImpl, ) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(budgetImpl, arbImpl, noCode, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
-    }
-
-    function test_constructor_reverts_when_item_validator_implementation_has_no_code() public {
-        address noCode = makeAddr("no-code-validator");
-        (address budgetImpl, address arbImpl, address deployerImpl, ) = _validImplementations();
-
-        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, noCode, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, arbImpl, noCode, DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_is_zero() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.INVALID_ESCROW_BOND_BPS.selector, 0));
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, 0);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, 0);
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_exceeds_denominator() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
         uint256 invalidBps = 10_001;
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.INVALID_ESCROW_BOND_BPS.selector, invalidBps));
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, invalidBps);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, invalidBps);
     }
 
     function test_constructor_accepts_escrow_bond_bps_at_lower_bound() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
         uint256 minBps = 1;
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, minBps);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, minBps);
 
         assertEq(factory.escrowBondBps(), minBps);
     }
 
     function test_constructor_accepts_escrow_bond_bps_at_denominator() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
         uint256 maxBps = 10_000;
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, maxBps);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, maxBps);
 
         assertEq(factory.escrowBondBps(), maxBps);
     }
 
     function test_constructor_accepts_implementation_addresses_with_code() public {
-        (address budgetImpl, address arbImpl, address deployerImpl, address validatorImpl) =
-            _validImplementations();
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
-        BudgetTCRFactory factory =
-            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, validatorImpl, DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
 
         assertEq(factory.budgetTCRImplementation(), budgetImpl);
         assertEq(factory.arbitratorImplementation(), arbImpl);
         assertEq(factory.stackDeployerImplementation(), deployerImpl);
-        assertEq(factory.itemValidatorImplementation(), validatorImpl);
         assertEq(factory.escrowBondBps(), DEFAULT_ESCROW_BOND_BPS);
     }
 
@@ -183,15 +168,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
         goalTreasury.setAuthority(address(factory));
@@ -242,15 +224,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
         goalTreasury.setAuthority(address(factory));
@@ -319,15 +298,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -369,15 +345,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -406,8 +379,6 @@ contract BudgetTCRFactoryTest is Test {
         address stackDeployer = BudgetTCR(deployed.budgetTCR).stackDeployer();
         assertTrue(stackDeployer != address(0));
         assertEq(BudgetTCRDeployer(stackDeployer).budgetTCR(), deployed.budgetTCR);
-        assertEq(BudgetTCRDeployer(stackDeployer).stackComponentDeployer(), address(stackComponentDeployer));
-        assertGt(BudgetTCRDeployer(stackDeployer).stackComponentDeployer().code.length, 0);
 
         address treasuryImplementation = BudgetTCRDeployer(stackDeployer).budgetTreasuryImplementation();
         assertTrue(treasuryImplementation != address(0));
@@ -431,15 +402,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -513,11 +481,6 @@ contract BudgetTCRFactoryTest is Test {
         assertGt(stackDeployer.code.length, 0);
         assertNotEq(stackDeployer, deploymentConfig.stackDeployer);
 
-        address itemValidator = deployedBudgetTCR.itemValidator();
-        assertTrue(itemValidator != address(0));
-        assertGt(itemValidator.code.length, 0);
-        assertNotEq(itemValidator, deploymentConfig.itemValidator);
-
         (
             uint64 minFundingLeadTime,
             uint64 maxFundingHorizon,
@@ -556,15 +519,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -612,15 +572,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             customEscrowBondBps
         );
 
@@ -667,15 +624,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -726,15 +680,12 @@ contract BudgetTCRFactoryTest is Test {
 
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator validatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
 
         BudgetTCRFactory factory = new BudgetTCRFactory(
             address(budgetImpl),
             address(arbImpl),
             address(deployerImpl),
-            address(validatorImpl),
             DEFAULT_ESCROW_BOND_BPS
         );
 
@@ -772,11 +723,10 @@ contract BudgetTCRFactoryTest is Test {
         );
     }
 
-    function _validImplementations() internal returns (address a, address b, address c, address d) {
+    function _validImplementations() internal returns (address a, address b, address c) {
         a = address(new _MockImplementation());
         b = address(new _MockImplementation());
         c = address(new _MockImplementation());
-        d = address(new _MockImplementation());
     }
 
     function _defaultArbitratorParams() internal pure returns (IArbitrator.ArbitratorParams memory params) {
@@ -797,7 +747,6 @@ contract BudgetTCRFactoryTest is Test {
     ) internal returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: makeAddr("placeholder-stack-deployer"),
-            itemValidator: makeAddr("placeholder-item-validator"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,

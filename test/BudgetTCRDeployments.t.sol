@@ -4,7 +4,9 @@ pragma solidity ^0.8.34;
 import "forge-std/Test.sol";
 
 import { BudgetTCRStackDeploymentLib } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
+import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
@@ -445,5 +447,84 @@ contract BudgetTCRStackDeploymentLibTest is Test {
             oracleSpecHash: keccak256("oracle-spec"),
             assertionPolicyHash: keccak256("oracle-policy")
         });
+    }
+}
+
+contract BudgetTCRDeployerSharedStrategyTest is Test {
+    BudgetTCRDeployer internal deployer;
+    BudgetTCRStackDeploymentLibMockToken internal goalToken;
+    BudgetTCRStackDeploymentLibMockToken internal cobuildToken;
+    BudgetTCRStackDeploymentLibMockBudgetStakeLedger internal budgetStakeLedgerA;
+    BudgetTCRStackDeploymentLibMockBudgetStakeLedger internal budgetStakeLedgerB;
+
+    function setUp() public {
+        deployer = new BudgetTCRDeployer();
+        deployer.initialize(address(this));
+
+        goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
+        cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
+        budgetStakeLedgerA = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
+        budgetStakeLedgerB = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
+    }
+
+    function test_registerChildFlowRecipient_revertsWhenSharedStrategyNotPrepared() public {
+        vm.expectRevert(BudgetTCRDeployer.SHARED_BUDGET_STRATEGY_NOT_DEPLOYED.selector);
+        deployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
+    }
+
+    function test_registerChildFlowRecipient_revertsWhenCallerIsNotBudgetTCR() public {
+        BudgetTCRDeployer guardedDeployer = new BudgetTCRDeployer();
+        guardedDeployer.initialize(makeAddr("budget-tcr"));
+
+        vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
+        guardedDeployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
+    }
+
+    function test_prepareBudgetStack_reusesSharedStrategyAndRejectsLedgerMismatch() public {
+        IBudgetTCRStackDeployer.PreparationResult memory firstPreparation = deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            bytes32(uint256(1))
+        );
+
+        assertTrue(firstPreparation.stakeVault != address(0));
+        assertTrue(firstPreparation.budgetTreasury != address(0));
+        assertEq(firstPreparation.strategy, deployer.sharedBudgetFlowStrategy());
+        assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(budgetStakeLedgerA));
+
+        IBudgetTCRStackDeployer.PreparationResult memory secondPreparation = deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            bytes32(uint256(2))
+        );
+
+        assertEq(secondPreparation.strategy, firstPreparation.strategy);
+        assertNotEq(secondPreparation.stakeVault, firstPreparation.stakeVault);
+        assertNotEq(secondPreparation.budgetTreasury, firstPreparation.budgetTreasury);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BudgetTCRDeployer.BUDGET_STAKE_LEDGER_MISMATCH.selector,
+                address(budgetStakeLedgerA),
+                address(budgetStakeLedgerB)
+            )
+        );
+        deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerB),
+            bytes32(uint256(3))
+        );
     }
 }

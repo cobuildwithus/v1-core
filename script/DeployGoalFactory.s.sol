@@ -22,8 +22,6 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
-import { BudgetTCRStackComponentDeployer } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 contract DeployGoalFactory is Script {
@@ -50,9 +48,7 @@ contract DeployGoalFactory is Script {
         GoalRevnetSplitHook splitHookImpl =
             new GoalRevnetSplitHook(IJBDirectory(address(0)), IGoalTreasury(address(0)), IFlow(address(0)), 0);
 
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
-        BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(address(stackComponentDeployer));
-        BudgetTCRValidator itemValidatorImpl = new BudgetTCRValidator();
+        BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer();
         BudgetTCR budgetTcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbitratorImpl = new ERC20VotesArbitrator();
 
@@ -60,7 +56,6 @@ contract DeployGoalFactory is Script {
             address(budgetTcrImpl),
             address(arbitratorImpl),
             address(stackDeployerImpl),
-            address(itemValidatorImpl),
             escrowBondBps
         );
 
