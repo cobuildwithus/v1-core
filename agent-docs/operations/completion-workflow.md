@@ -9,7 +9,7 @@ Docs-only shortcut: for docs-only changes (`*.md`, `agent-docs/**`, no `.sol` ed
 Non-docs rule: for any change that touches production code or tests, all three subagent passes below are mandatory before final handoff.
 
 1. After implementation is complete, run a simplification pass using `agent-docs/prompts/simplify.md`.
-2. If required checks are queued/running (`pnpm -s verify:required` or queue variants), proceed with simplify/coverage/completion-audit work while waiting; do not idle on queue wait.
+2. If required checks are running (`pnpm -s verify:required`), proceed with simplify/coverage/completion-audit work while waiting; do not idle.
 3. Apply behavior-preserving simplifications from that pass.
 4. Run a test-coverage audit pass using `agent-docs/prompts/test-coverage-audit.md` with full change context.
 5. The coverage-audit subagent should implement the highest-impact missing tests it identifies (especially edge cases, failure modes, and invariants) before handoff.

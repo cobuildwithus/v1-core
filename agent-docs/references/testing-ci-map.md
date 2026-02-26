@@ -10,7 +10,7 @@
 ## Resource-Aware Local Variants
 
 - Shared machine test pass: `pnpm -s test:lite:shared` (default test `-j 0`, shared-build `-j 0`).
-- Shared machine build pass: `pnpm -s build` (queued compile lane + workspace-fingerprint reuse).
+- Shared machine build pass: `pnpm -s build` (shared compile lane + workspace-fingerprint reuse).
 - `test:lite` and `test:lite:shared` are now routed through `scripts/test-scope.sh all-lite` (single invariant-exclusion path).
 - Fast local iteration profile (reduced compile pressure, non-gating):
   - `pnpm -s test:lite:fast`
@@ -20,16 +20,9 @@
   - `pnpm -s test:flows:shared:dynamic` (`--dynamic-test-linking` + `FOUNDRY_SPARSE_MODE=true`)
   - `pnpm -s test:goals:shared:dynamic` (`--dynamic-test-linking` + `FOUNDRY_SPARSE_MODE=true`)
 - Shared machine coverage pass: `pnpm -s coverage:ci:shared` (`-j 4` thread cap).
-- Queued full gate (shared log + stale detection): `pnpm -s verify:full`.
-- Strict queued full gate (fails on workspace drift): `pnpm -s verify:full:strict`.
+- Serialized full gate (shared log + stale detection): `pnpm -s verify:full`.
+- Strict serialized full gate (fails on workspace drift): `pnpm -s verify:full:strict`.
 - Observe active full-gate output: `pnpm -s verify:full:tail`.
-- Shared verification request queue (batched build + lite tests): `pnpm -s verify:queue:required`.
-- Shared verification request queue for CI-parity required lane (includes invariants): `pnpm -s verify:queue:required:ci`.
-- Shared verification request queue for full gate: `pnpm -s verify:queue:full`.
-- Shared verification queue status/worker tools: `pnpm -s verify:queue:status`, `pnpm -s verify:queue:worker`.
-- Queue defaults: `VERIFY_QUEUE_BATCH_WINDOW_SECONDS=5`, `VERIFY_QUEUE_MAX_BATCH=50`, `VERIFY_QUEUE_WORKER_LANES=4`.
-- Queue coalescing: duplicate pending requests for the same fingerprint are coalesced (`required` can reuse pending `required/full`; `full` reuses pending `full`).
-- Worker lanes run in parallel across different fingerprints with per-lane Foundry out/cache isolation.
 - Simplified aliases: `pnpm -s verify:required`, `pnpm -s verify:required:ci`, `pnpm -s verify:required:full`.
 - Scoped flow-focused pass: `pnpm -s test:flows:shared`.
 - Scoped goal/treasury-focused pass: `pnpm -s test:goals:shared`.
@@ -41,7 +34,7 @@
 - Avoid concurrent `pnpm -s coverage` runs when multiple agents are active.
 - Multi-agent loop recommendation: iterate on scoped lanes, then run one final required gate (`pnpm -s verify:required`) before handoff; use full gate only when explicitly requested.
 - Use `pnpm -s verify:required:ci` only when CI-lane parity is explicitly needed during local work.
-- If required verification is queued/running, proceed with simplify + test-coverage passes in parallel instead of waiting idle, then run completion audit on the finalized diff.
+- If required verification is running, proceed with simplify + test-coverage passes in parallel instead of waiting idle, then run completion audit on the finalized diff.
 - Final handoff remains gated on green required checks after any audit-driven edits are applied.
 
 ## Runtime Notes (Measured February 19, 2026)

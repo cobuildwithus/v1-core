@@ -69,13 +69,10 @@ Last verified: 2026-02-26
   - when your task is complete or abandoned, delete your row immediately.
 - Keep the ledger as an active-only artifact: no historical backlog and no stale completed entries.
 
-## Queue and Freshness Notes
+## Freshness Notes
 
 - `verify:full` is one-shot snapshot semantics (no auto-rerun): if drift occurs, it logs `STALE` but preserves run result.
 - Use `verify:full:strict` when drift must fail the gate (`exit 86`).
-- `verify-queue` defaults are tuned for lower wait: `VERIFY_QUEUE_BATCH_WINDOW_SECONDS=5`, `VERIFY_QUEUE_MAX_BATCH=50`.
-- `verify-queue` supports parallel worker lanes (`VERIFY_QUEUE_WORKER_LANES`, default `4`) and keeps same-fingerprint runs serialized.
-- Queue submit coalesces duplicate pending requests for the same fingerprint (required coalesces to pending required/full, full coalesces to pending full).
 
 ## Runtime Guardrails
 
