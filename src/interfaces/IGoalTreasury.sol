@@ -74,6 +74,9 @@ interface IGoalTreasury is
     error INVALID_SETTLEMENT_SCALED(uint256 scaled);
     error REWARD_ESCROW_NOT_CONFIGURED();
     error REWARD_ESCROW_SUPER_TOKEN_MISMATCH(address expected, address actual);
+    error GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address expected, address actual);
+    error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address goalToken);
+    error GOAL_TOKEN_REVNET_MISMATCH(address goalToken, uint256 expectedRevnetId, uint256 actualRevnetId);
     error INVALID_REVNET_CONTROLLER(address controller);
     error COBUILD_REVNET_ID_NOT_DERIVABLE(address cobuildToken);
     error ONLY_SUCCESS_RESOLVER();

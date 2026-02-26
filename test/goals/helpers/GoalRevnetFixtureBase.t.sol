@@ -89,6 +89,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
 
         goalToken = underlyingToken;
         cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
+        revnets.setTokenProjectId(address(goalToken), goalRevnetId);
         revnets.setTokenProjectId(address(cobuildToken), cobuildRevnetId);
         goalAssertionOracle = new TreasuryMockOptimisticOracleV3();
         goalSuccessResolverConfig = new TreasuryMockUmaResolverConfig(

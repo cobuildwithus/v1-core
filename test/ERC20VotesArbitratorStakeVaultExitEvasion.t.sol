@@ -10,11 +10,22 @@ import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import { MockArbitrable } from "test/mocks/MockArbitrable.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 
 contract StakeVaultExitEvasionRulesetsMock {
     mapping(uint256 => uint112) internal _weightOf;
+    IJBDirectory internal _directory;
+
+    function setDirectory(IJBDirectory directory_) external {
+        _directory = directory_;
+    }
+
+    function DIRECTORY() external view returns (IJBDirectory) {
+        return _directory;
+    }
 
     function setWeight(uint256 projectId, uint112 weight) external {
         _weightOf[projectId] = weight;
@@ -27,6 +38,49 @@ contract StakeVaultExitEvasionRulesetsMock {
 
 contract StakeVaultExitEvasionRewardEscrowMock {}
 
+contract StakeVaultExitEvasionDirectoryMock {
+    mapping(uint256 => address) internal _controllerOf;
+
+    function setController(uint256 projectId, address controller) external {
+        _controllerOf[projectId] = controller;
+    }
+
+    function controllerOf(uint256 projectId) external view returns (address) {
+        return _controllerOf[projectId];
+    }
+}
+
+contract StakeVaultExitEvasionTokensMock {
+    mapping(address => uint256) internal _projectIdOf;
+    uint256 internal _defaultProjectId;
+
+    function setProjectIdOf(address token, uint256 projectId) external {
+        _projectIdOf[token] = projectId;
+    }
+
+    function setDefaultProjectId(uint256 projectId) external {
+        _defaultProjectId = projectId;
+    }
+
+    function projectIdOf(IJBToken token) external view returns (uint256) {
+        uint256 projectId = _projectIdOf[address(token)];
+        if (projectId != 0) return projectId;
+        return _defaultProjectId;
+    }
+}
+
+contract StakeVaultExitEvasionControllerMock {
+    StakeVaultExitEvasionTokensMock private immutable _tokens;
+
+    constructor(StakeVaultExitEvasionTokensMock tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (StakeVaultExitEvasionTokensMock) {
+        return _tokens;
+    }
+}
+
 contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
     uint256 internal constant GOAL_PROJECT_ID = 777;
 
@@ -36,6 +90,9 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
     MockArbitrable internal arbitrable;
     GoalStakeVault internal vault;
     StakeVaultExitEvasionRulesetsMock internal rulesets;
+    StakeVaultExitEvasionDirectoryMock internal directory;
+    StakeVaultExitEvasionTokensMock internal controllerTokens;
+    StakeVaultExitEvasionControllerMock internal controller;
     ERC20VotesArbitrator internal arb;
 
     address internal owner = makeAddr("owner");
@@ -60,7 +117,14 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
         arbitrable = new MockArbitrable(IERC20(address(votingToken)));
 
         rulesets = new StakeVaultExitEvasionRulesetsMock();
+        directory = new StakeVaultExitEvasionDirectoryMock();
+        controllerTokens = new StakeVaultExitEvasionTokensMock();
+        controller = new StakeVaultExitEvasionControllerMock(controllerTokens);
+        rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.setWeight(GOAL_PROJECT_ID, 2e18);
+        directory.setController(GOAL_PROJECT_ID, address(controller));
+        controllerTokens.setDefaultProjectId(GOAL_PROJECT_ID);
+        controllerTokens.setProjectIdOf(address(goalToken), GOAL_PROJECT_ID);
 
         vault = new GoalStakeVault(
             address(this),

@@ -5,6 +5,11 @@ import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
 import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
+import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
+import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
+import { IJBTokens } from "@bananapus/core-v5/interfaces/IJBTokens.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 
@@ -83,6 +88,9 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         if (address(cobuildToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(goalRulesets_) == address(0)) revert ADDRESS_ZERO();
         if ((rentRecipient_ == address(0)) != (rentWadPerSecond_ == 0)) revert INVALID_RENT_CONFIG();
+        if (address(goalRulesets_).code.length != 0) {
+            _requireGoalTokenRevnetLink(goalToken_, goalRulesets_, goalRevnetId_);
+        }
 
         uint8 goalDecimals = IERC20Metadata(address(goalToken_)).decimals();
         uint8 cobuildDecimals = IERC20Metadata(address(cobuildToken_)).decimals();
@@ -211,6 +219,46 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         }
 
         emit CobuildWithdrawn(msg.sender, to, netAmount);
+    }
+
+    function _requireGoalTokenRevnetLink(
+        IERC20 goalToken_,
+        IJBRulesets goalRulesets_,
+        uint256 goalRevnetId_
+    ) internal view {
+        IJBDirectory directory;
+        try IJBControlled(address(goalRulesets_)).DIRECTORY() returns (IJBDirectory resolvedDirectory) {
+            directory = resolvedDirectory;
+        } catch {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(goalToken_));
+        }
+
+        if (address(directory) == address(0) || address(directory).code.length == 0) {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(goalToken_));
+        }
+
+        address controller = address(directory.controllerOf(goalRevnetId_));
+        if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
+
+        IJBTokens tokens;
+        try IJBController(controller).TOKENS() returns (IJBTokens resolvedTokens) {
+            tokens = resolvedTokens;
+        } catch {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(goalToken_));
+        }
+
+        if (address(tokens) == address(0)) revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(goalToken_));
+
+        uint256 derivedRevnetId;
+        try tokens.projectIdOf(IJBToken(address(goalToken_))) returns (uint256 resolvedRevnetId) {
+            derivedRevnetId = resolvedRevnetId;
+        } catch {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(goalToken_));
+        }
+
+        if (derivedRevnetId != goalRevnetId_) {
+            revert GOAL_TOKEN_REVNET_MISMATCH(address(goalToken_), goalRevnetId_, derivedRevnetId);
+        }
     }
 
     function markGoalResolved() external override {

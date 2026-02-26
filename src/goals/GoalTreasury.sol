@@ -8,6 +8,7 @@ import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
+import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
 import { IJBTokens } from "@bananapus/core-v5/interfaces/IJBTokens.sol";
@@ -148,6 +149,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();
+        _requireGoalTokenInvariants(superToken, _stakeVault, goalRulesets, _hook, goalRevnetId);
         if (config.rewardEscrow != address(0)) {
             address rewardEscrowSuperToken = address(_rewardEscrow.rewardSuperToken());
             if (rewardEscrowSuperToken != address(superToken)) {
@@ -860,19 +862,69 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         }
     }
 
+    function _requireGoalTokenInvariants(
+        ISuperToken configuredSuperToken,
+        IGoalStakeVault configuredStakeVault,
+        IJBRulesets configuredGoalRulesets,
+        address configuredHook,
+        uint256 configuredGoalRevnetId
+    ) internal view {
+        IERC20 configuredGoalToken = configuredStakeVault.goalToken();
+        address underlyingToken = configuredSuperToken.getUnderlyingToken();
+        if (underlyingToken != address(configuredGoalToken)) {
+            revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(configuredGoalToken), underlyingToken);
+        }
+
+        IJBDirectory directory = _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
+        if (address(directory) == address(0)) {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(configuredGoalToken));
+        }
+
+        _requireTokenMatchesRevnetId(directory, configuredGoalRevnetId, configuredGoalToken);
+    }
+
+    function _requireTokenMatchesRevnetId(
+        IJBDirectory directory,
+        uint256 expectedRevnetId,
+        IERC20 token
+    ) internal view {
+        address controller = address(directory.controllerOf(expectedRevnetId));
+        if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
+
+        IJBTokens tokens;
+        try IJBController(controller).TOKENS() returns (IJBTokens resolvedTokens) {
+            tokens = resolvedTokens;
+        } catch {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
+        }
+
+        if (address(tokens) == address(0)) {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
+        }
+
+        uint256 derivedRevnetId;
+        try tokens.projectIdOf(IJBToken(address(token))) returns (uint256 resolvedRevnetId) {
+            derivedRevnetId = resolvedRevnetId;
+        } catch {
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
+        }
+
+        if (derivedRevnetId != expectedRevnetId) {
+            revert GOAL_TOKEN_REVNET_MISMATCH(address(token), expectedRevnetId, derivedRevnetId);
+        }
+    }
+
     function _resolveRevnetDirectory(
         IJBRulesets configuredGoalRulesets,
         address configuredHook
     ) private view returns (IJBDirectory directory) {
         // Prefer rulesets as the canonical source so treasury init does not depend on hook init ordering.
-        (bool ok, bytes memory data) = address(configuredGoalRulesets).staticcall(
-            abi.encodeWithSignature("DIRECTORY()")
-        );
-        if (ok && data.length >= 32) {
-            address rulesetsDirectory = abi.decode(data, (address));
-            if (rulesetsDirectory != address(0) && rulesetsDirectory.code.length != 0) {
-                return IJBDirectory(rulesetsDirectory);
+        try IJBControlled(address(configuredGoalRulesets)).DIRECTORY() returns (IJBDirectory rulesetsDirectory) {
+            if (address(rulesetsDirectory) != address(0) && address(rulesetsDirectory).code.length != 0) {
+                return rulesetsDirectory;
             }
+        } catch {
+            // Fall back to the hook directory when rulesets does not expose DIRECTORY.
         }
 
         try IGoalRevnetHookDirectoryReader(configuredHook).directory() returns (IJBDirectory hookDirectory) {
@@ -885,7 +937,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     }
 
     function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
-        address controller = address(IGoalRevnetHookDirectoryReader(_hook).directory().controllerOf(revnetId));
+        IJBDirectory directory = _resolveRevnetDirectory(goalRulesets, _hook);
+        if (address(directory) == address(0)) revert INVALID_REVNET_CONTROLLER(address(0));
+
+        address controller = address(directory.controllerOf(revnetId));
         if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
         IJBController(controller).burnTokensOf(address(this), revnetId, amount, memo);
     }

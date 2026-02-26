@@ -9,6 +9,9 @@ interface IGoalStakeVault {
     error DECIMALS_MISMATCH(uint8 goalDecimals, uint8 cobuildDecimals);
     error PAYMENT_TOKEN_DECIMALS_MISMATCH(uint8 tokenDecimals, uint8 paymentTokenDecimals);
     error INVALID_PAYMENT_TOKEN_DECIMALS(uint8 decimals);
+    error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address goalToken);
+    error GOAL_TOKEN_REVNET_MISMATCH(address goalToken, uint256 expectedRevnetId, uint256 actualRevnetId);
+    error INVALID_REVNET_CONTROLLER(address controller);
     error GOAL_ALREADY_RESOLVED();
     error INVALID_AMOUNT();
     error TRANSFER_AMOUNT_MISMATCH();
