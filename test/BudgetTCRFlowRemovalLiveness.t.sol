@@ -13,10 +13,8 @@ import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFramew
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { BudgetTCRValidator } from "src/tcr/BudgetTCRValidator.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
-import { BudgetTCRStackComponentDeployer } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -80,7 +78,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
     address internal stackDeployer;
-    address internal itemValidator;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -112,12 +109,10 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRStackComponentDeployer stackComponentDeployer = new BudgetTCRStackComponentDeployer();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer(address(stackComponentDeployer)));
+        stackDeployer = address(new BudgetTCRDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance);
-        itemValidator = address(new BudgetTCRValidator());
 
         goalFlowImpl = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImpl), "");
@@ -305,7 +300,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         scaled[1] = HALF_SCALED;
 
         _allocateWithPrevState(allocator, ids, scaled, "");
-        bytes memory previousState = abi.encode(ids, scaled);
 
         _removeListing(itemID);
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
@@ -400,7 +394,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
-            itemValidator: itemValidator,
             budgetSuccessResolver: owner,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
