@@ -237,8 +237,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         returns (HookSplitAction action, uint256 superTokenAmount, uint256 rewardEscrowAmount, uint256 burnAmount)
     {
         if (msg.sender != _hook) revert ONLY_HOOK();
-        if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0, 0);
         if (!_isHookSourceToken(sourceToken)) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
+        if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0, 0);
 
         GoalDerivedState memory derivedState = _deriveGoalDerivedState();
         HookSplitPath path = _deriveHookSplitPath(derivedState);
@@ -794,11 +794,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     }
 
     function _convertHeldSourceToSuperToken(address sourceToken, uint256 sourceAmount) internal returns (uint256) {
-        if (sourceToken == address(superToken)) {
-            _requireTreasuryTokenBalance(IERC20(address(superToken)), sourceAmount);
-            return sourceAmount;
-        }
-
         IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
         _requireTreasuryTokenBalance(underlyingToken, sourceAmount);
 

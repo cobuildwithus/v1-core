@@ -888,7 +888,7 @@ contract GoalTreasuryTest is Test {
     function test_processHookSplit_returnsDeferredOnZeroAmount() public {
         vm.prank(hook);
         (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            treasury.processHookSplit(address(superToken), 0);
+            treasury.processHookSplit(address(underlyingToken), 0);
 
         assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
         assertEq(superTokenAmount, 0);
@@ -896,6 +896,12 @@ contract GoalTreasuryTest is Test {
         assertEq(burnAmount, 0);
         assertEq(treasury.deferredHookSuperTokenAmount(), 0);
         assertEq(treasury.totalRaised(), 0);
+    }
+
+    function test_processHookSplit_revertsOnInvalidSourceTokenEvenWhenAmountIsZero() public {
+        vm.prank(hook);
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_HOOK_SOURCE_TOKEN.selector, outsider));
+        treasury.processHookSplit(outsider, 0);
     }
 
     function test_processHookSplit_revertsOnInvalidSourceToken() public {
@@ -3145,7 +3151,7 @@ contract GoalTreasuryTest is Test {
         uint256 deferredBefore = target.deferredHookSuperTokenAmount();
         uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
         uint256 burnCallCountBefore = controller.burnCallCount();
-        if (!matrixCase.useUnderlyingSource && sourceAmount != 0) {
+        if (!matrixCase.useUnderlyingSource) {
             vm.prank(hook);
             vm.expectRevert(
                 abi.encodeWithSelector(IGoalTreasury.INVALID_HOOK_SOURCE_TOKEN.selector, address(superToken))
