@@ -11,7 +11,6 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 
 library FlowInitialization {
     using SuperTokenV1Library for ISuperToken;
-    uint32 public constant ppmScale = FlowProtocolConstants.PPM_SCALE;
 
     /**
      * @notice Checks the initialization parameters for the Flow contract
@@ -34,7 +33,9 @@ library FlowInitialization {
         if (bytes(initConfig.metadata.title).length == 0) revert IFlow.INVALID_METADATA();
         if (bytes(initConfig.metadata.description).length == 0) revert IFlow.INVALID_METADATA();
         if (bytes(initConfig.metadata.image).length == 0) revert IFlow.INVALID_METADATA();
-        if (initConfig.flowParams.managerRewardPoolFlowRatePpm > ppmScale) revert IFlow.INVALID_RATE_PPM();
+        if (initConfig.flowParams.managerRewardPoolFlowRatePpm > FlowProtocolConstants.PPM_SCALE) {
+            revert IFlow.INVALID_RATE_PPM();
+        }
         if (initConfig.managerRewardPool == address(0) && initConfig.flowParams.managerRewardPoolFlowRatePpm > 0) {
             revert IFlow.ADDRESS_ZERO();
         }
@@ -57,8 +58,6 @@ library FlowInitialization {
         cfg.superToken = ISuperToken(initConfig.superToken);
         cfg.distributionPool = cfg.superToken.createPool(address(this), poolConfig);
 
-        cfg.ppmScale = ppmScale;
-        cfg.connectPoolAdmin = initConfig.connectPoolAdmin;
         address allocationPipeline = initConfig.allocationPipeline;
         if (allocationPipeline != address(0)) {
             if (allocationPipeline.code.length == 0) revert IFlow.INVALID_ALLOCATION_PIPELINE(allocationPipeline);

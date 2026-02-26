@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
+import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -24,9 +25,8 @@ library FlowRates {
     ) external view returns (int96 distributionFlowRate, int96 managerRewardFlowRate) {
         if (_flowRate < 0) revert IFlow.FLOW_RATE_NEGATIVE();
         uint32 managerRewardPpm = cfg.managerRewardPool == address(0) ? 0 : cfg.managerRewardPoolFlowRatePpm;
-        int256 managerRewardFlowRateShare = SafeCast.toInt256(
-            _scaleAmountByPpm(cfg, SafeCast.toUint256(_flowRate), managerRewardPpm)
-        );
+        int256 managerRewardFlowRateShare =
+            SafeCast.toInt256(_scaleAmountByPpm(SafeCast.toUint256(_flowRate), managerRewardPpm));
 
         if (managerRewardFlowRateShare > type(int96).max) revert IFlow.FLOW_RATE_TOO_HIGH();
 
@@ -104,14 +104,13 @@ library FlowRates {
     /**
      * @notice Multiplies an amount by a PPM-scaled share.
      * @param amount Amount to scale by `scaledPpm`.
-     * @param scaledPpm Share scaled by `cfg.ppmScale` (`1_000_000 == 100%`).
+     * @param scaledPpm Share scaled by the protocol PPM scale (`1_000_000 == 100%`).
      * @return scaledAmount Scaled share of `amount`.
      */
     function _scaleAmountByPpm(
-        FlowTypes.Config storage cfg,
         uint256 amount,
         uint256 scaledPpm
-    ) public view returns (uint256) {
-        return Math.mulDiv(amount, scaledPpm, cfg.ppmScale);
+    ) public pure returns (uint256) {
+        return Math.mulDiv(amount, scaledPpm, FlowProtocolConstants.PPM_SCALE);
     }
 }

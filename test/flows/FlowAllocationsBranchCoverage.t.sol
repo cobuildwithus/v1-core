@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { FlowAllocations } from "src/library/FlowAllocations.sol";
 import { AllocationCommitment } from "src/library/AllocationCommitment.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
 
@@ -17,9 +18,8 @@ contract FlowAllocationsCoverageHarness {
     FlowTypes.RecipientsState internal _recipients;
     FlowTypes.AllocationState internal _alloc;
 
-    function configure(address pool, uint32 ppmScale) external {
+    function configure(address pool) external {
         _cfg.distributionPool = ISuperfluidPool(pool);
-        _cfg.ppmScale = ppmScale;
     }
 
     function setRecipient(bytes32 id, address recipient, bool isRemoved, uint32 recipientIndexPlusOne) external {
@@ -105,7 +105,6 @@ contract FlowAllocationsCoveragePool {
 }
 
 contract FlowAllocationsBranchCoverageTest is Test {
-    uint32 internal constant PPM_SCALE = 1_000_000;
     uint256 internal constant ALLOCATION_KEY = 7;
     uint256 internal constant TEST_WEIGHT = 1e21;
 
@@ -121,7 +120,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         pool = new FlowAllocationsCoveragePool();
         strategy = new MockAllocationStrategy();
 
-        harness.configure(address(pool), PPM_SCALE);
+        harness.configure(address(pool));
         harness.setRecipient(ID_A, makeAddr("recipient-a"), false, 1);
         harness.setRecipient(ID_B, makeAddr("recipient-b"), false, 2);
 
@@ -134,15 +133,19 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
-            _scaled(PPM_SCALE),
+            _scaled(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(PPM_SCALE)
+            _scaled(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
     function test_applyMemory_existing_revertsOnPrevCommitMismatch() public {
-        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(_ids(ID_A), _scaled(PPM_SCALE)));
+        harness.setCommit(
+            address(strategy),
+            ALLOCATION_KEY,
+            AllocationCommitment.hashMemory(_ids(ID_A), _scaled(FlowProtocolConstants.PPM_SCALE))
+        );
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
@@ -150,15 +153,19 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_B),
-            _scaled(PPM_SCALE),
+            _scaled(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(PPM_SCALE)
+            _scaled(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
     function test_applyMemory_existing_revertsWhenCachedWeightMissing() public {
-        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(_ids(ID_A), _scaled(PPM_SCALE)));
+        harness.setCommit(
+            address(strategy),
+            ALLOCATION_KEY,
+            AllocationCommitment.hashMemory(_ids(ID_A), _scaled(FlowProtocolConstants.PPM_SCALE))
+        );
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 0);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
@@ -166,10 +173,10 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
-            _scaled(PPM_SCALE),
+            _scaled(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(PPM_SCALE)
+            _scaled(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
@@ -222,7 +229,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_coversNegativeAndPositiveDeltaPaths_thenOverflowsOnPositiveSum() public {
         bytes32[] memory oldIds = _ids(ID_A);
-        uint32[] memory oldScaled = _scaled(PPM_SCALE);
+        uint32[] memory oldScaled = _scaled(FlowProtocolConstants.PPM_SCALE);
 
         harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldScaled));
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
@@ -243,7 +250,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_revertsWhenPoolUnitUpdateFails() public {
         bytes32[] memory oldIds = _ids(ID_A);
-        uint32[] memory oldScaled = _scaled(PPM_SCALE);
+        uint32[] memory oldScaled = _scaled(FlowProtocolConstants.PPM_SCALE);
 
         harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldScaled));
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
@@ -257,7 +264,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
             oldScaled,
             TEST_WEIGHT,
             _ids(ID_B),
-            _scaled(PPM_SCALE)
+            _scaled(FlowProtocolConstants.PPM_SCALE)
         );
     }
 

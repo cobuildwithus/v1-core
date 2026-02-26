@@ -7,6 +7,7 @@ import { FlowPools } from "./FlowPools.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { AllocationCommitment } from "./AllocationCommitment.sol";
 import { AllocationSnapshot } from "./AllocationSnapshot.sol";
+import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 import { FlowUnitMath } from "./FlowUnitMath.sol";
 
 library FlowAllocations {
@@ -41,7 +42,7 @@ library FlowAllocations {
             sum += allocationsPpm[i];
         }
 
-        if (sum != cfg.ppmScale) revert IFlow.INVALID_SCALED_SUM();
+        if (sum != FlowProtocolConstants.PPM_SCALE) revert IFlow.INVALID_SCALED_SUM();
     }
 
     /**
@@ -61,7 +62,7 @@ library FlowAllocations {
         bytes32[] memory newRecipientIds,
         uint32[] memory newAllocationScaled
     ) public {
-        uint256 allocationScale = cfg.ppmScale;
+        uint256 allocationScale = FlowProtocolConstants.PPM_SCALE;
         uint256 newWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
 
         // New inputs must be strictly sorted and unique for canonical hashing and linear merge
