@@ -7,7 +7,7 @@ import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { IGoalLedgerStrategy } from "../interfaces/IGoalLedgerStrategy.sol";
-import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 import { FlowUnitMath } from "./FlowUnitMath.sol";
@@ -65,10 +65,6 @@ library GoalFlowLedgerMode {
 
     function childSyncGasStipend() internal pure returns (uint256) {
         return FlowProtocolConstants.GOAL_LEDGER_CHILD_SYNC_GAS_STIPEND;
-    }
-
-    function budgetTreasurySyncGasStipend() internal pure returns (uint256) {
-        return FlowProtocolConstants.GOAL_LEDGER_BUDGET_TREASURY_SYNC_GAS_STIPEND;
     }
 
     function validateOrRevert(
@@ -161,7 +157,7 @@ library GoalFlowLedgerMode {
         (address treasury, address stakeVault) = validateOrRevertView(strategies, cache, ledger, expectedFlow);
 
         bool goalResolved;
-        try IGoalStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
+        try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
             goalResolved = goalResolved_;
         } catch {
             revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
@@ -170,7 +166,7 @@ library GoalFlowLedgerMode {
             return (0, false);
         }
 
-        try IGoalStakeVault(stakeVault).weightOf(account) returns (uint256 weight_) {
+        try IStakeVault(stakeVault).weightOf(account) returns (uint256 weight_) {
             newWeight = weight_;
         } catch {
             revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
@@ -191,7 +187,7 @@ library GoalFlowLedgerMode {
         (address treasury, address stakeVault) = validateOrRevert(strategies, cache, ledger, expectedFlow);
 
         bool goalResolved;
-        try IGoalStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
+        try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
             goalResolved = goalResolved_;
         } catch {
             revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
