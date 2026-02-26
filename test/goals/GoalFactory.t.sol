@@ -9,6 +9,7 @@ import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { JBTerminalConfig } from "@bananapus/core-v5/structs/JBTerminalConfig.sol";
 import { ISuperfluid } from
     "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
@@ -381,6 +382,61 @@ contract GoalFactoryTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_revertsWhenCobuildPrimaryTerminalUnset() public {
+        GoalFactoryDirectoryProbe directory =
+            new GoalFactoryDirectoryProbe(COBUILD_REVNET_ID, address(cobuildToken), address(0));
+        GoalFactoryREVDeployerProbe deployer = new GoalFactoryREVDeployerProbe(
+            address(directory),
+            address(0),
+            GOAL_OWNER,
+            _defaultDeployParams().revnet.durationSeconds
+        );
+        GoalFactoryHarness factory = _deployFactoryWithOverrides(
+            address(deployer),
+            superfluidHost,
+            budgetTcrFactory,
+            address(cobuildToken),
+            goalTreasuryImpl,
+            flowImpl,
+            splitHookImpl,
+            defaultSubmissionDepositStrategy,
+            defaultBudgetTcrGovernor,
+            defaultInvalidRoundRewardsSink
+        );
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        factory.deployGoal(_defaultDeployParams());
+    }
+
+    function test_deployGoal_revnetDeployForWiresTargetSaltAndStageAutoIssuances() public {
+        vm.warp(1_700_000_000);
+
+        GoalFactory.DeployParams memory p = _defaultDeployParams();
+        p.revnet.owner = makeAddr("saltOwner");
+        p.revnet.durationSeconds = 5 days;
+
+        address expectedTerminal = makeAddr("primaryTerminal");
+        GoalFactoryDirectoryProbe directory =
+            new GoalFactoryDirectoryProbe(COBUILD_REVNET_ID, address(cobuildToken), expectedTerminal);
+        GoalFactoryREVDeployerProbe deployer =
+            new GoalFactoryREVDeployerProbe(address(directory), expectedTerminal, p.revnet.owner, p.revnet.durationSeconds);
+        GoalFactoryHarness factory = _deployFactoryWithOverrides(
+            address(deployer),
+            superfluidHost,
+            budgetTcrFactory,
+            address(cobuildToken),
+            goalTreasuryImpl,
+            flowImpl,
+            splitHookImpl,
+            defaultSubmissionDepositStrategy,
+            defaultBudgetTcrGovernor,
+            defaultInvalidRoundRewardsSink
+        );
+
+        vm.expectRevert(GoalFactoryREVDeployerProbe.DEPLOY_FOR_PROBED.selector);
+        factory.deployGoal(p);
+    }
+
     function test_resolveRegistryConfig_usesDefaultAddressesWhenUnset() public {
         GoalFactoryHarness factory = _deployFactory();
         GoalFactory.BudgetTCRParams memory p = _defaultBudgetTCRParams();
@@ -599,6 +655,99 @@ contract GoalFactoryHarness is GoalFactory {
 }
 
 contract GoalFactoryMockContract { }
+
+contract GoalFactoryDirectoryProbe {
+    error UNEXPECTED_PRIMARY_TERMINAL_ARGS(uint256 projectId, address token);
+
+    uint256 internal immutable _expectedProjectId;
+    address internal immutable _expectedToken;
+    address internal immutable _terminal;
+
+    constructor(uint256 expectedProjectId, address expectedToken, address terminal) {
+        _expectedProjectId = expectedProjectId;
+        _expectedToken = expectedToken;
+        _terminal = terminal;
+    }
+
+    function primaryTerminalOf(uint256 projectId, address token) external view returns (address) {
+        if (projectId != _expectedProjectId || token != _expectedToken) {
+            revert UNEXPECTED_PRIMARY_TERMINAL_ARGS(projectId, token);
+        }
+        return _terminal;
+    }
+}
+
+contract GoalFactoryREVDeployerProbe {
+    error DEPLOY_FOR_PROBED();
+    error INVALID_TARGET_REVNET_ID(uint256 targetRevnetId);
+    error INVALID_DESCRIPTION_SALT(bytes32 actual, bytes32 expected);
+    error INVALID_STAGE_COUNT(uint256 stageCount);
+    error INVALID_AUTO_ISSUANCE_COUNT(uint256 stageIndex, uint256 count);
+    error INVALID_STAGE_START(uint256 stageIndex, uint48 actual, uint48 expected);
+    error INVALID_TERMINAL_CONFIG_COUNT(uint256 terminalConfigCount);
+    error INVALID_TERMINAL(address actual, address expected);
+
+    address internal immutable _directory;
+    address internal immutable _expectedTerminal;
+    address internal immutable _expectedOwner;
+    uint32 internal immutable _expectedDurationSeconds;
+
+    constructor(address directory, address expectedTerminal, address expectedOwner, uint32 expectedDurationSeconds) {
+        _directory = directory;
+        _expectedTerminal = expectedTerminal;
+        _expectedOwner = expectedOwner;
+        _expectedDurationSeconds = expectedDurationSeconds;
+    }
+
+    function DIRECTORY() external view returns (address) {
+        return _directory;
+    }
+
+    function deployFor(
+        uint256 targetRevnetId,
+        IREVDeployer.REVConfig calldata configuration,
+        JBTerminalConfig[] calldata terminalConfigurations,
+        IREVDeployer.REVBuybackHookConfig calldata,
+        IREVDeployer.REVSuckerDeploymentConfig calldata
+    ) external view returns (uint256) {
+        if (targetRevnetId != 0) revert INVALID_TARGET_REVNET_ID(targetRevnetId);
+
+        bytes32 expectedSalt = bytes32(uint256(uint160(_expectedOwner)));
+        if (configuration.description.salt != expectedSalt) {
+            revert INVALID_DESCRIPTION_SALT(configuration.description.salt, expectedSalt);
+        }
+
+        if (configuration.stageConfigurations.length != 2) {
+            revert INVALID_STAGE_COUNT(configuration.stageConfigurations.length);
+        }
+        if (configuration.stageConfigurations[0].autoIssuances.length != 0) {
+            revert INVALID_AUTO_ISSUANCE_COUNT(0, configuration.stageConfigurations[0].autoIssuances.length);
+        }
+        if (configuration.stageConfigurations[1].autoIssuances.length != 0) {
+            revert INVALID_AUTO_ISSUANCE_COUNT(1, configuration.stageConfigurations[1].autoIssuances.length);
+        }
+
+        uint48 expectedStart = uint48(block.timestamp);
+        if (configuration.stageConfigurations[0].startsAtOrAfter != expectedStart) {
+            revert INVALID_STAGE_START(0, configuration.stageConfigurations[0].startsAtOrAfter, expectedStart);
+        }
+
+        uint48 expectedEndStageStart = uint48(block.timestamp + uint256(_expectedDurationSeconds));
+        if (configuration.stageConfigurations[1].startsAtOrAfter != expectedEndStageStart) {
+            revert INVALID_STAGE_START(1, configuration.stageConfigurations[1].startsAtOrAfter, expectedEndStageStart);
+        }
+
+        if (terminalConfigurations.length != 1) {
+            revert INVALID_TERMINAL_CONFIG_COUNT(terminalConfigurations.length);
+        }
+        address terminal = address(terminalConfigurations[0].terminal);
+        if (terminal != _expectedTerminal) {
+            revert INVALID_TERMINAL(terminal, _expectedTerminal);
+        }
+
+        revert DEPLOY_FOR_PROBED();
+    }
+}
 
 contract GoalFactoryTestToken is ERC20 {
     uint8 private immutable _tokenDecimals;
