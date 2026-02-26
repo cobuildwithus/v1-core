@@ -10,6 +10,11 @@ Last verified: 2026-02-24
 - Strict freshness full gate: `pnpm -s verify:full:strict`
 - Follow active full gate logs: `pnpm -s verify:full:tail`
 
+## Temporary Slither Exception
+
+- As of 2026-02-26, Slither excludes `src/swaps/CobuildSwap.sol` in local and CI runs as a temporary risk-acceptance decision while a planned `CobuildSwap` V2 replacement is prepared.
+- This exception is intentionally narrow (single file path) and should be removed once V2 lands.
+
 ## Required Checks Matrix
 
 | Change scope | Required action | Notes |

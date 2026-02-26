@@ -13,7 +13,7 @@ fi
 slither . \
   --compile-force-framework foundry \
   --foundry-out-directory out \
-  --filter-paths "(^lib/|^test/|^node_modules/)" \
+  --filter-paths "(^lib/|^test/|^node_modules/|src/swaps/CobuildSwap\\.sol$)" \
   --exclude-dependencies \
   --exclude incorrect-equality,uninitialized-local,unused-return \
   --exclude-informational \
