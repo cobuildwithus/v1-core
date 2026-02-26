@@ -72,6 +72,12 @@ contract GoalFactory {
         string title;
         string description;
         string image;
+        string tagline;
+        string url;
+    }
+
+    struct FlowConfigParams {
+        uint32 managerRewardPoolFlowRatePpm;
     }
 
     struct BudgetTCRParams {
@@ -98,6 +104,7 @@ contract GoalFactory {
         SuccessParams success;
         SettlementParams settlement;
         FlowMetadataParams flowMetadata;
+        FlowConfigParams flowConfig;
         BudgetTCRParams budgetTCR;
         address rentRecipient;
         uint256 rentWadPerSecond;
@@ -190,7 +197,12 @@ contract GoalFactory {
             revert INVALID_ASSERTION_CONFIG();
         }
 
-        if (p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6) revert INVALID_SCALE();
+        if (
+            p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6
+                || p.flowConfig.managerRewardPoolFlowRatePpm > SCALE_1E6
+        ) {
+            revert INVALID_SCALE();
+        }
 
         GoalTreasury goalTreasury = GoalTreasury(Clones.clone(GOAL_TREASURY_IMPL));
         GoalRevnetSplitHook splitHook = GoalRevnetSplitHook(payable(Clones.clone(SPLIT_HOOK_IMPL)));
@@ -284,6 +296,9 @@ contract GoalFactory {
             flowTitle: p.flowMetadata.title,
             flowDescription: p.flowMetadata.description,
             flowImage: p.flowMetadata.image,
+            flowTagline: p.flowMetadata.tagline,
+            flowUrl: p.flowMetadata.url,
+            managerRewardPoolFlowRatePpm: p.flowConfig.managerRewardPoolFlowRatePpm,
             rentRecipient: p.rentRecipient,
             rentWadPerSecond: p.rentWadPerSecond,
             burnAddress: BURN_ADDRESS,

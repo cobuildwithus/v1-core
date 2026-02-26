@@ -42,6 +42,9 @@ library GoalFactoryCoreStackDeploy {
         string flowTitle;
         string flowDescription;
         string flowImage;
+        string flowTagline;
+        string flowUrl;
+        uint32 managerRewardPoolFlowRatePpm;
         address rentRecipient;
         uint256 rentWadPerSecond;
         address burnAddress;
@@ -76,10 +79,13 @@ library GoalFactoryCoreStackDeploy {
             request.superfluidHost, request.goalToken, request.revnetName, request.revnetTicker
         );
 
+        IERC20 goalToken = IERC20(request.goalToken);
+        IERC20 cobuildToken = IERC20(request.cobuildToken);
+
         out.stakeVault = new StakeVault(
             address(out.goalTreasury),
-            IERC20(request.goalToken),
-            IERC20(request.cobuildToken),
+            goalToken,
+            cobuildToken,
             request.rulesets,
             request.goalRevnetId,
             request.cobuildDecimals,
@@ -93,13 +99,23 @@ library GoalFactoryCoreStackDeploy {
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
 
-        IFlow.FlowParams memory flowParams = IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 });
+        out.rewardEscrow = new RewardEscrow(
+            address(out.goalTreasury),
+            goalToken,
+            out.stakeVault,
+            out.goalSuperToken,
+            out.budgetStakeLedger
+        );
+
+        IFlow.FlowParams memory flowParams = IFlow.FlowParams({
+            managerRewardPoolFlowRatePpm: request.managerRewardPoolFlowRatePpm
+        });
         FlowTypes.RecipientMetadata memory metadata = FlowTypes.RecipientMetadata({
             title: request.flowTitle,
             description: request.flowDescription,
             image: request.flowImage,
-            tagline: "",
-            url: ""
+            tagline: request.flowTagline,
+            url: request.flowUrl
         });
 
         out.goalFlow.initialize(
@@ -108,20 +124,12 @@ library GoalFactoryCoreStackDeploy {
             request.predictedBudgetTcr,
             address(out.goalTreasury),
             address(out.goalTreasury),
-            address(0),
+            address(out.rewardEscrow),
             address(allocationPipeline),
             address(0),
             flowParams,
             metadata,
             allocationStrategies
-        );
-
-        out.rewardEscrow = new RewardEscrow(
-            address(out.goalTreasury),
-            IERC20(request.goalToken),
-            out.stakeVault,
-            out.goalSuperToken,
-            out.budgetStakeLedger
         );
 
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({
