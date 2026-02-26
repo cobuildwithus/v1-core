@@ -8,36 +8,27 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 library TreasuryDonations {
     using SafeERC20 for IERC20;
 
-    function donateSuperTokenToFlow(
-        ISuperToken superToken,
-        address donor,
-        address flow,
-        uint256 amount
-    ) internal returns (uint256 received) {
-        uint256 flowBalanceBefore = superToken.balanceOf(flow);
-        IERC20(address(superToken)).safeTransferFrom(donor, flow, amount);
-        received = superToken.balanceOf(flow) - flowBalanceBefore;
-    }
-
     function donateUnderlyingAndUpgradeToFlow(
         ISuperToken superToken,
         address donor,
         address flow,
         uint256 amount
     ) internal returns (uint256 received, address underlyingTokenAddress) {
-        IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
-        underlyingTokenAddress = address(underlyingToken);
+        address superTokenAddress = address(superToken);
+        underlyingTokenAddress = superToken.getUnderlyingToken();
+        IERC20 underlyingToken = IERC20(underlyingTokenAddress);
+        IERC20 flowSuperToken = IERC20(superTokenAddress);
         underlyingToken.safeTransferFrom(donor, address(this), amount);
 
-        uint256 superTokenBefore = IERC20(address(superToken)).balanceOf(address(this));
-        underlyingToken.forceApprove(address(superToken), 0);
-        underlyingToken.forceApprove(address(superToken), amount);
+        uint256 superTokenBefore = flowSuperToken.balanceOf(address(this));
+        underlyingToken.forceApprove(superTokenAddress, 0);
+        underlyingToken.forceApprove(superTokenAddress, amount);
         superToken.upgrade(amount);
-        underlyingToken.forceApprove(address(superToken), 0);
+        underlyingToken.forceApprove(superTokenAddress, 0);
 
-        received = IERC20(address(superToken)).balanceOf(address(this)) - superTokenBefore;
+        received = flowSuperToken.balanceOf(address(this)) - superTokenBefore;
         if (received == 0) return (0, underlyingTokenAddress);
 
-        IERC20(address(superToken)).safeTransfer(flow, received);
+        flowSuperToken.safeTransfer(flow, received);
     }
 }
