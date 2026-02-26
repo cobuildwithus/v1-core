@@ -306,6 +306,38 @@ contract UMATreasurySuccessResolverTest is Test {
         resolver.assertSuccess(address(budgetTreasury), "ipfs://budget-reassert-after-deadline");
     }
 
+    function test_settleAndFinalize_truthfulRevertsWhenTreasuryResolveFails_rollsBackSettlementState() public {
+        vm.prank(ASSERTER);
+        bytes32 assertionId = resolver.assertSuccess(address(goalTreasury), "ipfs://truthful-revert");
+
+        mockOracle.setSettlementOutcome(assertionId, true, false);
+        goalTreasury.setResolveSuccessShouldRevert(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UMATreasurySuccessResolver.TREASURY_RESOLVE_SUCCESS_FAILED.selector,
+                address(goalTreasury),
+                assertionId
+            )
+        );
+        resolver.settleAndFinalize(assertionId);
+
+        assertEq(resolver.activeAssertionOfTreasury(address(goalTreasury)), assertionId);
+        assertEq(goalTreasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(goalTreasury.resolveSuccessCalls(), 0);
+        assertEq(goalTreasury.clearSuccessAssertionCalls(), 0);
+
+        (,,,, bool disputed, bool resolved_, bool truthful, bool finalized) = resolver.assertionMeta(assertionId);
+        assertFalse(disputed);
+        assertFalse(resolved_);
+        assertFalse(truthful);
+        assertFalse(finalized);
+
+        goalTreasury.setResolveSuccessShouldRevert(false);
+        bool applied = resolver.settleAndFinalize(assertionId);
+        assertTrue(applied);
+    }
+
     function test_finalize_truthfulRevertsWhenTreasuryResolveFails() public {
         bytes32 assertionId = _assertSuccessAndSettle("ipfs://blocked", true, false);
         goalTreasury.setResolveSuccessShouldRevert(true);
@@ -416,7 +448,7 @@ contract UMATreasurySuccessResolverTest is Test {
         bytes32 assertionId = _assertSuccessAndSettle("ipfs://inactive-assertion", true, false);
         bytes32 differentAssertionId = keccak256("different-active-assertion");
 
-        bytes32 activeSlot = keccak256(abi.encode(address(goalTreasury), uint256(0)));
+        bytes32 activeSlot = _findActiveAssertionStorageSlot(address(goalTreasury), assertionId);
         vm.store(address(resolver), activeSlot, differentAssertionId);
 
         vm.expectRevert(
@@ -467,12 +499,112 @@ contract UMATreasurySuccessResolverTest is Test {
         assertTrue(_contains(claim, "type: BUDGET"));
     }
 
+    function test_finalize_blocksCrossFunctionReentrancyAcrossGuardedEntrypoints() public {
+        MockGoalAssertionTreasury assertTargetTreasury = _newConfiguredGoalTreasury();
+        MockGoalAssertionTreasury settleTargetTreasury = _newConfiguredGoalTreasury();
+        MockGoalAssertionTreasury finalizeTargetTreasury = _newConfiguredGoalTreasury();
+        MockGoalAssertionTreasury settleAndFinalizeTargetTreasury = _newConfiguredGoalTreasury();
+
+        MockReentrantGoalAssertionTreasury reentrantTreasury = new MockReentrantGoalAssertionTreasury(address(resolver));
+        reentrantTreasury.configure({
+            resolver_: address(resolver),
+            liveness_: 12 hours,
+            bond_: 100e6,
+            specHash_: SPEC_HASH,
+            policyHash_: POLICY_HASH,
+            deadline_: uint64(block.timestamp + 7 days)
+        });
+
+        usdc.mint(address(reentrantTreasury), 1_000e6);
+        reentrantTreasury.approveAssertionCurrency(IERC20(address(usdc)), address(resolver), type(uint256).max);
+
+        vm.startPrank(ASSERTER);
+        bytes32 settleTargetAssertionId = resolver.assertSuccess(address(settleTargetTreasury), "ipfs://settle-target");
+        bytes32 finalizeTargetAssertionId = resolver.assertSuccess(address(finalizeTargetTreasury), "ipfs://finalize-target");
+        bytes32 settleAndFinalizeTargetAssertionId =
+            resolver.assertSuccess(address(settleAndFinalizeTargetTreasury), "ipfs://settle-and-finalize-target");
+        vm.stopPrank();
+
+        mockOracle.setSettlementOutcome(finalizeTargetAssertionId, true, false);
+        resolver.settle(finalizeTargetAssertionId);
+
+        vm.prank(ASSERTER);
+        bytes32 outerAssertionId = resolver.assertSuccess(address(reentrantTreasury), "ipfs://outer");
+        mockOracle.setSettlementOutcome(outerAssertionId, true, false);
+        resolver.settle(outerAssertionId);
+
+        reentrantTreasury.configureReentryTargets({
+            assertSuccessTargetTreasury_: address(assertTargetTreasury),
+            settleTargetAssertionId_: settleTargetAssertionId,
+            finalizeTargetAssertionId_: finalizeTargetAssertionId,
+            settleAndFinalizeTargetAssertionId_: settleAndFinalizeTargetAssertionId
+        });
+
+        bool applied = resolver.finalize(outerAssertionId);
+        assertTrue(applied);
+
+        assertTrue(reentrantTreasury.reentryAttempted());
+        assertTrue(reentrantTreasury.assertSuccessBlocked());
+        assertTrue(reentrantTreasury.settleBlocked());
+        assertTrue(reentrantTreasury.finalizeBlocked());
+        assertTrue(reentrantTreasury.settleAndFinalizeBlocked());
+
+        assertEq(resolver.activeAssertionOfTreasury(address(assertTargetTreasury)), bytes32(0));
+        assertEq(assertTargetTreasury.pendingSuccessAssertionId(), bytes32(0));
+
+        assertEq(resolver.activeAssertionOfTreasury(address(settleTargetTreasury)), settleTargetAssertionId);
+        assertEq(settleTargetTreasury.pendingSuccessAssertionId(), settleTargetAssertionId);
+        (,,,, bool settleDisputed, bool settleResolved, bool settleTruthful, bool settleFinalized) =
+            resolver.assertionMeta(settleTargetAssertionId);
+        assertFalse(settleDisputed);
+        assertFalse(settleResolved);
+        assertFalse(settleTruthful);
+        assertFalse(settleFinalized);
+
+        assertEq(resolver.activeAssertionOfTreasury(address(finalizeTargetTreasury)), finalizeTargetAssertionId);
+        assertEq(finalizeTargetTreasury.pendingSuccessAssertionId(), finalizeTargetAssertionId);
+        assertEq(finalizeTargetTreasury.resolveSuccessCalls(), 0);
+        (,,,, bool finalizeDisputed, bool finalizeResolved, bool finalizeTruthful, bool finalizeFinalized) =
+            resolver.assertionMeta(finalizeTargetAssertionId);
+        assertFalse(finalizeDisputed);
+        assertTrue(finalizeResolved);
+        assertTrue(finalizeTruthful);
+        assertFalse(finalizeFinalized);
+
+        assertEq(
+            resolver.activeAssertionOfTreasury(address(settleAndFinalizeTargetTreasury)),
+            settleAndFinalizeTargetAssertionId
+        );
+        assertEq(
+            settleAndFinalizeTargetTreasury.pendingSuccessAssertionId(),
+            settleAndFinalizeTargetAssertionId
+        );
+        (,,,, bool settleAndFinalizeDisputed, bool settleAndFinalizeResolved, bool settleAndFinalizeTruthful, bool
+            settleAndFinalizeFinalized) = resolver.assertionMeta(settleAndFinalizeTargetAssertionId);
+        assertFalse(settleAndFinalizeDisputed);
+        assertFalse(settleAndFinalizeResolved);
+        assertFalse(settleAndFinalizeTruthful);
+        assertFalse(settleAndFinalizeFinalized);
+    }
+
     function _stringOfLength(uint256 length) internal pure returns (string memory value) {
         bytes memory buffer = new bytes(length);
         for (uint256 i = 0; i < length; i++) {
             buffer[i] = bytes1("a");
         }
         value = string(buffer);
+    }
+
+    function _newConfiguredGoalTreasury() internal returns (MockGoalAssertionTreasury treasury) {
+        treasury = new MockGoalAssertionTreasury();
+        treasury.configure({
+            resolver_: address(resolver),
+            liveness_: 12 hours,
+            bond_: 100e6,
+            specHash_: SPEC_HASH,
+            policyHash_: POLICY_HASH,
+            deadline_: uint64(block.timestamp + 7 days)
+        });
     }
 
     function _assertSuccessAndSettle(string memory evidence, bool truthful, bool disputed)
@@ -490,6 +622,21 @@ contract UMATreasurySuccessResolverTest is Test {
         assertEq(goalTreasury.pendingSuccessAssertionId(), assertionId);
         (,,,,,,, bool finalized) = resolver.assertionMeta(assertionId);
         assertFalse(finalized);
+    }
+
+    function _findActiveAssertionStorageSlot(address treasury, bytes32 expectedAssertionId)
+        internal
+        view
+        returns (bytes32 slot)
+    {
+        for (uint256 mappingSlot = 0; mappingSlot < 8; mappingSlot++) {
+            bytes32 candidate = keccak256(abi.encode(treasury, mappingSlot));
+            if (vm.load(address(resolver), candidate) == expectedAssertionId) {
+                return candidate;
+            }
+        }
+
+        revert("ACTIVE_ASSERTION_SLOT_NOT_FOUND");
     }
 
     function _contains(string memory haystack, string memory needle) internal pure returns (bool) {
@@ -779,5 +926,143 @@ contract MockBudgetAssertionTreasury is ISuccessAssertionTreasury {
 
         delete _pendingAssertionId;
         delete pendingSuccessAssertionAt;
+    }
+}
+
+contract MockReentrantGoalAssertionTreasury is ISuccessAssertionTreasury {
+    error ONLY_RESOLVER();
+    error INVALID_STATE();
+    error INVALID_REENTRY_RESULTS();
+
+    bytes4 internal constant REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR =
+        bytes4(keccak256("ReentrancyGuardReentrantCall()"));
+
+    address public override successResolver;
+    uint64 public override successAssertionLiveness;
+    uint256 public override successAssertionBond;
+    bytes32 public override successOracleSpecHash;
+    bytes32 public override successAssertionPolicyHash;
+
+    uint64 public deadline;
+    uint64 public pendingSuccessAssertionAt;
+
+    bytes32 internal _pendingAssertionId;
+
+    address public assertSuccessTargetTreasury;
+    bytes32 public settleTargetAssertionId;
+    bytes32 public finalizeTargetAssertionId;
+    bytes32 public settleAndFinalizeTargetAssertionId;
+
+    bool public reentryAttempted;
+    bool public assertSuccessBlocked;
+    bool public settleBlocked;
+    bool public finalizeBlocked;
+    bool public settleAndFinalizeBlocked;
+
+    uint256 public resolveSuccessCalls;
+    uint256 public clearSuccessAssertionCalls;
+
+    constructor(address resolver_) {
+        successResolver = resolver_;
+    }
+
+    function configure(
+        address resolver_,
+        uint64 liveness_,
+        uint256 bond_,
+        bytes32 specHash_,
+        bytes32 policyHash_,
+        uint64 deadline_
+    ) external {
+        successResolver = resolver_;
+        successAssertionLiveness = liveness_;
+        successAssertionBond = bond_;
+        successOracleSpecHash = specHash_;
+        successAssertionPolicyHash = policyHash_;
+        deadline = deadline_;
+    }
+
+    function configureReentryTargets(
+        address assertSuccessTargetTreasury_,
+        bytes32 settleTargetAssertionId_,
+        bytes32 finalizeTargetAssertionId_,
+        bytes32 settleAndFinalizeTargetAssertionId_
+    ) external {
+        assertSuccessTargetTreasury = assertSuccessTargetTreasury_;
+        settleTargetAssertionId = settleTargetAssertionId_;
+        finalizeTargetAssertionId = finalizeTargetAssertionId_;
+        settleAndFinalizeTargetAssertionId = settleAndFinalizeTargetAssertionId_;
+    }
+
+    function approveAssertionCurrency(IERC20 token, address spender, uint256 amount) external {
+        token.approve(spender, amount);
+    }
+
+    function pendingSuccessAssertionId() external view returns (bytes32) {
+        return _pendingAssertionId;
+    }
+
+    function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
+        return ISuccessAssertionTreasury.TreasuryKind.Goal;
+    }
+
+    function registerSuccessAssertion(bytes32 assertionId) external override {
+        if (msg.sender != successResolver) revert ONLY_RESOLVER();
+        if (assertionId == bytes32(0)) revert INVALID_STATE();
+        if (_pendingAssertionId != bytes32(0)) revert INVALID_STATE();
+        if (block.timestamp >= deadline) revert INVALID_STATE();
+
+        _pendingAssertionId = assertionId;
+        pendingSuccessAssertionAt = uint64(block.timestamp);
+    }
+
+    function clearSuccessAssertion(bytes32 assertionId) external override {
+        if (msg.sender != successResolver) revert ONLY_RESOLVER();
+        if (_pendingAssertionId != assertionId) revert INVALID_STATE();
+
+        delete _pendingAssertionId;
+        delete pendingSuccessAssertionAt;
+        clearSuccessAssertionCalls += 1;
+    }
+
+    function resolveSuccess() external override {
+        if (msg.sender != successResolver) revert ONLY_RESOLVER();
+        if (_pendingAssertionId == bytes32(0)) revert INVALID_STATE();
+
+        reentryAttempted = true;
+        assertSuccessBlocked = _attemptReentry(
+            abi.encodeCall(
+                UMATreasurySuccessResolver.assertSuccess,
+                (assertSuccessTargetTreasury, "ipfs://reentry-assert-success")
+            )
+        );
+        settleBlocked =
+            _attemptReentry(abi.encodeCall(UMATreasurySuccessResolver.settle, (settleTargetAssertionId)));
+        finalizeBlocked =
+            _attemptReentry(abi.encodeCall(UMATreasurySuccessResolver.finalize, (finalizeTargetAssertionId)));
+        settleAndFinalizeBlocked = _attemptReentry(
+            abi.encodeCall(
+                UMATreasurySuccessResolver.settleAndFinalize,
+                (settleAndFinalizeTargetAssertionId)
+            )
+        );
+        if (!(assertSuccessBlocked && settleBlocked && finalizeBlocked && settleAndFinalizeBlocked)) {
+            revert INVALID_REENTRY_RESULTS();
+        }
+
+        delete _pendingAssertionId;
+        delete pendingSuccessAssertionAt;
+        resolveSuccessCalls += 1;
+    }
+
+    function _attemptReentry(bytes memory payload) internal returns (bool blockedByReentrancyGuard) {
+        (bool success, bytes memory returnData) = successResolver.call(payload);
+        if (success || returnData.length < 4) return false;
+
+        bytes4 selector;
+        assembly {
+            selector := mload(add(returnData, 32))
+        }
+        blockedByReentrancyGuard = selector == REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR;
     }
 }
