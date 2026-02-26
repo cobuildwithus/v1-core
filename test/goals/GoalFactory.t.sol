@@ -364,19 +364,10 @@ contract GoalFactoryTest is Test {
         factory.deployGoal(p);
     }
 
-    function test_deployGoal_revertsWhenSettlementEscrowScaleExceedsOneE6() public {
+    function test_deployGoal_revertsWhenSuccessSettlementRewardEscrowPpmExceedsOneE6() public {
         GoalFactoryHarness factory = _deployFactory();
         GoalFactory.DeployParams memory p = _defaultDeployParams();
-        p.settlement.settlementRewardEscrowScaled = SCALE_1E6 + 1;
-
-        vm.expectRevert(GoalFactory.INVALID_SCALE.selector);
-        factory.deployGoal(p);
-    }
-
-    function test_deployGoal_revertsWhenTreasurySettlementEscrowScaleExceedsOneE6() public {
-        GoalFactoryHarness factory = _deployFactory();
-        GoalFactory.DeployParams memory p = _defaultDeployParams();
-        p.settlement.treasurySettlementRewardEscrowScaled = SCALE_1E6 + 1;
+        p.settlement.successSettlementRewardEscrowPpm = SCALE_1E6 + 1;
 
         vm.expectRevert(GoalFactory.INVALID_SCALE.selector);
         factory.deployGoal(p);
@@ -592,8 +583,7 @@ contract GoalFactoryTest is Test {
             successAssertionPolicyHash: keccak256("assertion-policy")
         });
         p.settlement = GoalFactory.SettlementParams({
-            settlementRewardEscrowScaled: SCALE_1E6,
-            treasurySettlementRewardEscrowScaled: SCALE_1E6
+            successSettlementRewardEscrowPpm: SCALE_1E6
         });
         p.flowMetadata = GoalFactory.FlowMetadataParams({
             title: "Goal title",

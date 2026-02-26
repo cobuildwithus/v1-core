@@ -86,8 +86,7 @@ contract GoalFactory {
     }
 
     struct SettlementParams {
-        uint32 settlementRewardEscrowScaled;
-        uint32 treasurySettlementRewardEscrowScaled;
+        uint32 successSettlementRewardEscrowPpm;
     }
 
     struct FlowMetadataParams {
@@ -209,8 +208,7 @@ contract GoalFactory {
         if (p.success.successOracleSpecHash == bytes32(0)) revert INVALID_ASSERTION_CONFIG();
         if (p.success.successAssertionPolicyHash == bytes32(0)) revert INVALID_ASSERTION_CONFIG();
 
-        if (p.settlement.settlementRewardEscrowScaled > SCALE_1E6) revert INVALID_SCALE();
-        if (p.settlement.treasurySettlementRewardEscrowScaled > SCALE_1E6) revert INVALID_SCALE();
+        if (p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6) revert INVALID_SCALE();
 
         GoalTreasury goalTreasury = GoalTreasury(Clones.clone(GOAL_TREASURY_IMPL));
         GoalRevnetSplitHook splitHook = GoalRevnetSplitHook(payable(Clones.clone(SPLIT_HOOK_IMPL)));
@@ -375,7 +373,7 @@ contract GoalFactory {
             goalRevnetId: goalRevnetId,
             minRaiseDeadline: minRaiseDeadline,
             minRaise: p.timing.minRaise,
-            treasurySettlementRewardEscrowScaled: p.settlement.treasurySettlementRewardEscrowScaled,
+            successSettlementRewardEscrowPpm: p.settlement.successSettlementRewardEscrowPpm,
             successResolver: p.success.successResolver,
             successAssertionLiveness: p.success.successAssertionLiveness,
             successAssertionBond: p.success.successAssertionBond,

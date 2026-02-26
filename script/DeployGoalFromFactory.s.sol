@@ -15,8 +15,7 @@ contract DeployGoalFromFactory is Script {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
 
-        address factoryAddr = vm.envAddress("GOAL_FACTORY");
-        GoalFactory factory = GoalFactory(factoryAddr);
+        GoalFactory factory = GoalFactory(vm.envAddress("GOAL_FACTORY"));
 
         address goalOwner = vm.envOr("GOAL_OWNER", deployer);
         string memory goalName = vm.envOr("GOAL_NAME", string("Test Goal"));
@@ -31,14 +30,15 @@ contract DeployGoalFromFactory is Script {
         uint256 minRaise = vm.envOr("GOAL_MIN_RAISE", uint256(100e18));
         uint32 minRaiseWindow = uint32(vm.envOr("GOAL_MIN_RAISE_WINDOW_SECONDS", uint256(0)));
 
-        address successResolver = vm.envOr("SUCCESS_RESOLVER", BURN);
+        address defaultSuccessResolver = vm.envOr("FAKE_SUCCESS_RESOLVER", BURN);
+        address successResolver = vm.envOr("SUCCESS_RESOLVER", defaultSuccessResolver);
         uint64 successLiveness = uint64(vm.envOr("SUCCESS_LIVENESS", uint256(1 hours)));
         uint256 successBond = vm.envOr("SUCCESS_BOND", uint256(0));
         bytes32 specHash = keccak256(bytes(vm.envOr("SUCCESS_SPEC", string("FAKE_SPEC"))));
         bytes32 policyHash = keccak256(bytes(vm.envOr("SUCCESS_POLICY", string("FAKE_POLICY"))));
 
-        uint32 settlementPpm = uint32(vm.envOr("SETTLEMENT_ESCROW_PPM", uint256(1_000_000)));
-        uint32 treasurySettlementPpm = uint32(vm.envOr("TREASURY_SETTLEMENT_ESCROW_PPM", uint256(1_000_000)));
+        uint32 successSettlementRewardEscrowPpm =
+            uint32(vm.envOr("SUCCESS_SETTLEMENT_REWARD_ESCROW_PPM", uint256(1_000_000)));
 
         string memory flowTitle = vm.envOr("FLOW_TITLE", string("Goal"));
         string memory flowDesc = vm.envOr("FLOW_DESC", string("Goal flow"));
@@ -66,7 +66,7 @@ contract DeployGoalFromFactory is Script {
         IBudgetTCR.OracleValidationBounds memory oracleBounds = IBudgetTCR.OracleValidationBounds({
             maxOracleType: uint8(vm.envOr("TCR_MAX_ORACLE_TYPE", uint256(1))),
             liveness: uint64(vm.envOr("TCR_ORACLE_LIVENESS", uint256(1))),
-            bondAmount: vm.envOr("TCR_ORACLE_BOND", uint256(0))
+            bondAmount: vm.envOr("TCR_ORACLE_BOND", uint256(1))
         });
 
         IArbitrator.ArbitratorParams memory arbParams = IArbitrator.ArbitratorParams({
@@ -98,8 +98,7 @@ contract DeployGoalFromFactory is Script {
                 successAssertionPolicyHash: policyHash
             }),
             settlement: GoalFactory.SettlementParams({
-                settlementRewardEscrowScaled: settlementPpm,
-                treasurySettlementRewardEscrowScaled: treasurySettlementPpm
+                successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm
             }),
             flowMetadata: GoalFactory.FlowMetadataParams({
                 title: flowTitle,
@@ -132,6 +131,8 @@ contract DeployGoalFromFactory is Script {
         vm.stopBroadcast();
 
         console2.log("Goal deployed by:", deployer);
+        console2.log("successResolver:", successResolver);
+        console2.log("budgetSuccessResolver:", budgetSuccessResolver);
         console2.log("goalRevnetId:", out.goalRevnetId);
         console2.log("goalToken:", out.goalToken);
         console2.log("goalSuperToken:", out.goalSuperToken);
