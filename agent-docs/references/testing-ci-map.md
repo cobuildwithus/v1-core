@@ -3,6 +3,7 @@
 ## Local Verification Baseline
 
 - `pnpm -s verify:required`
+- `pnpm -s verify:required:ci` (optional local CI parity, includes invariants)
 - `bash scripts/check-agent-docs-drift.sh`
 - `bash scripts/doc-gardening.sh --fail-on-issues`
 
@@ -29,7 +30,7 @@
 - Queue defaults: `VERIFY_QUEUE_BATCH_WINDOW_SECONDS=5`, `VERIFY_QUEUE_MAX_BATCH=50`, `VERIFY_QUEUE_WORKER_LANES=4`.
 - Queue coalescing: duplicate pending requests for the same fingerprint are coalesced (`required` can reuse pending `required/full`; `full` reuses pending `full`).
 - Worker lanes run in parallel across different fingerprints with per-lane Foundry out/cache isolation.
-- Simplified aliases: `pnpm -s verify:required`, `pnpm -s verify:required:full`.
+- Simplified aliases: `pnpm -s verify:required`, `pnpm -s verify:required:ci`, `pnpm -s verify:required:full`.
 - Scoped flow-focused pass: `pnpm -s test:flows:shared`.
 - Scoped goal/treasury-focused pass: `pnpm -s test:goals:shared`.
 - Scoped TCR/arbitrator-focused pass: `pnpm -s test:tcr:shared`.
@@ -39,6 +40,7 @@
 - Fast local coverage feedback: `pnpm -s coverage:quick` (coverage-ci profile, no invariant path, reduced fuzz).
 - Avoid concurrent `pnpm -s coverage` runs when multiple agents are active.
 - Multi-agent loop recommendation: iterate on scoped lanes, then run one final required gate (`pnpm -s verify:required`) before handoff; use full gate only when explicitly requested.
+- Use `pnpm -s verify:required:ci` only when CI-lane parity is explicitly needed during local work.
 - If required verification is queued/running, proceed with simplify + test-coverage passes in parallel instead of waiting idle, then run completion audit on the finalized diff.
 - Final handoff remains gated on green required checks after any audit-driven edits are applied.
 

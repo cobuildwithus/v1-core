@@ -4,12 +4,14 @@ Last verified: 2026-02-26
 
 ## Verification Commands
 
-- Default Solidity gate: `pnpm -s verify:required`
+- Default Solidity gate (local-fast): `pnpm -s verify:required`
+- CI-parity Solidity gate (includes invariants): `pnpm -s verify:required:ci`
 - Optional full gate (only when requested): `pnpm -s verify:required:full`
 - Serialized full gate with shared logs: `pnpm -s verify:full`
 - Strict freshness full gate: `pnpm -s verify:full:strict`
 - Follow active full gate logs: `pnpm -s verify:full:tail`
-- Required gate composition: `pnpm -s build` + `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
+- Local required gate composition: `pnpm -s build` + `pnpm -s test:lite:shared`
+- CI-parity gate composition: `pnpm -s build` + `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
 
 ## Temporary Slither Exception
 
