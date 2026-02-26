@@ -4,9 +4,9 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "./interfaces/IBudgetTCRStackDeployer.sol";
-import { IBudgetTCRValidator } from "./interfaces/IBudgetTCRValidator.sol";
 import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
 import { BudgetTCRItems } from "./library/BudgetTCRItems.sol";
+import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
@@ -26,7 +26,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         DeploymentConfig calldata deploymentConfig
     ) external initializer {
         if (deploymentConfig.stackDeployer == address(0)) revert ADDRESS_ZERO();
-        if (deploymentConfig.itemValidator == address(0)) revert ADDRESS_ZERO();
         if (deploymentConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalFlow) == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalTreasury) == address(0)) revert ADDRESS_ZERO();
@@ -55,7 +54,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         paymentTokenDecimals = deploymentConfig.paymentTokenDecimals;
 
         stackDeployer = deploymentConfig.stackDeployer;
-        itemValidator = deploymentConfig.itemValidator;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
         managerRewardPool = deploymentConfig.managerRewardPool;
         budgetValidationBounds = budgetBounds;
@@ -78,13 +76,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function _verifyItemData(bytes calldata item) internal view override returns (bool valid) {
-        return
-            IBudgetTCRValidator(itemValidator).verifyItemData(
-                item,
-                budgetValidationBounds,
-                oracleValidationBounds,
-                goalTreasury.deadline()
-            );
+        return BudgetTCRValidationLib.verifyItemData(item, budgetValidationBounds, oracleValidationBounds, goalTreasury.deadline());
     }
 
     function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
@@ -222,16 +214,16 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         address budgetStakeLedger = _budgetStakeLedger();
-        IBudgetTCRStackDeployer.PreparationResult memory prepared = IBudgetTCRStackDeployer(stackDeployer)
-            .prepareBudgetStack(
-                goalToken,
-                cobuildToken,
-                goalRulesets,
-                goalRevnetId,
-                paymentTokenDecimals,
-                budgetStakeLedger,
-                itemID
-            );
+        IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(stackDeployer);
+        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+            goalToken,
+            cobuildToken,
+            goalRulesets,
+            goalRevnetId,
+            paymentTokenDecimals,
+            budgetStakeLedger,
+            itemID
+        );
 
         IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
         childStrategies[0] = IAllocationStrategy(prepared.strategy);
@@ -249,10 +241,11 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             childStrategies
         );
 
-        address preparedBudgetTreasury = prepared.budgetTreasury;
-        emit BudgetStackDeployed(itemID, childFlow, preparedBudgetTreasury, prepared.stakeVault, prepared.strategy);
+        deployer.registerChildFlowRecipient(itemID, childFlow);
 
-        address deployedBudgetTreasury = IBudgetTCRStackDeployer(stackDeployer).deployBudgetTreasury(
+        emit BudgetStackDeployed(itemID, childFlow, prepared.budgetTreasury, prepared.stakeVault, prepared.strategy);
+
+        address deployedBudgetTreasury = deployer.deployBudgetTreasury(
             prepared.stakeVault,
             childFlow,
             listing,
@@ -260,7 +253,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             oracleValidationBounds.liveness,
             oracleValidationBounds.bondAmount
         );
-        if (deployedBudgetTreasury != preparedBudgetTreasury) revert BUDGET_TREASURY_MISMATCH();
+        if (deployedBudgetTreasury != prepared.budgetTreasury) revert BUDGET_TREASURY_MISMATCH();
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, deployedBudgetTreasury);
 
         _budgetDeployments[itemID] = BudgetDeployment({
