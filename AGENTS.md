@@ -39,6 +39,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Other clearly small, low-risk changes (for example comment-only edits or narrowly scoped mechanical updates with no behavior change) may skip completion workflow subagent passes.
 - Always keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current for every coding task (single-agent and multi-agent): claim scope before first edit, list planned symbol add/rename/delete work, and remove your entry when done.
 - Any spawned subagent that may review or edit code must check `COORDINATION_LEDGER.md` first and must not overwrite/revert work owned by another active entry.
+- Spawned subagents must not run repository verification/build/test commands by default (for example `pnpm -s verify:required`, `pnpm -s verify:required:ci`, `pnpm -s verify:required:full`, `pnpm test`, `pnpm build`, `forge test`); parent agents own those runs and execute them during completion workflow passes (`simplify`, `test-coverage-audit`, `task-finish-review`) or when explicitly delegated.
 - Release ownership is user-operated: do not run release/version-bump/publish flows (including tag-push release triggers) unless the user explicitly asks in the current turn.
 - Never lower CI coverage minimums without explicit user approval in the current chat; keep both `COVERAGE_LINES_MIN` and `COVERAGE_BRANCHES_MIN` at `85` or higher.
 - If a task appears to require a `lib/**` change, stop and ask the user for explicit approval and an alternative approach first.
