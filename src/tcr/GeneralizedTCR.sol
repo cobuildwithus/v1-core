@@ -132,6 +132,7 @@ abstract contract GeneralizedTCR is
         if (!_verifyItemData(_item)) revert INVALID_ITEM_DATA();
 
         itemID = _constructNewItemID(_item);
+        _assertCanAddItem(itemID, _item);
         if (items[itemID].status != Status.Absent) revert MUST_BE_ABSENT_TO_BE_ADDED();
         _requestStatusChange(_item, itemID, submissionBaseDeposit);
     }
@@ -152,6 +153,11 @@ abstract contract GeneralizedTCR is
     function _verifyItemData(bytes calldata) internal virtual returns (bool valid) {
         return true;
     }
+
+    /**
+     * @dev Optional extension point for derived registries to reject add-item requests for specific itemIDs.
+     */
+    function _assertCanAddItem(bytes32, bytes calldata) internal view virtual {}
 
     /**
      * @dev Submit a request to remove an item from the list. Must have approved this contract to transfer at least `removalBaseDeposit` + `arbitrationCost` ERC20 tokens.

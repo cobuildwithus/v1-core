@@ -15,6 +15,7 @@ import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
+    error BUDGET_TREASURY_MISMATCH();
 
     constructor() {
         _disableInitializers();
@@ -86,6 +87,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             );
     }
 
+    function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
+        if (_pendingRemovalFinalizations[itemID]) revert REMOVAL_FINALIZATION_PENDING();
+    }
+
     function isRegistrationPending(bytes32 itemId) external view override returns (bool pending) {
         pending = _pendingRegistrationActivations[itemId];
     }
@@ -110,7 +115,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     // slither-disable-next-line reentrancy-no-eth
     function finalizeRemovedBudget(bytes32 itemID) external override nonReentrant returns (bool terminallyResolved) {
         if (!_pendingRemovalFinalizations[itemID]) revert REMOVAL_NOT_PENDING();
-        if (items[itemID].status != Status.Absent) revert ITEM_NOT_REMOVED();
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address childFlow = deployment.childFlow;
@@ -256,6 +260,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             oracleValidationBounds.liveness,
             oracleValidationBounds.bondAmount
         );
+        if (deployedBudgetTreasury != preparedBudgetTreasury) revert BUDGET_TREASURY_MISMATCH();
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, deployedBudgetTreasury);
 
         _budgetDeployments[itemID] = BudgetDeployment({
