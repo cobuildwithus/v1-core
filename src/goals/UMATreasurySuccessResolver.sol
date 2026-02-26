@@ -6,9 +6,10 @@ import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracle
 import { OptimisticOracleV3CallbackRecipientInterface } from "src/interfaces/uma/OptimisticOracleV3CallbackRecipientInterface.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 
-contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterface {
+contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterface, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct AssertionMeta {
@@ -77,7 +78,7 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         domainId = domainId_;
     }
 
-    function assertSuccess(address treasury, string calldata evidence) external returns (bytes32 assertionId) {
+    function assertSuccess(address treasury, string calldata evidence) external nonReentrant returns (bytes32 assertionId) {
         if (bytes(evidence).length > EVIDENCE_MAX_LENGTH) {
             revert EVIDENCE_TOO_LONG(EVIDENCE_MAX_LENGTH, bytes(evidence).length);
         }
@@ -139,13 +140,29 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         emit SuccessAssertionRequested(assertionId, treasury, msg.sender, kind, liveness, bond, evidence);
     }
 
-    function settle(bytes32 assertionId) external {
+    function settle(bytes32 assertionId) external nonReentrant {
         optimisticOracle.settleAssertion(assertionId);
     }
 
-    function finalize(bytes32 assertionId) public returns (bool applied) {
+    function finalize(bytes32 assertionId) external nonReentrant returns (bool applied) {
         AssertionMeta storage meta = assertionMeta[assertionId];
         if (meta.treasury == address(0)) revert ASSERTION_NOT_FOUND();
+
+        return _finalizeAssertion(assertionId, meta);
+    }
+
+    function settleAndFinalize(bytes32 assertionId) external nonReentrant returns (bool applied) {
+        AssertionMeta storage meta = assertionMeta[assertionId];
+        if (meta.treasury == address(0)) revert ASSERTION_NOT_FOUND();
+
+        if (!meta.resolved) {
+            optimisticOracle.settleAssertion(assertionId);
+        }
+
+        return _finalizeAssertion(assertionId, meta);
+    }
+
+    function _finalizeAssertion(bytes32 assertionId, AssertionMeta storage meta) internal returns (bool applied) {
         if (!meta.resolved) revert ASSERTION_NOT_RESOLVED();
         if (meta.finalized) revert ASSERTION_ALREADY_FINALIZED();
 
@@ -156,23 +173,12 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         }
 
         bool assertionResult = meta.truthful;
-        applied = _applyTreasuryResolution(treasury, assertionResult, assertionId);
-
         meta.finalized = true;
         delete activeAssertionOfTreasury[treasury];
 
+        applied = _applyTreasuryResolution(treasury, assertionResult, assertionId);
+
         emit SuccessAssertionFinalized(assertionId, treasury, assertionResult, applied);
-    }
-
-    function settleAndFinalize(bytes32 assertionId) external returns (bool applied) {
-        AssertionMeta storage meta = assertionMeta[assertionId];
-        if (meta.treasury == address(0)) revert ASSERTION_NOT_FOUND();
-
-        if (!meta.resolved) {
-            optimisticOracle.settleAssertion(assertionId);
-        }
-
-        return finalize(assertionId);
     }
 
     function assertionResolvedCallback(bytes32 assertionId, bool assertedTruthfully) external override {

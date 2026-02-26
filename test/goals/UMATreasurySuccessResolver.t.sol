@@ -338,6 +338,38 @@ contract UMATreasurySuccessResolverTest is Test {
         assertTrue(applied);
     }
 
+    function test_settleAndFinalize_falseRevertsWhenTreasuryClearFails_rollsBackSettlementState() public {
+        vm.prank(ASSERTER);
+        bytes32 assertionId = resolver.assertSuccess(address(goalTreasury), "ipfs://false-revert");
+
+        mockOracle.setSettlementOutcome(assertionId, false, false);
+        goalTreasury.setClearSuccessAssertionShouldRevert(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UMATreasurySuccessResolver.TREASURY_CLEAR_ASSERTION_FAILED.selector,
+                address(goalTreasury),
+                assertionId
+            )
+        );
+        resolver.settleAndFinalize(assertionId);
+
+        assertEq(resolver.activeAssertionOfTreasury(address(goalTreasury)), assertionId);
+        assertEq(goalTreasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(goalTreasury.resolveSuccessCalls(), 0);
+        assertEq(goalTreasury.clearSuccessAssertionCalls(), 0);
+
+        (,,,, bool disputed, bool resolved_, bool truthful, bool finalized) = resolver.assertionMeta(assertionId);
+        assertFalse(disputed);
+        assertFalse(resolved_);
+        assertFalse(truthful);
+        assertFalse(finalized);
+
+        goalTreasury.setClearSuccessAssertionShouldRevert(false);
+        bool applied = resolver.settleAndFinalize(assertionId);
+        assertFalse(applied);
+    }
+
     function test_finalize_truthfulRevertsWhenTreasuryResolveFails() public {
         bytes32 assertionId = _assertSuccessAndSettle("ipfs://blocked", true, false);
         goalTreasury.setResolveSuccessShouldRevert(true);
