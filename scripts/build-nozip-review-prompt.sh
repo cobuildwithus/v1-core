@@ -41,7 +41,7 @@ EOF
 
 strip_solidity() {
   local abs_path="$1"
-  perl -0777 -pe 's!/\*.*?\*/!!gs; s!//.*$!!gm; s/^[[:space:]]+//mg' "$abs_path" | sed '/^[[:space:]]*$/d'
+  perl -0777 -pe 's!/\*.*?\*/!!gs; s!//.*$!!gm; s/^[[:space:]]+//mg; s/[[:space:]]+/ /g; s/[ \t]*\n[ \t]*/\n/g; s/\belse\s+if\b/else if/g; s/\s*([(),{}\[\];:])\s*/$1/g; s/\s*(==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|\|=|&=|\^=|&&|\|\||<<=|>>=|->|[-+*\/%<>&|\^!:?=])\s*/$1/g; s/\}\s*else/}else/g' "$abs_path" | sed '/^[[:space:]]*$/d'
 }
 
 emit_profile_files() {
