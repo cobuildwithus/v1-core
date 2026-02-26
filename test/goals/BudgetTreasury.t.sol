@@ -5,14 +5,12 @@ import { Test } from "forge-std/Test.sol";
 
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { ITreasuryDonations } from "src/interfaces/ITreasuryDonations.sol";
 import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
-    SharedMockFeeOnTransferSuperToken,
     SharedMockStakeVault,
     SharedMockSuperToken,
     SharedMockUnderlying
@@ -259,72 +257,6 @@ contract BudgetTreasuryTest is Test {
         assertFalse(treasury.canAcceptFunding());
     }
 
-    function test_donateSuperToken_transfersToFlow() public {
-        superToken.mint(donor, 25e18);
-
-        vm.startPrank(donor);
-        superToken.approve(address(treasury), type(uint256).max);
-        uint256 received = treasury.donateSuperToken(25e18);
-        vm.stopPrank();
-
-        assertEq(received, 25e18);
-        assertEq(superToken.balanceOf(address(flow)), 25e18);
-    }
-
-    function test_donateSuperToken_usesBalanceDelta_whenSuperTokenChargesTransferFee() public {
-        SharedMockFeeOnTransferSuperToken feeSuperToken =
-            new SharedMockFeeOnTransferSuperToken(address(underlyingToken), 1_000, address(0xFEE));
-        SharedMockFlow feeFlow = new SharedMockFlow(ISuperToken(address(feeSuperToken)));
-        feeFlow.setMaxSafeFlowRate(type(int96).max);
-        SharedMockStakeVault feeStakeVault = new SharedMockStakeVault();
-        BudgetTreasury feeTreasury = _cloneBudgetTreasury();
-        feeFlow.setFlowOperator(address(feeTreasury));
-        feeFlow.setSweeper(address(feeTreasury));
-        feeStakeVault.setGoalTreasury(address(feeTreasury));
-        feeTreasury.initialize(
-            owner,
-            IBudgetTreasury.BudgetConfig({
-                flow: address(feeFlow),
-                stakeVault: address(feeStakeVault),
-                fundingDeadline: uint64(block.timestamp + 3 days),
-                executionDuration: uint64(30 days),
-                activationThreshold: 100e18,
-                runwayCap: 500e18,
-                successResolver: owner,
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("budget-oracle-spec"),
-                successAssertionPolicyHash: keccak256("budget-assertion-policy")
-            })
-        );
-
-        uint256 amount = 25e18;
-        uint256 expected = (amount * 9_000) / 10_000;
-        feeSuperToken.mint(donor, amount);
-
-        vm.startPrank(donor);
-        feeSuperToken.approve(address(feeTreasury), type(uint256).max);
-        uint256 received = feeTreasury.donateSuperToken(amount);
-        vm.stopPrank();
-
-        assertEq(received, expected);
-        assertEq(feeSuperToken.balanceOf(address(feeFlow)), expected);
-    }
-
-    function test_donateSuperToken_revertsWhenFundingClosed() public {
-        vm.warp(treasury.fundingDeadline() + 1);
-        vm.prank(owner);
-        treasury.resolveFailure();
-
-        superToken.mint(donor, 10e18);
-        vm.prank(donor);
-        superToken.approve(address(treasury), type(uint256).max);
-
-        vm.prank(donor);
-        vm.expectRevert(IBudgetTreasury.INVALID_STATE.selector);
-        treasury.donateSuperToken(10e18);
-    }
-
     function test_donateUnderlyingAndUpgrade_transfersToFlow() public {
         underlyingToken.mint(donor, 40e18);
 
@@ -339,7 +271,8 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_donateUnderlyingAndUpgrade_revertsOnReentrantCall() public {
-        BudgetReentrantSuperToken reentrantSuperToken = new BudgetReentrantSuperToken(address(underlyingToken));
+        BudgetReentrantUnderlying reentrantUnderlying = new BudgetReentrantUnderlying();
+        SharedMockSuperToken reentrantSuperToken = new SharedMockSuperToken(address(reentrantUnderlying));
         SharedMockFlow reentrantFlow = new SharedMockFlow(ISuperToken(address(reentrantSuperToken)));
         reentrantFlow.setMaxSafeFlowRate(type(int96).max);
         SharedMockStakeVault reentrantStakeVault = new SharedMockStakeVault();
@@ -364,18 +297,28 @@ contract BudgetTreasuryTest is Test {
             })
         );
 
-        reentrantSuperToken.mint(donor, 10e18);
-        underlyingToken.mint(address(reentrantSuperToken), 1e18);
-        reentrantSuperToken.approveForReentry(address(reentrantTreasury), 0, 1e18);
+        reentrantUnderlying.mint(donor, 10e18);
+        reentrantUnderlying.armReentry(address(reentrantTreasury), 1e18);
 
         vm.startPrank(donor);
-        reentrantSuperToken.approve(address(reentrantTreasury), type(uint256).max);
-        reentrantSuperToken.armReentry(
-            address(reentrantTreasury), ITreasuryDonations.donateUnderlyingAndUpgrade.selector
-        );
+        reentrantUnderlying.approve(address(reentrantTreasury), type(uint256).max);
         vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
-        reentrantTreasury.donateSuperToken(10e18);
+        reentrantTreasury.donateUnderlyingAndUpgrade(10e18);
         vm.stopPrank();
+    }
+
+    function test_donateUnderlyingAndUpgrade_revertsWhenFundingClosed() public {
+        vm.warp(treasury.fundingDeadline() + 1);
+        vm.prank(owner);
+        treasury.resolveFailure();
+
+        underlyingToken.mint(donor, 10e18);
+        vm.prank(donor);
+        underlyingToken.approve(address(treasury), type(uint256).max);
+
+        vm.prank(donor);
+        vm.expectRevert(IBudgetTreasury.INVALID_STATE.selector);
+        treasury.donateUnderlyingAndUpgrade(10e18);
     }
 
     function test_canAcceptFunding_trueWhenActiveBeforeDeadline() public {
@@ -1934,34 +1877,27 @@ contract BudgetRevertingGetAssertionOracle {
     }
 }
 
-contract BudgetReentrantSuperToken is SharedMockSuperToken {
-    address private immutable _underlyingToken;
+contract BudgetReentrantUnderlying is SharedMockUnderlying {
+    bytes4 private constant DONATE_UNDERLYING_AND_UPGRADE_SELECTOR =
+        bytes4(keccak256("donateUnderlyingAndUpgrade(uint256)"));
+
     address private _targetTreasury;
-    bytes4 private _targetSelector;
+    uint256 private _reentryAmount;
     bool private _armed;
     bool private _reentered;
 
-    constructor(address underlyingToken_) SharedMockSuperToken(underlyingToken_) {
-        _underlyingToken = underlyingToken_;
-    }
-
-    function armReentry(address targetTreasury_, bytes4 targetSelector_) external {
+    function armReentry(address targetTreasury_, uint256 reentryAmount_) external {
         _targetTreasury = targetTreasury_;
-        _targetSelector = targetSelector_;
+        _reentryAmount = reentryAmount_;
         _armed = true;
         _reentered = false;
-    }
-
-    function approveForReentry(address spender, uint256 superTokenAmount, uint256 underlyingAmount) external {
-        _approve(address(this), spender, superTokenAmount);
-        if (underlyingAmount != 0) IERC20(_underlyingToken).approve(spender, underlyingAmount);
     }
 
     function _update(address from, address to, uint256 value) internal override {
         if (_armed && !_reentered && from != address(0) && to != address(0)) {
             _reentered = true;
             (bool ok, bytes memory returndata) = _targetTreasury.call(
-                abi.encodeWithSelector(_targetSelector, uint256(1e18))
+                abi.encodeWithSelector(DONATE_UNDERLYING_AND_UPGRADE_SELECTOR, _reentryAmount)
             );
             if (!ok) {
                 assembly ("memory-safe") {
