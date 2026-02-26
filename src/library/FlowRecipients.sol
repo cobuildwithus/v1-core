@@ -33,7 +33,6 @@ library FlowRecipients {
         recipientsState.recipientExists[recipientAddress] = false;
 
         recipientState.isRemoved = true;
-        recipientsState.activeRecipientCount--;
 
         if (recipientType == FlowTypes.RecipientType.FlowContract) {
             _childFlows.remove(recipientAddress);
@@ -75,8 +74,6 @@ library FlowRecipients {
             metadata: metadata
         });
 
-        recipientsState.activeRecipientCount++;
-
         return recipient;
     }
 
@@ -107,8 +104,6 @@ library FlowRecipients {
         });
 
         recipientsState.recipientExists[recipient] = true;
-
-        recipientsState.activeRecipientCount++;
     }
 
     /**

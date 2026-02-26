@@ -60,16 +60,9 @@ interface FlowTypes {
         ISuperToken superToken;
         /// The Superfluid pool used to distribute recipient allocations in the SuperToken
         ISuperfluidPool distributionPool;
-        // Allocation scale for PPM share math (1e6 == 100%).
-        /// @notice PPM share scale (`1_000_000 == 100%`).
-        uint32 ppmScale;
-        // The address of the address that can connect the pool
-        address connectPoolAdmin;
     }
 
     struct RecipientsState {
-        /// Counter for active recipients (not removed)
-        uint256 activeRecipientCount;
         /// Append-only recipient-id index table used by compact allocation snapshots.
         bytes32[] recipientIdByIndex;
         /// The mapping of recipients

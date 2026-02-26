@@ -49,7 +49,6 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             initConfig.flowImplementation,
             flowOperator_,
             sweeper_,
-            initConfig.connectPoolAdmin,
             initConfig.managerRewardPool,
             initConfig.allocationPipeline,
             initConfig.parent,
@@ -217,16 +216,12 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     /**
      * @notice Connects this contract to a Superfluid pool
      * @param poolAddress The address of the Superfluid pool to connect to
-     * @dev Only callable by recipient admin, parent, or connect-pool admin authority.
+     * @dev Only callable by recipient admin or parent authority.
      * @dev Emits a PoolConnected event upon successful connection
      */
     function connectPool(ISuperfluidPool poolAddress) external nonReentrant {
         if (address(poolAddress) == address(0)) revert ADDRESS_ZERO();
-        if (
-            msg.sender != _cfgStorage().recipientAdmin &&
-            msg.sender != _cfgStorage().parent &&
-            msg.sender != _cfgStorage().connectPoolAdmin
-        ) {
+        if (msg.sender != _cfgStorage().recipientAdmin && msg.sender != _cfgStorage().parent) {
             revert NOT_ALLOWED_TO_CONNECT_POOL();
         }
 
@@ -457,14 +452,6 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Gets the count of active recipients
-     * @return count The number of active recipients
-     */
-    function activeRecipientCount() public view returns (uint256) {
-        return _recipientsStorage().activeRecipientCount;
-    }
-
-    /**
      * @notice Retrieves the distribution pool
      * @return ISuperfluidPool The distribution pool
      */
@@ -521,14 +508,6 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Retrieves the connect pool admin address
-     * @return address The address of the connect pool admin
-     */
-    function connectPoolAdmin() external view returns (address) {
-        return _cfgStorage().connectPoolAdmin;
-    }
-
-    /**
      * @notice Retrieves the manager reward pool address
      * @return address The address of the manager reward pool
      */
@@ -577,11 +556,4 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         return _allocStorage().strategies;
     }
 
-    /**
-     * @notice Retrieves the percentage scale
-     * @return uint32 The percentage scale used for percentage calculations
-     */
-    function ppmScale() external view returns (uint32) {
-        return _cfgStorage().ppmScale;
-    }
 }
