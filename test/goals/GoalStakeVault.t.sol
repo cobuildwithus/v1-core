@@ -91,6 +91,65 @@ contract GoalStakeVaultTest is Test {
         );
     }
 
+    function test_strategy_allocationKeyAndResolver_useAddressEncoding() public view {
+        assertEq(vault.allocationKey(alice, ""), uint256(uint160(alice)));
+        assertEq(vault.allocationKey(bob, abi.encode(uint256(123))), uint256(uint160(bob)));
+        assertEq(vault.accountForAllocationKey(uint256(uint160(alice))), alice);
+    }
+
+    function test_strategy_accountResolution_truncatesHighBits() public {
+        vm.prank(alice);
+        vault.depositGoal(20e18);
+
+        uint256 canonicalKey = uint256(uint160(alice));
+        uint256 aliasedKey = canonicalKey | (uint256(1) << 200);
+
+        assertEq(vault.accountForAllocationKey(aliasedKey), alice);
+        assertEq(vault.currentWeight(aliasedKey), vault.currentWeight(canonicalKey));
+        assertTrue(vault.canAllocate(aliasedKey, alice));
+        assertFalse(vault.canAllocate(aliasedKey, bob));
+    }
+
+    function test_strategyKey_constant() public view {
+        assertEq(vault.strategyKey(), "GoalStakeVault");
+    }
+
+    function test_stakeVault_returnsSelf() public view {
+        assertEq(vault.stakeVault(), address(vault));
+    }
+
+    function test_strategy_weightQueries_followVaultState() public {
+        vm.prank(alice);
+        vault.depositGoal(20e18);
+        vm.prank(alice);
+        vault.depositCobuild(5e18);
+
+        uint256 key = uint256(uint160(alice));
+        assertEq(vault.currentWeight(key), 15e18);
+        assertEq(vault.accountAllocationWeight(alice), 15e18);
+        assertTrue(vault.canAllocate(key, alice));
+        assertFalse(vault.canAllocate(key, bob));
+        assertTrue(vault.canAccountAllocate(alice));
+        assertFalse(vault.canAccountAllocate(bob));
+    }
+
+    function test_strategy_whenResolved_allocationDisabledAndWeightZero() public {
+        vm.prank(alice);
+        vault.depositGoal(20e18);
+
+        uint256 key = uint256(uint160(alice));
+        assertEq(vault.currentWeight(key), 10e18);
+        assertTrue(vault.canAllocate(key, alice));
+        assertTrue(vault.canAccountAllocate(alice));
+
+        vault.markGoalResolved();
+
+        assertEq(vault.currentWeight(key), 0);
+        assertEq(vault.accountAllocationWeight(alice), 0);
+        assertFalse(vault.canAllocate(key, alice));
+        assertFalse(vault.canAccountAllocate(alice));
+    }
+
     function test_constructor_revertsOnZeroGoalToken() public {
         vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
         new GoalStakeVault(
