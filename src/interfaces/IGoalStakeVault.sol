@@ -99,6 +99,14 @@ interface IGoalStakeVault {
     function getPastTotalJurorWeight(uint256 blockNumber) external view returns (uint256);
     function pendingGoalRentOf(address user) external view returns (uint256);
     function pendingCobuildRentOf(address user) external view returns (uint256);
+    function allocationKey(address caller, bytes calldata aux) external view returns (uint256);
+    function accountForAllocationKey(uint256 allocationKey) external view returns (address);
+    function currentWeight(uint256 key) external view returns (uint256);
+    function canAllocate(uint256 key, address caller) external view returns (bool);
+    function canAccountAllocate(address account) external view returns (bool);
+    function accountAllocationWeight(address account) external view returns (uint256);
+    function strategyKey() external pure returns (string memory);
+    function stakeVault() external view returns (address);
 
     function quoteGoalToCobuildWeightRatio(
         uint256 goalAmount

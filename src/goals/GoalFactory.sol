@@ -9,6 +9,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { ISuperfluid, ISuperToken, ISuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IJBSplitHook } from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
@@ -27,8 +28,6 @@ import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { RewardEscrow } from "src/goals/RewardEscrow.sol";
-
-import { GoalStakeVaultStrategy } from "src/allocation-strategies/GoalStakeVaultStrategy.sol";
 
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
@@ -233,23 +232,25 @@ contract GoalFactory {
         IREVDeployer.REVStageConfig[] memory stages = new IREVDeployer.REVStageConfig[](2);
         stages[0] = IREVDeployer.REVStageConfig({
             startsAtOrAfter: start,
+            autoIssuances: new IREVDeployer.REVAutoIssuance[](0),
             splitPercent: p.revnet.reservedPercent,
+            splits: reservedSplits,
             initialIssuance: p.revnet.initialIssuance,
             issuanceCutFrequency: 0,
             issuanceCutPercent: 0,
             cashOutTaxRate: p.revnet.cashOutTaxRate,
-            extraMetadata: 0,
-            splits: reservedSplits
+            extraMetadata: 0
         });
         stages[1] = IREVDeployer.REVStageConfig({
             startsAtOrAfter: start + p.revnet.durationSeconds,
+            autoIssuances: new IREVDeployer.REVAutoIssuance[](0),
             splitPercent: 0,
+            splits: new JBSplit[](0),
             initialIssuance: 0,
             issuanceCutFrequency: 0,
             issuanceCutPercent: 0,
             cashOutTaxRate: p.revnet.cashOutTaxRate,
-            extraMetadata: 0,
-            splits: new JBSplit[](0)
+            extraMetadata: 0
         });
 
         JBAccountingContext[] memory contexts = new JBAccountingContext[](1);
@@ -259,19 +260,24 @@ contract GoalFactory {
             currency: cobuildCurrency
         });
 
+        IJBDirectory directory = REV_DEPLOYER.DIRECTORY();
+        IJBTerminal goalTerminal = directory.primaryTerminalOf(COBUILD_REVNET_ID, COBUILD_TOKEN);
+        if (address(goalTerminal) == address(0)) revert ADDRESS_ZERO();
+
         JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](1);
         terminalConfigs[0] = JBTerminalConfig({
-            terminal: IJBTerminal(address(REV_DEPLOYER.MULTI_TERMINAL())),
+            terminal: goalTerminal,
             accountingContextsToAccept: contexts
         });
 
         uint256 goalRevnetId = REV_DEPLOYER.deployFor(
-            p.revnet.owner,
+            0,
             IREVDeployer.REVConfig({
                 description: IREVDeployer.REVDescription({
                     name: p.revnet.name,
                     ticker: p.revnet.ticker,
-                    uri: p.revnet.uri
+                    uri: p.revnet.uri,
+                    salt: bytes32(uint256(uint160(p.revnet.owner)))
                 }),
                 baseCurrency: cobuildCurrency,
                 splitOperator: BURN_ADDRESS,
@@ -322,7 +328,8 @@ contract GoalFactory {
         GoalFlowAllocationLedgerPipeline allocationPipeline = new GoalFlowAllocationLedgerPipeline(
             address(budgetStakeLedger)
         );
-        GoalStakeVaultStrategy stakeVaultStrategy = new GoalStakeVaultStrategy(stakeVault);
+        IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
+        allocationStrategies[0] = IAllocationStrategy(address(stakeVault));
 
         IFlow.FlowParams memory flowParams = IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 });
         FlowTypes.RecipientMetadata memory metadata = FlowTypes.RecipientMetadata({
@@ -345,7 +352,7 @@ contract GoalFactory {
             address(0),
             flowParams,
             metadata,
-            _oneStrategy(stakeVaultStrategy)
+            allocationStrategies
         );
 
         RewardEscrow rewardEscrow = new RewardEscrow(
@@ -378,12 +385,11 @@ contract GoalFactory {
 
         goalTreasury.initialize(address(BUDGET_TCR_FACTORY), goalCfg);
 
-        splitHook.initialize(REV_DEPLOYER.DIRECTORY(), goalTreasury, goalFlow, goalRevnetId);
+        splitHook.initialize(directory, goalTreasury, goalFlow, goalRevnetId);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _resolveRegistryConfig(p.budgetTCR);
         IBudgetTCR.DeploymentConfig memory tcrDeployCfg = IBudgetTCR.DeploymentConfig({
             stackDeployer: address(0),
-            itemValidator: address(0),
             budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
             goalFlow: goalFlow,
             goalTreasury: goalTreasury,
@@ -461,11 +467,6 @@ contract GoalFactory {
             revert INVALID_MIN_RAISE_WINDOW(resolved, durationSeconds);
         }
         return resolved;
-    }
-
-    function _oneStrategy(GoalStakeVaultStrategy strategy) internal pure returns (IAllocationStrategy[] memory out) {
-        out = new IAllocationStrategy[](1);
-        out[0] = IAllocationStrategy(address(strategy));
     }
 
     function _createGoalSuperToken(

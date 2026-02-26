@@ -4,12 +4,10 @@ pragma solidity ^0.8.34;
 import { FlowAllocationsBase } from "test/flows/FlowAllocations.t.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { BudgetStakeStrategy } from "src/allocation-strategies/BudgetStakeStrategy.sol";
-import { GoalStakeVaultStrategy } from "src/allocation-strategies/GoalStakeVaultStrategy.sol";
 import { GoalFlowAllocationLedgerPipeline } from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalFlowLedgerMode } from "src/library/GoalFlowLedgerMode.sol";
@@ -1139,7 +1137,7 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         uint256 initialWeight = 12e24;
         uint256 reducedWeight = 3e24;
 
-        GoalStakeVaultStrategy goalStrategy = new GoalStakeVaultStrategy(IGoalStakeVault(address(stakeVault)));
+        IAllocationStrategy goalStrategy = IAllocationStrategy(address(stakeVault));
         CustomFlow goalChildFlow = _deployChildFlow(address(flow), address(goalStrategy));
         FlowBudgetAutoSyncBudgetTreasury goalBudgetTreasury =
             new FlowBudgetAutoSyncBudgetTreasury(address(goalChildFlow));
@@ -1200,11 +1198,11 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
         );
     }
 
-    function test_previewChildSyncRequirements_usesGoalStakeVaultStrategyAllocationKey() public {
+    function test_previewChildSyncRequirements_usesGoalStakeVaultAllocationKey() public {
         uint256 initialWeight = 12e24;
         uint256 reducedWeight = 3e24;
 
-        GoalStakeVaultStrategy goalStrategy = new GoalStakeVaultStrategy(IGoalStakeVault(address(stakeVault)));
+        IAllocationStrategy goalStrategy = IAllocationStrategy(address(stakeVault));
         CustomFlow goalChildFlow = _deployChildFlow(address(flow), address(goalStrategy));
         FlowBudgetAutoSyncBudgetTreasury goalBudgetTreasury =
             new FlowBudgetAutoSyncBudgetTreasury(address(goalChildFlow));
@@ -1858,6 +1856,8 @@ contract FlowBudgetStakeAutoSyncTest is FlowAllocationsBase {
 }
 
 contract FlowBudgetAutoSyncStakeVault {
+    string public constant STRATEGY_KEY = "GoalStakeVault";
+
     mapping(address => uint256) internal _weight;
     bool internal _goalResolved;
 
@@ -1875,6 +1875,43 @@ contract FlowBudgetAutoSyncStakeVault {
 
     function weightOf(address account) external view returns (uint256) {
         return _weight[account];
+    }
+
+    function allocationKey(address caller, bytes calldata) external pure returns (uint256) {
+        return uint256(uint160(caller));
+    }
+
+    function accountForAllocationKey(uint256 key) external pure returns (address) {
+        return address(uint160(key));
+    }
+
+    function currentWeight(uint256 key) external view returns (uint256) {
+        if (_goalResolved) return 0;
+        return _weight[address(uint160(key))];
+    }
+
+    function canAllocate(uint256 key, address caller) external view returns (bool) {
+        if (_goalResolved) return false;
+        address allocator = address(uint160(key));
+        return caller == allocator && _weight[allocator] > 0;
+    }
+
+    function canAccountAllocate(address account) external view returns (bool) {
+        if (_goalResolved) return false;
+        return _weight[account] > 0;
+    }
+
+    function accountAllocationWeight(address account) external view returns (uint256) {
+        if (_goalResolved) return 0;
+        return _weight[account];
+    }
+
+    function strategyKey() external pure returns (string memory) {
+        return STRATEGY_KEY;
+    }
+
+    function stakeVault() external view returns (address) {
+        return address(this);
     }
 }
 

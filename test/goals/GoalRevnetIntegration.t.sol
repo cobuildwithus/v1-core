@@ -3,7 +3,6 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 
-import { GoalStakeVaultStrategy } from "src/allocation-strategies/GoalStakeVaultStrategy.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -23,14 +22,14 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 contract GoalRevnetIntegrationTest is GoalRevnetFixtureBase {
     address internal alice = address(0xB0B);
 
-    GoalStakeVaultStrategy internal goalStrategy;
+    IGoalStakeVault internal goalStrategy;
 
     function setUp() public override {
         super.setUp();
 
         _setUpGoalIntegration(_goalConfigPresetNoEscrow());
         _mintAndApproveStakeTokens(alice, 500e18, 500e18);
-        goalStrategy = new GoalStakeVaultStrategy(vault);
+        goalStrategy = IGoalStakeVault(address(vault));
     }
 
     function test_processSplitWith_reservedController_wrapsUnderlyingAndCreditsTreasury() public {

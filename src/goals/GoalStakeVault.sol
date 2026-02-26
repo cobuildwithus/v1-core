@@ -29,6 +29,7 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
     using Checkpoints for Checkpoints.Trace224;
 
     uint64 public constant JUROR_EXIT_DELAY = 7 days;
+    string public constant STRATEGY_KEY = "GoalStakeVault";
 
     IERC20 public immutable override goalToken;
     IERC20 public immutable override cobuildToken;
@@ -493,6 +494,43 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         }
     }
 
+    function stakeVault() external view override returns (address) {
+        return address(this);
+    }
+
+    function allocationKey(address caller, bytes calldata) external pure override returns (uint256) {
+        return uint256(uint160(caller));
+    }
+
+    function accountForAllocationKey(uint256 allocationKey) external pure override returns (address) {
+        return _accountForKey(allocationKey);
+    }
+
+    function currentWeight(uint256 key) external view override returns (uint256) {
+        if (goalResolved) return 0;
+        return _stakeWeightOf(_accountForKey(key));
+    }
+
+    function canAllocate(uint256 key, address caller) external view override returns (bool) {
+        if (goalResolved) return false;
+        address allocator = _accountForKey(key);
+        return caller == allocator && _stakeWeightOf(allocator) > 0;
+    }
+
+    function canAccountAllocate(address account) external view override returns (bool) {
+        if (goalResolved) return false;
+        return _stakeWeightOf(account) > 0;
+    }
+
+    function accountAllocationWeight(address account) external view override returns (uint256) {
+        if (goalResolved) return 0;
+        return _stakeWeightOf(account);
+    }
+
+    function strategyKey() external pure override returns (string memory) {
+        return STRATEGY_KEY;
+    }
+
     function weightOf(address user) external view override returns (uint256) {
         return _stakeWeightOf(user);
     }
@@ -678,6 +716,10 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
 
     function _stakeWeightOf(address user) internal view returns (uint256) {
         return _goalWeight[user] + _stakedCobuild[user];
+    }
+
+    function _accountForKey(uint256 key) internal pure returns (address) {
+        return address(uint160(key));
     }
 
     function _safeTransferExact(IERC20 token, address to, uint256 amount) internal {
