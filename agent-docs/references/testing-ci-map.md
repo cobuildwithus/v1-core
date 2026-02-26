@@ -23,9 +23,9 @@
 - Queued full gate (shared log + stale detection): `pnpm -s verify:full`.
 - Strict queued full gate (fails on workspace drift): `pnpm -s verify:full:strict`.
 - Observe active full-gate output: `pnpm -s verify:full:tail`.
-- Shared verification request queue (batched build/test receipts): `pnpm -s verify:queue:required`.
+- Shared verification request queue (batched build + lite tests): `pnpm -s verify:queue:required`.
+- Shared verification request queue for CI-parity required lane (includes invariants): `pnpm -s verify:queue:required:ci`.
 - Shared verification request queue for full gate: `pnpm -s verify:queue:full`.
-- Required queue lane now includes an explicit invariant pass: `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`.
 - Shared verification queue status/worker tools: `pnpm -s verify:queue:status`, `pnpm -s verify:queue:worker`.
 - Queue defaults: `VERIFY_QUEUE_BATCH_WINDOW_SECONDS=5`, `VERIFY_QUEUE_MAX_BATCH=50`, `VERIFY_QUEUE_WORKER_LANES=4`.
 - Queue coalescing: duplicate pending requests for the same fingerprint are coalesced (`required` can reuse pending `required/full`; `full` reuses pending `full`).

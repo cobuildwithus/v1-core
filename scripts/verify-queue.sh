@@ -5,14 +5,15 @@ set -euo pipefail
 usage() {
   cat <<'USAGE' >&2
 Usage:
-  scripts/verify-queue.sh submit [required|full] [--wait] [--timeout-seconds N]
+  scripts/verify-queue.sh submit [required|required-ci|full] [--wait] [--timeout-seconds N]
   scripts/verify-queue.sh worker [--no-wait] [--batch-window-seconds N] [--max-batch N] [--worker-lanes N]
   scripts/verify-queue.sh wait <request-id> [--timeout-seconds N]
   scripts/verify-queue.sh status
 
 Commands:
   submit  Enqueue a verification request. Default mode is "required".
-          Mode "required" runs: pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
+          Mode "required" runs:    pnpm -s build && pnpm -s test:lite:shared
+          Mode "required-ci" runs: pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
           Mode "full" runs:     pnpm -s verify:full
   worker  Process queued requests in batches. Requests are grouped by workspace fingerprint.
           Multiple workers can run in parallel across different fingerprints.
@@ -202,7 +203,13 @@ find_coalesced_request_id_locked() {
 
     case "$requested_mode" in
       required)
-        if [ "$mode" = "required" ] || [ "$mode" = "full" ]; then
+        if [ "$mode" = "required" ] || [ "$mode" = "required-ci" ] || [ "$mode" = "full" ]; then
+          printf '%s\n' "$id"
+          return 0
+        fi
+        ;;
+      required-ci)
+        if [ "$mode" = "required-ci" ] || [ "$mode" = "full" ]; then
           printf '%s\n' "$id"
           return 0
         fi
@@ -627,6 +634,8 @@ run_worker() {
     mode="required"
     if jq -s -e 'any(.[]; .mode == "full")' "$batch_file" >/dev/null 2>&1; then
       mode="full"
+    elif jq -s -e 'any(.[]; .mode == "required-ci")' "$batch_file" >/dev/null 2>&1; then
+      mode="required-ci"
     fi
 
     fingerprint="$(head -n 1 "$batch_file" | jq -r '.fingerprint // "unknown"')"
@@ -660,10 +669,14 @@ run_worker() {
     else
       if env "${lane_env[@]}" pnpm -s build 2>&1 | tee -a "$log_file"; then
         if env "${lane_env[@]}" pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
-          if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
-            run_exit=0
+          if [ "$mode" = "required-ci" ]; then
+            if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
+              run_exit=0
+            else
+              run_exit=$?
+            fi
           else
-            run_exit=$?
+            run_exit=0
           fi
         else
           run_exit=$?
@@ -698,7 +711,7 @@ submit_request() {
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      required|full)
+      required|required-ci|full)
         mode="$1"
         shift
         ;;
@@ -751,9 +764,9 @@ submit_request() {
   done
 
   case "$mode" in
-    required|full) ;;
+    required|required-ci|full) ;;
     *)
-      printf 'Error: mode must be "required" or "full"\n' >&2
+      printf 'Error: mode must be "required", "required-ci", or "full"\n' >&2
       exit 1
       ;;
   esac
