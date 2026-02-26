@@ -16,6 +16,9 @@ interface ISuccessAssertionTreasury {
     function successAssertionPolicyHash() external view returns (bytes32);
     function pendingSuccessAssertionId() external view returns (bytes32);
     function pendingSuccessAssertionAt() external view returns (uint64);
+    function reassertGraceDeadline() external view returns (uint64);
+    function reassertGraceUsed() external view returns (bool);
+    function isReassertGraceActive() external view returns (bool);
 
     function registerSuccessAssertion(bytes32 assertionId) external;
     function clearSuccessAssertion(bytes32 assertionId) external;

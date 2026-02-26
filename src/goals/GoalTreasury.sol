@@ -24,13 +24,16 @@ import { TreasuryBase } from "./TreasuryBase.sol";
 import { GoalSpendPatterns } from "./library/GoalSpendPatterns.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
+import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
 contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     using SafeERC20 for IERC20;
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
+    using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
     GoalSpendPatterns.SpendPattern private constant GOAL_SPEND_PATTERN = GoalSpendPatterns.SpendPattern.Linear;
+    uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     string private constant SUCCESS_SETTLEMENT_BURN_MEMO = "GOAL_SUCCESS_SETTLEMENT_BURN";
     string private constant SUCCESS_RESIDUAL_BURN_MEMO = "GOAL_SUCCESS_RESIDUAL_BURN";
     string private constant TERMINAL_RESIDUAL_BURN_MEMO = "GOAL_TERMINAL_RESIDUAL_BURN";
@@ -44,6 +47,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
     GoalState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
+    TreasuryReassertGrace.State private _reassertGrace;
     uint64 public override successAt;
     uint64 public override resolvedAt;
 
@@ -56,7 +60,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     IJBRulesets public override goalRulesets;
     uint256 public override goalRevnetId;
     uint256 public override cobuildRevnetId;
-    uint32 public override treasurySettlementRewardEscrowScaled;
+    uint32 public override successSettlementRewardEscrowPpm;
 
     ISuperToken public override superToken;
 
@@ -122,10 +126,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
-        if (config.treasurySettlementRewardEscrowScaled > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_SETTLEMENT_SCALED(config.treasurySettlementRewardEscrowScaled);
+        if (config.successSettlementRewardEscrowPpm > FlowProtocolConstants.PPM_SCALE) {
+            revert INVALID_SETTLEMENT_SCALED(config.successSettlementRewardEscrowPpm);
         }
-        if (config.treasurySettlementRewardEscrowScaled != 0 && config.rewardEscrow == address(0)) {
+        if (config.successSettlementRewardEscrowPpm != 0 && config.rewardEscrow == address(0)) {
             revert REWARD_ESCROW_NOT_CONFIGURED();
         }
 
@@ -140,7 +144,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         goalRulesets = IJBRulesets(config.goalRulesets);
         goalRevnetId = config.goalRevnetId;
         cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, _stakeVault.cobuildToken(), goalRulesets, _hook);
-        treasurySettlementRewardEscrowScaled = config.treasurySettlementRewardEscrowScaled;
+        successSettlementRewardEscrowPpm = config.successSettlementRewardEscrowPpm;
 
         address configuredGoalTreasury = _stakeVault.goalTreasury();
         if (configuredGoalTreasury != address(this)) {
@@ -197,7 +201,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
             config.goalRevnetId == 0 &&
             config.minRaiseDeadline == 0 &&
             config.minRaise == 0 &&
-            config.treasurySettlementRewardEscrowScaled == 0 &&
+            config.successSettlementRewardEscrowPpm == 0 &&
             config.successResolver == address(0) &&
             config.successAssertionLiveness == 0 &&
             config.successAssertionBond == 0 &&
@@ -279,29 +283,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         }
 
         if (derivedState.deadlinePassed) {
-            bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
-            if (pendingAssertionId == bytes32(0)) {
-                _finalize(GoalState.Expired);
-                return;
-            }
-
-            (
-                bool assertionResolved,
-                bool assertionTruthful,
-                TreasurySuccessAssertions.FailClosedReason failClosedReason
-            ) = _successAssertions.pendingSuccessAssertionResolutionWithReason(
-                    pendingAssertionId,
-                    successResolver,
-                    successAssertionLiveness,
-                    successAssertionBond
-                );
-            if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-                emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
-            }
-            if (assertionResolved) {
-                _finalize(assertionTruthful ? GoalState.Succeeded : GoalState.Expired);
-                return;
-            }
+            if (_tryFinalizePostDeadline()) return;
         }
 
         _syncFlowRate();
@@ -334,10 +316,24 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         return TreasurySuccessAssertions.pendingAt(_successAssertions);
     }
 
+    function reassertGraceDeadline() public view override returns (uint64) {
+        return _reassertGrace.deadline;
+    }
+
+    function reassertGraceUsed() public view override returns (bool) {
+        return _reassertGrace.used;
+    }
+
+    function isReassertGraceActive() public view override returns (bool) {
+        return _reassertGrace.isActive();
+    }
+
     function registerSuccessAssertion(bytes32 assertionId) external override {
         _requireSuccessResolver();
         if (_state != GoalState.Active) revert INVALID_STATE();
-        if (block.timestamp >= deadline) revert GOAL_DEADLINE_PASSED();
+        if (block.timestamp >= deadline) {
+            if (!_reassertGrace.consumeIfActive()) revert GOAL_DEADLINE_PASSED();
+        }
 
         uint64 assertedAt = _successAssertions.registerPending(assertionId);
         emit SuccessAssertionRegistered(assertionId, assertedAt);
@@ -347,6 +343,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         _requireSuccessResolver();
         bytes32 clearedAssertionId = _successAssertions.clearMatching(assertionId);
         emit SuccessAssertionCleared(clearedAssertionId);
+        _tryActivateReassertGrace(clearedAssertionId);
     }
 
     function settleLateResidual() external override nonReentrant {
@@ -540,6 +537,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
+        _reassertGrace.clearDeadline();
         _clearPendingSuccessAssertion();
 
         uint64 finalizedAt = uint64(block.timestamp);
@@ -640,6 +638,55 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         _settleDeferredHookFunding(finalState);
     }
 
+    function _tryFinalizePostDeadline() internal returns (bool) {
+        bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
+        if (pendingAssertionId == bytes32(0)) {
+            if (_reassertGrace.isActive()) return false;
+            _finalize(GoalState.Expired);
+            return true;
+        }
+
+        (
+            bool assertionResolved,
+            bool assertionTruthful,
+            TreasurySuccessAssertions.FailClosedReason failClosedReason
+        ) = _successAssertions.pendingSuccessAssertionResolutionWithReason(
+                pendingAssertionId,
+                successResolver,
+                successAssertionLiveness,
+                successAssertionBond
+            );
+        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        }
+        if (!assertionResolved) return false;
+
+        if (assertionTruthful) {
+            _finalize(GoalState.Succeeded);
+            return true;
+        }
+
+        if (!_reassertGrace.used) {
+            bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
+            _tryActivateReassertGrace(clearedAssertionId);
+            return false;
+        }
+
+        _finalize(GoalState.Expired);
+        return true;
+    }
+
+    function _tryActivateReassertGrace(bytes32 clearedAssertionId) internal {
+        if (_reassertGrace.used) return;
+        if (_state != GoalState.Active) return;
+        if (block.timestamp < deadline) return;
+
+        (bool activated, uint64 graceDeadline) = _reassertGrace.activateOnce(REASSERT_GRACE_DURATION);
+        if (!activated) return;
+
+        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
+    }
+
     function _setState(GoalState newState) internal {
         GoalState previous = _state;
         _state = newState;
@@ -654,9 +701,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         return stateValue == GoalState.Succeeded || stateValue == GoalState.Expired;
     }
 
-    function _clearPendingSuccessAssertion() internal {
-        bytes32 clearedAssertionId = _successAssertions.clear();
-        if (clearedAssertionId == bytes32(0)) return;
+    function _clearPendingSuccessAssertion() internal returns (bytes32 clearedAssertionId) {
+        clearedAssertionId = _successAssertions.clear();
+        if (clearedAssertionId == bytes32(0)) return bytes32(0);
         emit SuccessAssertionCleared(clearedAssertionId);
     }
 
@@ -690,7 +737,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (finalState == GoalState.Succeeded) {
             rewardAmount = Math.mulDiv(
                 settled,
-                treasurySettlementRewardEscrowScaled,
+                successSettlementRewardEscrowPpm,
                 FlowProtocolConstants.PPM_SCALE_UINT256
             );
             burnSuperTokenAmount = settled - rewardAmount;
@@ -724,7 +771,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     ) internal returns (uint256 rewardAmount, uint256 burnAmount) {
         rewardAmount = Math.mulDiv(
             sourceAmount,
-            treasurySettlementRewardEscrowScaled,
+            successSettlementRewardEscrowPpm,
             FlowProtocolConstants.PPM_SCALE_UINT256
         );
         burnAmount = sourceAmount - rewardAmount;

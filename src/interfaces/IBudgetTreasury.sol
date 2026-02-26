@@ -110,8 +110,6 @@ interface IBudgetTreasury is
     function runwayCap() external view returns (uint256);
     function resolvedAt() external view returns (uint64);
     function successResolutionDisabled() external view returns (bool);
-    function reassertGraceDeadline() external view returns (uint64);
-    function reassertGraceUsed() external view returns (bool);
 
     function canAcceptFunding() external view returns (bool);
     function sync() external;

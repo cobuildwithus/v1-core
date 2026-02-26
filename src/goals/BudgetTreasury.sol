@@ -9,10 +9,12 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
+import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
+    using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
@@ -21,6 +23,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
+    TreasuryReassertGrace.State private _reassertGrace;
 
     IFlow private _flow;
     IGoalStakeVault private _stakeVault;
@@ -41,8 +44,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     uint64 public override deadline;
     uint64 public override resolvedAt;
     bool public override successResolutionDisabled;
-    uint64 public override reassertGraceDeadline;
-    bool public override reassertGraceUsed;
 
     struct BudgetDerivedState {
         BudgetState state;
@@ -198,14 +199,25 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         return TreasurySuccessAssertions.pendingAt(_successAssertions);
     }
 
+    function reassertGraceDeadline() public view override returns (uint64) {
+        return _reassertGrace.deadline;
+    }
+
+    function reassertGraceUsed() public view override returns (bool) {
+        return _reassertGrace.used;
+    }
+
+    function isReassertGraceActive() public view override returns (bool) {
+        return _reassertGrace.isActive();
+    }
+
     function registerSuccessAssertion(bytes32 assertionId) external override {
         if (msg.sender != successResolver) revert ONLY_SUCCESS_RESOLVER();
         if (_state != BudgetState.Active) revert INVALID_STATE();
         if (successResolutionDisabled) revert SUCCESS_RESOLUTION_DISABLED();
         if (block.timestamp < fundingDeadline) revert FUNDING_WINDOW_NOT_ENDED();
         if (block.timestamp >= deadline) {
-            if (!_isReassertGraceActive()) revert BUDGET_DEADLINE_PASSED();
-            reassertGraceDeadline = 0;
+            if (!_reassertGrace.consumeIfActive()) revert BUDGET_DEADLINE_PASSED();
         }
 
         uint64 assertedAt = _successAssertions.registerPending(assertionId);
@@ -223,7 +235,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         if (successResolutionDisabled) return;
 
         successResolutionDisabled = true;
-        reassertGraceDeadline = 0;
+        _reassertGrace.clearDeadline();
         _clearPendingSuccessAssertion();
         emit SuccessResolutionDisabled();
     }
@@ -332,7 +344,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
-        reassertGraceDeadline = 0;
+        _reassertGrace.clearDeadline();
         _clearPendingSuccessAssertion();
 
         _setState(finalState);
@@ -426,7 +438,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     function _tryFinalizePostDeadline() internal returns (bool) {
         bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
         if (pendingAssertionId == bytes32(0)) {
-            if (_isReassertGraceActive()) return false;
+            if (_reassertGrace.isActive()) return false;
             _finalize(BudgetState.Expired);
             return true;
         }
@@ -444,7 +456,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
             return true;
         }
 
-        if (!reassertGraceUsed) {
+        if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             _tryActivateReassertGrace(clearedAssertionId);
             return false;
@@ -455,22 +467,14 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     }
 
     function _tryActivateReassertGrace(bytes32 clearedAssertionId) internal {
-        if (reassertGraceUsed) return;
+        if (_reassertGrace.used) return;
         if (_state != BudgetState.Active || successResolutionDisabled) return;
         if (deadline == 0 || block.timestamp < deadline) return;
 
-        reassertGraceUsed = true;
+        (bool activated, uint64 graceDeadline) = _reassertGrace.activateOnce(REASSERT_GRACE_DURATION);
+        if (!activated) return;
 
-        uint256 graceDeadline = block.timestamp + REASSERT_GRACE_DURATION;
-        if (graceDeadline > type(uint64).max) graceDeadline = type(uint64).max;
-        reassertGraceDeadline = uint64(graceDeadline);
-
-        emit ReassertGraceActivated(clearedAssertionId, reassertGraceDeadline);
-    }
-
-    function _isReassertGraceActive() internal view returns (bool) {
-        uint64 graceDeadline = reassertGraceDeadline;
-        return graceDeadline != 0 && block.timestamp < graceDeadline;
+        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
     }
 
     function _flowContract() internal view override returns (IFlow) {

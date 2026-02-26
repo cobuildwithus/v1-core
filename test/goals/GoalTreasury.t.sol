@@ -136,7 +136,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -180,7 +180,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -218,7 +218,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -248,7 +248,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -279,7 +279,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -311,7 +311,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -333,7 +333,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
                 successAssertionBond: 0,
@@ -355,7 +355,7 @@ contract GoalTreasuryTest is Test {
             goalRevnetId: PROJECT_ID,
             minRaiseDeadline: uint64(block.timestamp + 3 days),
             minRaise: 100e18,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -398,7 +398,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
                 successAssertionBond: 0,
@@ -420,7 +420,7 @@ contract GoalTreasuryTest is Test {
             goalRevnetId: PROJECT_ID,
             minRaiseDeadline: uint64(block.timestamp + 3 days),
             minRaise: 100e18,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -451,7 +451,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
                 successAssertionBond: 0,
@@ -473,7 +473,7 @@ contract GoalTreasuryTest is Test {
             goalRevnetId: PROJECT_ID,
             minRaiseDeadline: uint64(block.timestamp + 3 days),
             minRaise: 100e18,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -504,7 +504,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
                 successAssertionBond: 0,
@@ -526,7 +526,7 @@ contract GoalTreasuryTest is Test {
             goalRevnetId: PROJECT_ID,
             minRaiseDeadline: uint64(block.timestamp + 3 days),
             minRaise: 100e18,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -554,7 +554,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -577,7 +577,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -600,7 +600,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -623,7 +623,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -650,7 +650,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -682,7 +682,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 1,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -709,7 +709,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -736,7 +736,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -763,7 +763,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 1 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -790,7 +790,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 31 days),
                 minRaise: 1,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -818,7 +818,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-            treasurySettlementRewardEscrowScaled: 0,
+            successSettlementRewardEscrowPpm: 0,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -857,7 +857,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -1638,7 +1638,7 @@ contract GoalTreasuryTest is Test {
         assertEq(_countFailClosedResolutionEvents(logs, address(treasury)), 0);
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_expires() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_opensReassertGrace() public {
         superToken.mint(address(flow), 100e18);
         vm.prank(hook);
         assertTrue(treasury.recordHookFunding(100e18));
@@ -1652,14 +1652,17 @@ contract GoalTreasuryTest is Test {
         treasury.sync();
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
-        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(treasury.resolved());
         assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
         assertEq(treasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(treasury.reassertGraceUsed());
+        assertGt(treasury.reassertGraceDeadline(), block.timestamp);
         assertEq(_countFailClosedResolutionEvents(logs, address(treasury)), 0);
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_expiresWhenResolverConfigOracleReadReverts() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_opensReassertGraceWhenResolverConfigOracleReadReverts(
+    ) public {
         TreasuryMockUmaResolverConfigRevertingOracle resolverConfig = new TreasuryMockUmaResolverConfigRevertingOracle();
         GoalTreasury resolverFailTreasury =
             _deployWithSuccessResolver(uint64(block.timestamp + 3 days), 100e18, address(0), 0, address(resolverConfig));
@@ -1680,13 +1683,16 @@ contract GoalTreasuryTest is Test {
         );
         resolverFailTreasury.sync();
 
-        assertEq(uint256(resolverFailTreasury.state()), uint256(IGoalTreasury.GoalState.Expired));
-        assertTrue(resolverFailTreasury.resolved());
+        assertEq(uint256(resolverFailTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(resolverFailTreasury.resolved());
         assertEq(resolverFailTreasury.pendingSuccessAssertionId(), bytes32(0));
         assertEq(resolverFailTreasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(resolverFailTreasury.reassertGraceUsed());
+        assertGt(resolverFailTreasury.reassertGraceDeadline(), block.timestamp);
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_expiresWhenResolverConfigOracleIsZero() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_opensReassertGraceWhenResolverConfigOracleIsZero(
+    ) public {
         TreasuryMockUmaResolverConfigZeroOracle resolverConfig = new TreasuryMockUmaResolverConfigZeroOracle();
         GoalTreasury zeroOracleTreasury =
             _deployWithSuccessResolver(uint64(block.timestamp + 3 days), 100e18, address(0), 0, address(resolverConfig));
@@ -1707,13 +1713,16 @@ contract GoalTreasuryTest is Test {
         );
         zeroOracleTreasury.sync();
 
-        assertEq(uint256(zeroOracleTreasury.state()), uint256(IGoalTreasury.GoalState.Expired));
-        assertTrue(zeroOracleTreasury.resolved());
+        assertEq(uint256(zeroOracleTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(zeroOracleTreasury.resolved());
         assertEq(zeroOracleTreasury.pendingSuccessAssertionId(), bytes32(0));
         assertEq(zeroOracleTreasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(zeroOracleTreasury.reassertGraceUsed());
+        assertGt(zeroOracleTreasury.reassertGraceDeadline(), block.timestamp);
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_expiresWhenOracleGetAssertionReverts() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_opensReassertGraceWhenOracleGetAssertionReverts(
+    ) public {
         TreasuryMockOptimisticOracleV3RevertingGetAssertion revertingOracle =
             new TreasuryMockOptimisticOracleV3RevertingGetAssertion();
         TreasuryMockUmaResolverConfig resolverConfig = new TreasuryMockUmaResolverConfig(
@@ -1743,10 +1752,12 @@ contract GoalTreasuryTest is Test {
         oracleReadFailTreasury.sync();
 
         assertEq(flow.targetOutflowRate(), 0);
-        assertEq(uint256(oracleReadFailTreasury.state()), uint256(IGoalTreasury.GoalState.Expired));
-        assertTrue(oracleReadFailTreasury.resolved());
+        assertEq(uint256(oracleReadFailTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(oracleReadFailTreasury.resolved());
         assertEq(oracleReadFailTreasury.pendingSuccessAssertionId(), bytes32(0));
         assertEq(oracleReadFailTreasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(oracleReadFailTreasury.reassertGraceUsed());
+        assertGt(oracleReadFailTreasury.reassertGraceDeadline(), block.timestamp);
     }
 
     function test_registerSuccessAssertion_onlySuccessResolver() public {
@@ -1784,6 +1795,102 @@ contract GoalTreasuryTest is Test {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.SUCCESS_ASSERTION_ALREADY_PENDING.selector, assertionId));
         treasury.registerSuccessAssertion(keccak256("goal-second-assertion"));
+    }
+
+    function test_registerSuccessAssertion_afterDeadline_revertsWithoutReassertGrace() public {
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(treasury.recordHookFunding(100e18));
+        treasury.sync();
+
+        vm.warp(treasury.deadline());
+        vm.prank(owner);
+        vm.expectRevert(IGoalTreasury.GOAL_DEADLINE_PASSED.selector);
+        treasury.registerSuccessAssertion(keccak256("goal-after-deadline"));
+    }
+
+    function test_isReassertGraceActive_trueDuringGrace_falseAfterConsume() public {
+        _openReassertGraceWindow(treasury);
+        assertTrue(treasury.isReassertGraceActive());
+
+        vm.prank(owner);
+        treasury.registerSuccessAssertion(keccak256("goal-reassertion-active-getter"));
+
+        assertFalse(treasury.isReassertGraceActive());
+    }
+
+    function test_isReassertGraceActive_falseAfterGraceDeadline() public {
+        uint64 graceDeadline = _openReassertGraceWindow(treasury);
+        vm.warp(graceDeadline);
+
+        assertFalse(treasury.isReassertGraceActive());
+    }
+
+    function test_registerSuccessAssertion_afterDeadline_allowsSingleReassertDuringGrace() public {
+        _openReassertGraceWindow(treasury);
+
+        bytes32 reassertionId = keccak256("goal-reassertion-id");
+        vm.prank(owner);
+        treasury.registerSuccessAssertion(reassertionId);
+
+        assertEq(treasury.pendingSuccessAssertionId(), reassertionId);
+        assertEq(treasury.reassertGraceDeadline(), 0);
+        assertTrue(treasury.reassertGraceUsed());
+
+        vm.prank(owner);
+        treasury.clearSuccessAssertion(reassertionId);
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+
+        vm.prank(owner);
+        vm.expectRevert(IGoalTreasury.GOAL_DEADLINE_PASSED.selector);
+        treasury.registerSuccessAssertion(keccak256("goal-reassertion-2"));
+    }
+
+    function test_clearSuccessAssertion_afterDeadline_activatesReassertGrace() public {
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(treasury.recordHookFunding(100e18));
+        treasury.sync();
+
+        _registerSuccessAssertion(treasury);
+        bytes32 assertionId = treasury.pendingSuccessAssertionId();
+
+        vm.warp(treasury.deadline());
+        vm.prank(owner);
+        treasury.clearSuccessAssertion(assertionId);
+
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(treasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(treasury.reassertGraceUsed());
+        assertEq(treasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
+    }
+
+    function test_sync_afterReassertGraceExpiresWithoutPendingAssertion_expires() public {
+        uint64 graceDeadline = _openReassertGraceWindow(treasury);
+
+        vm.warp(graceDeadline);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertTrue(treasury.resolved());
+        assertEq(treasury.reassertGraceDeadline(), 0);
+    }
+
+    function test_sync_afterGraceReassert_settledFalse_expiresWithoutSecondGrace() public {
+        _openReassertGraceWindow(treasury);
+
+        bytes32 reassertionId = keccak256("goal-reassertion-settled-false");
+        vm.prank(owner);
+        treasury.registerSuccessAssertion(reassertionId);
+        _setPendingSuccessAssertion(treasury, true, false);
+
+        vm.warp(block.timestamp + 1);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertTrue(treasury.resolved());
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(treasury.reassertGraceDeadline(), 0);
     }
 
     function test_clearSuccessAssertion_onlySuccessResolver() public {
@@ -2405,7 +2512,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 1,
-                treasurySettlementRewardEscrowScaled: 1_000_001,
+                successSettlementRewardEscrowPpm: 1_000_001,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -2429,7 +2536,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 1,
-                treasurySettlementRewardEscrowScaled: 100_000,
+                successSettlementRewardEscrowPpm: 100_000,
             successResolver: owner,
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
@@ -2975,7 +3082,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -3011,7 +3118,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -3047,7 +3154,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -3082,7 +3189,7 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: owner,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -3253,6 +3360,21 @@ contract GoalTreasuryTest is Test {
         target.sync();
     }
 
+    function _openReassertGraceWindow(GoalTreasury target) internal returns (uint64 graceDeadline) {
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(target.recordHookFunding(100e18));
+        target.sync();
+
+        _registerSuccessAssertion(target);
+        _setPendingSuccessAssertion(target, true, false);
+
+        vm.warp(target.deadline());
+        target.sync();
+
+        graceDeadline = target.reassertGraceDeadline();
+    }
+
     function _registerSuccessAssertion(GoalTreasury target) internal {
         bytes32 assertionId = keccak256(abi.encodePacked(address(target), block.timestamp));
         vm.prank(owner);
@@ -3316,18 +3438,23 @@ contract GoalTreasuryTest is Test {
         return _deploy(minRaiseDeadline, minRaise, rewardEscrow, 0);
     }
 
-    function _deploy(uint64 minRaiseDeadline, uint256 minRaise, address rewardEscrow, uint32 settlementRewardEscrowScaled)
+    function _deploy(
+        uint64 minRaiseDeadline,
+        uint256 minRaise,
+        address rewardEscrow,
+        uint32 successSettlementRewardEscrowPpm
+    )
         internal
         returns (GoalTreasury)
     {
-        return _deployWithSuccessResolver(minRaiseDeadline, minRaise, rewardEscrow, settlementRewardEscrowScaled, owner);
+        return _deployWithSuccessResolver(minRaiseDeadline, minRaise, rewardEscrow, successSettlementRewardEscrowPpm, owner);
     }
 
     function _deployWithSuccessResolver(
         uint64 minRaiseDeadline,
         uint256 minRaise,
         address rewardEscrow,
-        uint32 settlementRewardEscrowScaled,
+        uint32 successSettlementRewardEscrowPpm,
         address configuredSuccessResolver
     ) internal returns (GoalTreasury) {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
@@ -3346,17 +3473,21 @@ contract GoalTreasuryTest is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: minRaiseDeadline,
                 minRaise: minRaise,
-                treasurySettlementRewardEscrowScaled: settlementRewardEscrowScaled,
-            successResolver: configuredSuccessResolver,
-            successAssertionLiveness: uint64(1 days),
-            successAssertionBond: 10e18,
-            successOracleSpecHash: keccak256("goal-oracle-spec"),
-            successAssertionPolicyHash: keccak256("goal-assertion-policy")
+                successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm,
+                successResolver: configuredSuccessResolver,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
             })
         );
     }
 
-    function _deployWithRealRewardEscrow(uint64 minRaiseDeadline, uint256 minRaise, uint32 settlementRewardEscrowScaled)
+    function _deployWithRealRewardEscrow(
+        uint64 minRaiseDeadline,
+        uint256 minRaise,
+        uint32 successSettlementRewardEscrowPpm
+    )
         internal
         returns (GoalTreasury rewardTreasury, RewardEscrow rewardEscrow)
     {
@@ -3372,7 +3503,7 @@ contract GoalTreasuryTest is Test {
             IBudgetStakeLedger(address(ledger))
         );
 
-        rewardTreasury = _deploy(minRaiseDeadline, minRaise, address(rewardEscrow), settlementRewardEscrowScaled);
+        rewardTreasury = _deploy(minRaiseDeadline, minRaise, address(rewardEscrow), successSettlementRewardEscrowPpm);
     }
 }
 

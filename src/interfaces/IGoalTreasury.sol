@@ -37,7 +37,7 @@ interface IGoalTreasury is
         uint256 goalRevnetId;
         uint64 minRaiseDeadline;
         uint256 minRaise;
-        uint32 treasurySettlementRewardEscrowScaled;
+        uint32 successSettlementRewardEscrowPpm;
         address successResolver;
         uint64 successAssertionLiveness;
         uint256 successAssertionBond;
@@ -124,6 +124,7 @@ interface IGoalTreasury is
     event SuccessRewardsFinalized(uint64 successAt, uint64 finalizedAt);
     event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
     event SuccessAssertionCleared(bytes32 indexed assertionId);
+    event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
     event HookFundingDeferred(
         address indexed sourceToken,
         uint256 sourceAmount,
@@ -147,7 +148,7 @@ interface IGoalTreasury is
     function goalRulesets() external view returns (IJBRulesets);
     function goalRevnetId() external view returns (uint256);
     function cobuildRevnetId() external view returns (uint256);
-    function treasurySettlementRewardEscrowScaled() external view returns (uint32);
+    function successSettlementRewardEscrowPpm() external view returns (uint32);
 
     function recordHookFunding(uint256 amount) external returns (bool accepted);
     function canAcceptHookFunding() external view returns (bool);

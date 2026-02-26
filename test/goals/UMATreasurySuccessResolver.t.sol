@@ -857,6 +857,18 @@ contract MockGoalAssertionTreasury is ISuccessAssertionTreasury {
         return _pendingAssertionId;
     }
 
+    function reassertGraceDeadline() external pure returns (uint64) {
+        return 0;
+    }
+
+    function reassertGraceUsed() external pure returns (bool) {
+        return false;
+    }
+
+    function isReassertGraceActive() external pure returns (bool) {
+        return false;
+    }
+
     function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
         return ISuccessAssertionTreasury.TreasuryKind.Goal;
     }
@@ -928,6 +940,18 @@ contract MockBudgetAssertionTreasury is ISuccessAssertionTreasury {
 
     function pendingSuccessAssertionId() external view returns (bytes32) {
         return _pendingAssertionId;
+    }
+
+    function reassertGraceDeadline() external pure returns (uint64) {
+        return 0;
+    }
+
+    function reassertGraceUsed() external pure returns (bool) {
+        return false;
+    }
+
+    function isReassertGraceActive() external pure returns (bool) {
+        return false;
     }
 
     function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
@@ -1032,6 +1056,18 @@ contract MockReentrantGoalAssertionTreasury is ISuccessAssertionTreasury {
 
     function pendingSuccessAssertionId() external view returns (bytes32) {
         return _pendingAssertionId;
+    }
+
+    function reassertGraceDeadline() external pure returns (uint64) {
+        return 0;
+    }
+
+    function reassertGraceUsed() external pure returns (bool) {
+        return false;
+    }
+
+    function isReassertGraceActive() external pure returns (bool) {
+        return false;
     }
 
     function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
