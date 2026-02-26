@@ -11,6 +11,7 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 contract BudgetStakeLedgerRegistrationTest is Test {
     bytes32 internal constant RECIPIENT_A = bytes32(uint256(1));
     bytes32 internal constant RECIPIENT_B = bytes32(uint256(2));
+    bytes32 internal constant RECIPIENT_C = bytes32(uint256(3));
 
     address internal manager = address(0xB0B);
 
@@ -67,7 +68,7 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         ledger.registerBudget(RECIPIENT_B, address(budget));
     }
 
-    function test_registerBudget_removedRecipientCanBeReusedWithNewBudget_andTrackedCountKeepsGrowing() public {
+    function test_registerBudget_removedRecipientCanBeReusedWithNewBudget_andTrackedCountIsPruned() public {
         vm.prank(manager);
         ledger.registerBudget(RECIPIENT_A, address(budget));
 
@@ -82,12 +83,43 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         ledger.registerBudget(RECIPIENT_A, address(replacementBudget));
 
         assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(replacementBudget));
-        assertEq(ledger.trackedBudgetCount(), 2);
-        assertEq(ledger.trackedBudgetAt(0), address(budget));
-        assertEq(ledger.trackedBudgetAt(1), address(replacementBudget));
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertEq(ledger.trackedBudgetAt(0), address(replacementBudget));
     }
 
-    function test_registerBudget_trackingNotCappedAtLegacyFlowChildCap_withRemoveAndReaddCycles() public {
+    function test_removeBudget_prunesMiddleTrackedBudget_andKeepsOtherTrackedBudgetsAddressable() public {
+        MockBudgetFlow budgetFlowB = new MockBudgetFlow(address(goalFlow));
+        MockBudgetTreasury budgetB = new MockBudgetTreasury(address(budgetFlowB));
+        MockBudgetFlow budgetFlowC = new MockBudgetFlow(address(goalFlow));
+        MockBudgetTreasury budgetC = new MockBudgetTreasury(address(budgetFlowC));
+
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_B, address(budgetB));
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_C, address(budgetC));
+        assertEq(ledger.trackedBudgetCount(), 3);
+
+        vm.prank(manager);
+        ledger.removeBudget(RECIPIENT_B);
+
+        assertEq(ledger.budgetForRecipient(RECIPIENT_B), address(0));
+        assertEq(ledger.trackedBudgetCount(), 2);
+
+        address tracked0 = ledger.trackedBudgetAt(0);
+        address tracked1 = ledger.trackedBudgetAt(1);
+        assertTrue(tracked0 != address(budgetB) && tracked1 != address(budgetB));
+        assertTrue(tracked0 == address(budget) || tracked1 == address(budget));
+        assertTrue(tracked0 == address(budgetC) || tracked1 == address(budgetC));
+
+        budget.setResolvedAt(1);
+        assertFalse(ledger.allTrackedBudgetsResolved());
+        budgetC.setResolvedAt(2);
+        assertTrue(ledger.allTrackedBudgetsResolved());
+    }
+
+    function test_registerBudget_trackingAllowsLegacyCapPlusOneReadds_withPruning() public {
         uint256 legacyCap = 170;
         for (uint256 i = 0; i < legacyCap + 1; i++) {
             MockBudgetFlow budgetFlow_ = new MockBudgetFlow(address(goalFlow));
@@ -106,7 +138,7 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         ledger.registerBudget(RECIPIENT_A, address(additionalBudget));
 
         assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(additionalBudget));
-        assertEq(ledger.trackedBudgetCount(), legacyCap + 2);
+        assertEq(ledger.trackedBudgetCount(), 1);
     }
 
     function test_registerBudget_andRemoveBudget_revertAfterFinalizationStarts() public {
@@ -157,8 +189,7 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         ledger.removeBudget(RECIPIENT_A);
 
         assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
-        assertEq(ledger.trackedBudgetCount(), 1);
-        assertEq(ledger.trackedBudgetAt(0), address(budget));
+        assertEq(ledger.trackedBudgetCount(), 0);
         assertTrue(ledger.allTrackedBudgetsResolved());
 
         budget.setResolvedAt(1);

@@ -134,9 +134,55 @@ contract BudgetStakeLedgerPaginationTest is Test {
         }
 
         assertTrue(ledger.finalized());
-        assertEq(ledger.finalizeCursor(), BUDGET_COUNT);
+        assertEq(ledger.finalizeCursor(), ledger.trackedBudgetCount());
         assertFalse(ledger.budgetSucceededAtFinalize(removedBudget));
         assertEq(ledger.budgetResolvedAtFinalize(removedBudget), 0);
+    }
+
+    function test_finalize_success_removedMiddleBudgetStillStallsOnSwappedUnresolvedBudget() public {
+        uint64 finalizeTs = uint64(block.timestamp);
+        _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
+
+        uint256 removedIndex = 5;
+        PaginationMockBudgetTreasury swappedBudget = budgets[BUDGET_COUNT - 1];
+        address removedBudget = address(budgets[removedIndex]);
+
+        ledger.removeBudget(recipientIds[removedIndex]);
+        assertEq(ledger.budgetForRecipient(recipientIds[removedIndex]), address(0));
+
+        swappedBudget.setResolvedAt(0);
+        swappedBudget.setState(IBudgetTreasury.BudgetState.Active);
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(GOAL_SUCCEEDED, finalizeTs);
+
+        assertTrue(ledger.finalizationInProgress());
+        assertEq(ledger.finalizeCursor(), removedIndex);
+
+        (bool done, uint256 processed) = ledger.finalizeStep(4);
+        assertFalse(done);
+        assertEq(processed, 0);
+        assertEq(ledger.finalizeCursor(), removedIndex);
+
+        uint64 resolvedAt = finalizeTs + 1;
+        swappedBudget.setState(IBudgetTreasury.BudgetState.Succeeded);
+        swappedBudget.setResolvedAt(resolvedAt);
+
+        uint256 guard;
+        while (ledger.finalizationInProgress()) {
+            ledger.finalizeStep(6);
+            unchecked {
+                ++guard;
+            }
+            assertLe(guard, 20);
+        }
+
+        assertTrue(ledger.finalized());
+        assertEq(ledger.trackedBudgetCount(), BUDGET_COUNT - 1);
+        assertEq(ledger.finalizeCursor(), ledger.trackedBudgetCount());
+        assertFalse(ledger.budgetSucceededAtFinalize(removedBudget));
+        assertTrue(ledger.budgetSucceededAtFinalize(address(swappedBudget)));
+        assertEq(ledger.budgetResolvedAtFinalize(address(swappedBudget)), resolvedAt);
     }
 
     function test_finalize_revertsWhenCalledAgainWhileInProgress() public {
