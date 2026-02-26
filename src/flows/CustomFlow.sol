@@ -29,7 +29,6 @@ contract CustomFlow is ICustomFlow, Flow {
         address _managerRewardPool,
         address _allocationPipeline,
         address _parent,
-        address _connectPoolAdmin,
         FlowParams memory _flowParams,
         RecipientMetadata memory _metadata,
         IAllocationStrategy[] calldata _strategies
@@ -41,7 +40,6 @@ contract CustomFlow is ICustomFlow, Flow {
             managerRewardPool: _managerRewardPool,
             allocationPipeline: _allocationPipeline,
             parent: _parent,
-            connectPoolAdmin: _connectPoolAdmin,
             flowParams: _flowParams,
             metadata: _metadata
         });

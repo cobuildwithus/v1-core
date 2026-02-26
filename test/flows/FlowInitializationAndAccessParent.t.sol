@@ -16,7 +16,6 @@ contract FlowInitializationAndAccessParentTest is FlowInitializationAndAccessBas
             manager,
             managerRewardPool,
             parentAddr,
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

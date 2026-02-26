@@ -27,7 +27,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
     address internal owner = address(0xA11CE);
     address internal manager = owner;
     address internal managerRewardPool = address(0xCAFE);
-    address internal connectPoolAdmin = address(0xD00D);
     address internal allocator = address(0xA110CA7E);
     address internal other = address(0xBAD);
 
@@ -98,7 +97,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -147,7 +145,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             managerRewardPool_,
             allocationPipeline_,
             parent_,
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -176,7 +173,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             managerRewardPool_,
             allocationPipeline_,
             parent_,
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -230,7 +226,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
 
     function _assertRemovedConfigSettersNotExposed(address target) internal {
         _assertCallFails(target, abi.encodeWithSignature("setFlowImpl(address)", address(0xBEEF)));
-        _assertCallFails(target, abi.encodeWithSignature("setConnectPoolAdmin(address)", address(0xBEEF)));
         _assertCallFails(target, abi.encodeWithSignature("setManagerRewardFlowRatePercent(uint32)", uint32(1)));
         _assertCallFails(target, abi.encodeWithSignature("setDefaultBufferMultiplier(uint256)", uint256(2)));
         _assertCallFails(target, abi.encodeWithSignature("setManagerRewardPool(address)", address(0xBEEF)));

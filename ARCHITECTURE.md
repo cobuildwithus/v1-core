@@ -43,9 +43,8 @@ cobuild-protocol/
 - Goal stake vault: `src/goals/GoalStakeVault.sol`.
 - Goal/escrow/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/rent/reward math modules).
 - Allocation strategies:
-  - `src/allocation-strategies/SingleAllocatorStrategy.sol` (single-account gate with owner-controlled allocator updates).
-  - `src/allocation-strategies/GoalStakeVaultStrategy.sol` (goal-flow weighting from live stake-vault weight).
-  - `src/allocation-strategies/BudgetStakeStrategy.sol` (budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, quantized to Flow unit-weight resolution; reward points apply additional maturation/warmup at claim-time accounting only on the same effective stake basis).
+  - `src/goals/GoalStakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
+  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution; reward points apply additional maturation/warmup at claim-time accounting only on the same effective stake basis).
 - Reward escrow for finalized goal distribution: `src/goals/RewardEscrow.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 
@@ -58,8 +57,9 @@ cobuild-protocol/
 - Budget curation extension:
   - `src/tcr/BudgetTCR.sol`
   - `src/tcr/BudgetTCRDeployer.sol`
-  - `src/tcr/BudgetTCRValidator.sol`
   - `src/tcr/BudgetTCRFactory.sol`
+- Budget listing validation helpers:
+  - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Storage and helpers: `src/tcr/storage/*.sol`, `src/tcr/library/TCRRounds.sol`, `src/tcr/utils/*.sol`, `src/tcr/strategies/*.sol`.
 
 ## Cross-Cutting Invariants
@@ -72,8 +72,7 @@ cobuild-protocol/
 
 2. Funds flow correctness
 - Hook/treasury/flow/vault paths should preserve accounting and state transition invariants.
-- Goal and budget treasuries expose permissionless donation ingress:
-  - `donateSuperToken(amount)` transfers SuperToken directly into the managed flow.
+- Goal and budget treasuries expose permissionless underlying-only donation ingress:
   - `donateUnderlyingAndUpgrade(amount)` pulls underlying, upgrades, and forwards SuperToken into the managed flow.
   - Goal treasury donation receipts increment `totalRaised` (telemetry); budget treasury donation receipts are balance-only.
 - Goal treasury min-raise lifecycle checks are balance-based (`superToken.balanceOf(flow)`), so direct flow transfers can satisfy activation thresholds.
@@ -86,12 +85,12 @@ cobuild-protocol/
     best-effort writes with buffer-aware fallback semantics.
 - `GoalRevnetSplitHook` is controller-gated and treasury-state derived:
   - If `goalTreasury.canAcceptHookFunding()`, reserved inflow funds the goal flow.
-  - If treasury state is `Succeeded` and minting is still open, reserved inflow uses success-settlement split (reward escrow + burn) with immutable `settlementRewardEscrowScaled`.
+  - If treasury state is `Succeeded` and minting is still open, reserved inflow uses success-settlement split (reward escrow + burn) with immutable `successSettlementRewardEscrowPpm`.
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
-  - `Succeeded`: split by treasury-configured `treasurySettlementRewardEscrowScaled` into reward escrow + controller burn.
+  - `Succeeded`: split by treasury-configured `successSettlementRewardEscrowPpm` into reward escrow + controller burn.
   - `Failed`/`Expired`: burn 100% via controller.
 - Goal and budget terminal side effects are permissionlessly retryable via `retryTerminalSideEffects()`.
 - Goal terminal-state residual policy is reusable post-finalize via `settleLateResidual` to process late budget/stream inflows.
@@ -119,7 +118,7 @@ cobuild-protocol/
   - goal treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful,
   - budget treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful.
 - Budget listing oracle mode is UMA-only:
-  - `BudgetTCRValidator` requires `listing.oracleConfig.oracleType == 1` (UMA OOv3).
+  - `BudgetTCRValidationLib` requires `listing.oracleConfig.oracleType == 1` (UMA OOv3).
 - Policy C deadline semantics are enforced at treasury level:
   - goal success assertions can only be registered before treasury deadline,
   - budget success assertions are pre-deadline by default, with a one-time post-deadline registration exception during active reassert grace,
@@ -159,7 +158,7 @@ cobuild-protocol/
   - `flowOperator`/`parent`: flow-rate mutation (`setTargetOutflowRate`, `refreshTargetOutflowRate`).
   - `sweeper`: held SuperToken sweep authority (`sweepSuperToken`).
 - Deployment-time flow config knobs are init-only:
-  - `flowImpl`, `connectPoolAdmin`, `managerRewardPoolFlowRatePercent`,
+  - `flowImpl`, `managerRewardPoolFlowRatePercent`,
     `managerRewardPool`, and `allocationPipeline` are set during initialization.
   - Runtime setter entrypoints for those fields are intentionally removed from the flow surface.
 - Child-sync and treasury-sync recovery are permissionless and observable:
@@ -183,8 +182,8 @@ cobuild-protocol/
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.
-- `BudgetStakeStrategy` no longer resolves via treasury-forwarder anchors:
-  - strategy pins `recipientId`,
+- `BudgetFlowRouterStrategy` uses contextual flow routing:
+  - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - `BudgetTCRDeployer` uses clone-first treasury setup:
   - deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack`,

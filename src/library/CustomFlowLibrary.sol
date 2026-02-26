@@ -53,7 +53,6 @@ library CustomFlowLibrary {
             managerRewardPool: managerRewardPool,
             allocationPipeline: address(0),
             parent: address(this),
-            connectPoolAdmin: cfg.connectPoolAdmin,
             flowParams: IFlow.FlowParams({ managerRewardPoolFlowRatePpm: cfg.managerRewardPoolFlowRatePpm }),
             metadata: metadata,
             strategies: strategies

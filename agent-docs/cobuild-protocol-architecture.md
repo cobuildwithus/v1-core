@@ -20,9 +20,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `src/library/FlowRecipients.sol`
   - `src/library/CustomFlowLibrary.sol`
 - Allocation strategies:
-  - `src/allocation-strategies/SingleAllocatorStrategy.sol`
-  - `src/allocation-strategies/GoalStakeVaultStrategy.sol`
-  - `src/allocation-strategies/BudgetStakeStrategy.sol`
+  - `src/goals/GoalStakeVault.sol` (implements goal strategy surface directly)
+  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow strategy)
 - Child flow runtimes are deployed via EIP-1167 minimal clones (`Clones.clone`) for initializer-based setup and isolated storage.
 - Flow runtimes are intentionally non-upgradeable and expose no runtime upgrade selector.
 - Allocation strategy modules are direct runtime instances (no proxy/UUPS upgrade path).
@@ -46,8 +45,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget TCR extension:
   - `src/tcr/BudgetTCR.sol`
   - `src/tcr/BudgetTCRDeployer.sol`
-  - `src/tcr/BudgetTCRValidator.sol`
   - `src/tcr/BudgetTCRFactory.sol`
+- Budget listing validation helpers:
+  - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Supporting modules:
   - `src/tcr/storage/*.sol`
   - `src/tcr/library/TCRRounds.sol`
@@ -71,7 +71,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Parent-driven child flow-rate queueing is removed from `Flow`; child recipients track allocation units while child `flowOperator` roles (typically budget treasuries) own target-rate mutation.
 - Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` with best-effort call semantics and explicit observability events.
 - Init-only flow deployment knobs:
-  - `flowImpl`, `connectPoolAdmin`, and `managerRewardPoolFlowRatePercent` are configured
+  - `flowImpl` and `managerRewardPoolFlowRatePercent` are configured
     only at initialization time.
   - Corresponding runtime setter entrypoints are removed from the flow surface.
 - `BudgetTCR` also provides permissionless best-effort budget treasury batch sync (`syncBudgetTreasuries`) for keeper-style liveness:
@@ -84,7 +84,6 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Revnet ingress arrives through `GoalRevnetSplitHook.processSplitWith`.
 - `GoalTreasury.recordHookFunding` and `sync`/`activate` govern transitions.
 - Goal treasury supports direct donation ingress while funding is open:
-  - `donateSuperToken(amount)` (transfer in place),
   - `donateUnderlyingAndUpgrade(amount)` (auto-upgrade then transfer),
   - donation receipts are included in `totalRaised` (telemetry).
 - Goal treasury min-raise lifecycle gating is balance-based (`superToken.balanceOf(flow)`), not `totalRaised`, so direct flow inflows can satisfy activation.
@@ -98,7 +97,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - escrow finalize is retried permissionlessly through terminal-side-effect retries once tracked budgets resolve;
   - escrow/ledger snapshots use the recorded success timestamp for point accrual cutoffs while budget success eligibility is based on final resolved outcome (no `resolvedAt <= successAt` gate).
 - Residual settlement behavior:
-  - `Succeeded`: settle goal-flow SuperToken balance and split by `treasurySettlementRewardEscrowScaled` (reward escrow + controller burn).
+  - `Succeeded`: settle goal-flow SuperToken balance and split by `successSettlementRewardEscrowPpm` (reward escrow + controller burn).
   - `Failed`/`Expired`: settle and burn 100% via controller.
 - Post-finalization late inflows can be settled by calling `GoalTreasury.settleLateResidual()` to apply the same state-dependent residual policy.
 - Failed escrow sweeps apply terminal handling for both tracked assets:
@@ -127,12 +126,11 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - Success-settlement path while treasury state is `Succeeded` and minting remains open.
   - Closed nonterminal path defers split funds on treasury.
   - Terminal closed path applies treasury terminal settlement policy.
-- Success-settlement split ratio is immutable per treasury deployment (`treasurySettlementRewardEscrowScaled` config).
+- Success-settlement split ratio is immutable per treasury deployment (`successSettlementRewardEscrowPpm` config).
 
 4. Budget treasury lifecycle
 - Budget treasury uses live treasury balance (`superToken.balanceOf(flow)`) for activation/expiry checks.
 - Budget treasury supports direct donation ingress while funding is open:
-  - `donateSuperToken(amount)`,
   - `donateUnderlyingAndUpgrade(amount)`.
 - Activation threshold and execution-duration semantics govern outflow windows.
 - Active target flow-rate is measured incoming flow (`net + outgoing`) only (pass-through budget invariant).
@@ -142,8 +140,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
 5. Stake and reward path
 - `GoalStakeVault` tracks dual-asset stake and allocation weight.
 - `GoalStakeVault` can charge continuous rent on both stake assets (lazy accrual, withheld on withdraw, routed to reward escrow).
-- `GoalStakeVaultStrategy` maps caller identity to live vault weight for goal-flow allocation.
-- `BudgetStakeStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger`; checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
+- `GoalStakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
+- `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` applies maturation on that effective unit-scale stake: each user/budget increment starts as fully unmatured and decays over time (derived from budget `executionDuration`) before contributing full reward-point rate.
 - `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points now track effective funding influence (unit-scale stake), not sub-unit raw dust.
 - `RewardEscrow` recognizes budget recipients either directly (budget treasury recipient) or via child-flow recipient admin (`recipientAdmin`, typically the budget treasury).
@@ -157,13 +155,13 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Slash settlement is sourced from the juror's live stake balances (not only currently locked juror balances), then routed to goal reward escrow.
 
 7. Budget TCR stack lifecycle
-- Accepted Budget TCR items deploy stake-vault + strategy + child flow + budget treasury stack.
+- Accepted Budget TCR items deploy stake-vault + child flow + budget treasury stack and reuse one shared per-goal budget router strategy.
 - Budget stack activation no longer deploys a per-budget temporary manager contract or does post-deploy authority handoff:
   - `BudgetTCR` creates the child-flow recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current stack wiring sets those roles to the cloned budget treasury address during creation.
-- `BudgetStakeStrategy` no longer resolves treasury-forwarder anchors:
-  - strategy pins `recipientId`,
-  - effective budget address is read from `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.
+- `BudgetFlowRouterStrategy` uses contextual flow routing:
+  - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
+  - strategy resolves effective budget address via `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.
 - `BudgetTCRDeployer` uses clone-first treasury setup:
   - it deploys an uninitialized treasury clone during `prepareBudgetStack`,
   - `GoalStakeVault.goalTreasury` is anchored to that real clone address,
@@ -177,7 +175,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - canonical surface is `ITreasuryAuthority.authority()`,
   - `GoalStakeVault` reads `authority()` directly from configured `goalTreasury` (no forwarder indirection).
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal `BudgetTCR`.
-- `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, `BudgetTCRDeployer`, and `BudgetTCRValidator` implementations.
+- `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetTCRDeployer` implementations.
 - Invalid/no-vote arbitrator round rewards are routed to a configured `invalidRoundRewardSink`.
 
 ## Test Harness Boundaries

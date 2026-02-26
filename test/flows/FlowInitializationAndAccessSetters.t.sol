@@ -16,7 +16,6 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
 
     function test_removedConfigSetterSelectors_failAndPreserveValues() public {
         address originalFlowImpl = address(flowImplementation);
-        address originalConnectPoolAdmin = connectPoolAdmin;
         uint32 originalRewardPpm = flowParams.managerRewardPoolFlowRatePpm;
 
         vm.startPrank(manager);
@@ -24,7 +23,6 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
         vm.stopPrank();
 
         assertEq(flow.flowImplementation(), originalFlowImpl);
-        assertEq(flow.connectPoolAdmin(), originalConnectPoolAdmin);
         assertEq(flow.managerRewardPoolFlowRatePpm(), originalRewardPpm);
 
         IAllocationStrategy[] memory strategies = _oneStrategy();

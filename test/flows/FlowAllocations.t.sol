@@ -36,7 +36,6 @@ abstract contract FlowAllocationsBase is FlowTestBase {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

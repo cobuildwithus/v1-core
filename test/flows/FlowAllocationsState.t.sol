@@ -109,7 +109,6 @@ contract FlowAllocationsStateTest is FlowAllocationsBase {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

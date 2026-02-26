@@ -160,7 +160,7 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
         assertEq(ICustomFlow(proxy).recipientAdmin(), address(0));
     }
 
-    function test_initialize_legacySelectorWithConnectPoolAdmin_notExposed() public {
+    function test_initialize_legacySelectorWithExtraAuthorityArg_notExposed() public {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
 
@@ -184,8 +184,8 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
         assertEq(ICustomFlow(proxy).recipientAdmin(), address(0));
     }
 
-    function test_connectPoolAdmin_getterSelectorNotExposed() public {
-        _assertCallFails(address(flow), abi.encodeWithSignature("connectPoolAdmin()"));
+    function test_removedLegacyPoolAuthorityGetterSelector_notExposed() public {
+        _assertCallFails(address(flow), abi.encodeWithSelector(bytes4(0x1b017f82)));
         assertEq(flow.recipientAdmin(), manager);
     }
 }

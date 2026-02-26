@@ -74,7 +74,6 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
             distinctManager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

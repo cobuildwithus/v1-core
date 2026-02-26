@@ -46,7 +46,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     address internal allocator = makeAddr("allocator");
     address internal keeper = makeAddr("keeper");
     address internal managerRewardPool = makeAddr("managerRewardPool");
-    address internal connectPoolAdmin = makeAddr("connectPoolAdmin");
 
     uint256 internal votingPeriod = 20;
     uint256 internal votingDelay = 2;
@@ -140,7 +139,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

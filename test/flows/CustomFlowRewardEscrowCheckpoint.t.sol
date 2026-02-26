@@ -40,7 +40,6 @@ contract CustomFlowRewardEscrowCheckpointTest is FlowTestBase {
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -365,7 +364,6 @@ contract CustomFlowRewardEscrowCheckpointTest is FlowTestBase {
             managerRewardPool,
             allocationPipeline,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -389,7 +387,6 @@ contract CustomFlowRewardEscrowCheckpointTest is FlowTestBase {
             managerRewardPool,
             allocationPipeline,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -432,7 +429,6 @@ contract CustomFlowRewardEscrowCheckpointTest is FlowTestBase {
             managerRewardPool,
             allocationPipeline,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies

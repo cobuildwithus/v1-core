@@ -10,7 +10,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Flows initialize via `CustomFlow.initialize` -> `Flow.__Flow_init`.
 - Deployment-time flow knobs are init-only:
-  - `flowImpl`, `connectPoolAdmin`, `managerRewardPoolFlowRatePercent`,
+  - `flowImpl`, `managerRewardPoolFlowRatePercent`,
     `managerRewardPool`, and `allocationPipeline`.
   - Runtime mutator entrypoints for these knobs are removed.
 - Flow authority is split and explicit:

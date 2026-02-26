@@ -66,7 +66,6 @@ contract FlowRatesTest is FlowTestBase {
             managerRewardPool,
             address(0),
             parent,
-            connectPoolAdmin,
             params,
             flowMetadata,
             strategies
