@@ -74,10 +74,16 @@ contract BudgetTCRStackDeploymentLibMockChildFlow {
     error NOT_RECIPIENT_ADMIN();
 
     address public recipientAdmin;
+    address public flowOperator;
+    address public sweeper;
+    address public parent;
     address private immutable _superToken;
 
     constructor(address recipientAdmin_, address superToken_) {
         recipientAdmin = recipientAdmin_;
+        flowOperator = recipientAdmin_;
+        sweeper = recipientAdmin_;
+        parent = address(0xBEEF);
         _superToken = superToken_;
     }
 
@@ -89,6 +95,15 @@ contract BudgetTCRStackDeploymentLibMockChildFlow {
     function superToken() external view returns (address) {
         return _superToken;
     }
+
+    function setFlowOperator(address newFlowOperator) external {
+        flowOperator = newFlowOperator;
+    }
+
+    function setSweeper(address newSweeper) external {
+        sweeper = newSweeper;
+    }
+
 }
 
 contract BudgetTCRStackDeploymentLibMockBudgetStakeLedger {
@@ -217,7 +232,12 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         assertEq(GoalStakeVault(prepared.stakeVault).goalTreasury(), treasuryAnchor);
         assertEq(BudgetStakeStrategy(prepared.strategy).recipientId(), recipientId);
 
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken));
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
+            budgetTCR,
+            address(goalToken)
+        );
+        childFlow.setFlowOperator(treasuryAnchor);
+        childFlow.setSweeper(treasuryAnchor);
 
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
         address budgetTreasury = _deployBudgetTreasury(
@@ -261,7 +281,10 @@ contract BudgetTCRStackDeploymentLibTest is Test {
             recipientId
         );
 
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken));
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
+            budgetTCR,
+            address(goalToken)
+        );
 
         vm.expectRevert(
             abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY_ANCHOR.selector, address(0xCAFE))
@@ -318,6 +341,8 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         );
 
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken));
+        childFlow.setFlowOperator(treasuryAnchor);
+        childFlow.setSweeper(treasuryAnchor);
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
         _deployBudgetTreasury(budgetTCR, prepared.stakeVault, address(childFlow), listing, budgetTCR);
 
