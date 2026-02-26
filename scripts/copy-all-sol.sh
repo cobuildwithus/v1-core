@@ -25,7 +25,7 @@ Defaults to --deployable:
   - additionally includes Flow base + allocation witness libraries:
     src/Flow.sol, src/library/FlowAllocations.sol
   - skips interfaces/libraries/helper-only files
-  - excludes generic TCR boilerplate + single allocator/strategy helper contracts
+  - excludes generic TCR boilerplate + helper strategy contracts
 
 Use --all for the previous behavior:
   - copies all non-test Solidity files outside lib/
@@ -69,7 +69,6 @@ else
 
   while IFS= read -r relpath; do
     case "$relpath" in
-      src/allocation-strategies/SingleAllocatorStrategy.sol|\
       src/tcr/strategies/EscrowSubmissionDepositStrategy.sol|\
       src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol|\
       src/tcr/GeneralizedTCR.sol|\
