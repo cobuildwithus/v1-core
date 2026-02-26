@@ -68,24 +68,50 @@ contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
         budgetTcr.activateRegisteredBudget(itemID);
     }
 
-    function test_finalizeRemovedBudget_reverts_when_pending_but_item_not_removed() public {
-        bytes32 itemID = _registerDefaultListing();
-        stdstore.target(address(budgetTcr)).sig("isRemovalPending(bytes32)").with_key(itemID).checked_write(true);
+    function test_branch_addItem_reverts_when_removal_finalization_pending() public {
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, listing);
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
 
-        vm.expectRevert(IBudgetTCR.ITEM_NOT_REMOVED.selector);
-        budgetTcr.finalizeRemovedBudget(itemID);
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        _approveAddCost(requester);
+        vm.expectRevert(IBudgetTCR.REMOVAL_FINALIZATION_PENDING.selector);
+        vm.prank(requester);
+        budgetTcr.addItem(abi.encode(listing));
     }
 
-    function test_finalizeRemovedBudget_returns_true_when_pending_and_stack_already_inactive() public {
-        bytes32 itemID = _registerDefaultListing();
+    function test_finalizeRemovedBudget_returns_true_when_pending_and_status_is_registration_requested() public {
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, listing);
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
         budgetTcr.finalizeRemovedBudget(itemID);
 
+        _approveAddCost(requester);
+        vm.prank(requester);
+        budgetTcr.addItem(abi.encode(listing));
+
+        (, IGeneralizedTCR.Status statusBeforeFinalize,) = budgetTcr.getItemInfo(itemID);
+        assertEq(uint8(statusBeforeFinalize), uint8(IGeneralizedTCR.Status.RegistrationRequested));
+
         stdstore.target(address(budgetTcr)).sig("isRemovalPending(bytes32)").with_key(itemID).checked_write(true);
+
+        vm.prank(makeAddr("keeper"));
         assertTrue(budgetTcr.finalizeRemovedBudget(itemID));
         assertFalse(budgetTcr.isRemovalPending(itemID));
+
+        (, IGeneralizedTCR.Status statusAfterFinalize,) = budgetTcr.getItemInfo(itemID);
+        assertEq(uint8(statusAfterFinalize), uint8(IGeneralizedTCR.Status.RegistrationRequested));
     }
 
     function test_finalizeRemovedBudget_force_zeroing_can_resolve_after_funding_deadline() public {
