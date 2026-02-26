@@ -5,10 +5,14 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import { GoalFactory } from "src/goals/GoalFactory.sol";
+import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
+import { CustomFlow } from "src/flows/CustomFlow.sol";
+import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBTerminalConfig } from "@bananapus/core-v5/structs/JBTerminalConfig.sol";
 import { ISuperfluid } from
     "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -399,6 +403,32 @@ contract GoalFactoryTest is Test {
         factory.deployGoal(_defaultDeployParams());
     }
 
+    function test_deployGoal_revertsWhenRevnetTokenLookupReturnsZero() public {
+        address expectedTerminal = makeAddr("primaryTerminal");
+        GoalFactoryDirectoryProbe directory =
+            new GoalFactoryDirectoryProbe(COBUILD_REVNET_ID, address(cobuildToken), expectedTerminal);
+        GoalFactoryTokensProbe tokensProbe = new GoalFactoryTokensProbe(address(0));
+        GoalFactoryControllerTokensProbe controllerProbe = new GoalFactoryControllerTokensProbe(address(tokensProbe));
+        GoalFactoryREVDeployerTokenZeroProbe deployer =
+            new GoalFactoryREVDeployerTokenZeroProbe(address(directory), address(controllerProbe), expectedTerminal);
+
+        GoalFactoryHarness factory = _deployFactoryWithOverrides(
+            address(deployer),
+            superfluidHost,
+            budgetTcrFactory,
+            address(cobuildToken),
+            goalTreasuryImpl,
+            flowImpl,
+            splitHookImpl,
+            defaultSubmissionDepositStrategy,
+            defaultBudgetTcrGovernor,
+            defaultInvalidRoundRewardsSink
+        );
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        factory.deployGoal(_defaultDeployParams());
+    }
+
     function test_deployGoal_revnetDeployForWiresTargetSaltAndStageAutoIssuances() public {
         vm.warp(1_700_000_000);
 
@@ -465,6 +495,82 @@ contract GoalFactoryTest is Test {
         assertEq(out.removalChallengeBaseDeposit, p.removalChallengeBaseDeposit);
         assertEq(out.registrationMetaEvidence, p.registrationMetaEvidence);
         assertEq(out.clearingMetaEvidence, p.clearingMetaEvidence);
+    }
+
+    function test_budgetTcrDeployLibrary_forwardsResolvedRegistryAndDeploymentConfig() public {
+        GoalFactoryBudgetTcrDeployHarness harness = new GoalFactoryBudgetTcrDeployHarness();
+        address returnedBudgetTcr = makeAddr("returnedBudgetTcr");
+        address returnedArbitrator = makeAddr("returnedArbitrator");
+        address returnedToken = makeAddr("returnedToken");
+        GoalFactoryBudgetTcrFactoryProbe budgetTcrFactoryProbe =
+            new GoalFactoryBudgetTcrFactoryProbe(returnedBudgetTcr, returnedArbitrator, returnedToken);
+
+        GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request;
+        request.budgetTcrFactory = BudgetTCRFactory(address(budgetTcrFactoryProbe));
+        request.registryConfig = GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
+            governor: address(0),
+            invalidRoundRewardsSink: address(0),
+            submissionDepositStrategy: address(0),
+            submissionBaseDeposit: 111,
+            removalBaseDeposit: 222,
+            submissionChallengeBaseDeposit: 333,
+            removalChallengeBaseDeposit: 444,
+            registrationMetaEvidence: "ipfs://registration-probe",
+            clearingMetaEvidence: "ipfs://clearing-probe",
+            challengePeriodDuration: 555,
+            arbitratorExtraData: bytes("probe-arbitrator-extra-data")
+        });
+        request.defaultGovernor = defaultBudgetTcrGovernor;
+        request.defaultInvalidRoundRewardsSink = defaultInvalidRoundRewardsSink;
+        request.defaultSubmissionDepositStrategy = defaultSubmissionDepositStrategy;
+        request.cobuildToken = address(cobuildToken);
+        request.cobuildDecimals = COBUILD_DECIMALS;
+        request.budgetSuccessResolver = BUDGET_SUCCESS_RESOLVER;
+        request.budgetBounds = IBudgetTCR.BudgetValidationBounds({
+            minFundingLeadTime: 11,
+            maxFundingHorizon: 22,
+            minExecutionDuration: 33,
+            maxExecutionDuration: 44,
+            minActivationThreshold: 55,
+            maxActivationThreshold: 66,
+            maxRunwayCap: 77
+        });
+        request.oracleBounds = IBudgetTCR.OracleValidationBounds({ maxOracleType: 2, liveness: 3, bondAmount: 4 });
+        request.arbitratorParams = IArbitrator.ArbitratorParams({
+            votingPeriod: 10,
+            votingDelay: 20,
+            revealPeriod: 30,
+            arbitrationCost: 40,
+            wrongOrMissedSlashBps: 50,
+            slashCallerBountyBps: 60
+        });
+        request.goalFlow = CustomFlow(payable(makeAddr("goalFlow")));
+        request.goalTreasury = GoalTreasury(makeAddr("goalTreasury"));
+        request.goalToken = makeAddr("goalToken");
+        request.goalRulesets = IJBRulesets(makeAddr("goalRulesets"));
+        request.goalRevnetId = 88;
+
+        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed = harness.exposedDeployBudgetTcrStack(request);
+
+        assertEq(deployed.budgetTCR, returnedBudgetTcr);
+        assertEq(deployed.arbitrator, returnedArbitrator);
+        assertEq(deployed.token, returnedToken);
+        assertTrue(budgetTcrFactoryProbe.called());
+        assertEq(budgetTcrFactoryProbe.lastGovernor(), defaultBudgetTcrGovernor);
+        assertEq(budgetTcrFactoryProbe.lastInvalidRoundRewardsSink(), defaultInvalidRoundRewardsSink);
+        assertEq(budgetTcrFactoryProbe.lastSubmissionDepositStrategy(), defaultSubmissionDepositStrategy);
+        assertEq(budgetTcrFactoryProbe.lastVotingToken(), address(cobuildToken));
+        assertEq(budgetTcrFactoryProbe.lastBudgetSuccessResolver(), BUDGET_SUCCESS_RESOLVER);
+        assertEq(budgetTcrFactoryProbe.lastGoalFlow(), address(request.goalFlow));
+        assertEq(budgetTcrFactoryProbe.lastGoalTreasury(), address(request.goalTreasury));
+        assertEq(budgetTcrFactoryProbe.lastGoalToken(), request.goalToken);
+        assertEq(budgetTcrFactoryProbe.lastCobuildToken(), address(cobuildToken));
+        assertEq(budgetTcrFactoryProbe.lastGoalRulesets(), address(request.goalRulesets));
+        assertEq(budgetTcrFactoryProbe.lastGoalRevnetId(), request.goalRevnetId);
+        assertEq(budgetTcrFactoryProbe.lastPaymentTokenDecimals(), COBUILD_DECIMALS);
+        assertEq(budgetTcrFactoryProbe.lastBudgetMinFundingLeadTime(), request.budgetBounds.minFundingLeadTime);
+        assertEq(budgetTcrFactoryProbe.lastOracleMaxType(), request.oracleBounds.maxOracleType);
+        assertEq(budgetTcrFactoryProbe.lastArbitrationCost(), request.arbitratorParams.arbitrationCost);
     }
 
     function test_resolveMinRaiseWindow_usesHalfDurationWhenUnset() public {
@@ -736,6 +842,137 @@ contract GoalFactoryREVDeployerProbe {
         }
 
         revert DEPLOY_FOR_PROBED();
+    }
+}
+
+contract GoalFactoryTokensProbe {
+    address internal immutable _token;
+
+    constructor(address token) {
+        _token = token;
+    }
+
+    function tokenOf(uint256) external view returns (address) {
+        return _token;
+    }
+}
+
+contract GoalFactoryControllerTokensProbe {
+    address internal immutable _tokens;
+
+    constructor(address tokens) {
+        _tokens = tokens;
+    }
+
+    function TOKENS() external view returns (address) {
+        return _tokens;
+    }
+}
+
+contract GoalFactoryREVDeployerTokenZeroProbe {
+    error INVALID_TERMINAL_CONFIG_COUNT(uint256 terminalConfigCount);
+    error INVALID_TERMINAL(address actual, address expected);
+
+    address internal immutable _directory;
+    address internal immutable _controller;
+    address internal immutable _expectedTerminal;
+
+    constructor(address directory, address controller, address expectedTerminal) {
+        _directory = directory;
+        _controller = controller;
+        _expectedTerminal = expectedTerminal;
+    }
+
+    function DIRECTORY() external view returns (address) {
+        return _directory;
+    }
+
+    function CONTROLLER() external view returns (address) {
+        return _controller;
+    }
+
+    function deployFor(
+        uint256,
+        IREVDeployer.REVConfig calldata,
+        JBTerminalConfig[] calldata terminalConfigurations,
+        IREVDeployer.REVBuybackHookConfig calldata,
+        IREVDeployer.REVSuckerDeploymentConfig calldata
+    ) external view returns (uint256) {
+        if (terminalConfigurations.length != 1) {
+            revert INVALID_TERMINAL_CONFIG_COUNT(terminalConfigurations.length);
+        }
+        if (address(terminalConfigurations[0].terminal) != _expectedTerminal) {
+            revert INVALID_TERMINAL(address(terminalConfigurations[0].terminal), _expectedTerminal);
+        }
+        return 7;
+    }
+}
+
+contract GoalFactoryBudgetTcrDeployHarness {
+    function exposedDeployBudgetTcrStack(
+        GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request
+    )
+        external
+        returns (BudgetTCRFactory.DeployedBudgetTCRStack memory)
+    {
+        return GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(request);
+    }
+}
+
+contract GoalFactoryBudgetTcrFactoryProbe {
+    address internal immutable _returnedBudgetTcr;
+    address internal immutable _returnedArbitrator;
+    address internal immutable _returnedToken;
+
+    bool public called;
+    address public lastGovernor;
+    address public lastInvalidRoundRewardsSink;
+    address public lastSubmissionDepositStrategy;
+    address public lastVotingToken;
+    address public lastBudgetSuccessResolver;
+    address public lastGoalFlow;
+    address public lastGoalTreasury;
+    address public lastGoalToken;
+    address public lastCobuildToken;
+    address public lastGoalRulesets;
+    uint256 public lastGoalRevnetId;
+    uint8 public lastPaymentTokenDecimals;
+    uint256 public lastBudgetMinFundingLeadTime;
+    uint8 public lastOracleMaxType;
+    uint256 public lastArbitrationCost;
+
+    constructor(address returnedBudgetTcr, address returnedArbitrator, address returnedToken) {
+        _returnedBudgetTcr = returnedBudgetTcr;
+        _returnedArbitrator = returnedArbitrator;
+        _returnedToken = returnedToken;
+    }
+
+    function deployBudgetTCRStackForGoal(
+        BudgetTCRFactory.RegistryConfigInput calldata registryConfig,
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        IArbitrator.ArbitratorParams calldata arbitratorParams
+    ) external returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
+        called = true;
+        lastGovernor = registryConfig.governor;
+        lastInvalidRoundRewardsSink = registryConfig.invalidRoundRewardsSink;
+        lastSubmissionDepositStrategy = address(registryConfig.submissionDepositStrategy);
+        lastVotingToken = address(registryConfig.votingToken);
+        lastBudgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
+        lastGoalFlow = address(deploymentConfig.goalFlow);
+        lastGoalTreasury = address(deploymentConfig.goalTreasury);
+        lastGoalToken = address(deploymentConfig.goalToken);
+        lastCobuildToken = address(deploymentConfig.cobuildToken);
+        lastGoalRulesets = address(deploymentConfig.goalRulesets);
+        lastGoalRevnetId = deploymentConfig.goalRevnetId;
+        lastPaymentTokenDecimals = deploymentConfig.paymentTokenDecimals;
+        lastBudgetMinFundingLeadTime = deploymentConfig.budgetValidationBounds.minFundingLeadTime;
+        lastOracleMaxType = deploymentConfig.oracleValidationBounds.maxOracleType;
+        lastArbitrationCost = arbitratorParams.arbitrationCost;
+        return BudgetTCRFactory.DeployedBudgetTCRStack({
+            budgetTCR: _returnedBudgetTcr,
+            arbitrator: _returnedArbitrator,
+            token: _returnedToken
+        });
     }
 }
 
