@@ -105,7 +105,22 @@ contract FakeUMATreasurySuccessResolverTest is Test {
         assertEq(assertion.bond, 333);
     }
 
-    function test_resolveTreasurySuccess_callsResolveOnTreasuryAndRevertsForNonOwner() public {
+    function test_setterMutators_revertWhenCallerIsNotOwner() public {
+        bytes32 assertionId = resolver.prepareAssertionForTreasury(address(treasury), false);
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ATTACKER));
+        vm.prank(ATTACKER);
+        resolver.setSettlementResolution(assertionId, true);
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ATTACKER));
+        vm.prank(ATTACKER);
+        resolver.setAssertionTail(assertionId, 1, 2, 3);
+    }
+
+    function test_resolveTreasurySuccess_callsResolveOnTreasuryAndRevertsForInvalidCallerOrTarget() public {
+        vm.expectRevert(abi.encodeWithSelector(FakeUMATreasurySuccessResolver.NOT_A_CONTRACT.selector, ATTACKER));
+        resolver.resolveTreasurySuccess(ATTACKER);
+
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ATTACKER));
         vm.prank(ATTACKER);
         resolver.resolveTreasurySuccess(address(treasury));
@@ -243,9 +258,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
     contract DeployGoalFromFactoryScriptWiringTest is Test {
         uint256 internal constant PRIVATE_KEY = 0xB0B;
-
-        address internal constant SUCCESS_RESOLVER = address(0xA1101);
-        address internal constant BUDGET_SUCCESS_RESOLVER = address(0xB1102);
         uint64 internal constant SUCCESS_LIVENESS = 7200;
         uint256 internal constant SUCCESS_BOND = 123e6;
         uint32 internal constant SETTLEMENT_REWARD_ESCROW_PPM = 777_777;
@@ -255,10 +267,14 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
         DeployGoalFromFactory internal deployScript;
         MockGoalFactoryForScript internal mockFactory;
+        FakeResolverNoop internal successResolver;
+        FakeResolverNoop internal budgetSuccessResolver;
 
         function setUp() public {
             deployScript = new DeployGoalFromFactory();
             mockFactory = new MockGoalFactoryForScript();
+            successResolver = new FakeResolverNoop();
+            budgetSuccessResolver = new FakeResolverNoop();
         }
 
         function test_run_wiresSuccessResolverParamsIntoFactoryCall() public {
@@ -266,8 +282,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             deployScript.run();
 
-            assertEq(mockFactory.lastSuccessResolver(), SUCCESS_RESOLVER);
-            assertEq(mockFactory.lastBudgetSuccessResolver(), BUDGET_SUCCESS_RESOLVER);
+            assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
             assertEq(mockFactory.lastSuccessLiveness(), SUCCESS_LIVENESS);
             assertEq(mockFactory.lastSuccessBond(), SUCCESS_BOND);
             assertEq(mockFactory.lastSettlementRewardEscrowPpm(), SETTLEMENT_REWARD_ESCROW_PPM);
@@ -278,8 +294,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         function _setDeployEnv() internal {
             vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
             vm.setEnv("GOAL_FACTORY", vm.toString(address(mockFactory)));
-            vm.setEnv("SUCCESS_RESOLVER", vm.toString(SUCCESS_RESOLVER));
-            vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(BUDGET_SUCCESS_RESOLVER));
+            vm.setEnv("SUCCESS_RESOLVER", vm.toString(address(successResolver)));
+            vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(address(budgetSuccessResolver)));
             vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
             vm.setEnv("SUCCESS_BOND", vm.toString(SUCCESS_BOND));
             vm.setEnv("SUCCESS_SETTLEMENT_REWARD_ESCROW_PPM", vm.toString(uint256(SETTLEMENT_REWARD_ESCROW_PPM)));
@@ -287,6 +303,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
         }
     }
+
+    contract FakeResolverNoop {}
 
     contract MockGoalFactoryForScript {
         address public lastSuccessResolver;

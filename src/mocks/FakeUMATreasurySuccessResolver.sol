@@ -14,6 +14,7 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
     bytes32 internal constant UMA_ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
 
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address target);
     error ASSERTION_NOT_FOUND(bytes32 assertionId);
     error ASSERTION_NOT_SETTLED(bytes32 assertionId);
     error UNSUPPORTED();
@@ -56,6 +57,7 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
 
     /// @notice Owner-triggered wrapper to call `resolveSuccess()` on a treasury.
     function resolveTreasurySuccess(address treasury) external onlyOwner {
+        if (treasury.code.length == 0) revert NOT_A_CONTRACT(treasury);
         ISuccessAssertionTreasury(treasury).resolveSuccess();
         emit TreasurySuccessResolved(treasury);
     }

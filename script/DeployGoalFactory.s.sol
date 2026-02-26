@@ -23,6 +23,7 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import { FakeUMATreasurySuccessResolver } from "src/mocks/FakeUMATreasurySuccessResolver.sol";
 
 contract DeployGoalFactory is Script {
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -34,11 +35,15 @@ contract DeployGoalFactory is Script {
         address revDeployer = vm.envOr("REV_DEPLOYER", address(0x2cA27BDe7e7D33E353b44c27aCfCf6c78ddE251d));
         address sfHost = vm.envOr("SUPERFLUID_HOST", address(0x4C073B3baB6d8826b8C5b229f3cfdC1eC6E47E74));
         address cobuildToken = vm.envOr("COBUILD_TOKEN", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb));
+        IERC20 cobuildErc20 = IERC20(cobuildToken);
         uint256 cobuildRevnetId = vm.envOr("COBUILD_REVNET_ID", uint256(138));
 
         uint256 escrowBondBps = vm.envOr("ESCROW_BOND_BPS", uint256(5000));
         address defaultGovernor = vm.envOr("DEFAULT_BUDGET_TCR_GOVERNOR", BURN);
         address invalidRoundRewardsSink = vm.envOr("DEFAULT_INVALID_ROUND_REWARDS_SINK", BURN);
+        address fakeUmaOwner = vm.envOr("FAKE_UMA_OWNER", deployer);
+        address fakeUmaEscalationManager = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployer);
+        bytes32 fakeUmaDomainId = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
         vm.startBroadcast(pk);
 
@@ -60,7 +65,14 @@ contract DeployGoalFactory is Script {
         );
 
         PrizePoolSubmissionDepositStrategy depositStrategy =
-            new PrizePoolSubmissionDepositStrategy(IERC20(cobuildToken), BURN);
+            new PrizePoolSubmissionDepositStrategy(cobuildErc20, BURN);
+
+        FakeUMATreasurySuccessResolver fakeUmaResolver = new FakeUMATreasurySuccessResolver(
+            cobuildErc20,
+            fakeUmaEscalationManager,
+            fakeUmaDomainId,
+            fakeUmaOwner
+        );
 
         GoalFactory goalFactory = new GoalFactory(
             IREVDeployer(revDeployer),
@@ -91,6 +103,9 @@ contract DeployGoalFactory is Script {
         console2.log("--- BudgetTCR stack ---");
         console2.log("BudgetTCRFactory:", address(budgetTcrFactory));
         console2.log("DepositStrategy:", address(depositStrategy));
+        console2.log("--- Fake resolver ---");
+        console2.log("FakeUMATreasurySuccessResolver:", address(fakeUmaResolver));
+        console2.log("FAKE_UMA_OWNER:", fakeUmaOwner);
         console2.log("--- Goal factory ---");
         console2.log("GoalFactory:", address(goalFactory));
     }

@@ -4,9 +4,9 @@ pragma solidity ^0.8.34;
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 
-import { GoalFactory } from "src/goals/GoalFactory.sol";
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 
 contract DeployGoalFromFactory is Script {
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -45,6 +45,13 @@ contract DeployGoalFromFactory is Script {
         string memory flowImage = vm.envOr("FLOW_IMAGE", string("ipfs://IMAGE"));
 
         address budgetSuccessResolver = vm.envOr("BUDGET_SUCCESS_RESOLVER", successResolver);
+        if (successResolver == BURN) revert SUCCESS_RESOLVER_REQUIRED();
+        if (successResolver.code.length == 0) revert SUCCESS_RESOLVER_NOT_CONTRACT(successResolver);
+        if (budgetSuccessResolver == BURN) revert BUDGET_SUCCESS_RESOLVER_REQUIRED();
+        if (budgetSuccessResolver.code.length == 0) {
+            revert BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(budgetSuccessResolver);
+        }
+
         uint256 challengePeriod = vm.envOr("TCR_CHALLENGE_PERIOD_SECONDS", uint256(2 hours));
         uint256 votingPeriod = vm.envOr("TCR_VOTING_PERIOD_SECONDS", uint256(2 hours));
         uint256 votingDelay = vm.envOr("TCR_VOTING_DELAY_SECONDS", uint256(1));
@@ -89,7 +96,7 @@ contract DeployGoalFromFactory is Script {
                 reservedPercent: reservedPercent,
                 durationSeconds: duration
             }),
-            timing: GoalFactory.GoalTimingParams({ minRaise: minRaise, minRaiseDurationSeconds: minRaiseWindow }),
+            timing: GoalFactory.GoalTimingParams({minRaise: minRaise, minRaiseDurationSeconds: minRaiseWindow}),
             success: GoalFactory.SuccessParams({
                 successResolver: successResolver,
                 successAssertionLiveness: successLiveness,
@@ -100,11 +107,7 @@ contract DeployGoalFromFactory is Script {
             settlement: GoalFactory.SettlementParams({
                 successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm
             }),
-            flowMetadata: GoalFactory.FlowMetadataParams({
-                title: flowTitle,
-                description: flowDesc,
-                image: flowImage
-            }),
+            flowMetadata: GoalFactory.FlowMetadataParams({title: flowTitle, description: flowDesc, image: flowImage}),
             budgetTCR: GoalFactory.BudgetTCRParams({
                 governor: address(0),
                 invalidRoundRewardsSink: BURN,
@@ -145,4 +148,9 @@ contract DeployGoalFromFactory is Script {
         console2.log("budgetTCR:", out.budgetTCR);
         console2.log("arbitrator:", out.arbitrator);
     }
+
+    error SUCCESS_RESOLVER_REQUIRED();
+    error SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
+    error BUDGET_SUCCESS_RESOLVER_REQUIRED();
+    error BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
 }
