@@ -20,7 +20,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address sweeper_,
         address managerRewardPool_,
         address parent_,
-        address connectPoolAdmin_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
         IAllocationStrategy[] memory strategies
@@ -37,7 +36,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             managerRewardPool_,
             address(0),
             parent_,
-            connectPoolAdmin_,
             params,
             metadata,
             strategies
@@ -51,7 +49,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address manager_,
         address managerRewardPool_,
         address parent_,
-        address connectPoolAdmin_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
         IAllocationStrategy[] memory strategies
@@ -65,7 +62,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             manager_,
             managerRewardPool_,
             parent_,
-            connectPoolAdmin_,
             params,
             metadata,
             strategies
@@ -79,7 +75,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address manager_,
         address managerRewardPool_,
         address parent_,
-        address connectPoolAdmin_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
         IAllocationStrategy[] memory strategies
@@ -96,7 +91,6 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             managerRewardPool_,
             address(0),
             parent_,
-            connectPoolAdmin_,
             params,
             metadata,
             strategies
@@ -121,7 +115,6 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
             manager,
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             _oneStrategy()
@@ -138,7 +131,6 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
             address(0),
             managerRewardPool,
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             _oneStrategy()
@@ -159,7 +151,6 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
             managerRewardPool,
             address(0),
             address(0),
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             _oneStrategy()
@@ -167,5 +158,34 @@ contract FlowInitializationAndAccessInitSurfaceAuditTest is FlowInitializationAn
 
         _assertCallFails(proxy, legacyCallData);
         assertEq(ICustomFlow(proxy).recipientAdmin(), address(0));
+    }
+
+    function test_initialize_legacySelectorWithConnectPoolAdmin_notExposed() public {
+        CustomFlow impl = new CustomFlow();
+        address proxy = address(new ERC1967Proxy(address(impl), ""));
+
+        bytes memory legacyCallData = abi.encodeWithSignature(
+            "initialize(address,address,address,address,address,address,address,address,address,(uint32),(string,string,string,string,string),address[])",
+            address(superToken),
+            address(flowImplementation),
+            manager,
+            manager,
+            manager,
+            managerRewardPool,
+            address(0),
+            address(0),
+            address(0xD00D),
+            flowParams,
+            flowMetadata,
+            _oneStrategy()
+        );
+
+        _assertCallFails(proxy, legacyCallData);
+        assertEq(ICustomFlow(proxy).recipientAdmin(), address(0));
+    }
+
+    function test_connectPoolAdmin_getterSelectorNotExposed() public {
+        _assertCallFails(address(flow), abi.encodeWithSignature("connectPoolAdmin()"));
+        assertEq(flow.recipientAdmin(), manager);
     }
 }

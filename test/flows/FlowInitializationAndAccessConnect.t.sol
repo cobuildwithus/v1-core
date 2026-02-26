@@ -33,7 +33,6 @@ contract FlowInitializationAndAccessConnectTest is FlowInitializationAndAccessBa
             manager,
             managerRewardPool,
             parentAddr,
-            connectPoolAdmin,
             flowParams,
             flowMetadata,
             strategies
@@ -48,11 +47,52 @@ contract FlowInitializationAndAccessConnectTest is FlowInitializationAndAccessBa
         _expectConnectPoolDenied(flow, distribution);
         _expectConnectPoolDenied(child, distribution);
 
-        vm.prank(connectPoolAdmin);
+        vm.prank(owner);
         flow.connectPool(distribution);
 
         vm.prank(manager);
         flow.connectPool(distribution);
+    }
+
+    function test_connectPool_roleSeparated_onlyRecipientAdminOrParent() public {
+        IAllocationStrategy[] memory strategies = _oneStrategy();
+        address recipientAdmin = makeAddr("recipientAdmin");
+        address flowOperator = makeAddr("flowOperator");
+        address sweeper = makeAddr("sweeper");
+        address parentAddr = makeAddr("parent");
+        CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
+            owner,
+            recipientAdmin,
+            flowOperator,
+            sweeper,
+            managerRewardPool,
+            address(0),
+            parentAddr,
+            strategies
+        );
+
+        ISuperfluidPool distribution = roleSeparatedFlow.distributionPool();
+        ISuperToken token = ISuperToken(address(superToken));
+        assertFalse(token.isMemberConnected(address(distribution), address(roleSeparatedFlow)));
+
+        vm.prank(flowOperator);
+        vm.expectRevert(IFlow.NOT_ALLOWED_TO_CONNECT_POOL.selector);
+        roleSeparatedFlow.connectPool(distribution);
+
+        vm.prank(sweeper);
+        vm.expectRevert(IFlow.NOT_ALLOWED_TO_CONNECT_POOL.selector);
+        roleSeparatedFlow.connectPool(distribution);
+
+        vm.prank(other);
+        vm.expectRevert(IFlow.NOT_ALLOWED_TO_CONNECT_POOL.selector);
+        roleSeparatedFlow.connectPool(distribution);
+
+        vm.prank(parentAddr);
+        roleSeparatedFlow.connectPool(distribution);
+        assertTrue(token.isMemberConnected(address(distribution), address(roleSeparatedFlow)));
+
+        vm.prank(recipientAdmin);
+        roleSeparatedFlow.connectPool(distribution);
     }
 
     function _expectConnectPoolDenied(CustomFlow flow_, ISuperfluidPool pool) internal {
