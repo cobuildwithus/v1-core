@@ -39,6 +39,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Other clearly small, low-risk changes (for example comment-only edits or narrowly scoped mechanical updates with no behavior change) may skip completion workflow subagent passes.
 - Always keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current for every coding task (single-agent and multi-agent): claim scope before first edit, list planned symbol add/rename/delete work, and remove your entry when done.
 - Any spawned subagent that may review or edit code must check `COORDINATION_LEDGER.md` first and must not overwrite/revert work owned by another active entry.
+- Release ownership is user-operated: do not run release/version-bump/publish flows (including tag-push release triggers) unless the user explicitly asks in the current turn.
 - Never lower CI coverage minimums without explicit user approval in the current chat; keep both `COVERAGE_LINES_MIN` and `COVERAGE_BRANCHES_MIN` at `85` or higher.
 - If a task appears to require a `lib/**` change, stop and ask the user for explicit approval and an alternative approach first.
 - Use canonical external interfaces: import from local `lib/**` packages when available; otherwise copy exact canonical interface files from upstream (do not invent minimal/approximate variants).

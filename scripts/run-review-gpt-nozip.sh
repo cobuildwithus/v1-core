@@ -13,4 +13,4 @@ mkdir -p "$OUT_DIR"
 OUT_FILE="$OUT_DIR/review-gpt-nozip-${PROFILE}-${TARGET_BYTES}.md"
 
 scripts/build-nozip-review-prompt.sh --profile "$PROFILE" --target-bytes "$TARGET_BYTES" --out "$OUT_FILE"
-pnpm -s review:gpt -- --prompt-file "$ROOT/$OUT_FILE" --preset security
+pnpm -s review:gpt -- --no-zip --prompt-file "$ROOT/$OUT_FILE" --preset security

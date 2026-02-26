@@ -23,19 +23,19 @@ Use `scripts/build-nozip-review-prompt.sh` to build capped payloads by profile.
 
 Current thorough two-pass recommendation:
 
-- `comprehensive-a-goals-interfaces`
-- `comprehensive-b-flow-tcr` (no swap paths)
+- `comprehensive-a-goals-logic`
+- `comprehensive-b-flow-tcr-logic` (no swap paths)
 
 Build examples (`review:gpt:nozip`):
 
-- `pnpm -s review:gpt:nozip -- --profile comprehensive-a-goals-interfaces --target-bytes 248000 --out audit-packages/review-gpt-nozip-comprehensive-a-goals-interfaces-final.md`
-- `pnpm -s review:gpt:nozip -- --profile comprehensive-b-flow-tcr --target-bytes 248000 --out audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-final.md`
+- `pnpm -s review:gpt:nozip -- --profile comprehensive-a-goals-logic --target-bytes 248000 --out audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md`
+- `pnpm -s review:gpt:nozip -- --profile comprehensive-b-flow-tcr-logic --target-bytes 248000 --out audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-logic-final.md`
 - `--out` sets the exact output file path instead of using a timestamped default.
 
-Browser-open upload + inline prompt (`review:gpt`) with package-native flags:
+Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
-- `pnpm -s review:gpt -- --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-interfaces-final.md --preset security`
-- `pnpm -s review:gpt -- --prompt-file audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-final.md --preset security`
+- `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md --preset security`
+- `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-logic-final.md --preset security`
 
 Notes:
 
