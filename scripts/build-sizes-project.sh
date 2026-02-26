@@ -37,7 +37,7 @@ status=$?
 set -e
 
 set +e
-awk -F'\\|' -v names_file="$tmp_names" '
+awk -F'\\|' -v names_file="$tmp_names" -v forge_status="$status" '
 BEGIN {
     while ((getline n < names_file) > 0) keep[n] = 1
     close(names_file)
@@ -64,7 +64,8 @@ $0 ~ /^\|/ {
     }
 }
 END {
-    if (!found) print "No project contracts found in size table."
+    if (!found && forge_status == 0) print "No project contracts found in size table."
+    if (!found && forge_status != 0) exit 43
     if (over) exit 42
 }
 ' "$tmp_output"
@@ -77,15 +78,18 @@ if [ "$table_status" -eq 42 ]; then
     exit 1
 fi
 
+if [ "$status" -ne 0 ]; then
+    echo
+    echo "forge exited with status $status"
+    if [ "$table_status" -eq 43 ]; then
+        echo "No size table emitted (build failed before size report)."
+    fi
+    search_pattern '^Error:' "$tmp_output"
+    exit "$status"
+fi
+
 if [ "$table_status" -ne 0 ]; then
     echo
     echo "Failed to parse size table."
     exit "$table_status"
-fi
-
-if [ "$status" -ne 0 ]; then
-    echo
-    echo "forge exited with status $status"
-    search_pattern '^Error:' "$tmp_output"
-    exit "$status"
 fi
