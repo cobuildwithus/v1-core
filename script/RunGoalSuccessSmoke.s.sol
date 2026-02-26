@@ -9,6 +9,8 @@ import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessRe
 
 contract RunGoalSuccessSmoke is Script {
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address target);
+    error CHAIN_ID_MISMATCH(uint256 expected, uint256 actual);
     error CALLER_NOT_RESOLVER_OWNER(address caller, address owner);
     error SUCCESS_RESOLVER_MISMATCH(address configuredResolver, address providedResolver);
     error GOAL_NOT_ACTIVE(uint8 currentState, uint256 totalRaised, uint256 minRaise);
@@ -17,10 +19,16 @@ contract RunGoalSuccessSmoke is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address caller = vm.addr(pk);
+        uint256 expectedChainId = vm.envOr("EXPECTED_CHAIN_ID", uint256(0));
 
         address treasuryAddr = vm.envAddress("GOAL_TREASURY");
         address resolverAddr = vm.envAddress("FAKE_SUCCESS_RESOLVER");
         if (treasuryAddr == address(0) || resolverAddr == address(0)) revert ADDRESS_ZERO();
+        if (treasuryAddr.code.length == 0) revert NOT_A_CONTRACT(treasuryAddr);
+        if (resolverAddr.code.length == 0) revert NOT_A_CONTRACT(resolverAddr);
+        if (expectedChainId != 0 && block.chainid != expectedChainId) {
+            revert CHAIN_ID_MISMATCH(expectedChainId, block.chainid);
+        }
 
         IGoalTreasury treasury = IGoalTreasury(treasuryAddr);
         FakeUMATreasurySuccessResolver resolver = FakeUMATreasurySuccessResolver(resolverAddr);
@@ -54,10 +62,19 @@ contract RunGoalSuccessSmoke is Script {
             revert GOAL_NOT_ACTIVE(uint8(currentState), totalRaised, minRaise);
         }
 
-        vm.startBroadcast(pk);
-        bytes32 assertionId = resolver.prepareTruthfulAssertionForTreasury(treasuryAddr);
-        console2.logBytes32(assertionId);
+        bytes32 assertionId = treasury.pendingSuccessAssertionId();
+        if (assertionId == bytes32(0)) {
+            vm.startBroadcast(pk);
+            assertionId = resolver.prepareTruthfulAssertionForTreasury(treasuryAddr);
+            vm.stopBroadcast();
+            console2.log("prepared assertionId:");
+            console2.logBytes32(assertionId);
+        } else {
+            console2.log("reusing pending assertionId:");
+            console2.logBytes32(assertionId);
+        }
 
+        vm.startBroadcast(pk);
         resolver.resolveTreasurySuccess(treasuryAddr);
         vm.stopBroadcast();
 
