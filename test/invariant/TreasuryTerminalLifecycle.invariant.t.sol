@@ -351,6 +351,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         budgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         budgetStakeVault.setGoalTreasury(address(budgetTreasury));
+        budgetFlow.setFlowOperator(address(budgetTreasury));
+        budgetFlow.setSweeper(address(budgetTreasury));
         budgetTreasury.initialize(
             address(this),
             IBudgetTreasury.BudgetConfig({

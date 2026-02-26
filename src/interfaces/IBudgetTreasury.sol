@@ -64,6 +64,7 @@ interface IBudgetTreasury is
     error FUNDING_WINDOW_NOT_ENDED();
     error DEADLINE_NOT_REACHED();
     error STAKE_VAULT_BUDGET_MISMATCH(address expected, address actual);
+    error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
     error PARENT_FLOW_NOT_CONFIGURED();
     error ONLY_SUCCESS_RESOLVER();
     error SUCCESS_ASSERTION_ALREADY_PENDING(bytes32 assertionId);

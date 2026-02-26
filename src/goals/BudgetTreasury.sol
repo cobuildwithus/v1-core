@@ -90,6 +90,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();
+        address configuredFlowOperator = _flow.flowOperator();
+        address configuredSweeper = _flow.sweeper();
+        if (configuredFlowOperator != address(this) || configuredSweeper != address(this)) {
+            revert FLOW_AUTHORITY_MISMATCH(address(this), configuredFlowOperator, configuredSweeper);
+        }
+        if (_flow.parent() == address(0)) revert PARENT_FLOW_NOT_CONFIGURED();
 
         fundingDeadline = config.fundingDeadline;
         executionDuration = config.executionDuration;
