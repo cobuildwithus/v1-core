@@ -94,12 +94,11 @@ If instructions still conflict after applying this order, ask the user before ac
 | User explicitly says to skip checks for this turn | Skip checks | User instruction takes precedence for that turn. |
 
 - `pnpm -s verify:required:full` is optional and only required when explicitly requested by the user.
-- Use `pnpm -s verify:required:ci` when you explicitly want local parity with the CI invariant lane.
+- `pnpm -s verify:required:ci` is not required by default; run it only for explicit parity verification requests.
 
 ## Quick Commands
 
 - Required Solidity gate (local-fast): `pnpm -s verify:required`
-- CI-parity Solidity gate (includes invariants): `pnpm -s verify:required:ci`
 - Full gate (when requested): `pnpm -s verify:required:full`
 - Follow running full gate logs: `pnpm -s verify:full:tail`
 - Commit tool: `scripts/committer "type(scope): summary" path/to/file1 path/to/file2`
