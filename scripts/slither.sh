@@ -13,6 +13,7 @@ fi
 slither . \
   --compile-force-framework foundry \
   --foundry-out-directory out \
+  --triage-database slither.db.json \
   --filter-paths "(^lib/|^test/|^node_modules/|src/swaps/CobuildSwap\\.sol$)" \
   --exclude-dependencies \
   --exclude incorrect-equality,uninitialized-local,unused-return \

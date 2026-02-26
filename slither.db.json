@@ -1,0 +1,58 @@
+[
+  {
+    "id": "6ac0637ffb68119abd66d46b45fd49d7bbff163397b4e788c97d5e86d79087f4",
+    "check": "arbitrary-send-erc20",
+    "impact": "High",
+    "confidence": "High",
+    "description": "TreasuryDonations.donateUnderlyingAndUpgradeToFlow(ISuperToken,address,address,uint256) (src/goals/library/TreasuryDonations.sol#11-33) uses arbitrary from in transferFrom: underlyingToken.safeTransferFrom(donor,address(this),amount) (src/goals/library/TreasuryDonations.sol#21)\n"
+  },
+  {
+    "id": "f005e217cd3136b233c204058a424366755346a3a56d4253227ca45d3c8334b8",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "FlowUnitMath.floorToUnitWeightScale(uint256) (src/library/FlowUnitMath.sol#24-26) performs a multiplication on the result of a division:\n\t- (amount / FlowProtocolConstants.UNIT_WEIGHT_SCALE) * FlowProtocolConstants.UNIT_WEIGHT_SCALE (src/library/FlowUnitMath.sol#25)\n"
+  },
+  {
+    "id": "45a6178e7da147734144c1e4076cbb9d87f8b2d8666b1ecdfb7df9483785372b",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in RewardEscrow.finalizeStep(uint256) (src/goals/RewardEscrow.sol#254-261):\n\tExternal calls:\n\t- (done,processed) = _budgetStakeLedger.finalizeStep(maxBudgets) (src/goals/RewardEscrow.sol#257)\n\tState variables written after the call(s):\n\t- _completeFinalization() (src/goals/RewardEscrow.sol#259)\n\t\t- finalizationInProgress = false (src/goals/RewardEscrow.sol#406)\n\tRewardEscrow.finalizationInProgress (src/goals/RewardEscrow.sol#31) can be used in cross function reentrancies:\n\t- RewardEscrow.finalizationInProgress (src/goals/RewardEscrow.sol#31)\n"
+  },
+  {
+    "id": "6be83b70859ada2ece2befd0aaf64189620a09dbf02d9ae34177de447fbbf7e6",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in ERC20VotesArbitrator.slashVoter(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#723-769):\n\tExternal calls:\n\t- _stakeVault.slashJurorStake(voter,callerBountyWeight,msg.sender) (src/tcr/ERC20VotesArbitrator.sol#760)\n\t- _stakeVault.slashJurorStake(voter,rewardEscrowWeight,rewardEscrow) (src/tcr/ERC20VotesArbitrator.sol#763)\n\tState variables written after the call(s):\n\t- _voterSlashedOrProcessed[disputeId][round][voter] = true (src/tcr/ERC20VotesArbitrator.sol#767)\n\tArbitratorStorageV1._voterSlashedOrProcessed (src/tcr/storage/ArbitratorStorageV1.sol#240) can be used in cross function reentrancies:\n\t- ERC20VotesArbitrator.getVoterRoundStatus(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#439-455)\n\t- ERC20VotesArbitrator.isVoterSlashedOrProcessed(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#457-464)\n"
+  },
+  {
+    "id": "970b07d5fa36c2ab1f6af62d675aad5920b47cc92ee6dd2d9edf5a2159f9e10c",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in UMATreasurySuccessResolver.settleAndFinalize(bytes32) (src/goals/UMATreasurySuccessResolver.sol#157-166):\n\tExternal calls:\n\t- optimisticOracle.settleAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#162)\n\t- _finalizeAssertion(assertionId,meta) (src/goals/UMATreasurySuccessResolver.sol#165)\n\t\t- successTreasury.resolveSuccess() (src/goals/UMATreasurySuccessResolver.sol#224-228)\n\t\t- successTreasury.clearSuccessAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#231-235)\n\tState variables written after the call(s):\n\t- _finalizeAssertion(assertionId,meta) (src/goals/UMATreasurySuccessResolver.sol#165)\n\t\t- meta.finalized = true (src/goals/UMATreasurySuccessResolver.sol#179)\n\tUMATreasurySuccessResolver.assertionMeta (src/goals/UMATreasurySuccessResolver.sol#64) can be used in cross function reentrancies:\n\t- UMATreasurySuccessResolver.assertionDisputedCallback(bytes32) (src/goals/UMATreasurySuccessResolver.sol#199-208)\n\t- UMATreasurySuccessResolver.assertionMeta (src/goals/UMATreasurySuccessResolver.sol#64)\n\t- UMATreasurySuccessResolver.assertionResolvedCallback(bytes32,bool) (src/goals/UMATreasurySuccessResolver.sol#187-197)\n"
+  },
+  {
+    "id": "b421747d132d5c21cdbe0a8f15f58d355ac7ff5856eaf9415cf06caa38224a5f",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in BudgetTCR._deployBudgetStack(bytes32,bytes) (src/tcr/BudgetTCR.sol#220-273):\n\tExternal calls:\n\t- prepared = IBudgetTCRStackDeployer(stackDeployer).prepareBudgetStack(goalToken,cobuildToken,goalRulesets,goalRevnetId,paymentTokenDecimals,budgetStakeLedger,itemID) (src/tcr/BudgetTCR.sol#225-234)\n\t- (None,childFlow) = goalFlow.addFlowRecipient(itemID,listing.metadata,prepared.budgetTreasury,prepared.budgetTreasury,prepared.budgetTreasury,localManagerRewardPool,childStrategies) (src/tcr/BudgetTCR.sol#242-250)\n\t- deployedBudgetTreasury = IBudgetTCRStackDeployer(stackDeployer).deployBudgetTreasury(prepared.stakeVault,childFlow,listing,budgetSuccessResolver,oracleValidationBounds.liveness,oracleValidationBounds.bondAmount) (src/tcr/BudgetTCR.sol#255-262)\n\t- IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID,deployedBudgetTreasury) (src/tcr/BudgetTCR.sol#264)\n\tState variables written after the call(s):\n\t- _budgetDeployments[itemID] = BudgetDeployment({childFlow:childFlow,budgetTreasury:deployedBudgetTreasury,stakeVault:prepared.stakeVault,strategy:prepared.strategy,active:true}) (src/tcr/BudgetTCR.sol#266-272)\n\tBudgetTCRStorageV1._budgetDeployments (src/tcr/storage/BudgetTCRStorageV1.sol#37) can be used in cross function reentrancies:\n\t- BudgetTCR.retryRemovedBudgetResolution(bytes32) (src/tcr/BudgetTCR.sol#164-181)\n"
+  },
+  {
+    "id": "c2114157432e4b303cba5eb9ec6f6b7da3cead007f55f8972a01410d5a6866c6",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in UMATreasurySuccessResolver.assertSuccess(address,string) (src/goals/UMATreasurySuccessResolver.sol#81-144):\n\tExternal calls:\n\t- optimisticOracle.syncUmaParams(UMA_ASSERT_TRUTH_IDENTIFIER,address(assertionCurrency)) (src/goals/UMATreasurySuccessResolver.sol#106)\n\t- assertionId = optimisticOracle.assertTruth(claim,msg.sender,address(this),escalationManager,liveness,assertionCurrency,bond,UMA_ASSERT_TRUTH_IDENTIFIER,domainId) (src/goals/UMATreasurySuccessResolver.sol#116-126)\n\t- successTreasury.registerSuccessAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#129)\n\tState variables written after the call(s):\n\t- activeAssertionOfTreasury[treasury] = assertionId (src/goals/UMATreasurySuccessResolver.sol#131)\n\tUMATreasurySuccessResolver.activeAssertionOfTreasury (src/goals/UMATreasurySuccessResolver.sol#63) can be used in cross function reentrancies:\n\t- UMATreasurySuccessResolver.activeAssertionOfTreasury (src/goals/UMATreasurySuccessResolver.sol#63)\n"
+  },
+  {
+    "id": "ecf401eb9cc0e2a000199aa4cf143adcda99c4cab19c9f98944fa3537fced929",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in BudgetTreasury.sync() (src/goals/BudgetTreasury.sol#127-148):\n\tExternal calls:\n\t- _activateAndSync() (src/goals/BudgetTreasury.sol#133)\n\t\t- appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow,targetRate) (src/goals/BudgetTreasury.sol#326)\n\t\t- flow.refreshTargetOutflowRate() (src/goals/library/TreasuryFlowRateSync.sol#30-46)\n\t\t- flow.setTargetOutflowRate(targetRate) (src/goals/library/TreasuryFlowRateSync.sol#49-85)\n\t\t- flow.setTargetOutflowRate(fallbackRate) (src/goals/library/TreasuryFlowRateSync.sol#58-67)\n\t\t- flow.setTargetOutflowRate(0) (src/goals/library/TreasuryFlowRateSync.sol#74-84)\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#135)\n\t\t- this.settleResidualToParentForFinalize() (src/goals/BudgetTreasury.sol#357-359)\n\t\t- _stakeVault.markGoalResolved() (src/goals/BudgetTreasury.sol#372-374)\n\t\t- flowContract.setTargetOutflowRate(0) (src/goals/TreasuryBase.sol#58-63)\n\tState variables written after the call(s):\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#135)\n\t\t- _state = newState (src/goals/BudgetTreasury.sol#384)\n\tBudgetTreasury._state (src/goals/BudgetTreasury.sol#22) can be used in cross function reentrancies:\n\t- BudgetTreasury._deriveBudgetDerivedState() (src/goals/BudgetTreasury.sol#395-401)\n\t- BudgetTreasury._tryActivateReassertGrace(bytes32) (src/goals/BudgetTreasury.sol#457-469)\n\t- BudgetTreasury.initialize(address,IBudgetTreasury.BudgetConfig) (src/goals/BudgetTreasury.sol#60-121)\n\t- BudgetTreasury.lifecycleStatus() (src/goals/BudgetTreasury.sol#276-297)\n\t- BudgetTreasury.registerSuccessAssertion(bytes32) (src/goals/BudgetTreasury.sol#201-213)\n\t- BudgetTreasury.resolved() (src/goals/BudgetTreasury.sol#236-238)\n\t- BudgetTreasury.state() (src/goals/BudgetTreasury.sol#240-242)\n\t- BudgetTreasury.targetFlowRate() (src/goals/BudgetTreasury.sol#266-274)\n"
+  }
+]
