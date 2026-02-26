@@ -61,7 +61,7 @@ contract GoalRevnetSplitHookTest is Test {
         controllerShim = new HookMockReservedTokenController();
         controller = address(controllerShim);
         treasury = new HookMockTreasury(controller, PROJECT_ID);
-        treasury.setTreasurySettlementRewardEscrowScaled(TREASURY_SETTLEMENT_SCALED);
+        treasury.setSuccessSettlementRewardEscrowPpm(TREASURY_SETTLEMENT_SCALED);
         treasury.setRewardEscrow(rewardEscrowSink);
         directory.setController(PROJECT_ID, controller);
 
@@ -160,7 +160,7 @@ contract GoalRevnetSplitHookTest is Test {
 
     function test_processSplitWith_successSettlement_withZeroRewardBps_burnsAll() public {
         uint256 amount = 1234;
-        treasury.setTreasurySettlementRewardEscrowScaled(0);
+        treasury.setSuccessSettlementRewardEscrowPpm(0);
         _setSuccessSettlementWindowOpen();
         underlying.mint(address(controllerShim), amount);
 
@@ -179,7 +179,7 @@ contract GoalRevnetSplitHookTest is Test {
 
     function test_processSplitWith_successSettlement_withFullRewardBps_sendsAllToEscrow() public {
         uint256 amount = 7777;
-        treasury.setTreasurySettlementRewardEscrowScaled(SCALE_1E6);
+        treasury.setSuccessSettlementRewardEscrowPpm(SCALE_1E6);
         _setSuccessSettlementWindowOpen();
         underlying.mint(address(controllerShim), amount);
 
@@ -241,7 +241,7 @@ contract GoalRevnetSplitHookTest is Test {
     {
         uint256 amount = bound(uint256(rawAmount), 1, 1e30);
         uint32 rewardScaled = uint32(bound(uint256(rawScaled), 0, SCALE_1E6));
-        treasury.setTreasurySettlementRewardEscrowScaled(rewardScaled);
+        treasury.setSuccessSettlementRewardEscrowPpm(rewardScaled);
         uint256 expectedReward = (amount * rewardScaled) / SCALE_1E6;
         uint256 expectedBurn = amount - expectedReward;
         uint256 escrowBefore = underlying.balanceOf(rewardEscrowSink);
@@ -665,7 +665,7 @@ contract HookMockTreasury {
     address public rewardEscrow;
     uint256 public callCount;
     uint256 public lastAmount;
-    uint32 public treasurySettlementRewardEscrowScaled;
+    uint32 public successSettlementRewardEscrowPpm;
     uint256 public deferredHookSuperTokenAmount;
 
     constructor(address burnController_, uint256 burnProjectId_) {
@@ -697,8 +697,8 @@ contract HookMockTreasury {
         rewardEscrow = rewardEscrow_;
     }
 
-    function setTreasurySettlementRewardEscrowScaled(uint32 settlementRewardEscrowScaled_) external {
-        treasurySettlementRewardEscrowScaled = settlementRewardEscrowScaled_;
+    function setSuccessSettlementRewardEscrowPpm(uint32 successSettlementRewardEscrowPpm_) external {
+        successSettlementRewardEscrowPpm = successSettlementRewardEscrowPpm_;
     }
 
     function canAcceptHookFunding() public view returns (bool) {
@@ -721,7 +721,7 @@ contract HookMockTreasury {
         }
 
         if (state == IGoalTreasury.GoalState.Succeeded && mintingOpen) {
-            rewardAmount = (sourceAmount * treasurySettlementRewardEscrowScaled) / 1_000_000;
+            rewardAmount = (sourceAmount * successSettlementRewardEscrowPpm) / 1_000_000;
             burnAmount = sourceAmount - rewardAmount;
 
             if (rewardAmount != 0) {

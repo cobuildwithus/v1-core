@@ -10,6 +10,7 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBRulesetApprovalHook } from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
+import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { JBApprovalStatus } from "@bananapus/core-v5/enums/JBApprovalStatus.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -246,9 +247,30 @@ contract TreasuryTerminalInvariantDirectory {
     }
 }
 
+contract TreasuryTerminalInvariantTokens {
+    mapping(address => uint256) private _projectIdOf;
+
+    function setProjectIdOf(address token, uint256 projectId) external {
+        _projectIdOf[token] = projectId;
+    }
+
+    function projectIdOf(IJBToken token) external view returns (uint256) {
+        return _projectIdOf[address(token)];
+    }
+}
+
 contract TreasuryTerminalInvariantController {
     uint256 public burnCallCount;
     uint256 public totalBurned;
+    TreasuryTerminalInvariantTokens private immutable _tokens;
+
+    constructor(TreasuryTerminalInvariantTokens tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (TreasuryTerminalInvariantTokens) {
+        return _tokens;
+    }
 
     function burnTokensOf(address, uint256, uint256 tokenCount, string calldata) external {
         burnCallCount += 1;
@@ -287,6 +309,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     TreasuryTerminalInvariantStakeVault public goalStakeVault;
     TreasuryTerminalInvariantRulesets public goalRulesets;
     TreasuryTerminalInvariantDirectory public goalDirectory;
+    TreasuryTerminalInvariantTokens public goalTokens;
     TreasuryTerminalInvariantController public goalController;
     TreasuryTerminalInvariantHook public goalHook;
     GoalTreasury public goalTreasury;
@@ -312,8 +335,10 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalRulesets.configureTwoRulesetSchedule(PROJECT_ID, uint48(block.timestamp + 21 days), 1e18);
 
         goalDirectory = new TreasuryTerminalInvariantDirectory();
-        goalController = new TreasuryTerminalInvariantController();
+        goalTokens = new TreasuryTerminalInvariantTokens();
+        goalController = new TreasuryTerminalInvariantController(goalTokens);
         goalDirectory.setController(PROJECT_ID, address(goalController));
+        goalTokens.setProjectIdOf(address(goalUnderlying), PROJECT_ID);
 
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
@@ -331,7 +356,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(this),
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,

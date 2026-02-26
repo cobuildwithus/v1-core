@@ -40,7 +40,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
         uint112 revnetWeight;
         uint256 minRaise;
         bool withRewardEscrow;
-        uint32 treasurySettlementRewardEscrowScaled;
+        uint32 successSettlementRewardEscrowPpm;
     }
 
     IRevnetHarness internal revnets;
@@ -66,7 +66,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
             revnetWeight: 2e18,
             minRaise: 50e18,
             withRewardEscrow: false,
-            treasurySettlementRewardEscrowScaled: 0
+            successSettlementRewardEscrowPpm: 0
         });
     }
 
@@ -77,7 +77,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
             revnetWeight: 2e18,
             minRaise: 50e18,
             withRewardEscrow: true,
-            treasurySettlementRewardEscrowScaled: 250_000
+            successSettlementRewardEscrowPpm: 250_000
         });
     }
 
@@ -111,7 +111,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
-                treasurySettlementRewardEscrowScaled: 0,
+                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
                 successAssertionBond: 0,
@@ -195,7 +195,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
                 goalRevnetId: goalRevnetId,
                 minRaiseDeadline: uint64(block.timestamp + config.minRaiseDeadlineOffset),
                 minRaise: config.minRaise,
-                treasurySettlementRewardEscrowScaled: config.treasurySettlementRewardEscrowScaled,
+                successSettlementRewardEscrowPpm: config.successSettlementRewardEscrowPpm,
                 successResolver: goalSuccessResolver,
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,

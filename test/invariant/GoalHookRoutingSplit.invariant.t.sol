@@ -78,7 +78,7 @@ contract GoalHookInvariantTreasury {
     uint256 public callCount;
     uint256 public totalRecordedFunding;
     uint256 public deferredHookSuperTokenAmount;
-    uint32 public treasurySettlementRewardEscrowScaled;
+    uint32 public successSettlementRewardEscrowPpm;
     ISuperToken public superToken;
     address public flow;
     address public burnController;
@@ -108,8 +108,8 @@ contract GoalHookInvariantTreasury {
         rewardEscrow = rewardEscrow_;
     }
 
-    function setTreasurySettlementRewardEscrowScaled(uint32 settlementRewardEscrowScaled_) external {
-        treasurySettlementRewardEscrowScaled = settlementRewardEscrowScaled_;
+    function setSuccessSettlementRewardEscrowPpm(uint32 successSettlementRewardEscrowPpm_) external {
+        successSettlementRewardEscrowPpm = successSettlementRewardEscrowPpm_;
     }
 
     function setHookRuntime(address flow_, ISuperToken superToken_, address burnController_, uint256 burnProjectId_) external {
@@ -164,7 +164,7 @@ contract GoalHookInvariantTreasury {
         }
 
         if (state == IGoalTreasury.GoalState.Succeeded && mintingOpen) {
-            rewardAmount = (sourceAmount * treasurySettlementRewardEscrowScaled) / 1_000_000;
+            rewardAmount = (sourceAmount * successSettlementRewardEscrowPpm) / 1_000_000;
             burnAmount = sourceAmount - rewardAmount;
 
             if (rewardAmount != 0) {
@@ -271,7 +271,7 @@ contract GoalHookRoutingSplitInvariantHandler is Test {
         treasury = new GoalHookInvariantTreasury();
         controller = new GoalHookInvariantReservedTokenController();
 
-        treasury.setTreasurySettlementRewardEscrowScaled(SETTLEMENT_REWARD_SCALED);
+        treasury.setSuccessSettlementRewardEscrowPpm(SETTLEMENT_REWARD_SCALED);
         treasury.setRewardEscrow(rewardEscrowSink);
         treasury.setHookRuntime(address(flow), ISuperToken(address(superToken)), address(controller), PROJECT_ID);
         directory.setController(PROJECT_ID, address(controller));

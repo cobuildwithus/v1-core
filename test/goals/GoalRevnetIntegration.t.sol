@@ -249,7 +249,7 @@ contract GoalRevnetIntegrationDeferredSuccessSettlementTest is GoalRevnetFixture
     function setUp() public override {
         super.setUp();
         GoalIntegrationConfig memory config = _goalConfigPresetWithEscrow();
-        config.treasurySettlementRewardEscrowScaled = 400_000;
+        config.successSettlementRewardEscrowPpm = 400_000;
         _setUpGoalIntegration(config);
     }
 
@@ -263,7 +263,7 @@ contract GoalRevnetIntegrationDeferredSuccessSettlementTest is GoalRevnetFixture
         vm.warp(treasury.deadline());
 
         uint256 amount = 9e18;
-        uint256 treasurySettlementScaled = treasury.treasurySettlementRewardEscrowScaled();
+        uint256 treasurySettlementScaled = treasury.successSettlementRewardEscrowPpm();
         uint256 expectedReward = (amount * treasurySettlementScaled) / SCALE_1E6;
         uint256 expectedBurn = amount - expectedReward;
 
@@ -319,7 +319,7 @@ contract GoalRevnetIntegrationWithEscrowTest is GoalRevnetFixtureBase {
         _resolveGoalSuccessViaAssertion();
 
         uint256 amount = 8e18;
-        uint256 rewardScaled = treasury.treasurySettlementRewardEscrowScaled();
+        uint256 rewardScaled = treasury.successSettlementRewardEscrowPpm();
         uint256 expectedReward = (amount * rewardScaled) / SCALE_1E6;
         uint256 expectedBurn = amount - expectedReward;
         uint256 escrowBefore = underlyingToken.balanceOf(address(rewardEscrow));
@@ -355,7 +355,7 @@ contract GoalRevnetIntegrationWithEscrowTest is GoalRevnetFixtureBase {
         _resolveGoalSuccessViaAssertion();
 
         uint256 amount = 9e18;
-        uint256 expectedReward = (amount * treasury.treasurySettlementRewardEscrowScaled()) / SCALE_1E6;
+        uint256 expectedReward = (amount * treasury.successSettlementRewardEscrowPpm()) / SCALE_1E6;
         uint256 expectedBurn = amount - expectedReward;
         uint256 underlyingEscrowBefore = underlyingToken.balanceOf(address(rewardEscrow));
         uint256 superEscrowBefore = superToken.balanceOf(address(rewardEscrow));
@@ -420,7 +420,7 @@ contract GoalRevnetIntegrationWithEscrowTest is GoalRevnetFixtureBase {
         uint256 treasuryRaisedBefore = treasury.totalRaised();
 
         uint256 amount = 12e18;
-        uint256 expectedReward = (amount * treasury.treasurySettlementRewardEscrowScaled()) / SCALE_1E6;
+        uint256 expectedReward = (amount * treasury.successSettlementRewardEscrowPpm()) / SCALE_1E6;
         uint256 expectedBurn = amount - expectedReward;
 
         underlyingToken.mint(address(hook), amount);
@@ -457,7 +457,7 @@ contract GoalRevnetIntegrationWithEscrowTest is GoalRevnetFixtureBase {
         amounts[1] = 5e18;
         amounts[2] = 11e18;
 
-        uint256 rewardScaled = treasury.treasurySettlementRewardEscrowScaled();
+        uint256 rewardScaled = treasury.successSettlementRewardEscrowPpm();
         uint256 escrowBefore = underlyingToken.balanceOf(address(rewardEscrow));
         uint256 totalAmount;
         uint256 totalExpectedReward;
