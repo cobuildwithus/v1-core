@@ -25,6 +25,9 @@ Examples:
   scripts/build-nozip-review-prompt.sh
   scripts/build-nozip-review-prompt.sh --profile comprehensive-a-goals-logic
   scripts/build-nozip-review-prompt.sh --profile comprehensive-b-flow-tcr-logic --target-bytes 250000
+
+Note:
+  CobuildSwap is intentionally excluded from these comprehensive profiles for now (non-core scope).
 EOF
 }
 
@@ -181,7 +184,6 @@ src/tcr/utils/VotingTokenCompatibility.sol
 src/goals/UMATreasurySuccessResolver.sol
 src/hooks/GoalRevnetSplitHook.sol
 src/storage/FlowStorage.sol
-src/swaps/CobuildSwap.sol
 EOF
       ;;
     *)
