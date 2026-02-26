@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 
-import { BudgetStakeStrategy } from "src/allocation-strategies/BudgetStakeStrategy.sol";
+import { BudgetStakeStrategy } from "test/harness/BudgetStakeStrategy.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 

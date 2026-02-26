@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { FlowAllocationsBase } from "test/flows/FlowAllocations.t.sol";
-import { BudgetStakeStrategy } from "src/allocation-strategies/BudgetStakeStrategy.sol";
+import { BudgetStakeStrategy } from "test/harness/BudgetStakeStrategy.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";

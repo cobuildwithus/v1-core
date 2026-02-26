@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
-import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
-import { AddressKeyAllocationStrategy } from "./AddressKeyAllocationStrategy.sol";
+import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { AddressKeyAllocationStrategy } from "src/allocation-strategies/AddressKeyAllocationStrategy.sol";
 
 contract BudgetStakeStrategy is AddressKeyAllocationStrategy {
     IBudgetStakeLedger public immutable budgetStakeLedger;
