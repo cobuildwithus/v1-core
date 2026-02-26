@@ -16,7 +16,7 @@ contract CustomFlow is ICustomFlow, Flow {
     error STALE_CLEAR_NO_COMMITMENT();
     error STALE_CLEAR_WEIGHT_NOT_ZERO(uint256 currentWeight);
 
-    constructor() payable {
+    constructor() {
         _disableInitializers();
     }
 

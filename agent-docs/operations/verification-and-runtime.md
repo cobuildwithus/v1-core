@@ -15,7 +15,7 @@ Last verified: 2026-02-24
 - As of 2026-02-26, Slither excludes `src/swaps/CobuildSwap.sol` in local and CI runs as a temporary risk-acceptance decision while a planned `CobuildSwap` V2 replacement is prepared.
 - This exception is intentionally narrow (single file path) and should be removed once V2 lands.
 - As of 2026-02-26, Slither uses `slither.db.json` for fingerprint-level triage of accepted findings (intentional quantization math, trusted-core reentrancy false positives, and explicit donor forwarding helper semantics).
-- Keep detector coverage enabled globally and keep `locked-ether` on `CustomFlow` unsuppressed until a constructor-hardening fix lands.
+- `CustomFlow` constructor hardening landed on 2026-02-26 (constructor is non-payable), so `locked-ether` no longer appears in targeted Slither runs.
 
 ## Required Checks Matrix
 
