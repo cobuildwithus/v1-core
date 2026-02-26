@@ -62,7 +62,8 @@
     "review:gpt:nozip": "scripts/build-nozip-review-prompt.sh",
     "review:gpt:nozip:list": "scripts/build-nozip-review-prompt.sh --list-profiles",
     "prepare": "husky install",
-    "build:sizes:raw": "forge build --sizes --contracts src --skip 'test/**'"
+    "build:sizes:raw": "forge build --sizes --contracts src --skip 'test/**'",
+    "review:gpt:nozip:run": "scripts/run-review-gpt-nozip.sh"
   },
   "devDependencies": {
     "@bananapus/permission-ids-v5": "^0.0.2",
