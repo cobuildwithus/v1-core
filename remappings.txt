@@ -1,0 +1,11 @@
+forge-std/=lib/forge-std/src/
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
+@superfluid-finance/ethereum-contracts/=lib/protocol-monorepo/packages/ethereum-contracts/
+@superfluid-finance/solidity-semantic-money/=lib/protocol-monorepo/packages/solidity-semantic-money/
+@openzeppelin-v5/=node_modules/@openzeppelin/
+@bananapus/core-v5/=lib/nana-core-v5/src/
+@bananapus/permission-ids-v5/=node_modules/@bananapus/permission-ids-v5/
+@prb/math/=node_modules/@prb/math/
+@uniswap/v4-core/=node_modules/@uniswap/v4-core/
+@uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery/

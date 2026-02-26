@@ -1,0 +1,11 @@
+# Superfluid References (LLM)
+
+Primary docs:
+- https://docs.superfluid.org/
+- https://docs.superfluid.org/docs/protocol/money-streaming/overview
+- https://github.com/superfluid-finance/protocol-monorepo
+
+Concepts for this repo:
+- SuperToken transfer/upgrade semantics
+- pool and distribution behavior in flow-rate management
+- expected callback and token behavior assumptions

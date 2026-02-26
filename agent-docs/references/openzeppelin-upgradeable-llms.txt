@@ -1,0 +1,11 @@
+# OpenZeppelin Upgradeable References (LLM)
+
+Primary docs:
+- https://docs.openzeppelin.com/contracts
+- https://docs.openzeppelin.com/contracts/4.x/upgradeable
+- https://docs.openzeppelin.com/upgrades-plugins/1.x/
+
+Concepts for this repo:
+- UUPS/Ownable/Reentrancy patterns
+- storage layout compatibility constraints
+- secure upgrade authorization practices

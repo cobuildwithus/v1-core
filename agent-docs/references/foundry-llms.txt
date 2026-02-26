@@ -1,0 +1,12 @@
+# Foundry References (LLM)
+
+Primary docs:
+- https://book.getfoundry.sh/
+- https://book.getfoundry.sh/reference/config/overview
+- https://book.getfoundry.sh/reference/forge/forge-test
+- https://book.getfoundry.sh/reference/forge/forge-coverage
+
+Concepts for this repo:
+- profile-driven test/build behavior
+- invariant/fuzz configuration
+- coverage report generation and gating

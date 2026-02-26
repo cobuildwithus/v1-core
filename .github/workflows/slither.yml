@@ -1,0 +1,40 @@
+name: Slither
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  slither:
+    name: Slither analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.6.0-rc1
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.2
+        with:
+          target: .
+          fail-on: all
+          slither-args: >
+            --compile-force-framework foundry
+            --foundry-out-directory out
+            --filter-paths "(^lib/|^test/|^node_modules/)"
+            --exclude-dependencies
+            --exclude incorrect-equality,uninitialized-local,unused-return
+            --exclude-informational
+            --exclude-low
+            --exclude-optimization

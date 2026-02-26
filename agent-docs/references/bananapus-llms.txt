@@ -1,0 +1,11 @@
+# Bananapus / Juicebox v5 References (LLM)
+
+Primary sources:
+- https://docs.juicebox.money/
+- https://github.com/Bananapus/nana-core
+- https://github.com/Bananapus/nana-sdks
+
+Concepts for this repo:
+- ruleset and split-hook semantics
+- revnet/controller/terminal integration assumptions
+- contract interface/version coupling for hook and treasury modules

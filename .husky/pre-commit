@@ -1,0 +1,5 @@
+#!/bin/sh
+
+pnpm -s prettier:write
+
+git add -A

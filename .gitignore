@@ -1,0 +1,25 @@
+# Compiler files
+cache/
+out/
+coverage/
+
+# Local/editor metadata
+.DS_Store
+.vscode/
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+audit-packages/
+audit-packages/**/*.zip
+audit-packages/**/*.txt
+
+# Node
+node_modules/
+
+# Dotenv file
+.env

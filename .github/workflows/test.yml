@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  check:
+    name: Foundry project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Check agent docs drift
+        run: bash scripts/check-agent-docs-drift.sh
+
+      - name: Run doc gardening checks
+        run: |
+          bash scripts/doc-gardening.sh --fail-on-issues
+          git diff --exit-code -- agent-docs/generated/doc-inventory.md agent-docs/generated/doc-gardening-report.md
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JS deps
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.6.0-rc1
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run Prettier
+        run: |
+          pnpm -s prettier:check
+        id: prettier
+
+      - name: Run Forge build
+        run: |
+          pnpm -s build:sizes
+        id: build
+
+      - name: Run Forge coverage (lines + branches)
+        run: |
+          pnpm -s test:coverage:ci
+        env:
+          COVERAGE_LINES_MIN: "85"
+          COVERAGE_BRANCHES_MIN: "85"
+        id: test

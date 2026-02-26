@@ -1,0 +1,37 @@
+name: Doc Gardening
+
+on:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  garden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run doc gardening
+        run: bash scripts/doc-gardening.sh --fail-on-issues
+
+      - name: Open doc gardening PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/doc-gardening-protocol
+          delete-branch: true
+          commit-message: "chore(docs): refresh agent doc inventory"
+          title: "chore(docs): weekly doc gardening"
+          body: |
+            Automated weekly doc gardening run.
+
+            - Refreshed generated doc inventory
+            - Refreshed doc gardening report
+          add-paths: |
+            agent-docs/generated/doc-inventory.md
+            agent-docs/generated/doc-gardening-report.md
