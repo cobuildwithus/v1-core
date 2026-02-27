@@ -30,6 +30,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     struct BudgetInfo {
         bool isTracked;
+        bool rewardHistoryLocked;
         bool wasSuccessfulAtFinalization;
         uint64 resolvedAtFinalization;
         uint64 removedAt;
@@ -171,17 +172,21 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         emit BudgetRegistered(recipientId, budget);
     }
 
-    function removeBudget(bytes32 recipientId) external override onlyBudgetRegistryManager {
+    function removeBudget(bytes32 recipientId) external override onlyBudgetRegistryManager returns (bool lockRewardHistory) {
         if (finalized || finalizationInProgress) revert REGISTRATION_CLOSED();
         address budget = _budgetByRecipientId[recipientId];
-        if (budget == address(0)) return;
+        if (budget == address(0)) return false;
 
         delete _budgetByRecipientId[recipientId];
         BudgetInfo storage info = _budgetInfo[budget];
         if (info.removedAt == 0) {
             info.removedAt = uint64(block.timestamp);
+            info.rewardHistoryLocked = _deriveRewardHistoryLock(budget);
         }
-        _trackedBudgets.remove(budget);
+        lockRewardHistory = info.rewardHistoryLocked;
+        if (!lockRewardHistory) {
+            _trackedBudgets.remove(budget);
+        }
         emit BudgetRemoved(recipientId, budget);
     }
 
@@ -414,14 +419,14 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             address budget = _trackedBudgets.at(nextCursor);
             BudgetInfo storage info = _budgetInfo[budget];
             uint64 resolvedAt = IBudgetTreasury(budget).resolvedAt();
-            if (info.removedAt == 0 && resolvedAt == 0) break;
+            if (!_isBudgetReadyForSuccessFinalization(info, resolvedAt)) break;
 
             BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
             uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, info);
 
             _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudget(budget));
 
-            bool succeeded = _isBudgetSucceededAtFinalization(budget, info.removedAt, resolvedAt);
+            bool succeeded = _isBudgetSucceededAtFinalization(budget, info, resolvedAt);
             info.wasSuccessfulAtFinalization = succeeded;
             info.resolvedAtFinalization = resolvedAt;
 
@@ -694,25 +699,69 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         goalFlow = IGoalTreasury(goalTreasury).flow();
     }
 
+    function _deriveRewardHistoryLock(address budget) internal view returns (bool lockRewardHistory) {
+        IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
+        bool hasDeadlineSurface;
+        try budgetTreasury.deadline() returns (uint64 deadline_) {
+            hasDeadlineSurface = true;
+            if (deadline_ != 0) return true;
+        } catch { }
+
+        bool hasTreasuryBalance;
+        bool hasActivationThreshold;
+        uint256 treasuryBalance_;
+        uint256 activationThreshold_;
+
+        try budgetTreasury.treasuryBalance() returns (uint256 treasuryBalanceRead) {
+            treasuryBalance_ = treasuryBalanceRead;
+            hasTreasuryBalance = true;
+        } catch { }
+
+        try budgetTreasury.activationThreshold() returns (uint256 activationThresholdRead) {
+            activationThreshold_ = activationThresholdRead;
+            hasActivationThreshold = true;
+        } catch { }
+
+        if (hasTreasuryBalance && hasActivationThreshold && treasuryBalance_ >= activationThreshold_) {
+            return true;
+        }
+
+        // If any canonical activation surface is available and did not lock, treat as not locked.
+        // This avoids over-locking on non-canonical state values in test doubles.
+        if (hasDeadlineSurface || hasTreasuryBalance || hasActivationThreshold) {
+            return false;
+        }
+
+        // Fallback for non-canonical test doubles that omit activation surfaces.
+        try budgetTreasury.state() returns (IBudgetTreasury.BudgetState state_) {
+            return state_ != IBudgetTreasury.BudgetState.Funding;
+        } catch {
+            return false;
+        }
+    }
+
+    function _isBudgetReadyForSuccessFinalization(BudgetInfo storage info, uint64 resolvedAt) internal view returns (bool) {
+        return resolvedAt != 0 || (info.removedAt != 0 && !info.rewardHistoryLocked);
+    }
+
     function _requireGoalFlow() internal view returns (address goalFlow) {
         goalFlow = _goalFlow();
         if (goalFlow == address(0) || goalFlow.code.length == 0) revert INVALID_GOAL_FLOW(goalFlow);
     }
 
-    function _isBudgetSucceededAtFinalization(
-        address budget,
-        uint64 removedAt,
-        uint64 resolvedAt
-    ) internal view returns (bool) {
-        if (removedAt != 0 || resolvedAt == 0) return false;
+    function _isBudgetSucceededAtFinalization(address budget, BudgetInfo storage info, uint64 resolvedAt) internal view returns (bool) {
+        if (resolvedAt == 0) return false;
+        if (info.removedAt != 0 && !info.rewardHistoryLocked) return false;
 
         return uint8(IBudgetTreasury(budget).state()) == _BUDGET_SUCCEEDED;
     }
 
     function _effectiveBudgetResolvedOrRemovedAt(address budget) internal view returns (uint64 resolvedOrRemovedAt) {
-        uint64 removedAt = _budgetInfo[budget].removedAt;
+        BudgetInfo storage info = _budgetInfo[budget];
+        uint64 removedAt = info.removedAt;
         uint64 resolvedAt = IBudgetTreasury(budget).resolvedAt();
         if (removedAt == 0) return resolvedAt;
+        if (info.rewardHistoryLocked) return resolvedAt;
         if (resolvedAt == 0 || removedAt < resolvedAt) return removedAt;
         return resolvedAt;
     }

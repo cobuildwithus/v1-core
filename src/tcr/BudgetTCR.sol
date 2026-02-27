@@ -117,14 +117,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             return true;
         }
 
-        IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
+        bool lockRewardHistory = IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
         goalFlow.removeRecipient(itemID);
 
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            treasury.disableSuccessResolution();
-            if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
+            if (lockRewardHistory) {
+                // Post-activation removals stop forward spend without rewriting reward-history success eligibility.
+                treasury.forceFlowRateToZero();
+                terminallyResolved = _resolved(treasury);
+            } else {
+                treasury.disableSuccessResolution();
+                if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
+            }
         }
 
         deployment.active = false;
@@ -160,15 +166,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (deployment.active) revert STACK_STILL_ACTIVE();
 
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-        try treasury.disableSuccessResolution() {} catch (bytes memory reason) {
-            emit BudgetTerminalizationStepFailed(
-                itemID,
-                budgetTreasury,
-                IBudgetTreasury.disableSuccessResolution.selector,
-                reason
-            );
+        if (!treasury.successResolutionDisabled()) {
+            treasury.forceFlowRateToZero();
+            terminallyResolved = _resolved(treasury);
+        } else {
+            try treasury.disableSuccessResolution() {} catch (bytes memory reason) {
+                emit BudgetTerminalizationStepFailed(
+                    itemID,
+                    budgetTreasury,
+                    IBudgetTreasury.disableSuccessResolution.selector,
+                    reason
+                );
+            }
+            terminallyResolved = _tryResolveBudgetTerminalState(itemID, treasury);
         }
-        terminallyResolved = _tryResolveBudgetTerminalState(itemID, treasury);
         emit BudgetStackTerminalizationRetried(itemID, budgetTreasury, terminallyResolved);
     }
 

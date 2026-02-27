@@ -5,6 +5,7 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 
 contract MockBudgetTCRSuperToken is ERC20 {
     constructor() ERC20("Budget Super Token", "BST") { }
@@ -279,8 +280,34 @@ contract MockBudgetStakeLedgerForBudgetTCR {
         registerCallCount += 1;
     }
 
-    function removeBudget(bytes32 recipientId) external {
+    function removeBudget(bytes32 recipientId) external returns (bool lockRewardHistory) {
+        address budget = budgetForRecipient[recipientId];
+        if (budget == address(0)) return false;
+
+        lockRewardHistory = _deriveRewardHistoryLock(IBudgetTreasury(budget));
+
         delete budgetForRecipient[recipientId];
         removeCallCount += 1;
+    }
+
+    function _deriveRewardHistoryLock(IBudgetTreasury treasury) private view returns (bool lockRewardHistory) {
+        try treasury.deadline() returns (uint64 deadline_) {
+            if (deadline_ != 0) return true;
+        } catch { }
+
+        bool hasBalance;
+        bool hasThreshold;
+        uint256 treasuryBalance_;
+        uint256 activationThreshold_;
+        try treasury.treasuryBalance() returns (uint256 balance_) {
+            treasuryBalance_ = balance_;
+            hasBalance = true;
+        } catch { }
+        try treasury.activationThreshold() returns (uint256 threshold_) {
+            activationThreshold_ = threshold_;
+            hasThreshold = true;
+        } catch { }
+
+        return hasBalance && hasThreshold && treasuryBalance_ >= activationThreshold_;
     }
 }
