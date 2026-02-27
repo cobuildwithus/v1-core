@@ -9,15 +9,13 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 
 contract BudgetStakeLedgerEconomicsTest is Test {
     bytes32 internal constant BUDGET_RECIPIENT_ID = bytes32(uint256(1));
+    bytes32 internal constant SECOND_BUDGET_RECIPIENT_ID = bytes32(uint256(2));
     address internal constant ACCOUNT = address(0xA11CE);
+    address internal constant SECOND_ACCOUNT = address(0xBEEF);
     address internal constant MANAGER = address(0xB0B);
 
     uint32 internal constant FULL_SCALED = 1_000_000;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
-    uint64 internal constant MIN_SCORING_WINDOW_SECONDS = 1;
-    uint64 internal constant MIN_MATURATION_SECONDS = 1;
-    uint64 internal constant MAX_MATURATION_SECONDS = 30 days;
-    uint64 internal constant MATURATION_WINDOW_DIVISOR = 10;
 
     BudgetStakeLedgerEconomicsMockGoalFlow internal goalFlow;
     BudgetStakeLedgerEconomicsMockGoalTreasury internal goalTreasury;
@@ -91,6 +89,67 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         assertEq(pointsLongAfterActivation, pointsAfterActivation);
     }
 
+    function test_userPointsOnBudget_ignoresExecutionDurationMutationAfterRegistration() public {
+        uint256 weight = 1e21;
+        _checkpoint(ACCOUNT, 0, weight);
+
+        vm.warp(block.timestamp + 3 hours);
+        _checkpoint(ACCOUNT, weight, weight);
+        uint256 pointsBeforeMutation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertGt(pointsBeforeMutation, 0);
+
+        budget.setExecutionDuration(1);
+        uint256 pointsAfterShortDurationMutation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertEq(pointsAfterShortDurationMutation, pointsBeforeMutation);
+
+        budget.setExecutionDuration(uint64(365 days));
+        uint256 pointsAfterLongDurationMutation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertEq(pointsAfterLongDurationMutation, pointsBeforeMutation);
+
+        vm.warp(block.timestamp + 3 hours);
+        _checkpoint(ACCOUNT, weight, weight);
+        assertGt(ledger.userPointsOnBudget(ACCOUNT, address(budget)), pointsBeforeMutation);
+    }
+
+    function test_userPointsOnBudget_matchAcrossBudgetsWithDifferentExecutionDurations() public {
+        BudgetStakeLedgerEconomicsMockBudgetFlow secondBudgetFlow =
+            new BudgetStakeLedgerEconomicsMockBudgetFlow(address(goalFlow));
+        BudgetStakeLedgerEconomicsMockBudgetTreasury secondBudget =
+            new BudgetStakeLedgerEconomicsMockBudgetTreasury(address(secondBudgetFlow));
+        secondBudget.setExecutionDuration(uint64(120 days));
+
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_BUDGET_RECIPIENT_ID, address(secondBudget));
+
+        IBudgetStakeLedger.BudgetInfoView memory primaryBudgetInfo = ledger.budgetInfo(address(budget));
+        IBudgetStakeLedger.BudgetInfoView memory secondBudgetInfo = ledger.budgetInfo(address(secondBudget));
+        assertEq(primaryBudgetInfo.scoringStartsAt, secondBudgetInfo.scoringStartsAt);
+        assertEq(primaryBudgetInfo.scoringEndsAt, secondBudgetInfo.scoringEndsAt);
+        assertNe(budget.executionDuration(), secondBudget.executionDuration());
+
+        uint256 weight = 1e21;
+        _checkpointForRecipient(ACCOUNT, 0, weight, BUDGET_RECIPIENT_ID);
+        _checkpointForRecipient(SECOND_ACCOUNT, 0, weight, SECOND_BUDGET_RECIPIENT_ID);
+
+        vm.warp(block.timestamp + 4 hours);
+        _checkpointForRecipient(ACCOUNT, weight, weight, BUDGET_RECIPIENT_ID);
+        _checkpointForRecipient(SECOND_ACCOUNT, weight, weight, SECOND_BUDGET_RECIPIENT_ID);
+
+        uint256 primaryPointsAfterFourHours = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        uint256 secondaryPointsAfterFourHours = ledger.userPointsOnBudget(SECOND_ACCOUNT, address(secondBudget));
+        assertEq(primaryPointsAfterFourHours, secondaryPointsAfterFourHours);
+        assertEq(ledger.budgetPoints(address(budget)), ledger.budgetPoints(address(secondBudget)));
+
+        vm.warp(block.timestamp + 8 hours);
+        _checkpointForRecipient(ACCOUNT, weight, weight, BUDGET_RECIPIENT_ID);
+        _checkpointForRecipient(SECOND_ACCOUNT, weight, weight, SECOND_BUDGET_RECIPIENT_ID);
+
+        uint256 primaryPointsAfterTwelveHours = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        uint256 secondaryPointsAfterTwelveHours = ledger.userPointsOnBudget(SECOND_ACCOUNT, address(secondBudget));
+        assertEq(primaryPointsAfterTwelveHours, secondaryPointsAfterTwelveHours);
+        assertGt(primaryPointsAfterTwelveHours, primaryPointsAfterFourHours);
+    }
+
     function test_checkpointAllocation_emitsClampedEffectiveCheckpointTime() public {
         uint256 weight = 1e21;
         _checkpoint(ACCOUNT, 0, weight);
@@ -157,7 +216,6 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         assertLe(info.scoringStartsAt, info.scoringEndsAt);
         assertEq(info.scoringEndsAt, budget.fundingDeadline());
         assertEq(info.removedAt, 0);
-        assertEq(info.maturationPeriodSeconds, _expectedMaturationPeriodSeconds(info.scoringStartsAt, info.scoringEndsAt));
 
         IBudgetStakeLedger.UserBudgetCheckpointView memory userCheckpoint =
             ledger.userBudgetCheckpoint(ACCOUNT, address(budget));
@@ -379,6 +437,45 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         ledger.finalize(2, uint64(block.timestamp));
     }
 
+    function test_finalize_retroactiveTimestamp_afterLateCheckpoint_overcountsVsNoLateCheckpoint() public {
+        BudgetStakeLedgerEconomicsMockGoalFlow controlGoalFlow = new BudgetStakeLedgerEconomicsMockGoalFlow(MANAGER);
+        BudgetStakeLedgerEconomicsMockGoalTreasury controlGoalTreasury =
+            new BudgetStakeLedgerEconomicsMockGoalTreasury(address(controlGoalFlow));
+        BudgetStakeLedger controlLedger = new BudgetStakeLedger(address(controlGoalTreasury));
+        BudgetStakeLedgerEconomicsMockBudgetFlow controlBudgetFlow =
+            new BudgetStakeLedgerEconomicsMockBudgetFlow(address(controlGoalFlow));
+        BudgetStakeLedgerEconomicsMockBudgetTreasury controlBudget =
+            new BudgetStakeLedgerEconomicsMockBudgetTreasury(address(controlBudgetFlow));
+
+        vm.prank(MANAGER);
+        controlLedger.registerBudget(BUDGET_RECIPIENT_ID, address(controlBudget));
+
+        uint256 weight = 1e21;
+        (bytes32[] memory ids, uint32[] memory scaled) = _singleBudgetAllocation();
+
+        _checkpoint(ACCOUNT, 0, weight);
+        vm.prank(address(controlGoalFlow));
+        controlLedger.checkpointAllocation(ACCOUNT, 0, new bytes32[](0), new uint32[](0), weight, ids, scaled);
+
+        uint64 retroFinalizeTs = uint64(block.timestamp + 5 days);
+        uint64 lateCheckpointTs = uint64(block.timestamp + 10 days);
+        vm.warp(lateCheckpointTs);
+
+        _checkpoint(ACCOUNT, weight, weight);
+
+        budget.setResolvedAt(lateCheckpointTs);
+        budget.setState(IBudgetTreasury.BudgetState.Succeeded);
+        controlBudget.setResolvedAt(lateCheckpointTs);
+        controlBudget.setState(IBudgetTreasury.BudgetState.Succeeded);
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(2, retroFinalizeTs);
+        vm.prank(address(controlGoalTreasury));
+        controlLedger.finalize(2, retroFinalizeTs);
+
+        assertGt(ledger.totalPointsSnapshot(), controlLedger.totalPointsSnapshot());
+    }
+
     function test_checkpointAllocation_revertsOnAllocationDrift() public {
         uint256 storedWeight = 2e21;
         uint256 stalePrevWeight = 1e21;
@@ -404,7 +501,14 @@ contract BudgetStakeLedgerEconomicsTest is Test {
     }
 
     function _checkpoint(address account, uint256 prevWeight, uint256 newWeight) internal {
-        (bytes32[] memory ids, uint32[] memory scaled) = _singleBudgetAllocation();
+        _checkpointForRecipient(account, prevWeight, newWeight, BUDGET_RECIPIENT_ID);
+    }
+
+    function _checkpointForRecipient(address account, uint256 prevWeight, uint256 newWeight, bytes32 recipientId) internal {
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = recipientId;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = FULL_SCALED;
 
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(account, prevWeight, ids, scaled, newWeight, ids, scaled);
@@ -425,22 +529,11 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         return (weight / UNIT_WEIGHT_SCALE) * UNIT_WEIGHT_SCALE;
     }
 
-    function _max4(uint256 a, uint256 b, uint256 c, uint256 d) internal pure returns (uint256) {
-        uint256 maxValue = a;
+    function _max4(uint256 a, uint256 b, uint256 c, uint256 d) internal pure returns (uint256 maxValue) {
+        maxValue = a;
         if (b > maxValue) maxValue = b;
         if (c > maxValue) maxValue = c;
         if (d > maxValue) maxValue = d;
-        return maxValue;
-    }
-
-    function _expectedMaturationPeriodSeconds(uint64 scoringStartsAt, uint64 scoringEndsAt) internal pure returns (uint64) {
-        uint64 scoringWindow = scoringEndsAt > scoringStartsAt
-            ? scoringEndsAt - scoringStartsAt
-            : MIN_SCORING_WINDOW_SECONDS;
-        uint64 maturity = scoringWindow / MATURATION_WINDOW_DIVISOR;
-        if (maturity < MIN_MATURATION_SECONDS) maturity = MIN_MATURATION_SECONDS;
-        if (maturity > MAX_MATURATION_SECONDS) maturity = MAX_MATURATION_SECONDS;
-        return maturity;
     }
 
     function _singleBudgetAllocation() internal pure returns (bytes32[] memory ids, uint32[] memory scaled) {
@@ -500,6 +593,10 @@ contract BudgetStakeLedgerEconomicsMockBudgetTreasury {
 
     function setActivatedAt(uint64 activatedAt_) external {
         activatedAt = activatedAt_;
+    }
+
+    function setExecutionDuration(uint64 executionDuration_) external {
+        executionDuration = executionDuration_;
     }
 
     function setState(IBudgetTreasury.BudgetState state_) external {
