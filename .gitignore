@@ -2,6 +2,7 @@
 cache/
 out/
 coverage/
+deploys/
 
 # Local/editor metadata
 .DS_Store

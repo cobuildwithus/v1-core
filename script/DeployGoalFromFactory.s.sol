@@ -1,23 +1,36 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 
+import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 
-contract DeployGoalFromFactory is Script {
-    address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
+contract DeployGoalFromFactory is DeployScript {
+    address internal goalFactoryAddressOut;
+    address internal goalOwnerOut;
+    address internal successResolverOut;
+    address internal budgetSuccessResolverOut;
 
-    function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(pk);
+    uint256 internal goalRevnetIdOut;
+    address internal goalTokenOut;
+    address internal goalSuperTokenOut;
+    address internal goalTreasuryOut;
+    address internal goalFlowOut;
+    address internal goalStakeVaultOut;
+    address internal budgetStakeLedgerOut;
+    address internal rewardEscrowOut;
+    address internal splitHookOut;
+    address internal budgetTcrOut;
+    address internal arbitratorOut;
 
+    function deploy() internal override {
         GoalFactory factory = GoalFactory(vm.envAddress("GOAL_FACTORY"));
+        goalFactoryAddressOut = address(factory);
 
-        address goalOwner = vm.envOr("GOAL_OWNER", deployer);
+        address goalOwner = vm.envOr("GOAL_OWNER", deployerAddress);
         string memory goalName = vm.envOr("GOAL_NAME", string("Test Goal"));
         string memory goalTicker = vm.envOr("GOAL_TICKER", string("TGOAL"));
         string memory goalUri = vm.envOr("GOAL_URI", string("ipfs://TEST"));
@@ -78,7 +91,6 @@ contract DeployGoalFromFactory is Script {
         });
 
         IBudgetTCR.OracleValidationBounds memory oracleBounds = IBudgetTCR.OracleValidationBounds({
-            maxOracleType: uint8(vm.envOr("TCR_MAX_ORACLE_TYPE", uint256(1))),
             liveness: uint64(vm.envOr("TCR_ORACLE_LIVENESS", uint256(1))),
             bondAmount: vm.envOr("TCR_ORACLE_BOND", uint256(1))
         });
@@ -115,15 +127,9 @@ contract DeployGoalFromFactory is Script {
                 successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm
             }),
             flowMetadata: GoalFactory.FlowMetadataParams({
-                title: flowTitle,
-                description: flowDesc,
-                image: flowImage,
-                tagline: flowTagline,
-                url: flowUrl
+                title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
-            flowConfig: GoalFactory.FlowConfigParams({
-                managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm
-            }),
+            flowConfig: GoalFactory.FlowConfigParams({managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm}),
             budgetTCR: GoalFactory.BudgetTCRParams({
                 governor: address(0),
                 invalidRoundRewardsSink: BURN,
@@ -145,24 +151,61 @@ contract DeployGoalFromFactory is Script {
             rentWadPerSecond: vm.envOr("GOAL_RENT_WAD_PER_SECOND", uint256(0))
         });
 
-        vm.startBroadcast(pk);
         GoalFactory.DeployedGoalStack memory out = factory.deployGoal(params);
-        vm.stopBroadcast();
 
-        console2.log("Goal deployed by:", deployer);
-        console2.log("successResolver:", successResolver);
-        console2.log("budgetSuccessResolver:", budgetSuccessResolver);
-        console2.log("goalRevnetId:", out.goalRevnetId);
-        console2.log("goalToken:", out.goalToken);
-        console2.log("goalSuperToken:", out.goalSuperToken);
-        console2.log("goalTreasury:", out.goalTreasury);
-        console2.log("goalFlow:", out.goalFlow);
-        console2.log("goalStakeVault:", out.goalStakeVault);
-        console2.log("budgetStakeLedger:", out.budgetStakeLedger);
-        console2.log("rewardEscrow:", out.rewardEscrow);
-        console2.log("splitHook:", out.splitHook);
-        console2.log("budgetTCR:", out.budgetTCR);
-        console2.log("arbitrator:", out.arbitrator);
+        goalOwnerOut = goalOwner;
+        successResolverOut = successResolver;
+        budgetSuccessResolverOut = budgetSuccessResolver;
+
+        goalRevnetIdOut = out.goalRevnetId;
+        goalTokenOut = out.goalToken;
+        goalSuperTokenOut = out.goalSuperToken;
+        goalTreasuryOut = out.goalTreasury;
+        goalFlowOut = out.goalFlow;
+        goalStakeVaultOut = out.goalStakeVault;
+        budgetStakeLedgerOut = out.budgetStakeLedger;
+        rewardEscrowOut = out.rewardEscrow;
+        splitHookOut = out.splitHook;
+        budgetTcrOut = out.budgetTCR;
+        arbitratorOut = out.arbitrator;
+
+        console2.log("Goal deployed by:", deployerAddress);
+        console2.log("successResolver:", successResolverOut);
+        console2.log("budgetSuccessResolver:", budgetSuccessResolverOut);
+        console2.log("goalRevnetId:", goalRevnetIdOut);
+        console2.log("goalToken:", goalTokenOut);
+        console2.log("goalSuperToken:", goalSuperTokenOut);
+        console2.log("goalTreasury:", goalTreasuryOut);
+        console2.log("goalFlow:", goalFlowOut);
+        console2.log("goalStakeVault:", goalStakeVaultOut);
+        console2.log("budgetStakeLedger:", budgetStakeLedgerOut);
+        console2.log("rewardEscrow:", rewardEscrowOut);
+        console2.log("splitHook:", splitHookOut);
+        console2.log("budgetTCR:", budgetTcrOut);
+        console2.log("arbitrator:", arbitratorOut);
+    }
+
+    function deploymentName() internal pure override returns (string memory) {
+        return "DeployGoalFromFactory";
+    }
+
+    function writeDeploymentDetails(string memory filePath) internal override {
+        _writeAddressLine(filePath, "GOAL_FACTORY", goalFactoryAddressOut);
+        _writeAddressLine(filePath, "GOAL_OWNER", goalOwnerOut);
+        _writeAddressLine(filePath, "SUCCESS_RESOLVER", successResolverOut);
+        _writeAddressLine(filePath, "BUDGET_SUCCESS_RESOLVER", budgetSuccessResolverOut);
+
+        _writeUintLine(filePath, "goalRevnetId", goalRevnetIdOut);
+        _writeAddressLine(filePath, "goalToken", goalTokenOut);
+        _writeAddressLine(filePath, "goalSuperToken", goalSuperTokenOut);
+        _writeAddressLine(filePath, "goalTreasury", goalTreasuryOut);
+        _writeAddressLine(filePath, "goalFlow", goalFlowOut);
+        _writeAddressLine(filePath, "goalStakeVault", goalStakeVaultOut);
+        _writeAddressLine(filePath, "budgetStakeLedger", budgetStakeLedgerOut);
+        _writeAddressLine(filePath, "rewardEscrow", rewardEscrowOut);
+        _writeAddressLine(filePath, "splitHook", splitHookOut);
+        _writeAddressLine(filePath, "budgetTCR", budgetTcrOut);
+        _writeAddressLine(filePath, "arbitrator", arbitratorOut);
     }
 
     error SUCCESS_RESOLVER_REQUIRED();

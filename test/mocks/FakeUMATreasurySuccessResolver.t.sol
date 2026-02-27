@@ -12,6 +12,27 @@ import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 
+function _stringContains(string memory haystack, string memory needle) pure returns (bool) {
+    bytes memory haystackBytes = bytes(haystack);
+    bytes memory needleBytes = bytes(needle);
+
+    if (needleBytes.length == 0) return true;
+    if (needleBytes.length > haystackBytes.length) return false;
+
+    for (uint256 i = 0; i <= haystackBytes.length - needleBytes.length; i++) {
+        bool isMatch = true;
+        for (uint256 j = 0; j < needleBytes.length; j++) {
+            if (haystackBytes[i + j] != needleBytes[j]) {
+                isMatch = false;
+                break;
+            }
+        }
+        if (isMatch) return true;
+    }
+
+    return false;
+}
+
 contract FakeUMATreasurySuccessResolverTest is Test {
     address internal constant ATTACKER = address(0xBEEF);
     address internal constant ESCALATION_MANAGER = address(0xA11CE);
@@ -239,6 +260,29 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(fakeResolver.domainId(), FAKE_UMA_DOMAIN_ID);
             assertEq(address(fakeResolver.assertionCurrency()), address(token));
             assertEq(address(fakeResolver.optimisticOracle()), expectedFakeResolver);
+
+            string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+            string memory artifact = vm.readFile(artifactPath);
+            assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
+            assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
+            assertTrue(_stringContains(artifact, string.concat("REV_DEPLOYER: ", vm.toString(REV_DEPLOYER))));
+            assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
+            assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
+            assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
+                )
+            );
+            assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_OWNER: ", vm.toString(FAKE_UMA_OWNER))));
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("FAKE_UMA_ESCALATION_MANAGER: ", vm.toString(FAKE_UMA_ESCALATION_MANAGER))
+                )
+            );
+            assertTrue(
+                _stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID)))
+            );
         }
 
         function _setDeployEnv() internal {
@@ -283,6 +327,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         function test_run_wiresSuccessResolverParamsIntoFactoryCall() public {
             _setDeployEnv();
 
+            address deployer = vm.addr(PRIVATE_KEY);
+
             deployScript.run();
 
             assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
@@ -295,6 +341,33 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(mockFactory.lastFlowTagline(), FLOW_TAGLINE);
             assertEq(mockFactory.lastFlowUrl(), FLOW_URL);
             assertEq(mockFactory.lastManagerRewardPoolFlowRatePpm(), MANAGER_REWARD_POOL_FLOW_RATE_PPM);
+
+            string memory artifactPath =
+                string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
+            string memory artifact = vm.readFile(artifactPath);
+            assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
+            assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
+            assertTrue(_stringContains(artifact, string.concat("GOAL_FACTORY: ", vm.toString(address(mockFactory)))));
+            assertTrue(_stringContains(artifact, string.concat("GOAL_OWNER: ", vm.toString(deployer))));
+            assertTrue(
+                _stringContains(artifact, string.concat("SUCCESS_RESOLVER: ", vm.toString(address(successResolver))))
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("BUDGET_SUCCESS_RESOLVER: ", vm.toString(address(budgetSuccessResolver)))
+                )
+            );
+            assertTrue(_stringContains(artifact, "goalRevnetId: 1"));
+            assertTrue(_stringContains(artifact, string.concat("goalToken: ", vm.toString(address(0x1)))));
+            assertTrue(_stringContains(artifact, string.concat("goalSuperToken: ", vm.toString(address(0x2)))));
+            assertTrue(_stringContains(artifact, string.concat("goalTreasury: ", vm.toString(address(0x3)))));
+            assertTrue(_stringContains(artifact, string.concat("goalFlow: ", vm.toString(address(0x4)))));
+            assertTrue(_stringContains(artifact, string.concat("goalStakeVault: ", vm.toString(address(0x5)))));
+            assertTrue(_stringContains(artifact, string.concat("budgetStakeLedger: ", vm.toString(address(0x6)))));
+            assertTrue(_stringContains(artifact, string.concat("rewardEscrow: ", vm.toString(address(0x7)))));
+            assertTrue(_stringContains(artifact, string.concat("splitHook: ", vm.toString(address(0x8)))));
+            assertTrue(_stringContains(artifact, string.concat("budgetTCR: ", vm.toString(address(0x9)))));
+            assertTrue(_stringContains(artifact, string.concat("arbitrator: ", vm.toString(address(0x10)))));
         }
 
         function _setDeployEnv() internal {
@@ -309,9 +382,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
             vm.setEnv("FLOW_TAGLINE", FLOW_TAGLINE);
             vm.setEnv("FLOW_URL", FLOW_URL);
-            vm.setEnv(
-                "FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(uint256(MANAGER_REWARD_POOL_FLOW_RATE_PPM))
-            );
+            vm.setEnv("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(uint256(MANAGER_REWARD_POOL_FLOW_RATE_PPM)));
         }
     }
 
