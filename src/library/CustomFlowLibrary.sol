@@ -16,7 +16,6 @@ library CustomFlowLibrary {
      * @param flowOperator The flow-rate operations authority for the new contract
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
-     * @param managerRewardPoolFlowRatePpm The manager reward flow share for the child in 1e6-scale.
      * @param strategies The allocation strategies to use.
      * @return address The address of the newly created Flow contract
      */
@@ -28,9 +27,8 @@ library CustomFlowLibrary {
         address flowOperator,
         address sweeper,
         address managerRewardPool,
-        uint32 managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata strategies
-    ) public returns (address) {
+    ) internal returns (address) {
         address flowImplementation = cfg.flowImplementation;
         if (flowImplementation.code.length == 0) revert IFlow.NOT_A_CONTRACT(flowImplementation);
 
@@ -55,7 +53,8 @@ library CustomFlowLibrary {
             managerRewardPool: managerRewardPool,
             allocationPipeline: address(0),
             parent: address(this),
-            flowParams: IFlow.FlowParams({ managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm }),
+            // Child flows default to zero manager-reward share to avoid stacked reward skims.
+            flowParams: IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
             metadata: metadata,
             strategies: strategies
         });

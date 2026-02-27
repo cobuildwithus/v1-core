@@ -1,6 +1,6 @@
 # Child Default Zero Manager Reward
 
-Status: in_progress
+Status: completed
 Created: 2026-02-27
 Updated: 2026-02-27
 
@@ -36,6 +36,9 @@ Remove manager-reward stacking across flow hierarchies by making child flow crea
 
 - 2026-02-27: Claimed scope in coordination ledger and drafted hard-cutover plan.
 - 2026-02-27: Test-coverage-audit pass added regressions for removed `addFlowRecipientWithParams` selector reachability and zero-rate `FlowRecipientCreated` payload assertions.
+- 2026-02-27: Simplify pass removed dead mock helper plumbing; coverage pass added zero manager-reward-pool child assertions.
+- 2026-02-27: Ran `pnpm -s verify:required` after completion passes; result passed.
+- 2026-02-27: Completed final `task-finish-review` pass with no high/medium/low findings.
 
 ## Open risks
 

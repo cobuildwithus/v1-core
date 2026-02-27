@@ -238,40 +238,42 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
         childStrategies[0] = IAllocationStrategy(prepared.strategy);
+        address budgetTreasury = prepared.budgetTreasury;
 
         address localManagerRewardPool = managerRewardPool != address(0)
             ? managerRewardPool
             : goalFlow.managerRewardPool();
-        (, address childFlow) = goalFlow.addFlowRecipientWithParams(
+        (, address childFlow) = goalFlow.addFlowRecipient(
             itemID,
             listing.metadata,
-            prepared.budgetTreasury,
-            prepared.budgetTreasury,
-            prepared.budgetTreasury,
+            budgetTreasury,
+            budgetTreasury,
+            budgetTreasury,
             localManagerRewardPool,
-            0,
             childStrategies
         );
 
         deployer.registerChildFlowRecipient(itemID, childFlow);
 
-        emit BudgetStackDeployed(itemID, childFlow, prepared.budgetTreasury, prepared.stakeVault, prepared.strategy);
+        emit BudgetStackDeployed(itemID, childFlow, budgetTreasury, prepared.strategy);
 
-        address deployedBudgetTreasury = deployer.deployBudgetTreasury(
-            prepared.stakeVault,
-            childFlow,
-            listing,
-            budgetSuccessResolver,
-            oracleValidationBounds.liveness,
-            oracleValidationBounds.bondAmount
-        );
-        if (deployedBudgetTreasury != prepared.budgetTreasury) revert BUDGET_TREASURY_MISMATCH();
-        IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, deployedBudgetTreasury);
+        if (
+            deployer.deployBudgetTreasury(
+                budgetTreasury,
+                childFlow,
+                listing,
+                budgetSuccessResolver,
+                oracleValidationBounds.liveness,
+                oracleValidationBounds.bondAmount
+            ) != budgetTreasury
+        ) {
+            revert BUDGET_TREASURY_MISMATCH();
+        }
+        IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
 
         _budgetDeployments[itemID] = BudgetDeployment({
             childFlow: childFlow,
-            budgetTreasury: deployedBudgetTreasury,
-            stakeVault: prepared.stakeVault,
+            budgetTreasury: budgetTreasury,
             strategy: prepared.strategy,
             active: true
         });

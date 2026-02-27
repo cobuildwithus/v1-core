@@ -44,31 +44,6 @@ interface IManagedFlow {
     ) external returns (bytes32 recipientId, address recipientAddress);
 
     /**
-     * @notice Adds a new Flow contract as a recipient with explicit child-flow params.
-     * @dev Only supported for root flows (`parent() == address(0)`).
-     * @param newRecipientId The ID of the recipient
-     * @param metadata The metadata of the recipient
-     * @param recipientAdmin The recipient-admin authority for the new contract
-     * @param flowOperator The flow-rate operations authority for the new contract
-     * @param sweeper The sweep authority for the new contract
-     * @param managerRewardPool The address of the manager reward pool for the new contract
-     * @param managerRewardPoolFlowRatePpm The manager reward flow share for the child in 1e6-scale
-     * @param strategies The strategies for the new contract
-     * @return recipientId The ID of the recipient
-     * @return recipientAddress The address of the newly created flow contract
-     */
-    function addFlowRecipientWithParams(
-        bytes32 newRecipientId,
-        FlowTypes.RecipientMetadata memory metadata,
-        address recipientAdmin,
-        address flowOperator,
-        address sweeper,
-        address managerRewardPool,
-        uint32 managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
-    ) external returns (bytes32 recipientId, address recipientAddress);
-
-    /**
      * @notice Removes a recipient for receiving funds
      * @param recipientId The ID of the recipient to be removed
      */
