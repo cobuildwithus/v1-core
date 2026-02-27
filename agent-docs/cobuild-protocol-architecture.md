@@ -143,7 +143,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `GoalStakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` applies maturation on that effective unit-scale stake: each user/budget increment starts as fully unmatured and decays over time before contributing full reward-point rate. The maturation period is derived from the budget scoring-window length (`window / 10`, clamped to `[1 second, 30 days]`) instead of budget `executionDuration`.
-- `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points are window-normalized (`raw matured stake-time / scoring-window seconds`) so longer funding deadlines do not linearly increase point yield for the same support pattern.
+- `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points are window-normalized (`raw matured stake-time / scoring-window seconds`) and budget raw accrual stops at the earliest exogenous cutoff (`activatedAt`, `fundingDeadline`, goal success, or removal), so longer funding deadlines do not linearly increase point yield for the same support pattern.
 - `RewardEscrow` recognizes budget recipients either directly (budget treasury recipient) or via child-flow recipient admin (`recipientAdmin`, typically the budget treasury).
 - When configured with a goal SuperToken manager-reward stream, `RewardEscrow` can permissionlessly unwrap to goal-token balances and finalization snapshots normalized pools.
 - `RewardEscrow.claim` now handles both one-time snapshot rewards and incremental rent redistribution using per-point indexes for post-finalize rent inflows.
@@ -176,6 +176,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `GoalStakeVault` reads `authority()` directly from configured `goalTreasury` (no forwarder indirection).
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal `BudgetTCR`.
 - `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetTCRDeployer` implementations.
+- `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.
 - Invalid/no-vote arbitrator round rewards are routed to a configured `invalidRoundRewardSink`.
 
 ## Test Harness Boundaries

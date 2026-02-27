@@ -25,6 +25,8 @@ import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSu
 import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
 
 contract DeployGoalFactory is DeployScript {
+    uint256 internal constant GOAL_FACTORY_CREATE_OFFSET = 3;
+
     address internal revDeployerAddressOut;
     address internal superfluidHostAddressOut;
     address internal cobuildTokenAddressOut;
@@ -44,6 +46,8 @@ contract DeployGoalFactory is DeployScript {
     address internal fakeUmaOwnerOut;
     address internal fakeUmaEscalationManagerOut;
     bytes32 internal fakeUmaDomainIdOut;
+
+    error GOAL_FACTORY_ADDRESS_MISMATCH(address predicted, address actual);
 
     function deploy() internal override {
         address revDeployer = vm.envOr("REV_DEPLOYER", address(0x2cA27BDe7e7D33E353b44c27aCfCf6c78ddE251d));
@@ -68,9 +72,16 @@ contract DeployGoalFactory is DeployScript {
         BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer();
         BudgetTCR budgetTcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbitratorImpl = new ERC20VotesArbitrator();
+        uint256 nextDeployerNonce = vm.getNonce(deployerAddress);
+        address predictedGoalFactory =
+            vm.computeCreateAddress(deployerAddress, nextDeployerNonce + GOAL_FACTORY_CREATE_OFFSET);
 
         BudgetTCRFactory budgetTcrFactory = new BudgetTCRFactory(
-            address(budgetTcrImpl), address(arbitratorImpl), address(stackDeployerImpl), escrowBondBps
+            address(budgetTcrImpl),
+            address(arbitratorImpl),
+            address(stackDeployerImpl),
+            predictedGoalFactory,
+            escrowBondBps
         );
 
         PrizePoolSubmissionDepositStrategy depositStrategy = new PrizePoolSubmissionDepositStrategy(cobuildErc20, BURN);
@@ -91,6 +102,9 @@ contract DeployGoalFactory is DeployScript {
             defaultGovernor,
             invalidRoundRewardsSink
         );
+        if (address(goalFactory) != predictedGoalFactory) {
+            revert GOAL_FACTORY_ADDRESS_MISMATCH(predictedGoalFactory, address(goalFactory));
+        }
 
         revDeployerAddressOut = revDeployer;
         superfluidHostAddressOut = sfHost;

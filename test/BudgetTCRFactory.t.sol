@@ -96,7 +96,7 @@ contract BudgetTCRFactoryTest is Test {
         (, address arbImpl, address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(noCode, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(noCode, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_arbitrator_implementation_has_no_code() public {
@@ -104,7 +104,7 @@ contract BudgetTCRFactoryTest is Test {
         (address budgetImpl, , address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(budgetImpl, noCode, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, noCode, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_stack_deployer_implementation_has_no_code() public {
@@ -112,14 +112,21 @@ contract BudgetTCRFactoryTest is Test {
         (address budgetImpl, address arbImpl, ) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
-        new BudgetTCRFactory(budgetImpl, arbImpl, noCode, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, arbImpl, noCode, address(this), DEFAULT_ESCROW_BOND_BPS);
+    }
+
+    function test_constructor_reverts_when_authorized_caller_is_zero() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
+
+        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_is_zero() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.INVALID_ESCROW_BOND_BPS.selector, 0));
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, 0);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), 0);
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_exceeds_denominator() public {
@@ -127,14 +134,14 @@ contract BudgetTCRFactoryTest is Test {
         uint256 invalidBps = 10_001;
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.INVALID_ESCROW_BOND_BPS.selector, invalidBps));
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, invalidBps);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), invalidBps);
     }
 
     function test_constructor_accepts_escrow_bond_bps_at_lower_bound() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
         uint256 minBps = 1;
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, minBps);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), minBps);
 
         assertEq(factory.escrowBondBps(), minBps);
     }
@@ -143,7 +150,7 @@ contract BudgetTCRFactoryTest is Test {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
         uint256 maxBps = 10_000;
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, maxBps);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), maxBps);
 
         assertEq(factory.escrowBondBps(), maxBps);
     }
@@ -151,12 +158,31 @@ contract BudgetTCRFactoryTest is Test {
     function test_constructor_accepts_implementation_addresses_with_code() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         assertEq(factory.budgetTCRImplementation(), budgetImpl);
         assertEq(factory.arbitratorImplementation(), arbImpl);
         assertEq(factory.stackDeployerImplementation(), deployerImpl);
+        assertEq(factory.authorizedCaller(), address(this));
         assertEq(factory.escrowBondBps(), DEFAULT_ESCROW_BOND_BPS);
+    }
+
+    function test_deployBudgetTCRStackForGoal_reverts_when_caller_not_authorized() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
+        address authorizedCaller = makeAddr("authorized-caller");
+        address unauthorizedCaller = makeAddr("unauthorized-caller");
+        BudgetTCRFactory factory =
+            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig;
+        IBudgetTCR.DeploymentConfig memory deploymentConfig;
+        IArbitrator.ArbitratorParams memory arbitratorParams;
+
+        vm.prank(unauthorizedCaller);
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER.selector, unauthorizedCaller)
+        );
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
     }
 
     function test_deployBudgetTCRStackForGoal_deploysBudgetTCRAtPredictedDeterministicAddress() public {
@@ -168,16 +194,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
@@ -224,16 +241,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
@@ -302,15 +310,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         JurorSlasherRouter existingRouter = new JurorSlasherRouter(IStakeVault(address(stakeVault)), address(factory));
@@ -351,15 +351,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         address unsupportedSlasher = address(new _MockImplementation());
@@ -398,15 +390,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         address unexpectedAuthority = makeAddr("unexpected-authority");
@@ -449,15 +433,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
         _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
@@ -501,16 +477,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -548,16 +515,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -605,16 +563,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -716,16 +665,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -769,16 +709,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            customEscrowBondBps
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), customEscrowBondBps);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -821,16 +752,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -877,16 +799,7 @@ contract BudgetTCRFactoryTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
-        BudgetTCR budgetImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        BudgetTCRFactory factory = new BudgetTCRFactory(
-            address(budgetImpl),
-            address(arbImpl),
-            address(deployerImpl),
-            DEFAULT_ESCROW_BOND_BPS
-        );
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             governor: makeAddr("governor"),
@@ -926,6 +839,17 @@ contract BudgetTCRFactoryTest is Test {
         a = address(new _MockImplementation());
         b = address(new _MockImplementation());
         c = address(new _MockImplementation());
+    }
+
+    function _newRealFactory(address authorizedCaller, uint256 escrowBondBps)
+        internal
+        returns (BudgetTCRFactory factory)
+    {
+        BudgetTCR budgetImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
+        factory =
+            new BudgetTCRFactory(address(budgetImpl), address(arbImpl), address(deployerImpl), authorizedCaller, escrowBondBps);
     }
 
     function _defaultArbitratorParams() internal pure returns (IArbitrator.ArbitratorParams memory params) {

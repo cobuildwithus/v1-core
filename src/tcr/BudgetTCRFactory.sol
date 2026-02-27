@@ -20,6 +20,7 @@ contract BudgetTCRFactory {
     bytes32 internal constant BUDGET_TCR_SALT_DOMAIN = keccak256("BudgetTCRFactory.BudgetTCR");
 
     error ADDRESS_ZERO();
+    error UNAUTHORIZED_CALLER(address caller);
     error INVALID_ESCROW_BOND_BPS(uint256 escrowBondBps);
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
     error UNSUPPORTED_JUROR_SLASHER(address configuredSlasher);
@@ -59,33 +60,31 @@ contract BudgetTCRFactory {
     address public immutable budgetTCRImplementation;
     address public immutable arbitratorImplementation;
     address public immutable stackDeployerImplementation;
+    address public immutable authorizedCaller;
     uint256 public immutable escrowBondBps;
 
     constructor(
         address budgetTCRImplementation_,
         address arbitratorImplementation_,
         address stackDeployerImplementation_,
+        address authorizedCaller_,
         uint256 escrowBondBps_
     ) {
         if (budgetTCRImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (arbitratorImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (stackDeployerImplementation_ == address(0)) revert ADDRESS_ZERO();
+        if (authorizedCaller_ == address(0)) revert ADDRESS_ZERO();
         if (escrowBondBps_ == 0 || escrowBondBps_ > BPS_DENOMINATOR) {
             revert INVALID_ESCROW_BOND_BPS(escrowBondBps_);
         }
-        if (budgetTCRImplementation_.code.length == 0) {
-            revert IMPLEMENTATION_HAS_NO_CODE(budgetTCRImplementation_);
-        }
-        if (arbitratorImplementation_.code.length == 0) {
-            revert IMPLEMENTATION_HAS_NO_CODE(arbitratorImplementation_);
-        }
-        if (stackDeployerImplementation_.code.length == 0) {
-            revert IMPLEMENTATION_HAS_NO_CODE(stackDeployerImplementation_);
-        }
+        _assertImplementationHasCode(budgetTCRImplementation_);
+        _assertImplementationHasCode(arbitratorImplementation_);
+        _assertImplementationHasCode(stackDeployerImplementation_);
 
         budgetTCRImplementation = budgetTCRImplementation_;
         arbitratorImplementation = arbitratorImplementation_;
         stackDeployerImplementation = stackDeployerImplementation_;
+        authorizedCaller = authorizedCaller_;
         escrowBondBps = escrowBondBps_;
     }
 
@@ -94,6 +93,7 @@ contract BudgetTCRFactory {
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
         IArbitrator.ArbitratorParams calldata arbitratorParams
     ) external returns (DeployedBudgetTCRStack memory deployed) {
+        if (msg.sender != authorizedCaller) revert UNAUTHORIZED_CALLER(msg.sender);
         address token = address(registryConfig.votingToken);
         if (token == address(0)) revert ADDRESS_ZERO();
         if (registryConfig.invalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
@@ -125,37 +125,7 @@ contract BudgetTCRFactory {
             arbitratorParams.wrongOrMissedSlashBps,
             arbitratorParams.slashCallerBountyBps
         );
-        if (deploymentConfig.goalTreasury.authority() == address(this)) {
-            address configuredSlasher = IStakeVault(stakeVault).jurorSlasher();
-            address router = configuredSlasher;
-
-            if (configuredSlasher == address(0)) {
-                router = address(new JurorSlasherRouter(IStakeVault(stakeVault), address(this)));
-                deploymentConfig.goalTreasury.configureJurorSlasher(router);
-            } else {
-                address slasherAuthority;
-                try JurorSlasherRouter(configuredSlasher).authority() returns (address authority_) {
-                    slasherAuthority = authority_;
-                } catch {
-                    revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
-                }
-                if (slasherAuthority != address(this)) {
-                    revert INVALID_SLASHER_AUTHORITY(address(this), slasherAuthority);
-                }
-
-                address slasherStakeVault;
-                try JurorSlasherRouter(configuredSlasher).stakeVault() returns (IStakeVault stakeVault_) {
-                    slasherStakeVault = address(stakeVault_);
-                } catch {
-                    revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
-                }
-                if (slasherStakeVault != stakeVault) {
-                    revert INVALID_SLASHER_STAKE_VAULT(stakeVault, slasherStakeVault);
-                }
-            }
-
-            JurorSlasherRouter(router).setAuthorizedSlasher(arbitrator, true);
-        }
+        _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
 
         (
             uint256 submissionBaseDeposit,
@@ -211,6 +181,52 @@ contract BudgetTCRFactory {
     ) external view returns (address predicted) {
         bytes32 budgetTCRSalt = deriveBudgetTCRSalt(sender, goalFlow, goalTreasury, goalRevnetId, votingToken);
         predicted = Clones.predictDeterministicAddress(budgetTCRImplementation, budgetTCRSalt, address(this));
+    }
+
+    function _assertImplementationHasCode(address implementation) internal view {
+        if (implementation.code.length == 0) {
+            revert IMPLEMENTATION_HAS_NO_CODE(implementation);
+        }
+    }
+
+    function _configureJurorSlasherIfFactoryAuthority(
+        IGoalTreasury goalTreasury,
+        address stakeVault,
+        address arbitrator
+    ) internal {
+        if (goalTreasury.authority() != address(this)) return;
+
+        address router = IStakeVault(stakeVault).jurorSlasher();
+        if (router == address(0)) {
+            router = address(new JurorSlasherRouter(IStakeVault(stakeVault), address(this)));
+            goalTreasury.configureJurorSlasher(router);
+        } else {
+            _validateConfiguredJurorSlasher(router, stakeVault);
+        }
+
+        JurorSlasherRouter(router).setAuthorizedSlasher(arbitrator, true);
+    }
+
+    function _validateConfiguredJurorSlasher(address configuredSlasher, address stakeVault) internal view {
+        address slasherAuthority;
+        try JurorSlasherRouter(configuredSlasher).authority() returns (address authority_) {
+            slasherAuthority = authority_;
+        } catch {
+            revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
+        }
+        if (slasherAuthority != address(this)) {
+            revert INVALID_SLASHER_AUTHORITY(address(this), slasherAuthority);
+        }
+
+        address slasherStakeVault;
+        try JurorSlasherRouter(configuredSlasher).stakeVault() returns (IStakeVault stakeVault_) {
+            slasherStakeVault = address(stakeVault_);
+        } catch {
+            revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
+        }
+        if (slasherStakeVault != stakeVault) {
+            revert INVALID_SLASHER_STAKE_VAULT(stakeVault, slasherStakeVault);
+        }
     }
 
     function _buildRegistryConfig(

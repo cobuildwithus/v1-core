@@ -29,18 +29,43 @@ contract BudgetTCRFactoryCoverageTest is Test {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(address(0), arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(address(0), arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, address(0), deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, address(0), deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, arbImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+        new BudgetTCRFactory(budgetImpl, arbImpl, address(0), address(this), DEFAULT_ESCROW_BOND_BPS);
+    }
+
+    function test_constructor_revertsWhenAuthorizedCallerIsZero() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
+
+        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+    }
+
+    function test_deployBudgetTCRStackForGoal_revertsWhenCallerUnauthorized() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
+        address authorizedCaller = makeAddr("authorized-caller");
+        address unauthorizedCaller = makeAddr("unauthorized-caller");
+        BudgetTCRFactory factory =
+            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig;
+        IBudgetTCR.DeploymentConfig memory deploymentConfig;
+        IArbitrator.ArbitratorParams memory arbitratorParams;
+
+        vm.prank(unauthorizedCaller);
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER.selector, unauthorizedCaller)
+        );
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
     }
 
     function test_deployBudgetTCRStackForGoal_revertsOnZeroRegistryInputs() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -75,7 +100,7 @@ contract BudgetTCRFactoryCoverageTest is Test {
 
     function test_deployBudgetTCRStackForGoal_revertsWhenGoalTreasuryStakeVaultIsZero() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -193,14 +218,8 @@ contract BudgetTCRFactoryCoverageTest is Test {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
         BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
-
-        return BudgetTCRFactory(
-            new BudgetTCRFactory(
-                address(budgetImpl),
-                address(arbImpl),
-                address(deployerImpl),
-                DEFAULT_ESCROW_BOND_BPS
-            )
+        return new BudgetTCRFactory(
+            address(budgetImpl), address(arbImpl), address(deployerImpl), address(this), DEFAULT_ESCROW_BOND_BPS
         );
     }
 
