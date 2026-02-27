@@ -367,12 +367,36 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(child.recipientAdmin(), manager);
         assertEq(address(child.superToken()), address(superToken));
         assertEq(child.flowImplementation(), address(flowImplementation));
+        assertEq(flow.managerRewardPool(), managerRewardPool);
         assertEq(child.managerRewardPool(), managerRewardPool);
         assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
         assertEq(child.managerRewardPoolFlowRatePpm(), 0);
         assertEq(child.allocationPipeline(), address(0));
 
         assertEq(flow.distributionPool().getUnits(childAddr), 0);
+    }
+
+    function test_addFlowRecipient_zeroManagerRewardPool_keepsParentRate_andInitializesChildAtZeroRate() public {
+        bytes32 rid = bytes32(uint256(213));
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        vm.prank(manager);
+        (, address childAddr) = flow.addFlowRecipient(
+            rid,
+            recipientMetadata,
+            manager,
+            manager,
+            manager,
+            address(0),
+            strategies
+        );
+
+        CustomFlow child = CustomFlow(childAddr);
+        assertEq(flow.managerRewardPool(), managerRewardPool);
+        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
+        assertEq(child.managerRewardPool(), address(0));
+        assertEq(child.managerRewardPoolFlowRatePpm(), 0);
     }
 
     function test_addFlowRecipient_emitsRecipientCreatedBeforeFlowRecipientCreated() public {
@@ -710,7 +734,6 @@ contract FlowRecipientsTest is FlowTestBase {
         );
 
         vm.prank(manager);
-        vm.expectRevert(IFlow.ADDRESS_ZERO.selector);
         flow.addFlowRecipient(
             bytes32(uint256(35)),
             recipientMetadata,
