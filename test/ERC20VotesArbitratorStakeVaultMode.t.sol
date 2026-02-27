@@ -42,6 +42,7 @@ contract MockStakeVaultForArbitrator {
     mapping(address => uint256) public jurorVotes;
     uint256 public totalJurorVotes;
     mapping(address => mapping(address => bool)) public operatorAuth;
+    address public jurorSlasher;
 
     SlashCall[] internal _slashCalls;
 
@@ -58,6 +59,10 @@ contract MockStakeVaultForArbitrator {
         operatorAuth[juror][operator] = allowed;
     }
 
+    function setJurorSlasher(address slasher) external {
+        jurorSlasher = slasher;
+    }
+
     function getPastJurorWeight(address juror, uint256) external view returns (uint256) {
         return jurorVotes[juror];
     }
@@ -69,6 +74,87 @@ contract MockStakeVaultForArbitrator {
     function isAuthorizedJurorOperator(address juror, address operator) external view returns (bool) {
         return operator == juror || operatorAuth[juror][operator];
     }
+
+    function slashJurorStake(address juror, uint256 weightAmount, address recipient) external {
+        _slashCalls.push(SlashCall({ juror: juror, weightAmount: weightAmount, recipient: recipient }));
+    }
+
+    function slashCallCount() external view returns (uint256) {
+        return _slashCalls.length;
+    }
+
+    function slashCall(uint256 index) external view returns (SlashCall memory) {
+        return _slashCalls[index];
+    }
+}
+
+contract MockFlowForArbitratorBudgetScope {
+    address public parent;
+
+    constructor(address parent_) {
+        parent = parent_;
+    }
+}
+
+contract MockBudgetTreasuryForArbitratorBudgetScope {
+    address public flow;
+
+    constructor(address flow_) {
+        flow = flow_;
+    }
+}
+
+contract MockBudgetStakeLedgerForArbitratorBudgetScope {
+    mapping(address => mapping(address => uint256)) internal _userBudgetVotes;
+    mapping(address => uint256) internal _budgetTotals;
+
+    function setPastUserAllocatedStakeOnBudget(address account, address budgetTreasury, uint256 votes) external {
+        _userBudgetVotes[account][budgetTreasury] = votes;
+    }
+
+    function setPastBudgetTotalAllocatedStake(address budgetTreasury, uint256 votes) external {
+        _budgetTotals[budgetTreasury] = votes;
+    }
+
+    function getPastUserAllocatedStakeOnBudget(
+        address account,
+        address budgetTreasury,
+        uint256
+    ) external view returns (uint256) {
+        return _userBudgetVotes[account][budgetTreasury];
+    }
+
+    function getPastBudgetTotalAllocatedStake(address budgetTreasury, uint256) external view returns (uint256) {
+        return _budgetTotals[budgetTreasury];
+    }
+}
+
+contract MockRewardEscrowWithBudgetStakeLedger {
+    address public budgetStakeLedger;
+
+    constructor(address budgetStakeLedger_) {
+        budgetStakeLedger = budgetStakeLedger_;
+    }
+}
+
+contract MockGoalTreasuryForArbitratorBudgetScope {
+    address public rewardEscrow;
+    address public flow;
+
+    constructor(address rewardEscrow_, address flow_) {
+        rewardEscrow = rewardEscrow_;
+        flow = flow_;
+    }
+}
+
+contract MockExternalJurorSlasherForArbitrator {
+    struct SlashCall {
+        address juror;
+        uint256 weightAmount;
+        address recipient;
+    }
+
+    SlashCall[] internal _slashCalls;
 
     function slashJurorStake(address juror, uint256 weightAmount, address recipient) external {
         _slashCalls.push(SlashCall({ juror: juror, weightAmount: weightAmount, recipient: recipient }));
@@ -127,6 +213,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             )
         );
         arb = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
+        stakeVault.setJurorSlasher(address(arb));
 
         arbitrable.setArbitrator(arb);
         token.mint(address(arbitrable), 1_000_000e18);
@@ -233,6 +320,139 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         assertEq(call4.juror, voter1);
         assertEq(call4.weightAmount, slashWeight2 - callerBounty2);
         assertEq(call4.recipient, rewardEscrow);
+    }
+
+    function test_slashVoter_routesThroughConfiguredExternalSlasher() public {
+        MockExternalJurorSlasherForArbitrator externalSlasher = new MockExternalJurorSlasherForArbitrator();
+        stakeVault.setJurorSlasher(address(externalSlasher));
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDispute();
+        _warpRoll(startTime + 1);
+
+        bytes32 salt1 = bytes32("external-slash-1");
+        bytes32 salt2 = bytes32("external-slash-2");
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", salt1));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 2, "", salt2));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", salt1);
+
+        _warpRoll(revealEndTime + 1);
+        arb.slashVoter(disputeId, 0, voter2);
+
+        uint256 slashWeight = (200e18 * arb.wrongOrMissedSlashBps()) / 10_000;
+        uint256 callerBounty = (slashWeight * arb.slashCallerBountyBps()) / 10_000;
+
+        assertEq(stakeVault.slashCallCount(), 0);
+        assertEq(externalSlasher.slashCallCount(), 2);
+
+        MockExternalJurorSlasherForArbitrator.SlashCall memory call1 = externalSlasher.slashCall(0);
+        assertEq(call1.juror, voter2);
+        assertEq(call1.weightAmount, callerBounty);
+        assertEq(call1.recipient, address(this));
+
+        MockExternalJurorSlasherForArbitrator.SlashCall memory call2 = externalSlasher.slashCall(1);
+        assertEq(call2.juror, voter2);
+        assertEq(call2.weightAmount, slashWeight - callerBounty);
+        assertEq(call2.recipient, rewardEscrow);
+    }
+
+    function test_slashVoter_reverts_whenJurorSlasherNotConfigured() public {
+        stakeVault.setJurorSlasher(address(0));
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDispute();
+        _warpRoll(startTime + 1);
+
+        bytes32 salt1 = bytes32("no-slasher-1");
+        bytes32 salt2 = bytes32("no-slasher-2");
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", salt1));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 2, "", salt2));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", salt1);
+
+        _warpRoll(revealEndTime + 1);
+        vm.expectRevert(ERC20VotesArbitrator.JUROR_SLASHER_NOT_CONFIGURED.selector);
+        arb.slashVoter(disputeId, 0, voter2);
+    }
+
+    function test_slashVoter_budgetScope_capsSnapshotVotesByBudgetAllocation() public {
+        MockBudgetStakeLedgerForArbitratorBudgetScope budgetStakeLedger = new MockBudgetStakeLedgerForArbitratorBudgetScope();
+        MockRewardEscrowWithBudgetStakeLedger rewardEscrowWithLedger =
+            new MockRewardEscrowWithBudgetStakeLedger(address(budgetStakeLedger));
+        MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
+        MockGoalTreasuryForArbitratorBudgetScope scopedGoalTreasury =
+            new MockGoalTreasuryForArbitratorBudgetScope(address(rewardEscrowWithLedger), address(goalFlow));
+        MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
+        MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
+            new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        scopedStakeVault.setJurorVotes(voter1, 100e18);
+        scopedStakeVault.setJurorVotes(voter2, 200e18);
+
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter2, address(budgetTreasury), 200e18);
+        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 240e18);
+
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
+            scopedArbitrable,
+            address(scopedStakeVault),
+            address(budgetTreasury)
+        );
+        scopedStakeVault.setJurorSlasher(address(scopedArb));
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
+        _warpRoll(startTime + 1);
+
+        bytes32 salt1 = bytes32("budget-scope-v1");
+        bytes32 salt2 = bytes32("budget-scope-v2");
+        vm.prank(voter1);
+        scopedArb.commitVote(disputeId, _voteHash(scopedArb, disputeId, 0, voter1, 1, "", salt1));
+        vm.prank(voter2);
+        scopedArb.commitVote(disputeId, _voteHash(scopedArb, disputeId, 0, voter2, 2, "", salt2));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        scopedArb.revealVote(disputeId, voter1, 1, "", salt1);
+        vm.prank(voter2);
+        scopedArb.revealVote(disputeId, voter2, 2, "", salt2);
+
+        (uint256 voterPower, bool canVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter1);
+        assertTrue(canVote);
+        assertEq(voterPower, 40e18);
+
+        _warpRoll(revealEndTime + 1);
+        uint256 expectedSlashWeight = (40e18 * scopedArb.wrongOrMissedSlashBps()) / 10_000;
+        uint256 expectedCallerBounty = (expectedSlashWeight * scopedArb.slashCallerBountyBps()) / 10_000;
+        vm.expectEmit(true, true, true, true, address(scopedArb));
+        emit ERC20VotesArbitrator.VoterSlashed(
+            disputeId,
+            0,
+            voter1,
+            40e18,
+            expectedSlashWeight,
+            false,
+            address(rewardEscrowWithLedger)
+        );
+        scopedArb.slashVoter(disputeId, 0, voter1);
+
+        assertEq(scopedStakeVault.slashCallCount(), 2);
+        MockStakeVaultForArbitrator.SlashCall memory call1 = scopedStakeVault.slashCall(0);
+        assertEq(call1.juror, voter1);
+        assertEq(call1.weightAmount, expectedCallerBounty);
+        assertEq(call1.recipient, address(this));
+
+        MockStakeVaultForArbitrator.SlashCall memory call2 = scopedStakeVault.slashCall(1);
+        assertEq(call2.juror, voter1);
+        assertEq(call2.weightAmount, expectedSlashWeight - expectedCallerBounty);
+        assertEq(call2.recipient, address(rewardEscrowWithLedger));
     }
 
     function test_slashVoter_doesNotSlash_forTieOrCorrectVote() public {
@@ -748,6 +968,32 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         bytes memory initData = abi.encodeCall(
             ERC20VotesArbitrator.initializeWithStakeVault,
             (owner, address(token), address(arbitrable_), votingPeriod, votingDelay, revealPeriod, arbitrationCost, stakeVault_)
+        );
+        deployed = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
+        arbitrable_.setArbitrator(deployed);
+        token.mint(address(arbitrable_), 1_000_000e18);
+        arbitrable_.approveArbitrator(arbitrationCost * 10);
+    }
+
+    function _deployBudgetScopedArbitrator(
+        MockArbitrable arbitrable_,
+        address stakeVault_,
+        address fixedBudgetTreasury_
+    ) internal returns (ERC20VotesArbitrator deployed) {
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        bytes memory initData = abi.encodeCall(
+            ERC20VotesArbitrator.initializeWithStakeVaultAndBudgetScope,
+            (
+                owner,
+                address(token),
+                address(arbitrable_),
+                votingPeriod,
+                votingDelay,
+                revealPeriod,
+                arbitrationCost,
+                stakeVault_,
+                fixedBudgetTreasury_
+            )
         );
         deployed = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
         arbitrable_.setArbitrator(deployed);
