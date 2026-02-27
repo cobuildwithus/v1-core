@@ -38,6 +38,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     bytes32 public override successAssertionPolicyHash;
 
     uint64 public override deadline;
+    uint64 public override activatedAt;
     uint64 public override resolvedAt;
     bool public override successResolutionDisabled;
 
@@ -291,6 +292,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
             fundingDeadline: fundingDeadline,
             executionDuration: executionDuration,
             deadline: deadline,
+            activatedAt: activatedAt,
             timeRemaining: timeRemaining(),
             targetFlowRate: targetFlowRate()
         });
@@ -312,6 +314,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         uint256 computedDeadline = uint256(fundingDeadline) + uint256(executionDuration);
         if (computedDeadline > type(uint64).max) revert INVALID_DEADLINES();
         deadline = uint64(computedDeadline);
+        activatedAt = uint64(block.timestamp);
 
         _setState(BudgetState.Active);
         _syncFlowRate();

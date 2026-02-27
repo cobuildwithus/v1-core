@@ -75,7 +75,9 @@
    - post-activation removals stop forward spend/funding but preserve reward-history eligibility; those budgets remain
      success-eligible only if they later resolve terminal `Succeeded`.
 10. Budget stake scoring cutoff is exogenous:
-   - raw matured stake-time accrual runs until `min(goal success timestamp, budget fundingDeadline, budget removal timestamp)`,
+   - raw matured stake-time accrual runs until
+     `min(goal success timestamp, budget fundingDeadline, budget activation timestamp, budget removal timestamp)`,
+   - budget activation timestamp (`activatedAt`) is recorded when `sync()` executes the `Funding -> Active` transition (keeper-timing dependent),
    - payout points are window-normalized (`raw matured stake-time / scoring-window seconds`) using scoring window start anchored at budget registration time,
    - budget `resolvedAt` no longer truncates scoring.
 11. Post-finalization late inflows can be processed with `settleLateResidualToParent`, reusing parent-sweep behavior.
@@ -94,7 +96,7 @@
 - `GoalStakeVault` projects live vault weight into goal-flow allocation permissions via built-in strategy methods.
 - `BudgetFlowRouterStrategy` projects per-budget stake from `BudgetStakeLedger.userAllocatedStakeOnBudget(...)` into budget-flow allocation permissions via registered `childFlow -> recipientId` routing.
 - Reward points use `BudgetStakeLedger` checkpointed effective stake (quantized to Flow unit-weight scale, `1e15`) with maturation/warmup: recent stake increments start unmatured and decay to full point-rate over a scoring-window-derived period (`window / 10`, clamped to `[1 second, 30 days]`).
-- Reward points are funding-window scoped per budget and window-normalized: raw matured stake-time accrual stops at the registered budget `fundingDeadline` (subject to earlier goal success or budget removal), then divides by scoring-window seconds.
+- Reward points are fundraising-window scoped per budget and window-normalized: raw matured stake-time accrual stops at the earliest applicable exogenous cutoff (`activatedAt`, `fundingDeadline`, goal success, or removal), then divides by scoring-window seconds.
 - Warmup and normalization are points-only on effective stake; sub-unit raw stake dust that does not affect Flow units does not accrue points.
 - Budget stake-ledger checkpointing requires sorted/unique recipient-id arrays and reverts on malformed ordering.
 - Reward escrow resolves budget identity from goal-flow recipient shape:

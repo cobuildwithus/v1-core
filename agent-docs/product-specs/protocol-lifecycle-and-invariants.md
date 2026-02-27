@@ -61,7 +61,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - stake-vault resolution remains permissionlessly recoverable through `markGoalResolved()` once treasury reports resolved.
 - Goal success state remains immediate, but reward escrow success-finalization is deferred until tracked budgets resolve and is then permissionlessly retryable via terminal-side-effect retries.
 - Budget scoring cutoff is exogenous per tracked budget:
-  - raw matured stake-time accrual runs until `min(goal success timestamp, budget fundingDeadline, budget removal timestamp)`,
+  - raw matured stake-time accrual runs until
+    `min(goal success timestamp, budget fundingDeadline, budget activation timestamp, budget removal timestamp)`,
+  - budget activation timestamp (`activatedAt`) is written on permissionless `sync()` when funding transitions to active (keeper-timing dependent),
   - payout points are window-normalized (`raw matured stake-time / scoring-window seconds`), where scoring window starts at budget registration time,
   - maturation/warmup is derived from scoring-window length (`window / 10`, clamped to `[1 second, 30 days]`),
   - budget `resolvedAt` no longer truncates point accrual.

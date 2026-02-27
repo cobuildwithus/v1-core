@@ -462,6 +462,40 @@ contract RewardEscrowTest is Test {
         assertEq(escrow.totalPointsSnapshot(), expectedCappedPoints);
     }
 
+    function test_finalize_success_capsPointsAtActivatedAt_whenActivatedBeforeFundingDeadline() public {
+        RewardEscrowMockBudgetTreasury activatedBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 10, 300);
+        bytes32[] memory ids = _ids1(RECIPIENT_WARMUP);
+        uint32[] memory scaled = _scaled1(1_000_000);
+
+        vm.warp(100);
+        _checkpointInitial(alice, 100, ids, scaled);
+
+        activatedBudget.setActivatedAt(200);
+
+        vm.warp(260);
+        activatedBudget.setState(IBudgetTreasury.BudgetState.Succeeded);
+        activatedBudget.setResolvedAt(260);
+        vm.expectEmit(true, true, true, true, address(ledger));
+        emit IBudgetStakeLedger.AllocationCheckpointed(alice, address(activatedBudget), _scaledWeight(100), 200);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        uint256 pointsAfterFirstPostActivationCheckpoint = escrow.userPointsOnBudget(alice, address(activatedBudget));
+
+        vm.warp(320);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        uint256 pointsAfterSecondPostActivationCheckpoint = escrow.userPointsOnBudget(alice, address(activatedBudget));
+        assertEq(pointsAfterSecondPostActivationCheckpoint, pointsAfterFirstPostActivationCheckpoint);
+
+        uint256 expectedCappedPoints = pointsAfterSecondPostActivationCheckpoint;
+        rewardToken.mint(address(escrow), 100e18);
+
+        vm.warp(400);
+        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
+
+        assertEq(escrow.budgetPoints(address(activatedBudget)), expectedCappedPoints);
+        assertEq(escrow.userPointsOnBudget(alice, address(activatedBudget)), expectedCappedPoints);
+        assertEq(escrow.totalPointsSnapshot(), expectedCappedPoints);
+    }
+
     function test_finalize_success_delayedFinalizeIncludesBudgetResolvedAfterFrozenGoalFinalizedAt() public {
         bytes32[] memory ids = _ids1(RECIPIENT_A);
         uint32[] memory scaled = _scaled1(1_000_000);
@@ -548,6 +582,7 @@ contract RewardEscrowTest is Test {
         uint256 pointsAtRemoval = escrow.budgetPoints(address(budgetA));
         assertGt(pointsAtRemoval, 0);
 
+        budgetA.setActivatedAt(uint64(block.timestamp));
         budgetA.setDeadline(1);
         budgetA.setState(IBudgetTreasury.BudgetState.Active);
         budgetA.setResolvedAt(0);
@@ -596,6 +631,7 @@ contract RewardEscrowTest is Test {
         uint256 pointsAtRemoval = escrow.budgetPoints(address(budgetA));
         assertGt(pointsAtRemoval, 0);
 
+        budgetA.setActivatedAt(uint64(block.timestamp));
         budgetA.setDeadline(1);
         budgetA.setState(IBudgetTreasury.BudgetState.Active);
         budgetA.setResolvedAt(0);
@@ -1357,6 +1393,7 @@ contract RewardEscrowMockBudgetTreasury {
     IBudgetTreasury.BudgetState public state;
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     uint64 public deadline;
@@ -1378,6 +1415,10 @@ contract RewardEscrowMockBudgetTreasury {
 
     function setResolvedAt(uint64 resolvedAt_) external {
         resolvedAt = resolvedAt_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        activatedAt = activatedAt_;
     }
 
     function setExecutionDuration(uint64 executionDuration_) external {

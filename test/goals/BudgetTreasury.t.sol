@@ -330,6 +330,7 @@ contract BudgetTreasuryTest is Test {
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration())));
+        assertEq(treasury.activatedAt(), uint64(block.timestamp));
         assertGt(flow.targetOutflowRate(), 0);
     }
 
@@ -416,6 +417,7 @@ contract BudgetTreasuryTest is Test {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertFalse(treasury.resolved());
         assertGt(treasury.deadline(), treasury.fundingDeadline());
+        assertEq(treasury.activatedAt(), treasury.fundingDeadline() + 1);
         assertEq(flow.targetOutflowRate(), 50);
     }
 
@@ -1710,6 +1712,7 @@ contract BudgetTreasuryTest is Test {
         IBudgetTreasury.BudgetLifecycleStatus memory fundingStatus = treasury.lifecycleStatus();
         assertEq(uint256(fundingStatus.currentState), uint256(IBudgetTreasury.BudgetState.Funding));
         assertFalse(fundingStatus.isResolved);
+        assertEq(fundingStatus.activatedAt, 0);
         assertFalse(treasury.resolved());
         assertEq(treasury.resolvedAt(), 0);
 

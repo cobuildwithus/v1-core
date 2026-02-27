@@ -70,6 +70,27 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         assertEq(pointsLongAfterDeadline, pointsAfterDeadline);
     }
 
+    function test_userPointsOnBudget_preFinalizeCapsAtActivatedAtWhenActivatedEarly() public {
+        uint256 weight = 1e21;
+        _checkpoint(ACCOUNT, 0, weight);
+
+        uint64 activationTs = uint64(block.timestamp + 30 days);
+        budget.setActivatedAt(activationTs);
+        assertLt(activationTs, budget.fundingDeadline());
+
+        vm.warp(activationTs - 1 days);
+        uint256 pointsBeforeActivation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertGt(pointsBeforeActivation, 0);
+
+        vm.warp(activationTs + 1 days);
+        uint256 pointsAfterActivation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertGt(pointsAfterActivation, pointsBeforeActivation);
+
+        vm.warp(activationTs + 31 days);
+        uint256 pointsLongAfterActivation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
+        assertEq(pointsLongAfterActivation, pointsAfterActivation);
+    }
+
     function test_checkpointAllocation_emitsClampedEffectiveCheckpointTime() public {
         uint256 weight = 1e21;
         _checkpoint(ACCOUNT, 0, weight);
@@ -462,6 +483,7 @@ contract BudgetStakeLedgerEconomicsMockBudgetFlow {
 contract BudgetStakeLedgerEconomicsMockBudgetTreasury {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10 days;
     uint64 public fundingDeadline;
     IBudgetTreasury.BudgetState public state;
@@ -474,6 +496,10 @@ contract BudgetStakeLedgerEconomicsMockBudgetTreasury {
 
     function setResolvedAt(uint64 resolvedAt_) external {
         resolvedAt = resolvedAt_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        activatedAt = activatedAt_;
     }
 
     function setState(IBudgetTreasury.BudgetState state_) external {

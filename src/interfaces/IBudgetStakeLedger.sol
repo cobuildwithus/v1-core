@@ -7,6 +7,7 @@ interface IBudgetStakeLedger {
         bool wasSuccessfulAtFinalization;
         uint64 resolvedAtFinalization;
         uint64 removedAt;
+        uint64 activatedAt;
         uint64 scoringStartsAt;
         uint64 scoringEndsAt;
         uint64 maturationPeriodSeconds;

@@ -3631,6 +3631,7 @@ contract TreasuryMockBudgetTreasury {
     address private immutable _flow;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
+    uint64 public activatedAt;
     uint8 public state = uint8(IBudgetTreasury.BudgetState.Funding);
     uint64 public resolvedAt;
 

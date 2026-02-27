@@ -49,6 +49,7 @@ interface IBudgetTreasury is
         uint64 fundingDeadline;
         uint64 executionDuration;
         uint64 deadline;
+        uint64 activatedAt;
         uint256 timeRemaining;
         int96 targetFlowRate;
     }
@@ -102,6 +103,7 @@ interface IBudgetTreasury is
     function fundingDeadline() external view returns (uint64);
     function executionDuration() external view returns (uint64);
     function deadline() external view returns (uint64);
+    function activatedAt() external view returns (uint64);
     function controller() external view returns (address);
     function activationThreshold() external view returns (uint256);
     function runwayCap() external view returns (uint256);

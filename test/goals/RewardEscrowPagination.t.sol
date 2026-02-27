@@ -330,6 +330,7 @@ contract RewardEscrowPaginationMockBudgetTreasury {
     IBudgetTreasury.BudgetState public state;
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
 

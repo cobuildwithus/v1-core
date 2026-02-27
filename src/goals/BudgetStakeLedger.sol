@@ -37,6 +37,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         bool wasSuccessfulAtFinalization;
         uint64 resolvedAtFinalization;
         uint64 removedAt;
+        uint64 activatedAt;
         uint64 scoringStartsAt;
         uint64 scoringEndsAt;
         uint64 maturationPeriodSeconds;
@@ -183,7 +184,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
         if (finalized || finalizationInProgress) revert REGISTRATION_CLOSED();
         if (budget == address(0)) revert ADDRESS_ZERO();
-        uint64 scoringEndsAt = _validateBudgetForRegistration(budget);
+        (uint64 scoringEndsAt, uint64 activatedAt) = _validateBudgetForRegistration(budget);
         uint64 scoringStartsAt = _deriveScoringStart(scoringEndsAt);
         uint64 maturationPeriodSeconds = _computeMaturationSeconds(_scoringWindowSeconds(scoringStartsAt, scoringEndsAt));
 
@@ -196,6 +197,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         _budgetByRecipientId[recipientId] = budget;
         info.isTracked = true;
         _trackedBudgets.add(budget);
+        info.activatedAt = activatedAt;
         info.scoringStartsAt = scoringStartsAt;
         info.scoringEndsAt = scoringEndsAt;
         info.maturationPeriodSeconds = maturationPeriodSeconds;
@@ -386,6 +388,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         info.wasSuccessfulAtFinalization = budgetInfo_.wasSuccessfulAtFinalization;
         info.resolvedAtFinalization = budgetInfo_.resolvedAtFinalization;
         info.removedAt = budgetInfo_.removedAt;
+        info.activatedAt = _activatedAtForBudgetInfo(budget, budgetInfo_);
         info.scoringStartsAt = budgetInfo_.scoringStartsAt;
         info.scoringEndsAt = budgetInfo_.scoringEndsAt;
         info.maturationPeriodSeconds = budgetInfo_.maturationPeriodSeconds;
@@ -466,7 +469,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             if (!_isBudgetReadyForSuccessFinalization(info, resolvedAt)) break;
 
             BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
-            uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, info);
+            _refreshActivatedAt(budget, info);
+            uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, budget, info);
 
             _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudgetInfo(info));
 
@@ -510,7 +514,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
         BudgetInfo storage budgetInfoData = _budgetInfo[budget];
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
-        uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budgetInfoData);
+        _refreshActivatedAt(budget, budgetInfoData);
+        uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budget, budgetInfoData);
         uint64 maturationSeconds = _maturationSecondsForBudgetInfo(budgetInfoData);
 
         uint256 userStoredAllocated = userCheckpoint.allocatedStake;
@@ -710,7 +715,9 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         windowSeconds = cutoff - scoringStartsAt;
     }
 
-    function _validateBudgetForRegistration(address budget) internal view returns (uint64 fundingDeadline) {
+    function _validateBudgetForRegistration(
+        address budget
+    ) internal view returns (uint64 fundingDeadline, uint64 activatedAt) {
         if (budget.code.length == 0) revert INVALID_BUDGET();
 
         address goalFlow = _goalFlow();
@@ -744,6 +751,12 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
         if (fundingDeadline == 0) revert INVALID_BUDGET();
 
+        try budgetTreasury.activatedAt() returns (uint64 activatedAt_) {
+            activatedAt = activatedAt_;
+        } catch {
+            revert INVALID_BUDGET();
+        }
+
         try budgetTreasury.resolvedAt() returns (uint64) {} catch {
             revert INVALID_BUDGET();
         }
@@ -774,10 +787,19 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
 
         BudgetInfo storage info = _budgetInfo[budget];
-        cutoff = _clampCutoffToBudgetInfo(cutoff, info);
+        cutoff = _clampCutoffToBudgetInfo(cutoff, budget, info);
     }
 
-    function _clampCutoffToBudgetInfo(uint64 cutoff, BudgetInfo storage info) internal view returns (uint64) {
+    function _clampCutoffToBudgetInfo(
+        uint64 cutoff,
+        address budget,
+        BudgetInfo storage info
+    ) internal view returns (uint64) {
+        uint64 activatedAt = _activatedAtForBudgetInfo(budget, info);
+        if (activatedAt != 0 && activatedAt < cutoff) {
+            cutoff = activatedAt;
+        }
+
         uint64 removedAt = info.removedAt;
         if (removedAt != 0 && removedAt < cutoff) {
             cutoff = removedAt;
@@ -790,49 +812,25 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         return cutoff;
     }
 
+    function _activatedAtForBudgetInfo(address budget, BudgetInfo storage info) internal view returns (uint64 activatedAt) {
+        activatedAt = info.activatedAt;
+        if (activatedAt != 0) return activatedAt;
+        return IBudgetTreasury(budget).activatedAt();
+    }
+
+    function _refreshActivatedAt(address budget, BudgetInfo storage info) internal {
+        if (info.activatedAt != 0) return;
+        uint64 activatedAt = IBudgetTreasury(budget).activatedAt();
+        if (activatedAt == 0) return;
+        info.activatedAt = activatedAt;
+    }
+
     function _goalFlow() internal view returns (address goalFlow) {
         goalFlow = IGoalTreasury(goalTreasury).flow();
     }
 
     function _deriveRewardHistoryLock(address budget) internal view returns (bool lockRewardHistory) {
-        IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
-        bool hasDeadlineSurface;
-        try budgetTreasury.deadline() returns (uint64 deadline_) {
-            hasDeadlineSurface = true;
-            if (deadline_ != 0) return true;
-        } catch { }
-
-        bool hasTreasuryBalance;
-        bool hasActivationThreshold;
-        uint256 treasuryBalance_;
-        uint256 activationThreshold_;
-
-        try budgetTreasury.treasuryBalance() returns (uint256 treasuryBalanceRead) {
-            treasuryBalance_ = treasuryBalanceRead;
-            hasTreasuryBalance = true;
-        } catch { }
-
-        try budgetTreasury.activationThreshold() returns (uint256 activationThresholdRead) {
-            activationThreshold_ = activationThresholdRead;
-            hasActivationThreshold = true;
-        } catch { }
-
-        if (hasTreasuryBalance && hasActivationThreshold && treasuryBalance_ >= activationThreshold_) {
-            return true;
-        }
-
-        // If any canonical activation surface is available and did not lock, treat as not locked.
-        // This avoids over-locking on non-canonical state values in test doubles.
-        if (hasDeadlineSurface || hasTreasuryBalance || hasActivationThreshold) {
-            return false;
-        }
-
-        // Fallback for non-canonical test doubles that omit activation surfaces.
-        try budgetTreasury.state() returns (IBudgetTreasury.BudgetState state_) {
-            return state_ != IBudgetTreasury.BudgetState.Funding;
-        } catch {
-            return false;
-        }
+        return IBudgetTreasury(budget).activatedAt() != 0;
     }
 
     function _isBudgetReadyForSuccessFinalization(BudgetInfo storage info, uint64 resolvedAt) internal view returns (bool) {

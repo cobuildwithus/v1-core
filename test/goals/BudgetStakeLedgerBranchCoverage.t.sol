@@ -179,6 +179,15 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
     }
 
+    function test_registerBudget_revertsWhenBudgetMissingActivatedAtSurface() public {
+        BudgetStakeLedgerCoverageBudgetTreasuryMissingActivatedAt budget2 =
+            new BudgetStakeLedgerCoverageBudgetTreasuryMissingActivatedAt(address(budgetFlow));
+
+        vm.prank(MANAGER);
+        vm.expectRevert(IBudgetStakeLedger.INVALID_BUDGET.selector);
+        ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
+    }
+
     function test_registerBudget_revertsWhenExecutionDurationIsZero() public {
         BudgetStakeLedgerCoverageBudgetTreasury budget2 = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
         budget2.setExecutionDuration(0);
@@ -490,6 +499,7 @@ contract BudgetStakeLedgerCoverageBudgetFlowMissingParent { }
 contract BudgetStakeLedgerCoverageBudgetTreasury {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     IBudgetTreasury.BudgetState public state;
@@ -522,6 +532,7 @@ contract BudgetStakeLedgerCoverageBudgetTreasury {
 
 contract BudgetStakeLedgerCoverageBudgetTreasuryMissingFlow {
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     IBudgetTreasury.BudgetState public state;
@@ -534,6 +545,7 @@ contract BudgetStakeLedgerCoverageBudgetTreasuryMissingFlow {
 contract BudgetStakeLedgerCoverageBudgetTreasuryMissingExecutionDuration {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public fundingDeadline = type(uint64).max;
     IBudgetTreasury.BudgetState public state;
 
@@ -546,7 +558,21 @@ contract BudgetStakeLedgerCoverageBudgetTreasuryMissingExecutionDuration {
 contract BudgetStakeLedgerCoverageBudgetTreasuryMissingFundingDeadline {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
+    IBudgetTreasury.BudgetState public state;
+
+    constructor(address flow_) {
+        flow = flow_;
+        state = IBudgetTreasury.BudgetState.Funding;
+    }
+}
+
+contract BudgetStakeLedgerCoverageBudgetTreasuryMissingActivatedAt {
+    address public flow;
+    uint64 public resolvedAt;
+    uint64 public executionDuration = 10;
+    uint64 public fundingDeadline = type(uint64).max;
     IBudgetTreasury.BudgetState public state;
 
     constructor(address flow_) {
@@ -557,6 +583,7 @@ contract BudgetStakeLedgerCoverageBudgetTreasuryMissingFundingDeadline {
 
 contract BudgetStakeLedgerCoverageBudgetTreasuryMissingResolvedAt {
     address public flow;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     IBudgetTreasury.BudgetState public state;
@@ -570,6 +597,7 @@ contract BudgetStakeLedgerCoverageBudgetTreasuryMissingResolvedAt {
 contract BudgetStakeLedgerCoverageBudgetTreasuryMissingState {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
 

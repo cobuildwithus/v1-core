@@ -191,6 +191,7 @@ contract BudgetStakeLedgerPaginationTest is Test {
 
         uint256 removedIndex = 5;
         PaginationMockBudgetTreasury removedBudget = budgets[removedIndex];
+        removedBudget.setActivatedAt(uint64(block.timestamp));
         removedBudget.setDeadline(1);
         removedBudget.setState(IBudgetTreasury.BudgetState.Active);
         removedBudget.setResolvedAt(0);
@@ -232,6 +233,7 @@ contract BudgetStakeLedgerPaginationTest is Test {
 
         uint256 removedIndex = 5;
         PaginationMockBudgetTreasury removedBudget = budgets[removedIndex];
+        removedBudget.setActivatedAt(uint64(block.timestamp));
         removedBudget.setDeadline(1);
         removedBudget.setState(IBudgetTreasury.BudgetState.Active);
         removedBudget.setResolvedAt(0);
@@ -424,6 +426,7 @@ contract PaginationMockBudgetTreasury {
     IBudgetTreasury.BudgetState public state;
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     uint64 public deadline;
@@ -441,6 +444,10 @@ contract PaginationMockBudgetTreasury {
 
     function setResolvedAt(uint64 resolvedAt_) external {
         resolvedAt = resolvedAt_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        activatedAt = activatedAt_;
     }
 
     function setDeadline(uint64 deadline_) external {

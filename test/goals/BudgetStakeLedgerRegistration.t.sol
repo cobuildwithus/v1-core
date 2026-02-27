@@ -196,10 +196,28 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         assertTrue(ledger.allTrackedBudgetsResolved());
     }
 
+    function test_removeBudget_activeButNotActivatedBudgetDoesNotLockRewardHistory() public {
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+
+        budget.setDeadline(1);
+        budget.setState(IBudgetTreasury.BudgetState.Active);
+        budget.setActivatedAt(0);
+
+        vm.prank(manager);
+        bool lockRewardHistory = ledger.removeBudget(RECIPIENT_A);
+
+        assertFalse(lockRewardHistory);
+        assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
+        assertEq(ledger.trackedBudgetCount(), 0);
+        assertTrue(ledger.allTrackedBudgetsResolved());
+    }
+
     function test_removeBudget_activationLockedBudgetStaysTrackedUntilResolved() public {
         vm.prank(manager);
         ledger.registerBudget(RECIPIENT_A, address(budget));
 
+        budget.setActivatedAt(uint64(block.timestamp));
         budget.setDeadline(1);
         budget.setState(IBudgetTreasury.BudgetState.Active);
 
@@ -220,6 +238,7 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         vm.prank(manager);
         ledger.registerBudget(RECIPIENT_A, address(budget));
 
+        budget.setActivatedAt(uint64(block.timestamp));
         budget.setDeadline(1);
         budget.setState(IBudgetTreasury.BudgetState.Active);
 
@@ -274,6 +293,7 @@ contract MockBudgetFlow {
 contract MockBudgetTreasury {
     address public flow;
     uint64 public resolvedAt;
+    uint64 public activatedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
     uint64 public deadline;
@@ -288,6 +308,10 @@ contract MockBudgetTreasury {
 
     function setResolvedAt(uint64 resolvedAt_) external {
         resolvedAt = resolvedAt_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        activatedAt = activatedAt_;
     }
 
     function setState(IBudgetTreasury.BudgetState state_) external {
