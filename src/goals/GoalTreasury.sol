@@ -7,6 +7,7 @@ import { IRewardEscrow } from "../interfaces/IRewardEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
+import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -668,6 +669,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
+            if (clearedAssertionId != bytes32(0)) {
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) { } catch { }
+            }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;
         }

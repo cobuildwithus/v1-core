@@ -24,6 +24,34 @@ contract TreasuryMockUmaResolverConfig is IUMATreasurySuccessResolverConfig {
     }
 }
 
+contract TreasuryMockUmaResolverConfigWithFinalize is TreasuryMockUmaResolverConfig {
+    error FINALIZE_REVERT();
+
+    bytes32 public lastFinalizedAssertionId;
+    uint256 public finalizeCallCount;
+    bool public shouldRevertFinalize;
+
+    constructor(
+        OptimisticOracleV3Interface optimisticOracle_,
+        IERC20 assertionCurrency_,
+        address escalationManager_,
+        bytes32 domainId_
+    )
+        TreasuryMockUmaResolverConfig(optimisticOracle_, assertionCurrency_, escalationManager_, domainId_)
+    { }
+
+    function setShouldRevertFinalize(bool value) external {
+        shouldRevertFinalize = value;
+    }
+
+    function finalize(bytes32 assertionId) external returns (bool applied) {
+        finalizeCallCount += 1;
+        lastFinalizedAssertionId = assertionId;
+        if (shouldRevertFinalize) revert FINALIZE_REVERT();
+        return false;
+    }
+}
+
 contract TreasuryMockOptimisticOracleV3 {
     mapping(bytes32 => OptimisticOracleV3Interface.Assertion) internal _assertions;
 

@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
+import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
@@ -429,6 +430,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
+            if (clearedAssertionId != bytes32(0)) {
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) { } catch { }
+            }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;
         }
