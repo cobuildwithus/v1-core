@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
+import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -170,6 +171,66 @@ contract SubmissionDepositRoutingTest is Test {
         arb.giveRuling(address(tcr), disputeId, 2);
 
         assertEq(underlying.balanceOf(challenger) - challengerBefore, SUBMISSION_DEPOSIT);
+        assertEq(underlying.balanceOf(prizePool), 0);
+        assertEq(tcr.submissionDeposits(itemId), 0);
+    }
+
+    function test_noneRuling_refundsSubmissionDepositToRequester() public {
+        address prizePool = address(0xBADA55);
+        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(underlying, prizePool);
+
+        RoundSubmissionTCR implementation = new RoundSubmissionTCR();
+        RoundSubmissionTCR tcr = RoundSubmissionTCR(Clones.clone(address(implementation)));
+        RoundTestArbitrator arb = new RoundTestArbitrator(IVotes(address(underlying)), address(tcr), 1, 1, 1, ARBITRATION_COST);
+
+        tcr.initialize(
+            RoundSubmissionTCR.RoundConfig({
+                roundId: bytes32("r"),
+                startAt: uint64(block.timestamp - 1),
+                endAt: uint64(block.timestamp + 30 days),
+                prizeVault: prizePool
+            }),
+            RoundSubmissionTCR.RegistryConfig({
+                arbitrator: arb,
+                arbitratorExtraData: "",
+                registrationMetaEvidence: "reg",
+                clearingMetaEvidence: "clr",
+                governor: governor,
+                votingToken: IVotes(address(underlying)),
+                submissionBaseDeposit: SUBMISSION_DEPOSIT,
+                submissionDepositStrategy: strategy,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: 1 days
+            })
+        );
+
+        vm.prank(alice);
+        underlying.approve(address(tcr), type(uint256).max);
+        vm.prank(challenger);
+        underlying.approve(address(tcr), type(uint256).max);
+
+        bytes memory item = _submissionItem();
+        vm.prank(alice);
+        bytes32 itemId = tcr.addItem(item);
+
+        vm.prank(challenger);
+        tcr.challengeRequest(itemId, "");
+
+        (bool exists, uint256 requestIndex) = tcr.getLatestRequestIndex(itemId);
+        assertTrue(exists);
+
+        (, uint256 disputeId,,,,,,,,) = tcr.getRequestInfo(itemId, requestIndex);
+        assertGt(disputeId, 0);
+
+        uint256 requesterBefore = underlying.balanceOf(alice);
+
+        arb.giveRuling(address(tcr), disputeId, 0);
+
+        (, IGeneralizedTCR.Status status,) = tcr.getItemInfo(itemId);
+        assertEq(uint256(status), uint256(IGeneralizedTCR.Status.Absent));
+        assertEq(underlying.balanceOf(alice) - requesterBefore, SUBMISSION_DEPOSIT);
         assertEq(underlying.balanceOf(prizePool), 0);
         assertEq(tcr.submissionDeposits(itemId), 0);
     }

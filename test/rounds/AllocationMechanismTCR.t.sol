@@ -276,4 +276,30 @@ contract AllocationMechanismTCRTest is Test {
         assertFalse(afterDeployment.active);
         assertFalse(budgetFlow.recipientExists(deployed.prizeVault));
     }
+
+    function test_addItem_revertsWhileRemovalFinalizationPending() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+        mechanism.activateRound(itemId);
+
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        assertTrue(mechanism.removalQueued(itemId));
+
+        vm.prank(alice);
+        vm.expectRevert(AllocationMechanismTCR.REMOVAL_FINALIZATION_PENDING.selector);
+        mechanism.addItem(abi.encode(listing));
+    }
 }
