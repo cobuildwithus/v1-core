@@ -329,6 +329,8 @@ contract RewardEscrowTest is Test {
 
         uint256 aliceBudgetPoints = escrow.budgetPoints(address(budgetA));
         assertEq(aliceBudgetPoints, escrow.userPointsOnBudget(alice, address(budgetA)));
+        assertEq(escrow.budgetPoints(address(budgetB)), 0);
+        assertEq(escrow.budgetPoints(address(budgetC)), 0);
         assertGt(aliceBudgetPoints, 0);
         assertEq(escrow.budgetPoints(address(budgetInvalid)), 0);
         assertEq(escrow.trackedBudgetCount(), 3);
@@ -440,11 +442,16 @@ contract RewardEscrowTest is Test {
         fundingBudget.setState(IBudgetTreasury.BudgetState.Succeeded);
         fundingBudget.setResolvedAt(260);
         _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        uint256 pointsAfterFirstPostDeadlineCheckpoint = escrow.userPointsOnBudget(alice, address(fundingBudget));
 
         vm.warp(320);
         _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
 
-        uint256 expectedCappedPoints = escrow.userPointsOnBudget(alice, address(fundingBudget));
+        // Post-deadline checkpoints must not change points after cap engages.
+        uint256 pointsAfterSecondPostDeadlineCheckpoint = escrow.userPointsOnBudget(alice, address(fundingBudget));
+        assertEq(pointsAfterSecondPostDeadlineCheckpoint, pointsAfterFirstPostDeadlineCheckpoint);
+
+        uint256 expectedCappedPoints = pointsAfterSecondPostDeadlineCheckpoint;
         rewardToken.mint(address(escrow), 100e18);
 
         vm.warp(400);
@@ -1214,7 +1221,6 @@ contract RewardEscrowTest is Test {
         budget.setFundingDeadline(fundingDeadline);
 
         goalFlow.setRecipient(recipientId, address(budget));
-        vm.prank(address(this));
         ledger.registerBudget(recipientId, address(budget));
     }
 
