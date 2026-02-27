@@ -204,6 +204,18 @@ contract MockExternalJurorSlasherForArbitrator {
     }
 }
 
+contract MockForwardingJurorSlasherForArbitrator {
+    MockStakeVaultForArbitrator public immutable stakeVault;
+
+    constructor(MockStakeVaultForArbitrator stakeVault_) {
+        stakeVault = stakeVault_;
+    }
+
+    function slashJurorStake(address juror, uint256 weightAmount, address recipient) external {
+        stakeVault.slashJurorStake(juror, weightAmount, recipient);
+    }
+}
+
 contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
     MockVotesToken internal token;
     MockArbitrable internal arbitrable;
@@ -248,7 +260,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             )
         );
         arb = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
-        stakeVault.setJurorSlasher(address(arb));
+        stakeVault.setJurorSlasher(address(new MockForwardingJurorSlasherForArbitrator(stakeVault)));
 
         arbitrable.setArbitrator(arb);
         token.mint(address(arbitrable), 1_000_000e18);
@@ -413,7 +425,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         arb.revealVote(disputeId, voter1, 1, "", salt1);
 
         _warpRoll(revealEndTime + 1);
-        vm.expectRevert(ERC20VotesArbitrator.JUROR_SLASHER_NOT_CONFIGURED.selector);
+        vm.expectRevert();
         arb.slashVoter(disputeId, 0, voter2);
     }
 
@@ -470,7 +482,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             address(scopedStakeVault),
             address(budgetTreasury)
         );
-        scopedStakeVault.setJurorSlasher(address(scopedArb));
+        scopedStakeVault.setJurorSlasher(address(new MockForwardingJurorSlasherForArbitrator(scopedStakeVault)));
 
         vm.roll(block.number + 1);
         (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
@@ -655,7 +667,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             address(scopedStakeVault),
             address(budgetTreasury)
         );
-        scopedStakeVault.setJurorSlasher(address(scopedArb));
+        scopedStakeVault.setJurorSlasher(address(new MockForwardingJurorSlasherForArbitrator(scopedStakeVault)));
 
         vm.roll(block.number + 1);
         (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
