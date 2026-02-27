@@ -1,6 +1,6 @@
 # Verification and Runtime
 
-Last verified: 2026-02-26
+Last verified: 2026-02-27
 
 ## Verification Commands
 
@@ -14,6 +14,7 @@ Last verified: 2026-02-26
 - CI-parity gate composition: `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
 - `verify:required` is queue-backed/coalesced for concurrent local agents (`scripts/verify-queue.sh submit required --wait`).
 - Queue worker start has no batch-delay path (workers start immediately).
+- Queue worker lane caches are lane-scoped (not fingerprint-scoped) so adjacent requests can reuse prior `FOUNDRY_OUT`/`FOUNDRY_CACHE_PATH` artifacts.
 
 ## Temporary Slither Exception
 
@@ -78,10 +79,13 @@ Last verified: 2026-02-26
 
 ## Runtime Guardrails
 
-Runtime measurements below were captured on February 19, 2026 (16 logical cores) and should be treated as order-of-magnitude guidance.
+Runtime measurements below were captured on February 27, 2026 (16 logical cores) and should be treated as order-of-magnitude guidance.
 
-- `forge build -q`: ~145s cold.
-- `pnpm -s test:lite`: ~129-133s cold, ~1-2s warm (test execution is sub-second; compile dominates).
+- `forge build -q`: ~259s cold.
+- `pnpm -s test:lite:shared`: ~264-269s cold, ~1.5-3.3s warm (compile dominates cold path).
+- Cold `test:lite:shared` is effectively insensitive to `-j` (`0/8/4` all within ~2%), indicating a compile-bound path.
+- Warm `test:lite:shared` is fastest at `TEST_SCOPE_THREADS=8` on this host (~1.45s vs ~1.90s at `0` and ~3.31s at `2`).
+- Reusing an existing lane `out/cache` while forcing shared-build re-evaluation remains ~1.7s and logs `No files changed, compilation skipped`.
 - `pnpm -s coverage:ci`: ~70-87s.
 - `pnpm -s coverage:quick`: ~66-70s cold.
 - `pnpm -s coverage`: ~533s (~8m53s) and highest CPU pressure locally.

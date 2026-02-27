@@ -6,6 +6,7 @@
 - `pnpm -s verify:required:ci` (optional local CI parity, includes invariants)
 - `verify:required` is queue-backed/coalesced to reduce duplicate concurrent local runs.
 - Queue worker start is immediate (no batch-delay config path).
+- Queue worker lane caches are lane-scoped (not fingerprint-scoped) to maximize artifact reuse across adjacent local requests.
 - `bash scripts/check-agent-docs-drift.sh`
 - `bash scripts/doc-gardening.sh --fail-on-issues`
 
@@ -39,10 +40,12 @@
 - If required verification is running, proceed with simplify + test-coverage passes in parallel instead of waiting idle, then run completion audit on the finalized diff.
 - Final handoff remains gated on green required checks after any audit-driven edits are applied.
 
-## Runtime Notes (Measured February 19, 2026)
+## Runtime Notes (Measured February 27, 2026)
 
-- `forge build -q`: ~145s cold.
-- `pnpm -s test:lite`: ~129-133s cold, ~1-2s warm.
+- `forge build -q`: ~259s cold.
+- `pnpm -s test:lite:shared`: ~264-269s cold, ~1.5-3.3s warm.
+- Cold `test:lite:shared` runtime is nearly unchanged across `TEST_SCOPE_THREADS=0/8/4` on this host (compile-bound).
+- Warm `test:lite:shared` is fastest at `TEST_SCOPE_THREADS=8` on this host.
 - `pnpm -s coverage:ci`: ~70-87s.
 - `pnpm -s coverage:quick`: ~66-70s cold.
 - `pnpm -s coverage`: ~533s (~8m53s), largest CPU sink.

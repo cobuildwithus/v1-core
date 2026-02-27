@@ -592,6 +592,7 @@ run_worker() {
     local lane_root
     local lane_out
     local lane_cache
+    local lane_build_namespace
     local lane_env
 
     batch_file="$(mktemp "$runtime_dir/verify-queue.batch.XXXXXX")"
@@ -629,22 +630,26 @@ run_worker() {
     request_ids="$(jq -r '.id' "$batch_file" | paste -sd ',' -)"
     started_at="$(utc_now)"
 
-    lane_root="$lanes_runtime_dir/lane-$worker_lane_id/$fingerprint"
+    # Keep lane build/cache directories stable across fingerprints so adjacent
+    # requests can reuse artifacts instead of redoing cold compiles.
+    lane_root="$lanes_runtime_dir/lane-$worker_lane_id/work"
     lane_out="$lane_root/out"
     lane_cache="$lane_root/cache"
+    lane_build_namespace="verifyq-lane-$worker_lane_id"
     mkdir -p "$lane_out" "$lane_cache"
 
     {
       printf '[%s] START batch run_id=%s lane=%s mode=%s fingerprint=%s request_ids=%s\n' \
         "$started_at" "$run_id" "$worker_lane_id" "$mode" "$fingerprint" "$request_ids"
-      printf '[%s] lane_paths out=%s cache=%s\n' "$started_at" "$lane_out" "$lane_cache"
+      printf '[%s] lane_paths out=%s cache=%s build_namespace=%s\n' \
+        "$started_at" "$lane_out" "$lane_cache" "$lane_build_namespace"
     } | tee -a "$log_file"
 
     run_exit=0
     lane_env=(
       "FOUNDRY_OUT=$lane_out"
       "FOUNDRY_CACHE_PATH=$lane_cache"
-      "SHARED_BUILD_NAMESPACE=verifyq-$fingerprint"
+      "SHARED_BUILD_NAMESPACE=$lane_build_namespace"
     )
 
     if [ "$mode" = "full" ]; then
