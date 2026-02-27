@@ -91,7 +91,7 @@ cobuild-protocol/
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: split by treasury-configured `successSettlementRewardEscrowPpm` into reward escrow + controller burn.
-  - `Failed`/`Expired`: burn 100% via controller.
+  - `Expired`: burn 100% via controller.
 - Goal and budget terminal side effects are permissionlessly retryable via `retryTerminalSideEffects()`.
 - Goal terminal-state residual policy is reusable post-finalize via `settleLateResidual` to process late budget/stream inflows.
 - Budget terminal-state residual sweep is reusable post-finalize via `settleLateResidualToParent` to process late child-flow inflows.
@@ -101,7 +101,7 @@ cobuild-protocol/
 - Goal success no longer blocks on unresolved tracked budgets for treasury-state progression:
   - treasury success resolution can complete immediately,
   - reward escrow success-finalization is deferred until tracked budgets are resolved and then retried permissionlessly,
-  - points accrual snapshots remain anchored to the recorded success timestamp,
+  - points accrual snapshots remain anchored to the recorded success timestamp, with per-budget raw accrual clamped by earliest exogenous cutoff (`activatedAt`, `fundingDeadline`, or removal),
   - budget success eligibility is evaluated at reward-finalization using terminal budget outcome (not `resolvedAt <= successAt`).
 - Permissionless `sync()` is the canonical lifecycle progression path:
   - `Funding`: activate when threshold is met, otherwise expire once funding/deadline windows elapse.

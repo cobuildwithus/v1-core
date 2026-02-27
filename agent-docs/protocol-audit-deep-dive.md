@@ -1,6 +1,6 @@
 # Protocol Deep Dive for Logic Audit
 
-Last verified: 2026-02-24
+Last verified: 2026-02-27
 
 ## Why this document exists
 
@@ -63,7 +63,7 @@ The protocol has three coupled subsystems:
 
 ### Goal lifecycle (`GoalTreasury`)
 
-State enum: `Funding -> Active -> (Succeeded | Expired | Failed)`.
+State enum: `Funding -> Active -> (Succeeded | Expired)`.
 
 Current practical transitions:
 
@@ -83,7 +83,7 @@ Current practical transitions:
   - Trigger: `sync()`.
   - Guard: deadline reached with no truthful resolved assertion.
 
-- `Failed` exists in the enum, but no exposed manual failure path currently reaches `_finalize(Failed)`.
+- Goal treasury has no `Failed` terminal state and no manual failure entrypoint.
 
 Important notes:
 
@@ -120,8 +120,9 @@ Transitions:
 Budget removal interaction:
 
 - Accepted budget removal in `BudgetTCR` first marks the budget pending finalization.
-- `finalizeRemovedBudget()` then removes the recipient, calls `disableSuccessResolution()`, and attempts terminal resolution.
-- After disable succeeds, later budget success resolution is permanently blocked.
+- `finalizeRemovedBudget()` removes the recipient and attempts terminal resolution with branch-specific handling:
+  - pre-activation removals disable success resolution (`disableSuccessResolution()`), permanently blocking later budget success,
+  - activation-locked removals preserve success-resolution eligibility while force-zeroing forward spend.
 
 ### TCR item/request lifecycle (`GeneralizedTCR`)
 
@@ -166,7 +167,6 @@ Path A: Revnet hook funding
 
 Path B: Direct donations
 
-- `donateSuperToken(amount)`: transfer SuperToken directly to flow.
 - `donateUnderlyingAndUpgrade(amount)`: pull underlying, upgrade, forward to flow.
 - Goal treasury increments `totalRaised`; budget treasury uses balance-based accounting only.
 
@@ -197,7 +197,7 @@ Goal treasury finalization (`_finalize`):
 4. Sweep all remaining SuperToken from flow to treasury.
 5. Settle residual policy:
 - `Succeeded`: split treasury-held residual between reward escrow and burn.
-- `Expired/Failed`: burn 100%.
+- `Expired`: burn 100%.
 6. Finalize reward escrow and mark stake vault resolved timestamp.
 
 Budget treasury finalization (`_finalize`):
@@ -262,7 +262,7 @@ Juror locks:
 2. Flow-rate sync liveness under revert/fallback scenarios.
 3. Hook routing correctness by treasury state and minting window.
 4. Goal success independence from unresolved budgets (by design) and timestamp anchoring effects.
-5. Budget removal guarantees: recipient removed + success disabled + retryable terminalization.
+5. Budget removal guarantees: recipient removed + retryable terminalization; success disablement is branch-specific (pre-activation only).
 6. Stake rent math and withdrawal accounting (including rounding/dust and repeated withdrawals).
 7. Reward escrow claim math and claim cursor monotonicity.
 8. Submission deposit strategy behavior in TCR (fail-closed surface).
@@ -313,11 +313,7 @@ High-signal tests/invariants:
 
 ## Known design-intent edge cases (easy to misread during audit)
 
-- `GoalState.Failed` exists but is not currently reached by an exposed manual failure route.
-- Goal success does not wait for all budgets to resolve; snapshot eligibility is anchored at goal success timestamp.
-- Budget success can be permanently disabled on accepted removal.
-- Direct flow balance can satisfy activation thresholds even without hook funding telemetry.
-- Child-allocation sync failures in pipeline paths are emitted (skip/attempt outcome) while parent allocation maintenance continues.
+See `agent-docs/references/known-design-intent-edge-cases.md`.
 
 ## Companion docs to keep open while auditing
 
@@ -325,6 +321,7 @@ High-signal tests/invariants:
 - `agent-docs/cobuild-protocol-architecture.md`
 - `agent-docs/product-specs/protocol-lifecycle-and-invariants.md`
 - `agent-docs/references/module-boundary-map.md`
+- `agent-docs/references/known-design-intent-edge-cases.md`
 - `agent-docs/references/goal-funding-and-reward-map.md`
 - `agent-docs/references/tcr-and-arbitration-map.md`
 - `agent-docs/RELIABILITY.md`
