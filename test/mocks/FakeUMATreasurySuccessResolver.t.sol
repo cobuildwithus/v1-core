@@ -261,9 +261,12 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         uint64 internal constant SUCCESS_LIVENESS = 7200;
         uint256 internal constant SUCCESS_BOND = 123e6;
         uint32 internal constant SETTLEMENT_REWARD_ESCROW_PPM = 777_777;
+        uint32 internal constant MANAGER_REWARD_POOL_FLOW_RATE_PPM = 222_222;
 
         string internal constant SUCCESS_SPEC = "ipfs://success-spec";
         string internal constant SUCCESS_POLICY = "ipfs://success-policy";
+        string internal constant FLOW_TAGLINE = "Goal tagline";
+        string internal constant FLOW_URL = "https://goal.example";
 
         DeployGoalFromFactory internal deployScript;
         MockGoalFactoryForScript internal mockFactory;
@@ -289,6 +292,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(mockFactory.lastSettlementRewardEscrowPpm(), SETTLEMENT_REWARD_ESCROW_PPM);
             assertEq(mockFactory.lastSpecHash(), keccak256(bytes(SUCCESS_SPEC)));
             assertEq(mockFactory.lastPolicyHash(), keccak256(bytes(SUCCESS_POLICY)));
+            assertEq(mockFactory.lastFlowTagline(), FLOW_TAGLINE);
+            assertEq(mockFactory.lastFlowUrl(), FLOW_URL);
+            assertEq(mockFactory.lastManagerRewardPoolFlowRatePpm(), MANAGER_REWARD_POOL_FLOW_RATE_PPM);
         }
 
         function _setDeployEnv() internal {
@@ -301,6 +307,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("SUCCESS_SETTLEMENT_REWARD_ESCROW_PPM", vm.toString(uint256(SETTLEMENT_REWARD_ESCROW_PPM)));
             vm.setEnv("SUCCESS_SPEC", SUCCESS_SPEC);
             vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
+            vm.setEnv("FLOW_TAGLINE", FLOW_TAGLINE);
+            vm.setEnv("FLOW_URL", FLOW_URL);
+            vm.setEnv(
+                "FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(uint256(MANAGER_REWARD_POOL_FLOW_RATE_PPM))
+            );
         }
     }
 
@@ -312,8 +323,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         uint64 public lastSuccessLiveness;
         uint256 public lastSuccessBond;
         uint32 public lastSettlementRewardEscrowPpm;
+        uint32 public lastManagerRewardPoolFlowRatePpm;
         bytes32 public lastSpecHash;
         bytes32 public lastPolicyHash;
+        string public lastFlowTagline;
+        string public lastFlowUrl;
 
         function deployGoal(GoalFactory.DeployParams calldata p)
             external
@@ -324,8 +338,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             lastSuccessLiveness = p.success.successAssertionLiveness;
             lastSuccessBond = p.success.successAssertionBond;
             lastSettlementRewardEscrowPpm = p.settlement.successSettlementRewardEscrowPpm;
+            lastManagerRewardPoolFlowRatePpm = p.flowConfig.managerRewardPoolFlowRatePpm;
             lastSpecHash = p.success.successOracleSpecHash;
             lastPolicyHash = p.success.successAssertionPolicyHash;
+            lastFlowTagline = p.flowMetadata.tagline;
+            lastFlowUrl = p.flowMetadata.url;
 
             out.goalRevnetId = 1;
             out.goalToken = address(0x1);

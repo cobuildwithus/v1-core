@@ -3,18 +3,26 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import { GoalFactory } from "src/goals/GoalFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
+import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
+import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IFlow } from "src/interfaces/IFlow.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { FlowTypes } from "src/storage/FlowStorage.sol";
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBTerminalConfig } from "@bananapus/core-v5/structs/JBTerminalConfig.sol";
-import { ISuperfluid } from
+import { ISuperfluid, ISuperToken, ISuperTokenFactory } from
     "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract GoalFactoryTest is Test {
@@ -377,6 +385,15 @@ contract GoalFactoryTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_revertsWhenManagerRewardPoolFlowRatePpmExceedsOneE6() public {
+        GoalFactoryHarness factory = _deployFactory();
+        GoalFactory.DeployParams memory p = _defaultDeployParams();
+        p.flowConfig.managerRewardPoolFlowRatePpm = SCALE_1E6 + 1;
+
+        vm.expectRevert(GoalFactory.INVALID_SCALE.selector);
+        factory.deployGoal(p);
+    }
+
     function test_deployGoal_revertsWhenCobuildPrimaryTerminalUnset() public {
         GoalFactoryDirectoryProbe directory =
             new GoalFactoryDirectoryProbe(COBUILD_REVNET_ID, address(cobuildToken), address(0));
@@ -573,6 +590,86 @@ contract GoalFactoryTest is Test {
         assertEq(budgetTcrFactoryProbe.lastArbitrationCost(), request.arbitratorParams.arbitrationCost);
     }
 
+    function test_coreStackDeployLibrary_wiresRewardEscrowAsManagerPoolAndForwardsMetadata() public {
+        GoalFactoryCoreStackDeployHarness harness = new GoalFactoryCoreStackDeployHarness();
+        GoalFactoryTestToken goalToken = new GoalFactoryTestToken(COBUILD_DECIMALS);
+        GoalFactoryTestToken localCobuildToken = new GoalFactoryTestToken(COBUILD_DECIMALS);
+        GoalFactoryMockSuperToken superToken = new GoalFactoryMockSuperToken(address(goalToken));
+        GoalFactoryMockSuperTokenFactory superTokenFactory = new GoalFactoryMockSuperTokenFactory(address(superToken));
+        GoalFactoryMockSuperfluidHost superfluidHostProbe = new GoalFactoryMockSuperfluidHost(address(superTokenFactory));
+        GoalFactoryMockGoalTreasury goalTreasuryProbe = new GoalFactoryMockGoalTreasury();
+        GoalFactoryMockGoalFlow goalFlowProbe = new GoalFactoryMockGoalFlow();
+        GoalFactoryMockSplitHook splitHookProbe = new GoalFactoryMockSplitHook();
+
+        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = GoalFactoryCoreStackDeploy.CoreStackRequest({
+            goalTreasury: GoalTreasury(address(goalTreasuryProbe)),
+            splitHook: GoalRevnetSplitHook(payable(address(splitHookProbe))),
+            goalFlow: CustomFlow(payable(address(goalFlowProbe))),
+            flowImpl: makeAddr("flowImplementation"),
+            superfluidHost: ISuperfluid(address(superfluidHostProbe)),
+            budgetTcrFactory: makeAddr("budgetTcrFactory"),
+            cobuildToken: address(localCobuildToken),
+            cobuildDecimals: COBUILD_DECIMALS,
+            goalRevnetId: 101,
+            goalToken: address(goalToken),
+            predictedBudgetTcr: makeAddr("predictedBudgetTcr"),
+            rulesets: IJBRulesets(makeAddr("rulesetsNoCode")),
+            directory: IJBDirectory(makeAddr("directoryNoCode")),
+            revnetName: "Goal Name",
+            revnetTicker: "GOAL",
+            flowTitle: "Goal title",
+            flowDescription: "Goal description",
+            flowImage: "ipfs://goal-image",
+            flowTagline: "Goal tagline",
+            flowUrl: "https://goal.example",
+            managerRewardPoolFlowRatePpm: 222_222,
+            rentRecipient: makeAddr("rentRecipient"),
+            rentWadPerSecond: 1,
+            burnAddress: address(0x000000000000000000000000000000000000dEaD),
+            minRaiseDeadline: uint64(block.timestamp + 1 days),
+            minRaise: 1e18,
+            successSettlementRewardEscrowPpm: 777_777,
+            successResolver: SUCCESS_RESOLVER,
+            successAssertionLiveness: 7200,
+            successAssertionBond: 123e6,
+            successOracleSpecHash: keccak256("goal-success-spec"),
+            successAssertionPolicyHash: keccak256("goal-success-policy")
+        });
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory out = harness.exposedInitializeCoreStack(request);
+
+        assertEq(address(out.goalSuperToken), address(superToken));
+        assertEq(goalFlowProbe.lastManagerRewardPool(), address(out.rewardEscrow));
+        assertEq(goalFlowProbe.lastManagerRewardPoolFlowRatePpm(), request.managerRewardPoolFlowRatePpm);
+        assertEq(goalFlowProbe.lastFlowTagline(), request.flowTagline);
+        assertEq(goalFlowProbe.lastFlowUrl(), request.flowUrl);
+        assertEq(goalFlowProbe.lastFlowTitle(), request.flowTitle);
+        assertEq(goalFlowProbe.lastFlowDescription(), request.flowDescription);
+        assertEq(goalFlowProbe.lastFlowImage(), request.flowImage);
+        assertEq(goalFlowProbe.lastRecipientAdmin(), request.predictedBudgetTcr);
+        assertEq(goalFlowProbe.lastFlowOperator(), address(goalTreasuryProbe));
+        assertEq(goalFlowProbe.lastSweeper(), address(goalTreasuryProbe));
+        assertEq(goalFlowProbe.lastStrategyCount(), 1);
+        assertEq(goalFlowProbe.lastFirstStrategy(), address(out.stakeVault));
+
+        assertEq(goalTreasuryProbe.lastInitialOwner(), request.budgetTcrFactory);
+        assertEq(goalTreasuryProbe.lastConfigFlow(), address(goalFlowProbe));
+        assertEq(goalTreasuryProbe.lastConfigRewardEscrow(), address(out.rewardEscrow));
+        assertEq(goalTreasuryProbe.lastConfigStakeVault(), address(out.stakeVault));
+        assertEq(goalTreasuryProbe.lastConfigMinRaise(), request.minRaise);
+        assertEq(
+            goalTreasuryProbe.lastConfigSuccessSettlementRewardEscrowPpm(),
+            request.successSettlementRewardEscrowPpm
+        );
+
+        assertEq(splitHookProbe.lastDirectory(), address(request.directory));
+        assertEq(splitHookProbe.lastGoalTreasury(), address(goalTreasuryProbe));
+        assertEq(splitHookProbe.lastFlow(), address(goalFlowProbe));
+        assertEq(splitHookProbe.lastGoalRevnetId(), request.goalRevnetId);
+        assertEq(superTokenFactory.lastUnderlyingToken(), address(goalToken));
+        assertEq(superTokenFactory.lastUnderlyingDecimals(), COBUILD_DECIMALS);
+    }
+
     function test_resolveMinRaiseWindow_usesHalfDurationWhenUnset() public {
         GoalFactoryHarness factory = _deployFactory();
         uint32 resolved = factory.exposedResolveMinRaiseWindow(10 days, 0);
@@ -694,8 +791,11 @@ contract GoalFactoryTest is Test {
         p.flowMetadata = GoalFactory.FlowMetadataParams({
             title: "Goal title",
             description: "Goal description",
-            image: "ipfs://image"
+            image: "ipfs://image",
+            tagline: "Goal tagline",
+            url: "https://goal.example"
         });
+        p.flowConfig = GoalFactory.FlowConfigParams({ managerRewardPoolFlowRatePpm: 100_000 });
         p.budgetTCR = _defaultBudgetTCRParams();
         p.rentRecipient = RENT_RECIPIENT;
         p.rentWadPerSecond = 1;
@@ -919,6 +1019,17 @@ contract GoalFactoryBudgetTcrDeployHarness {
     }
 }
 
+contract GoalFactoryCoreStackDeployHarness {
+    function exposedInitializeCoreStack(
+        GoalFactoryCoreStackDeploy.CoreStackRequest memory request
+    )
+        external
+        returns (GoalFactoryCoreStackDeploy.CoreStackResult memory)
+    {
+        return GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+    }
+}
+
 contract GoalFactoryBudgetTcrFactoryProbe {
     address internal immutable _returnedBudgetTcr;
     address internal immutable _returnedArbitrator;
@@ -973,6 +1084,127 @@ contract GoalFactoryBudgetTcrFactoryProbe {
             arbitrator: _returnedArbitrator,
             token: _returnedToken
         });
+    }
+}
+
+contract GoalFactoryMockSuperfluidHost {
+    address internal immutable _superTokenFactory;
+
+    constructor(address superTokenFactory) {
+        _superTokenFactory = superTokenFactory;
+    }
+
+    function getSuperTokenFactory() external view returns (ISuperTokenFactory) {
+        return ISuperTokenFactory(_superTokenFactory);
+    }
+}
+
+contract GoalFactoryMockSuperTokenFactory {
+    address internal immutable _wrapper;
+
+    address public lastUnderlyingToken;
+    uint8 public lastUnderlyingDecimals;
+
+    constructor(address wrapper) {
+        _wrapper = wrapper;
+    }
+
+    function createERC20Wrapper(
+        IERC20Metadata underlyingToken,
+        uint8 underlyingDecimals,
+        ISuperTokenFactory.Upgradability,
+        string calldata,
+        string calldata
+    ) external returns (ISuperToken) {
+        lastUnderlyingToken = address(underlyingToken);
+        lastUnderlyingDecimals = underlyingDecimals;
+        return ISuperToken(_wrapper);
+    }
+}
+
+contract GoalFactoryMockSuperToken {
+    address internal immutable _underlyingToken;
+
+    constructor(address underlyingToken) {
+        _underlyingToken = underlyingToken;
+    }
+
+    function getUnderlyingToken() external view returns (address) {
+        return _underlyingToken;
+    }
+}
+
+contract GoalFactoryMockGoalTreasury {
+    address public lastInitialOwner;
+    address public lastConfigFlow;
+    address public lastConfigStakeVault;
+    address public lastConfigRewardEscrow;
+    uint256 public lastConfigMinRaise;
+    uint32 public lastConfigSuccessSettlementRewardEscrowPpm;
+
+    function initialize(address initialOwner, IGoalTreasury.GoalConfig calldata config) external {
+        lastInitialOwner = initialOwner;
+        lastConfigFlow = config.flow;
+        lastConfigStakeVault = config.stakeVault;
+        lastConfigRewardEscrow = config.rewardEscrow;
+        lastConfigMinRaise = config.minRaise;
+        lastConfigSuccessSettlementRewardEscrowPpm = config.successSettlementRewardEscrowPpm;
+    }
+}
+
+contract GoalFactoryMockGoalFlow {
+    address public lastRecipientAdmin;
+    address public lastFlowOperator;
+    address public lastSweeper;
+    address public lastManagerRewardPool;
+    uint32 public lastManagerRewardPoolFlowRatePpm;
+    string public lastFlowTitle;
+    string public lastFlowDescription;
+    string public lastFlowImage;
+    string public lastFlowTagline;
+    string public lastFlowUrl;
+    uint256 public lastStrategyCount;
+    address public lastFirstStrategy;
+
+    function initialize(
+        address,
+        address,
+        address recipientAdmin,
+        address flowOperator,
+        address sweeper,
+        address managerRewardPool,
+        address,
+        address,
+        IFlow.FlowParams memory flowParams,
+        FlowTypes.RecipientMetadata memory metadata,
+        IAllocationStrategy[] calldata strategies
+    ) external {
+        lastRecipientAdmin = recipientAdmin;
+        lastFlowOperator = flowOperator;
+        lastSweeper = sweeper;
+        lastManagerRewardPool = managerRewardPool;
+        lastManagerRewardPoolFlowRatePpm = flowParams.managerRewardPoolFlowRatePpm;
+        lastFlowTitle = metadata.title;
+        lastFlowDescription = metadata.description;
+        lastFlowImage = metadata.image;
+        lastFlowTagline = metadata.tagline;
+        lastFlowUrl = metadata.url;
+        lastStrategyCount = strategies.length;
+        if (strategies.length != 0) lastFirstStrategy = address(strategies[0]);
+    }
+}
+
+contract GoalFactoryMockSplitHook {
+    address public lastDirectory;
+    address public lastGoalTreasury;
+    address public lastFlow;
+    uint256 public lastGoalRevnetId;
+
+    function initialize(IJBDirectory directory, IGoalTreasury goalTreasury, IFlow flow, uint256 goalRevnetId) external {
+        lastDirectory = address(directory);
+        lastGoalTreasury = address(goalTreasury);
+        lastFlow = address(flow);
+        lastGoalRevnetId = goalRevnetId;
     }
 }
 

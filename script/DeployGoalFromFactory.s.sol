@@ -43,6 +43,13 @@ contract DeployGoalFromFactory is Script {
         string memory flowTitle = vm.envOr("FLOW_TITLE", string("Goal"));
         string memory flowDesc = vm.envOr("FLOW_DESC", string("Goal flow"));
         string memory flowImage = vm.envOr("FLOW_IMAGE", string("ipfs://IMAGE"));
+        string memory flowTagline = vm.envOr("FLOW_TAGLINE", string(""));
+        string memory flowUrl = vm.envOr("FLOW_URL", string(""));
+        uint256 managerRewardPoolFlowRatePpmRaw = vm.envOr("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", uint256(100_000));
+        if (managerRewardPoolFlowRatePpmRaw > 1_000_000) {
+            revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(managerRewardPoolFlowRatePpmRaw);
+        }
+        uint32 managerRewardPoolFlowRatePpm = uint32(managerRewardPoolFlowRatePpmRaw);
 
         address budgetSuccessResolver = vm.envOr("BUDGET_SUCCESS_RESOLVER", successResolver);
         if (successResolver == BURN) revert SUCCESS_RESOLVER_REQUIRED();
@@ -107,7 +114,16 @@ contract DeployGoalFromFactory is Script {
             settlement: GoalFactory.SettlementParams({
                 successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm
             }),
-            flowMetadata: GoalFactory.FlowMetadataParams({title: flowTitle, description: flowDesc, image: flowImage}),
+            flowMetadata: GoalFactory.FlowMetadataParams({
+                title: flowTitle,
+                description: flowDesc,
+                image: flowImage,
+                tagline: flowTagline,
+                url: flowUrl
+            }),
+            flowConfig: GoalFactory.FlowConfigParams({
+                managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm
+            }),
             budgetTCR: GoalFactory.BudgetTCRParams({
                 governor: address(0),
                 invalidRoundRewardsSink: BURN,
@@ -153,4 +169,5 @@ contract DeployGoalFromFactory is Script {
     error SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();
     error BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
+    error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(uint256 value);
 }
