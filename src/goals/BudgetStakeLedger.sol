@@ -40,7 +40,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint64 activatedAt;
         uint64 scoringStartsAt;
         uint64 scoringEndsAt;
-        uint64 maturationPeriodSeconds;
     }
 
     uint8 private constant _GOAL_SUCCEEDED = uint8(IGoalTreasury.GoalState.Succeeded);
@@ -49,10 +48,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     uint8 private constant _BUDGET_SUCCEEDED = uint8(IBudgetTreasury.BudgetState.Succeeded);
 
     uint256 private constant _INLINE_FINALIZE_BUDGETS = 32;
-    uint64 private constant _MIN_MATURATION_SECONDS = 1;
-    uint64 private constant _MAX_MATURATION_SECONDS = 30 days;
+    uint64 private constant _FIXED_MATURATION_SECONDS = 6 hours;
     uint64 private constant _MIN_SCORING_WINDOW_SECONDS = 1;
-    uint64 private constant _MATURATION_WINDOW_DIVISOR = 10;
 
     address public immutable override goalTreasury;
 
@@ -186,7 +183,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         if (budget == address(0)) revert ADDRESS_ZERO();
         (uint64 scoringEndsAt, uint64 activatedAt) = _validateBudgetForRegistration(budget);
         uint64 scoringStartsAt = _deriveScoringStart(scoringEndsAt);
-        uint64 maturationPeriodSeconds = _computeMaturationSeconds(_scoringWindowSeconds(scoringStartsAt, scoringEndsAt));
 
         address existing = _budgetByRecipientId[recipientId];
         if (existing != address(0) && existing != budget) revert BUDGET_ALREADY_REGISTERED();
@@ -200,7 +196,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         info.activatedAt = activatedAt;
         info.scoringStartsAt = scoringStartsAt;
         info.scoringEndsAt = scoringEndsAt;
-        info.maturationPeriodSeconds = maturationPeriodSeconds;
 
         emit BudgetRegistered(recipientId, budget);
     }
@@ -391,7 +386,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         info.activatedAt = _activatedAtForBudgetInfo(budget, budgetInfo_);
         info.scoringStartsAt = budgetInfo_.scoringStartsAt;
         info.scoringEndsAt = budgetInfo_.scoringEndsAt;
-        info.maturationPeriodSeconds = budgetInfo_.maturationPeriodSeconds;
         info.resolvedOrRemovedAt = _effectiveBudgetResolvedOrRemovedAt(budget);
     }
 
@@ -472,7 +466,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             uint64 activatedAt = _loadAndMaybeCacheActivatedAt(budget, info);
             uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, info, activatedAt);
 
-            _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudgetInfo(info));
+            _accrueBudgetPoints(budgetCheckpointData, cutoff, _FIXED_MATURATION_SECONDS);
 
             bool succeeded = _isBudgetSucceededAtFinalization(budget, info, resolvedAt);
             info.wasSuccessfulAtFinalization = succeeded;
@@ -516,7 +510,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
         uint64 activatedAt = _loadAndMaybeCacheActivatedAt(budget, budgetInfoData);
         uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budgetInfoData, activatedAt);
-        uint64 maturationSeconds = _maturationSecondsForBudgetInfo(budgetInfoData);
+        uint64 maturationSeconds = _FIXED_MATURATION_SECONDS;
 
         uint256 userStoredAllocated = userCheckpoint.allocatedStake;
         if (userStoredAllocated != oldAllocated) {
@@ -642,7 +636,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             checkpoint.accruedPoints,
             checkpoint.lastCheckpoint,
             cutoff,
-            _maturationSecondsForBudgetInfo(info)
+            _FIXED_MATURATION_SECONDS
         );
         points = _normalizePointsForCutoff(rawPoints, info, cutoff);
     }
@@ -658,7 +652,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             checkpoint.accruedPoints,
             checkpoint.lastCheckpoint,
             cutoff,
-            _maturationSecondsForBudgetInfo(info)
+            _FIXED_MATURATION_SECONDS
         );
         points = _normalizePointsForCutoff(rawPoints, info, cutoff);
     }
@@ -695,14 +689,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     function _effectiveAllocatedStake(uint256 weight, uint32 scaled) internal pure returns (uint256) {
         return FlowUnitMath.effectiveAllocatedStake(weight, scaled, FlowProtocolConstants.PPM_SCALE_UINT256);
-    }
-
-    function _computeMaturationSeconds(uint64 scoringWindowSeconds) internal pure returns (uint64 maturationSeconds) {
-        if (scoringWindowSeconds == 0) scoringWindowSeconds = _MIN_SCORING_WINDOW_SECONDS;
-
-        maturationSeconds = scoringWindowSeconds / _MATURATION_WINDOW_DIVISOR;
-        if (maturationSeconds < _MIN_MATURATION_SECONDS) maturationSeconds = _MIN_MATURATION_SECONDS;
-        if (maturationSeconds > _MAX_MATURATION_SECONDS) maturationSeconds = _MAX_MATURATION_SECONDS;
     }
 
     function _deriveScoringStart(uint64 scoringEndsAt) internal view returns (uint64 scoringStartsAt) {
@@ -766,13 +752,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
     }
 
-    function _maturationSecondsForBudgetInfo(BudgetInfo storage info) internal view returns (uint64 maturationSeconds) {
-        maturationSeconds = info.maturationPeriodSeconds;
-        if (maturationSeconds == 0) revert INVALID_BUDGET();
-    }
-
     function _hasScoringParameters(BudgetInfo storage info) internal view returns (bool) {
-        return info.scoringStartsAt != 0 && info.maturationPeriodSeconds != 0;
+        return info.scoringStartsAt != 0;
     }
 
     function _scoringStartForBudgetInfo(BudgetInfo storage info) internal view returns (uint64 scoringStartsAt) {

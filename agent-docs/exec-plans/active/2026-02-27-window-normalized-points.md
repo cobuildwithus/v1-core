@@ -6,12 +6,12 @@ Updated: 2026-02-27
 
 ## Goal
 
-Switch reward scoring from raw matured stake-time to window-normalized matured support (`average matured support over scoring window`), and derive budget maturation from scoring-window length (bounded fraction) instead of `executionDuration`.
+Switch reward scoring from raw matured stake-time to window-normalized matured support (`average matured support over scoring window`), then hard-cut maturation to a fixed global period (`tau = 6 hours`) instead of deriving it from scoring windows or `executionDuration`.
 
 ## Acceptance criteria
 
 - Budget/user/successful-point outputs used by reward distribution are window-normalized.
-- Budget registration stores a scoring-window start timestamp and computes maturation from window length with bounded clamp.
+- Budget registration stores a scoring-window start timestamp and applies fixed global maturation (`tau = 6 hours`).
 - `executionDuration` no longer drives maturation economics.
 - Success-finalization snapshots and claim preparation use the normalized semantics consistently.
 - Tests are updated to assert normalized behavior and preserve payout/accounting invariants.
@@ -38,8 +38,8 @@ Switch reward scoring from raw matured stake-time to window-normalized matured s
 ## Decisions
 
 - Scoring window start is anchored at ledger budget registration time (`scoringStartsAt`), clamped to `scoringEndsAt` when the budget funding deadline is already in the past.
-- Maturation derives from registered window length with clamp:
-  - `tau = clamp(window / 10, 1 second, 30 days)`.
+- Maturation uses a fixed global period:
+  - `tau = 6 hours`.
 - Normalized points use integer division of raw points by window seconds (no extra scaling constant).
 
 ## Risks
@@ -53,7 +53,7 @@ Switch reward scoring from raw matured stake-time to window-normalized matured s
 
 ## Tasks
 
-1. Patch ledger interface/storage/helpers for window-start metadata, normalized outputs, and window-derived maturation.
+1. Patch ledger interface/storage/helpers for window-start metadata, normalized outputs, and fixed global maturation.
 2. Update finalization and claim-prep point aggregation to normalized semantics.
 3. Update high-signal tests (`BudgetStakeLedgerEconomics`, `RewardEscrow`, dust/invariant paths) for new semantics.
 4. Update docs that define point meaning and maturation source.
@@ -62,6 +62,6 @@ Switch reward scoring from raw matured stake-time to window-normalized matured s
 ## Progress log
 
 - 2026-02-27: Read architecture/spec/reliability/security docs and current ledger/reward/test call paths.
-- 2026-02-27: Implemented normalized scoring outputs/snapshots and scoring-window-derived maturation in `BudgetStakeLedger`; exposed `scoringStartsAt` in `IBudgetStakeLedger.BudgetInfoView`.
+- 2026-02-27: Implemented normalized scoring outputs/snapshots and fixed global maturation (`tau = 6 hours`) in `BudgetStakeLedger`; exposed `scoringStartsAt` in `IBudgetStakeLedger.BudgetInfoView`.
 - 2026-02-27: Updated reward/ledger tests for normalized semantics and rounding behavior; fixed invalid-budget view regressions to return zero for unknown budgets.
-- 2026-02-27: Updated architecture/spec/reference docs to describe normalized points and window-derived warmup.
+- 2026-02-27: Updated architecture/spec/reference docs to describe normalized points and fixed-tau warmup.
