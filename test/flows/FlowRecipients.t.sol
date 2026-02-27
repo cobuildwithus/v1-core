@@ -349,6 +349,71 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(flow.distributionPool().getUnits(childAddr), 0);
     }
 
+    function test_addFlowRecipientWithParams_overridesChildManagerRewardRate() public {
+        bytes32 rid = bytes32(uint256(12));
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
+
+        vm.prank(manager);
+        (, address childAddr) = flow.addFlowRecipientWithParams(
+            rid,
+            recipientMetadata,
+            manager,
+            manager,
+            manager,
+            managerRewardPool,
+            0,
+            strategies
+        );
+
+        assertEq(CustomFlow(childAddr).managerRewardPoolFlowRatePpm(), 0);
+    }
+
+    function test_addFlowRecipientWithParams_appliesExplicitNonZeroManagerRewardRate() public {
+        bytes32 rid = bytes32(uint256(1201));
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        uint32 explicitRatePpm = 250_000;
+        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
+
+        vm.prank(manager);
+        (, address childAddr) = flow.addFlowRecipientWithParams(
+            rid,
+            recipientMetadata,
+            manager,
+            manager,
+            manager,
+            managerRewardPool,
+            explicitRatePpm,
+            strategies
+        );
+
+        assertEq(CustomFlow(childAddr).managerRewardPoolFlowRatePpm(), explicitRatePpm);
+        assertTrue(CustomFlow(childAddr).managerRewardPoolFlowRatePpm() != flow.managerRewardPoolFlowRatePpm());
+    }
+
+    function test_addFlowRecipientWithParams_revertsWhenRateExceedsScale() public {
+        bytes32 rid = bytes32(uint256(1202));
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        vm.prank(manager);
+        vm.expectRevert(IFlow.INVALID_RATE_PPM.selector);
+        flow.addFlowRecipientWithParams(
+            rid,
+            recipientMetadata,
+            manager,
+            manager,
+            manager,
+            managerRewardPool,
+            1_000_001,
+            strategies
+        );
+    }
+
     function test_addFlowRecipient_emitsRecipientCreatedBeforeFlowRecipientCreated() public {
         bytes32 rid = bytes32(uint256(211));
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
