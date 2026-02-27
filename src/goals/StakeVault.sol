@@ -393,6 +393,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             address treasuryAuthority = _goalTreasuryAuthority();
             if (msg.sender != treasuryAuthority) revert UNAUTHORIZED();
         }
+        if (slasher.code.length == 0) revert INVALID_JUROR_SLASHER();
 
         jurorSlasher = slasher;
         emit JurorSlasherSet(slasher);

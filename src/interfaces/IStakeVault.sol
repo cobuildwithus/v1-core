@@ -24,6 +24,7 @@ interface IStakeVault {
     error EXIT_NOT_READY();
     error JUROR_WITHDRAWAL_LOCKED();
     error ONLY_JUROR_SLASHER();
+    error INVALID_JUROR_SLASHER();
     error JUROR_SLASHER_ALREADY_SET();
     error UNAUTHORIZED();
     error INVALID_TREASURY_AUTHORITY_SURFACE(address treasury);

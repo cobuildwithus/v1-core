@@ -1218,7 +1218,7 @@ contract StakeVaultTest is Test {
         vault.optInAsJuror(80e18, 80e18, address(0));
         vm.stopPrank();
 
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         vm.roll(block.number + 1);
         uint256 snapshotWeight = vault.getPastJurorWeight(alice, block.number - 1);
@@ -1235,7 +1235,6 @@ contract StakeVaultTest is Test {
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         vault.slashJurorStake(alice, snapshotWeight / 2, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 40e18);
@@ -1267,12 +1266,11 @@ contract StakeVaultTest is Test {
 
         assertEq(vault.weightOf(alice), 0);
 
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         vault.slashJurorStake(alice, 60e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector), collectorGoalBefore);
@@ -1324,7 +1322,7 @@ contract StakeVaultTest is Test {
         vault.optInAsJuror(100e18, 100e18, address(0));
         vm.stopPrank();
 
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.ONLY_JUROR_SLASHER.selector);
@@ -1333,7 +1331,6 @@ contract StakeVaultTest is Test {
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         vault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
@@ -1369,12 +1366,11 @@ contract StakeVaultTest is Test {
         assertEq(vault.weightOf(bob), 40e18);
         assertEq(vault.totalWeight(), 130e18);
 
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         vault.slashJurorStake(alice, type(uint256).max, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 100e18);
@@ -1417,9 +1413,8 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(address(treasuryWithFlow));
-        syncingVault.setJurorSlasher(bob);
+        syncingVault.setJurorSlasher(address(this));
 
-        vm.prank(bob);
         syncingVault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(recordingFlow.syncCallCount(), 1);
@@ -1452,12 +1447,11 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(address(treasuryWithFlow));
-        syncingVault.setJurorSlasher(bob);
+        syncingVault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         syncingVault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
@@ -1491,7 +1485,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(address(treasuryWithFlow));
-        syncingVault.setJurorSlasher(bob);
+        syncingVault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
@@ -1499,7 +1493,6 @@ contract StakeVaultTest is Test {
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(revertingFlow), SYNC_ALLOCATION_SELECTOR, expectedReason);
-        vm.prank(bob);
         syncingVault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
@@ -1532,7 +1525,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(address(treasuryWithRevertingLookup));
-        syncingVault.setJurorSlasher(bob);
+        syncingVault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
@@ -1540,7 +1533,6 @@ contract StakeVaultTest is Test {
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(treasuryWithRevertingLookup), FLOW_LOOKUP_SELECTOR, expectedReason);
-        vm.prank(bob);
         syncingVault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
@@ -1575,7 +1567,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(address(legacyForwarder));
-        syncingVault.setJurorSlasher(bob);
+        syncingVault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
@@ -1583,7 +1575,6 @@ contract StakeVaultTest is Test {
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(legacyForwarder), FLOW_LOOKUP_SELECTOR, expectedReason);
-        vm.prank(bob);
         syncingVault.slashJurorStake(alice, 15e18, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
@@ -1635,7 +1626,7 @@ contract StakeVaultTest is Test {
     }
 
     function test_setJurorSlasher_revertsWhenAlreadySet() public {
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         vm.expectRevert(IStakeVault.JUROR_SLASHER_ALREADY_SET.selector);
         vault.setJurorSlasher(alice);
@@ -1656,8 +1647,13 @@ contract StakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        ownedVault.setJurorSlasher(alice);
-        assertEq(ownedVault.jurorSlasher(), alice);
+        ownedVault.setJurorSlasher(address(this));
+        assertEq(ownedVault.jurorSlasher(), address(this));
+    }
+
+    function test_setJurorSlasher_revertsWhenSlasherHasNoCode() public {
+        vm.expectRevert(IStakeVault.INVALID_JUROR_SLASHER.selector);
+        vault.setJurorSlasher(alice);
     }
 
     function test_setJurorSlasher_revertsWhenTreasuryReportsZeroAuthority() public {
@@ -1711,12 +1707,11 @@ contract StakeVaultTest is Test {
         vault.optInAsJuror(1, 1e18, address(0));
         vm.stopPrank();
 
-        vault.setJurorSlasher(bob);
+        vault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
 
-        vm.prank(bob);
         vault.slashJurorStake(alice, 1e15, rentCollector);
 
         assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 0);

@@ -494,12 +494,11 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
 
         assertEq(budgetStakeLedger.userAllocatedStakeOnBudget(alice, address(budget)), weightBeforeSlash);
 
-        _setJurorSlasher(collector);
+        _setJurorSlasher(address(this));
         uint256 key = uint256(uint160(alice));
         uint256 expectedWeightAfterSlash = weightBeforeSlash - 40e18;
         strategy.setWeight(key, expectedWeightAfterSlash);
 
-        vm.prank(collector);
         vault.slashJurorStake(alice, 40e18, collector);
 
         uint256 weightAfterSlash = vault.weightOf(alice);
@@ -518,11 +517,10 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
 
         assertEq(budgetStakeLedger.userAllocatedStakeOnBudget(alice, address(budget)), weightBeforeSlash);
 
-        _setJurorSlasher(collector);
+        _setJurorSlasher(address(this));
         uint256 key = uint256(uint160(alice));
         strategy.setWeight(key, 0);
 
-        vm.prank(collector);
         vault.slashJurorStake(alice, 100e18, collector);
 
         uint256 weightAfterSlash = vault.weightOf(alice);
