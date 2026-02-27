@@ -97,6 +97,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error ALREADY_DEPLOYED();
     error BUDGET_FLOW_MISMATCH();
     error NOT_ACTIVE();
+    error REMOVAL_FINALIZATION_PENDING();
 
     // ---------------------------
     // Events
@@ -274,6 +275,11 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         return true;
     }
 
+    function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
+        if (removalQueued[itemID]) revert REMOVAL_FINALIZATION_PENDING();
+        if (_roundDeployment[itemID].prizeVault != address(0)) revert ALREADY_DEPLOYED();
+    }
+
     function _onItemRegistered(bytes32 itemID, bytes memory) internal override {
         activationQueued[itemID] = true;
         removalQueued[itemID] = false;
@@ -294,7 +300,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Internal
     // ---------------------------
 
-    function _decodeListing(bytes calldata itemData) internal pure returns (RoundMechanismListing memory listing) {
+    function _decodeListing(bytes memory itemData) internal pure returns (RoundMechanismListing memory listing) {
         listing = abi.decode(itemData, (RoundMechanismListing));
     }
 
