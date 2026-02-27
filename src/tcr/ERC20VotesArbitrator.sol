@@ -407,7 +407,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         newDispute.rounds[0].extraData = _extraData;
         uint256 creationBlock = block.number - 1;
         newDispute.rounds[0].creationBlock = creationBlock;
-        newDispute.rounds[0].totalSupply = _totalVotingPowerAt(creationBlock);
         newDispute.rounds[0].cost = arbitrationCost_;
 
         emit DisputeCreated(
@@ -416,7 +415,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             newDispute.rounds[0].votingStartTime,
             newDispute.rounds[0].votingEndTime,
             newDispute.rounds[0].revealPeriodEndTime,
-            newDispute.rounds[0].totalSupply,
             newDispute.rounds[0].creationBlock,
             newDispute.rounds[0].cost,
             _extraData,
@@ -468,7 +466,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         info.revealPeriodStartTime = votingRound.revealPeriodStartTime;
         info.revealPeriodEndTime = votingRound.revealPeriodEndTime;
         info.creationBlock = votingRound.creationBlock;
-        info.totalSupply = votingRound.totalSupply;
         info.cost = votingRound.cost;
         info.totalVotes = votingRound.votes;
         info.requesterVotes = votingRound.choiceVotes[uint256(IArbitrable.Party.Requester)];
@@ -1121,16 +1118,9 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
             uint256 cappedJurorVotes = Math.min(jurorVotes, allocationWeight);
             uint256 proportionalVotes = Math.mulDiv(cappedJurorVotes, budgetVotes, allocationWeight);
-            return Math.min(Math.min(proportionalVotes, jurorVotes), budgetVotes);
+            return proportionalVotes;
         }
         return _votingToken.getPastVotes(voter, blockNumber);
-    }
-
-    function _totalVotingPowerAt(uint256 blockNumber) internal view returns (uint256 totalVotes) {
-        if (address(_stakeVault) != address(0)) {
-            return _stakeVault.getPastTotalJurorWeight(blockNumber);
-        }
-        return _votingToken.getPastTotalSupply(blockNumber);
     }
 
     function _slashJurorStake(address juror, uint256 weightAmount, address recipient) internal {

@@ -12,7 +12,6 @@ interface IERC20VotesArbitrator is IArbitrator {
         uint256 revealPeriodStartTime;
         uint256 revealPeriodEndTime;
         uint256 creationBlock;
-        uint256 totalSupply;
         uint256 cost;
         uint256 totalVotes;
         uint256 requesterVotes;
@@ -214,7 +213,6 @@ interface IERC20VotesArbitrator is IArbitrator {
      * @param votingStartTime The timestamp when voting starts
      * @param votingEndTime The timestamp when voting ends
      * @param revealPeriodEndTime The timestamp when the reveal period ends
-     * @param totalSupply The total supply of voting tokens at dispute creation
      * @param creationBlock The block number when the dispute was created
      * @param arbitrationCost The cost paid by the arbitrable contract for this voting round.
      * @param extraData Additional data related to the dispute
@@ -226,7 +224,6 @@ interface IERC20VotesArbitrator is IArbitrator {
         uint256 votingStartTime,
         uint256 votingEndTime,
         uint256 revealPeriodEndTime,
-        uint256 totalSupply,
         uint256 creationBlock,
         uint256 arbitrationCost,
         bytes extraData,

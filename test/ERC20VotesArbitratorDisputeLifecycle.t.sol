@@ -6,8 +6,20 @@ import {ERC20VotesArbitratorTestBase, ArbitratorHarness} from "test/ERC20VotesAr
 import {IArbitrable} from "src/tcr/interfaces/IArbitrable.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IERC20VotesArbitrator} from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {ArbitratorStorageV1} from "src/tcr/storage/ArbitratorStorageV1.sol";
 import {ArbitrationCostExtraData} from "src/tcr/utils/ArbitrationCostExtraData.sol";
+import {MockArbitrable} from "test/mocks/MockArbitrable.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract MockVotesTokenRevertingPastTotalSupply is MockVotesToken {
+    constructor() MockVotesToken("MockVotesNoSupplySnapshots", "MVNS") {}
+
+    function getPastTotalSupply(uint256) public pure override returns (uint256) {
+        revert("PAST_TOTAL_SUPPLY_DISABLED");
+    }
+}
 
 contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBase {
     function test_createDispute_onlyArbitrable_reverts() public {
@@ -123,6 +135,40 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         assertEq(arbBalBefore - token.balanceOf(address(arbitrable)), snapshotCost);
     }
 
+    function test_createDispute_doesNotDepend_onPastTotalSupplySnapshots() public {
+        MockVotesTokenRevertingPastTotalSupply tokenWithNoSupplySnapshots = new MockVotesTokenRevertingPastTotalSupply();
+        MockArbitrable arbitrable2 = new MockArbitrable(IERC20(address(tokenWithNoSupplySnapshots)));
+
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        bytes memory initData = abi.encodeCall(
+            ERC20VotesArbitrator.initialize,
+            (
+                owner,
+                address(tokenWithNoSupplySnapshots),
+                address(arbitrable2),
+                votingPeriod,
+                votingDelay,
+                revealPeriod,
+                arbitrationCost
+            )
+        );
+        ERC20VotesArbitrator arb2 = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
+
+        arbitrable2.setArbitrator(arb2);
+        tokenWithNoSupplySnapshots.mint(address(arbitrable2), 1_000_000e18);
+        arbitrable2.approveArbitrator(arbitrationCost * 10);
+
+        vm.expectRevert();
+        tokenWithNoSupplySnapshots.getPastTotalSupply(block.number - 1);
+
+        uint256 disputeId = arbitrable2.createDispute(2, "");
+        assertEq(disputeId, 1);
+
+        IERC20VotesArbitrator.VotingRoundInfo memory info = arb2.getVotingRoundInfo(disputeId, 0);
+        assertEq(info.cost, arbitrationCost);
+        assertEq(info.totalVotes, 0);
+    }
+
     function test_arbitrationCost_uses_extraData_snapshot() public {
         uint256 snapshotCost = arbitrationCost / 3;
         bytes memory extraData = ArbitrationCostExtraData.encode(snapshotCost, hex"1234");
@@ -153,6 +199,33 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         assertEq(votingEnd, expectedEnd);
         assertEq(revealStart, expectedEnd);
         assertEq(revealEnd, expectedEnd + revealPeriod);
+    }
+
+    function test_getVotingRoundInfo_reportsRoundVoteTallies_afterReveals() public {
+        (uint256 disputeId, uint256 start, uint256 end, uint256 revealEnd, uint256 creationBlock) = _createDispute("");
+        _warpRoll(start + 1);
+
+        bytes32 voter1Salt = bytes32("voter1-round-info");
+        bytes32 voter2Salt = bytes32("voter2-round-info");
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", voter1Salt));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 2, "", voter2Salt));
+
+        _warpRoll(end + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", voter1Salt);
+        vm.prank(voter2);
+        arb.revealVote(disputeId, voter2, 2, "", voter2Salt);
+
+        _warpRoll(revealEnd + 1);
+        IERC20VotesArbitrator.VotingRoundInfo memory info = arb.getVotingRoundInfo(disputeId, 0);
+
+        assertEq(info.creationBlock, creationBlock);
+        assertEq(info.cost, arbitrationCost);
+        assertEq(info.totalVotes, 300e18);
+        assertEq(info.requesterVotes, 100e18);
+        assertEq(info.challengerVotes, 200e18);
     }
 
     function test_roundStateTransitions_and_disputeStatus_mapping() public {

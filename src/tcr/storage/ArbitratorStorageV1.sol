@@ -209,10 +209,6 @@ contract ArbitratorStorageV1 {
          */
         uint256 creationBlock;
         /**
-         * @notice Total supply of voting tokens at dispute creation
-         */
-        uint256 totalSupply;
-        /**
          * @notice Mapping of voter addresses to their voting receipts
          */
         mapping(address => Receipt) receipts;
