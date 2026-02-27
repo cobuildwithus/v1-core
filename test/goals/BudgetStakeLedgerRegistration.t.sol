@@ -195,6 +195,46 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         budget.setResolvedAt(1);
         assertTrue(ledger.allTrackedBudgetsResolved());
     }
+
+    function test_removeBudget_activationLockedBudgetStaysTrackedUntilResolved() public {
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+
+        budget.setDeadline(1);
+        budget.setState(IBudgetTreasury.BudgetState.Active);
+
+        vm.prank(manager);
+        bool lockRewardHistory = ledger.removeBudget(RECIPIENT_A);
+
+        assertTrue(lockRewardHistory);
+        assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertFalse(ledger.allTrackedBudgetsResolved());
+
+        budget.setResolvedAt(2);
+        budget.setState(IBudgetTreasury.BudgetState.Succeeded);
+        assertTrue(ledger.allTrackedBudgetsResolved());
+    }
+
+    function test_removeBudget_activationLockedBudgetFailedResolutionStillCountsAsResolved() public {
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+
+        budget.setDeadline(1);
+        budget.setState(IBudgetTreasury.BudgetState.Active);
+
+        vm.prank(manager);
+        bool lockRewardHistory = ledger.removeBudget(RECIPIENT_A);
+
+        assertTrue(lockRewardHistory);
+        assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertFalse(ledger.allTrackedBudgetsResolved());
+
+        budget.setResolvedAt(2);
+        budget.setState(IBudgetTreasury.BudgetState.Failed);
+        assertTrue(ledger.allTrackedBudgetsResolved());
+    }
 }
 
 contract MockGoalTreasury {
@@ -236,6 +276,9 @@ contract MockBudgetTreasury {
     uint64 public resolvedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
+    uint64 public deadline;
+    uint256 public activationThreshold = 1;
+    uint256 public treasuryBalance;
     IBudgetTreasury.BudgetState public state;
 
     constructor(address flow_) {
@@ -257,5 +300,17 @@ contract MockBudgetTreasury {
 
     function setFundingDeadline(uint64 fundingDeadline_) external {
         fundingDeadline = fundingDeadline_;
+    }
+
+    function setDeadline(uint64 deadline_) external {
+        deadline = deadline_;
+    }
+
+    function setActivationThreshold(uint256 activationThreshold_) external {
+        activationThreshold = activationThreshold_;
+    }
+
+    function setTreasuryBalance(uint256 treasuryBalance_) external {
+        treasuryBalance = treasuryBalance_;
     }
 }

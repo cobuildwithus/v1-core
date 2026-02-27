@@ -575,6 +575,54 @@ contract RewardEscrowTest is Test {
         assertGt(claimAmount, 0);
     }
 
+    function test_finalize_success_removedActivationLockedBudgetResolvedFailed_capsPointsAtRemoval_andExcludesRewards() public {
+        bytes32[] memory ids = _ids1(RECIPIENT_A);
+        uint32[] memory scaled = _scaled1(1_000_000);
+
+        vm.warp(100);
+        _checkpointInitial(alice, 100, ids, scaled);
+
+        vm.warp(200);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        uint256 pointsAtRemoval = escrow.budgetPoints(address(budgetA));
+        assertGt(pointsAtRemoval, 0);
+
+        budgetA.setDeadline(1);
+        budgetA.setState(IBudgetTreasury.BudgetState.Active);
+        budgetA.setResolvedAt(0);
+
+        budgetB.setResolvedAt(210);
+        budgetC.setResolvedAt(210);
+        assertFalse(escrow.allTrackedBudgetsResolved());
+
+        bool lockRewardHistory = ledger.removeBudget(RECIPIENT_A);
+        assertTrue(lockRewardHistory);
+        assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
+        assertFalse(escrow.allTrackedBudgetsResolved());
+
+        budgetA.setState(IBudgetTreasury.BudgetState.Failed);
+        budgetA.setResolvedAt(260);
+        assertTrue(escrow.allTrackedBudgetsResolved());
+
+        vm.warp(300);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        assertEq(escrow.budgetPoints(address(budgetA)), pointsAtRemoval);
+
+        rewardToken.mint(address(escrow), 100e18);
+
+        vm.warp(400);
+        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
+
+        assertEq(escrow.budgetPoints(address(budgetA)), pointsAtRemoval);
+        assertEq(escrow.userPointsOnBudget(alice, address(budgetA)), pointsAtRemoval);
+        assertFalse(escrow.budgetSucceededAtFinalize(address(budgetA)));
+        assertEq(escrow.totalPointsSnapshot(), 0);
+
+        vm.prank(alice);
+        (uint256 claimAmount, ) = escrow.claim(alice);
+        assertEq(claimAmount, 0);
+    }
+
     function test_finalize_success_usersWithoutSuccessfulBudgetPointsClaimZero() public {
         bytes32[] memory ids = _ids3(RECIPIENT_A, RECIPIENT_B, RECIPIENT_C);
 

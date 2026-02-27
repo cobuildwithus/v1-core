@@ -71,6 +71,12 @@ Apply a hard cutover so accepted budget removals preserve reward-history eligibi
   - flattened a pure readiness predicate in `BudgetStakeLedger` (`_isBudgetReadyForSuccessFinalization`) to a single boolean expression;
   - removed duplicate emit/early-return branching in `BudgetTCR.retryRemovedBudgetResolution` while preserving branch semantics;
   - extracted duplicated mock lock-derivation control flow in `MockBudgetStakeLedgerForBudgetTCR` into a private helper.
+- 2026-02-27 (`test-coverage-audit`):
+  - added `test_removeBudget_activationLockedBudgetFailedResolutionStillCountsAsResolved` in `test/goals/BudgetStakeLedgerRegistration.t.sol` to assert post-lock removals unblock readiness when later resolved `Failed`;
+  - added `test_finalize_success_removedActivationLockedBudget_failedResolutionUnblocksAndExcludesSuccess` in `test/goals/BudgetStakeLedgerPagination.t.sol` to ensure finalize pagination resumes after locked removal resolves `Failed` and excludes success attribution;
+  - added `test_finalize_success_removedActivationLockedBudgetResolvedFailed_capsPointsAtRemoval_andExcludesRewards` in `test/goals/RewardEscrow.t.sol` to verify reward-history lock does not grant rewards when final budget state is `Failed`;
+  - added `test_retryRemovedBudgetResolution_revertsWhenForceZeroingFails_forActivationLockedRemoval` in `test/BudgetTCR.t.sol` to enforce fail-closed retry semantics when forward spend-stop cannot be re-applied;
+  - ran: `forge test --match-path test/goals/BudgetStakeLedgerRegistration.t.sol`, `forge test --match-path test/goals/BudgetStakeLedgerPagination.t.sol`, `forge test --match-path test/goals/RewardEscrow.t.sol`, `forge test --match-path test/BudgetTCR.t.sol` (all passed).
 
 ## Open Risks
 

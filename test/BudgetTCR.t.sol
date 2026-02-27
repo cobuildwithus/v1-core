@@ -974,6 +974,38 @@ contract BudgetTCRTest is TestUtils {
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_retryRemovedBudgetResolution_revertsWhenForceZeroingFails_forActivationLockedRemoval() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertFalse(terminallyResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
+
+        bytes memory revertReason = abi.encodeWithSignature("Error(string)", "FORCE_ZERO_RETRY_FAILED");
+        vm.mockCallRevert(
+            budgetTreasury,
+            abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector),
+            revertReason
+        );
+
+        vm.expectRevert(revertReason);
+        vm.prank(makeAddr("keeper"));
+        budgetTcr.retryRemovedBudgetResolution(itemID);
+    }
+
     function test_retryRemovedBudgetResolution_permissionlessReturnsTrue_whenAlreadyResolvedByFinalize() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);

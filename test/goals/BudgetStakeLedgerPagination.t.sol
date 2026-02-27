@@ -185,6 +185,90 @@ contract BudgetStakeLedgerPaginationTest is Test {
         assertEq(ledger.budgetResolvedAtFinalize(address(swappedBudget)), resolvedAt);
     }
 
+    function test_finalize_success_removedActivationLockedBudget_stallsUntilResolution() public {
+        uint64 finalizeTs = uint64(block.timestamp);
+        _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
+
+        uint256 removedIndex = 5;
+        PaginationMockBudgetTreasury removedBudget = budgets[removedIndex];
+        removedBudget.setDeadline(1);
+        removedBudget.setState(IBudgetTreasury.BudgetState.Active);
+        removedBudget.setResolvedAt(0);
+
+        ledger.removeBudget(recipientIds[removedIndex]);
+        assertEq(ledger.trackedBudgetCount(), BUDGET_COUNT);
+        assertEq(ledger.budgetForRecipient(recipientIds[removedIndex]), address(0));
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(GOAL_SUCCEEDED, finalizeTs);
+
+        assertTrue(ledger.finalizationInProgress());
+        assertEq(ledger.finalizeCursor(), removedIndex);
+        (bool done, uint256 processed) = ledger.finalizeStep(6);
+        assertFalse(done);
+        assertEq(processed, 0);
+        assertEq(ledger.finalizeCursor(), removedIndex);
+
+        removedBudget.setState(IBudgetTreasury.BudgetState.Succeeded);
+        removedBudget.setResolvedAt(finalizeTs + 1);
+
+        uint256 guard;
+        while (ledger.finalizationInProgress()) {
+            ledger.finalizeStep(6);
+            unchecked {
+                ++guard;
+            }
+            assertLe(guard, 20);
+        }
+
+        assertTrue(ledger.finalized());
+        assertEq(ledger.finalizeCursor(), BUDGET_COUNT);
+        assertTrue(ledger.budgetSucceededAtFinalize(address(removedBudget)));
+    }
+
+    function test_finalize_success_removedActivationLockedBudget_failedResolutionUnblocksAndExcludesSuccess() public {
+        uint64 finalizeTs = uint64(block.timestamp);
+        _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
+
+        uint256 removedIndex = 5;
+        PaginationMockBudgetTreasury removedBudget = budgets[removedIndex];
+        removedBudget.setDeadline(1);
+        removedBudget.setState(IBudgetTreasury.BudgetState.Active);
+        removedBudget.setResolvedAt(0);
+
+        ledger.removeBudget(recipientIds[removedIndex]);
+        assertEq(ledger.trackedBudgetCount(), BUDGET_COUNT);
+        assertEq(ledger.budgetForRecipient(recipientIds[removedIndex]), address(0));
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(GOAL_SUCCEEDED, finalizeTs);
+
+        assertTrue(ledger.finalizationInProgress());
+        assertEq(ledger.finalizeCursor(), removedIndex);
+        (bool done, uint256 processed) = ledger.finalizeStep(6);
+        assertFalse(done);
+        assertEq(processed, 0);
+        assertEq(ledger.finalizeCursor(), removedIndex);
+
+        uint64 resolvedAt = finalizeTs + 1;
+        removedBudget.setState(IBudgetTreasury.BudgetState.Failed);
+        removedBudget.setResolvedAt(resolvedAt);
+
+        uint256 guard;
+        while (ledger.finalizationInProgress()) {
+            ledger.finalizeStep(6);
+            unchecked {
+                ++guard;
+            }
+            assertLe(guard, 20);
+        }
+
+        assertTrue(ledger.finalized());
+        assertEq(ledger.finalizeCursor(), BUDGET_COUNT);
+        assertFalse(ledger.budgetSucceededAtFinalize(address(removedBudget)));
+        assertEq(ledger.budgetResolvedAtFinalize(address(removedBudget)), resolvedAt);
+    }
+
     function test_finalize_revertsWhenCalledAgainWhileInProgress() public {
         uint64 finalizeTs = uint64(block.timestamp);
         _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
@@ -342,6 +426,9 @@ contract PaginationMockBudgetTreasury {
     uint64 public resolvedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
+    uint64 public deadline;
+    uint256 public activationThreshold = 1;
+    uint256 public treasuryBalance;
 
     constructor(address flow_) {
         flow = flow_;
@@ -354,5 +441,17 @@ contract PaginationMockBudgetTreasury {
 
     function setResolvedAt(uint64 resolvedAt_) external {
         resolvedAt = resolvedAt_;
+    }
+
+    function setDeadline(uint64 deadline_) external {
+        deadline = deadline_;
+    }
+
+    function setActivationThreshold(uint256 activationThreshold_) external {
+        activationThreshold = activationThreshold_;
+    }
+
+    function setTreasuryBalance(uint256 treasuryBalance_) external {
+        treasuryBalance = treasuryBalance_;
     }
 }
