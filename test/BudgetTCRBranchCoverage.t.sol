@@ -4,10 +4,11 @@ pragma solidity ^0.8.34;
 import { stdStorage, StdStorage } from "forge-std/Test.sol";
 
 import { BudgetTCRTest } from "test/BudgetTCR.t.sol";
-import { MockGoalTreasuryForBudgetTCR, MockRewardEscrowForBudgetTCR, MockBudgetChildFlow } from
+import { MockGoalTreasuryForBudgetTCR, MockRewardEscrowForBudgetTCR } from
     "test/mocks/MockBudgetTCRSystem.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
+import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -15,6 +16,8 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 
 contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
     using stdStorage for StdStorage;
+    bytes4 internal constant INVALID_FIXED_BUDGET_CONTEXT_SELECTOR =
+        bytes4(keccak256("INVALID_FIXED_BUDGET_CONTEXT()"));
 
     function test_initialize_reverts_when_budget_success_resolver_is_zero() public {
         (
@@ -68,6 +71,30 @@ contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
         budgetTcr.activateRegisteredBudget(itemID);
     }
 
+    function test_activateRegisteredBudget_reverts_when_goalTreasuryStakeVault_missing() public {
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+
+        goalTreasury.setStakeVault(address(0));
+
+        vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_ADDRESS.selector);
+        budgetTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_goalTreasuryFlow_mismatches_budgetFlowParent() public {
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+
+        goalTreasury.setFlow(address(goalTreasury));
+
+        vm.expectRevert(INVALID_FIXED_BUDGET_CONTEXT_SELECTOR);
+        budgetTcr.activateRegisteredBudget(itemID);
+    }
+
     function test_branch_addItem_reverts_when_removal_finalization_pending() public {
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
         _approveAddCost(requester);
@@ -116,8 +143,7 @@ contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
 
     function test_finalizeRemovedBudget_force_zeroing_can_resolve_after_funding_deadline() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _warpRoll(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
 
@@ -130,8 +156,7 @@ contract BudgetTCRBranchCoverageTest is BudgetTCRTest {
 
     function test_retryRemovedBudgetResolution_returns_true_when_treasury_already_resolved() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _warpRoll(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
         _queueRemovalRequest(itemID);

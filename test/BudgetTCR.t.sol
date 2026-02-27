@@ -9,7 +9,8 @@ import {
     MockGoalTreasuryForBudgetTCR,
     MockBudgetChildFlow,
     MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR
+    MockBudgetStakeLedgerForBudgetTCR,
+    MockStakeVaultForBudgetTCR
 } from "test/mocks/MockBudgetTCRSystem.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
@@ -22,10 +23,10 @@ import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
@@ -40,6 +41,8 @@ import { Vm } from "forge-std/Vm.sol";
 contract BudgetTCRTest is TestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
         keccak256("BudgetStackDeployed(bytes32,address,address,address)");
+    bytes32 internal constant BUDGET_ALLOCATION_MECHANISM_DEPLOYED_SIG =
+        keccak256("BudgetAllocationMechanismDeployed(bytes32,address,address,address)");
     bytes32 internal constant BUDGET_STACK_ACTIVATION_QUEUED_SIG = keccak256("BudgetStackActivationQueued(bytes32)");
     bytes32 internal constant BUDGET_STACK_REMOVAL_QUEUED_SIG = keccak256("BudgetStackRemovalQueued(bytes32)");
     bytes32 internal constant BUDGET_STACK_REMOVAL_HANDLED_SIG =
@@ -106,6 +109,8 @@ contract BudgetTCRTest is TestUtils {
         goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
         budgetStakeLedger = new MockBudgetStakeLedgerForBudgetTCR();
         goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
+        goalTreasury.setFlow(address(goalFlow));
+        goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -377,7 +382,9 @@ contract BudgetTCRTest is TestUtils {
         assertFalse(removed);
         assertTrue(childFlow != address(0));
 
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        assertTrue(allocationMechanism != address(0));
         assertTrue(budgetTreasury != address(0));
         assertEq(MockBudgetChildFlow(childFlow).flowOperator(), budgetTreasury);
         assertEq(MockBudgetChildFlow(childFlow).sweeper(), budgetTreasury);
@@ -460,8 +467,7 @@ contract BudgetTCRTest is TestUtils {
 
         freshTcr.activateRegisteredBudget(itemID);
 
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         assertEq(IBudgetTreasury(budgetTreasury).successAssertionLiveness(), expectedLiveness);
         assertEq(IBudgetTreasury(budgetTreasury).successAssertionBond(), expectedBond);
@@ -549,6 +555,63 @@ contract BudgetTCRTest is TestUtils {
         assertEq(address(strategiesA[0]), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
     }
 
+    function test_activateRegisteredBudget_deploysDistinctMechanismAndArbitratorPerBudget() public {
+        _approveAddCost(requester);
+        bytes32 itemA = _submitListing(requester, _defaultListing());
+
+        IBudgetTCR.BudgetListing memory listingB = _defaultListing();
+        listingB.metadata.title = "Budget B";
+        listingB.metadata.url = "https://example.com/budget-b";
+
+        _approveAddCost(requester);
+        bytes32 itemB = _submitListing(requester, listingB);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemA);
+        budgetTcr.executeRequest(itemB);
+
+        vm.recordLogs();
+        budgetTcr.activateRegisteredBudget(itemA);
+        Vm.Log[] memory logsA = vm.getRecordedLogs();
+
+        vm.recordLogs();
+        budgetTcr.activateRegisteredBudget(itemB);
+        Vm.Log[] memory logsB = vm.getRecordedLogs();
+
+        (address childFlowA,) = goalFlow.recipients(itemA);
+        (address childFlowB,) = goalFlow.recipients(itemB);
+        address budgetTreasuryA = budgetStakeLedger.budgetForRecipient(itemA);
+        address budgetTreasuryB = budgetStakeLedger.budgetForRecipient(itemB);
+        address roundFactory = BudgetTCRDeployer(stackDeployer).roundFactory();
+
+        (bool foundA, address mechanismA, address mechanismArbitratorA, address roundFactoryA) =
+            _getBudgetAllocationMechanismDeployed(logsA, itemA);
+        (bool foundB, address mechanismB, address mechanismArbitratorB, address roundFactoryB) =
+            _getBudgetAllocationMechanismDeployed(logsB, itemB);
+
+        assertTrue(foundA);
+        assertTrue(foundB);
+        assertEq(mechanismA, MockBudgetChildFlow(childFlowA).recipientAdmin());
+        assertEq(mechanismB, MockBudgetChildFlow(childFlowB).recipientAdmin());
+        assertEq(roundFactoryA, roundFactory);
+        assertEq(roundFactoryB, roundFactory);
+        assertTrue(mechanismA != mechanismB);
+        assertTrue(mechanismArbitratorA != mechanismArbitratorB);
+
+        assertEq(ERC20VotesArbitrator(mechanismArbitratorA).fixedBudgetTreasury(), budgetTreasuryA);
+        assertEq(ERC20VotesArbitrator(mechanismArbitratorB).fixedBudgetTreasury(), budgetTreasuryB);
+        assertEq(ERC20VotesArbitrator(mechanismArbitratorA).stakeVault(), goalTreasury.stakeVault());
+        assertEq(ERC20VotesArbitrator(mechanismArbitratorB).stakeVault(), goalTreasury.stakeVault());
+        assertEq(
+            ERC20VotesArbitrator(mechanismArbitratorA).invalidRoundRewardsSink(),
+            IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink()
+        );
+        assertEq(
+            ERC20VotesArbitrator(mechanismArbitratorB).invalidRoundRewardsSink(),
+            IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink()
+        );
+    }
+
     function test_activateRegisteredBudget_registersRecipientIdsPerChildFlowOnSharedStrategy() public {
         _approveAddCost(requester);
         bytes32 itemA = _submitListing(requester, _defaultListing());
@@ -618,8 +681,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_executeRequest_removal_queues_then_finalizeRemovedBudget_handles_parent_removal() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         assertFalse(IBudgetTreasury(budgetTreasury).resolved());
 
@@ -659,7 +721,7 @@ contract BudgetTCRTest is TestUtils {
     function test_finalizeRemovedBudget_emitsBudgetStackRemovalHandled() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -682,7 +744,7 @@ contract BudgetTCRTest is TestUtils {
 
         (address childFlowA,) = goalFlow.recipients(itemA);
         (address childFlowB,) = goalFlow.recipients(itemB);
-        address budgetTreasuryB = MockBudgetChildFlow(childFlowB).recipientAdmin();
+        address budgetTreasuryB = budgetStakeLedger.budgetForRecipient(itemB);
 
         _queueRemovalRequest(itemA);
         budgetTcr.executeRequest(itemA);
@@ -718,8 +780,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_finalizeRemovedBudget_returnsTerminallyResolvedTrue_whenBudgetWindowStillOpen() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -733,7 +794,7 @@ contract BudgetTCRTest is TestUtils {
     function test_finalizeRemovedBudget_forceZerosFlowRate_whenBudgetWasActive_preservesRewardHistoryLockBranch() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
         MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
@@ -758,8 +819,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_finalizeRemovedBudget_reverts_whenForceZeroingFails_but_request_resolves() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
 
@@ -786,8 +846,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_finalizeRemovedBudget_revertsWhenDisableFails_andPreservesRemovalState() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -829,8 +888,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_finalizeRemovedBudget_bubblesResolveFailureRevertReason() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -849,8 +907,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_finalizeRemovedBudget_revertsWhenTerminalResolutionUnresolved_andPreservesRemovalState() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -889,7 +946,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_keepsBudgetFailedAfterImmediateTerminalization() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
         // Keep treasury below activation threshold so removal follows pre-activation terminalization branch.
@@ -916,8 +973,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_executeRequest_removal_resolves_failure_after_budget_window() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
         vm.roll(block.number + 1);
@@ -945,7 +1001,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_preservesActivationLockedRemovalBranch() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
@@ -979,7 +1035,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_revertsWhenForceZeroingFails_forActivationLockedRemoval() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
@@ -1011,7 +1067,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_permissionlessReturnsTrue_whenAlreadyResolvedByFinalize() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1030,7 +1086,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_emitsBudgetStackTerminalizationRetried() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1049,7 +1105,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_emitsTerminalizationFailureEvent_whenDisableResolutionReverts() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1080,7 +1136,7 @@ contract BudgetTCRTest is TestUtils {
     function test_retryRemovedBudgetResolution_emitsTerminalizationFailureEvent_whenResolveFailureReverts() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1105,7 +1161,7 @@ contract BudgetTCRTest is TestUtils {
     function test_finalizeRemovedBudget_terminalizesWithoutStakeVaultSideEffects() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
 
         _queueRemovalRequest(itemID);
@@ -1119,7 +1175,7 @@ contract BudgetTCRTest is TestUtils {
     function test_finalizeRemovedBudget_preservesPendingSuccessAssertion_whenRewardHistoryIsLocked() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
@@ -1152,10 +1208,8 @@ contract BudgetTCRTest is TestUtils {
     function test_syncBudgetTreasuries_permissionless_bestEffortAcrossActiveBudgets() public {
         bytes32 itemA = _registerDefaultListing();
         bytes32 itemB = _registerDefaultListing();
-        (address childA,) = goalFlow.recipients(itemA);
-        (address childB,) = goalFlow.recipients(itemB);
-        address treasuryA = MockBudgetChildFlow(childA).recipientAdmin();
-        address treasuryB = MockBudgetChildFlow(childB).recipientAdmin();
+        address treasuryA = budgetStakeLedger.budgetForRecipient(itemA);
+        address treasuryB = budgetStakeLedger.budgetForRecipient(itemB);
 
         vm.mockCallRevert(
             treasuryA,
@@ -1176,8 +1230,6 @@ contract BudgetTCRTest is TestUtils {
 
     function test_syncBudgetTreasuries_skipsUndeployedAndInactive() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1198,7 +1250,7 @@ contract BudgetTCRTest is TestUtils {
     function test_syncBudgetTreasuries_permissionless_activatesFundedBudget_butOutflowFailsClosedWithoutHost() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
         MockBudgetChildFlow(childFlow).setNetFlowRate(500);
@@ -1218,8 +1270,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_syncBudgetTreasuries_permissionless_expiresUnfundedBudgetAfterFundingDeadline() public {
         bytes32 itemID = _registerDefaultListing();
-        (address childFlow,) = goalFlow.recipients(itemID);
-        address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
 
@@ -1240,12 +1291,9 @@ contract BudgetTCRTest is TestUtils {
         bytes32 itemSuccess = _registerDefaultListing();
         bytes32 itemInactive = _registerDefaultListing();
 
-        (address childFail,) = goalFlow.recipients(itemFail);
-        (address childSuccess,) = goalFlow.recipients(itemSuccess);
-        (address childInactive,) = goalFlow.recipients(itemInactive);
-        address treasuryFail = MockBudgetChildFlow(childFail).recipientAdmin();
-        address treasurySuccess = MockBudgetChildFlow(childSuccess).recipientAdmin();
-        address treasuryInactive = MockBudgetChildFlow(childInactive).recipientAdmin();
+        address treasuryFail = budgetStakeLedger.budgetForRecipient(itemFail);
+        address treasurySuccess = budgetStakeLedger.budgetForRecipient(itemSuccess);
+        address treasuryInactive = budgetStakeLedger.budgetForRecipient(itemInactive);
 
         _queueRemovalRequest(itemInactive);
         budgetTcr.executeRequest(itemInactive);
@@ -1467,6 +1515,28 @@ contract BudgetTCRTest is TestUtils {
             if (logs[i].topics[1] != controllerTopic) continue;
 
             return (true, i);
+        }
+    }
+
+    function _getBudgetAllocationMechanismDeployed(
+        Vm.Log[] memory logs,
+        bytes32 itemID
+    )
+        internal
+        view
+        returns (bool found, address allocationMechanism, address mechanismArbitrator, address roundFactory)
+    {
+        address emitter = address(budgetTcr);
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != emitter) continue;
+            if (logs[i].topics.length < 4) continue;
+            if (logs[i].topics[0] != BUDGET_ALLOCATION_MECHANISM_DEPLOYED_SIG) continue;
+            if (logs[i].topics[1] != itemID) continue;
+
+            allocationMechanism = address(uint160(uint256(logs[i].topics[2])));
+            mechanismArbitrator = address(uint160(uint256(logs[i].topics[3])));
+            roundFactory = abi.decode(logs[i].data, (address));
+            return (true, allocationMechanism, mechanismArbitrator, roundFactory);
         }
     }
 
