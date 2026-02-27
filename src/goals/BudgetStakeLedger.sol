@@ -469,8 +469,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             if (!_isBudgetReadyForSuccessFinalization(info, resolvedAt)) break;
 
             BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
-            _refreshActivatedAt(budget, info);
-            uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, budget, info);
+            uint64 activatedAt = _loadAndMaybeCacheActivatedAt(budget, info);
+            uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, info, activatedAt);
 
             _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudgetInfo(info));
 
@@ -514,8 +514,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
         BudgetInfo storage budgetInfoData = _budgetInfo[budget];
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
-        _refreshActivatedAt(budget, budgetInfoData);
-        uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budget, budgetInfoData);
+        uint64 activatedAt = _loadAndMaybeCacheActivatedAt(budget, budgetInfoData);
+        uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budgetInfoData, activatedAt);
         uint64 maturationSeconds = _maturationSecondsForBudgetInfo(budgetInfoData);
 
         uint256 userStoredAllocated = userCheckpoint.allocatedStake;
@@ -796,6 +796,14 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         BudgetInfo storage info
     ) internal view returns (uint64) {
         uint64 activatedAt = _activatedAtForBudgetInfo(budget, info);
+        return _clampCutoffToBudgetInfo(cutoff, info, activatedAt);
+    }
+
+    function _clampCutoffToBudgetInfo(
+        uint64 cutoff,
+        BudgetInfo storage info,
+        uint64 activatedAt
+    ) internal view returns (uint64) {
         if (activatedAt != 0 && activatedAt < cutoff) {
             cutoff = activatedAt;
         }
@@ -818,11 +826,14 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         return IBudgetTreasury(budget).activatedAt();
     }
 
-    function _refreshActivatedAt(address budget, BudgetInfo storage info) internal {
-        if (info.activatedAt != 0) return;
-        uint64 activatedAt = IBudgetTreasury(budget).activatedAt();
-        if (activatedAt == 0) return;
-        info.activatedAt = activatedAt;
+    function _loadAndMaybeCacheActivatedAt(address budget, BudgetInfo storage info) internal returns (uint64 activatedAt) {
+        activatedAt = info.activatedAt;
+        if (activatedAt != 0) return activatedAt;
+
+        activatedAt = IBudgetTreasury(budget).activatedAt();
+        if (activatedAt != 0) {
+            info.activatedAt = activatedAt;
+        }
     }
 
     function _goalFlow() internal view returns (address goalFlow) {
