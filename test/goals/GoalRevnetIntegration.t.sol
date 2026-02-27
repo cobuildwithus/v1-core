@@ -35,11 +35,11 @@ contract GoalRevnetIntegrationTest is GoalRevnetFixtureBase {
     function test_processSplitWith_reservedController_wrapsUnderlyingAndCreditsTreasury() public {
         uint256 amount = 25e18;
         underlyingToken.mint(address(hook), amount);
-        uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
 
         _processAsController(_splitContext(address(underlyingToken), amount, goalRevnetId, 1));
 
-        assertEq(superToken.balanceOf(address(flow)) - flowBalanceBefore, amount);
+        assertEq(underlyingToken.balanceOf(address(hook)), 0);
+        assertEq(underlyingToken.balanceOf(address(treasury)), 0);
         assertEq(treasury.totalRaised(), amount);
     }
 
@@ -79,7 +79,6 @@ contract GoalRevnetIntegrationTest is GoalRevnetFixtureBase {
         uint256 amount = 6e18;
         address newController = address(0xCAFE);
         underlyingToken.mint(address(hook), amount);
-        uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
         IJBDirectory directory = revnets.directory();
 
         vm.prank(address(revnets));
@@ -91,7 +90,8 @@ contract GoalRevnetIntegrationTest is GoalRevnetFixtureBase {
         vm.prank(newController);
         hook.processSplitWith(_splitContext(address(underlyingToken), amount, goalRevnetId, 1));
 
-        assertEq(superToken.balanceOf(address(flow)) - flowBalanceBefore, amount);
+        assertEq(underlyingToken.balanceOf(address(hook)), 0);
+        assertEq(underlyingToken.balanceOf(address(treasury)), 0);
         assertEq(treasury.totalRaised(), amount);
     }
 

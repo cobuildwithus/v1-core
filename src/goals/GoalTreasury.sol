@@ -219,6 +219,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
         emit HookFundingRecorded(amount, totalRaised);
 
+        _autoActivateIfFundingThresholdMet();
+
         return true;
     }
 
