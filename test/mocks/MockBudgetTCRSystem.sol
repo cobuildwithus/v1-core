@@ -242,38 +242,6 @@ contract MockGoalFlowForBudgetTCR {
         address,
         IAllocationStrategy[] calldata strategies
     ) external returns (bytes32 recipientId, address recipientAddress) {
-        return _addFlowRecipient(newRecipientId, childRecipientAdmin, flowOperator, sweeper, _managerRewardPoolFlowRatePpm, strategies);
-    }
-
-    function addFlowRecipientWithParams(
-        bytes32 newRecipientId,
-        FlowTypes.RecipientMetadata memory,
-        address childRecipientAdmin,
-        address flowOperator,
-        address sweeper,
-        address,
-        uint32 childManagerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
-    ) external returns (bytes32 recipientId, address recipientAddress) {
-        return
-            _addFlowRecipient(
-                newRecipientId,
-                childRecipientAdmin,
-                flowOperator,
-                sweeper,
-                childManagerRewardPoolFlowRatePpm,
-                strategies
-            );
-    }
-
-    function _addFlowRecipient(
-        bytes32 newRecipientId,
-        address childRecipientAdmin,
-        address flowOperator,
-        address sweeper,
-        uint32 childManagerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
-    ) internal returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
         address strategy = strategies.length == 0 ? address(0) : address(strategies[0]);
 
@@ -286,7 +254,7 @@ contract MockGoalFlowForBudgetTCR {
                 address(this),
                 address(this),
                 strategy,
-                childManagerRewardPoolFlowRatePpm
+                0
             );
         recipients[newRecipientId] = RecipientInfo({ recipient: address(child), isRemoved: false });
         return (newRecipientId, address(child));
