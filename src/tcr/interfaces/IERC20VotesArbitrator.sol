@@ -51,6 +51,9 @@ interface IERC20VotesArbitrator is IArbitrator {
     /// @notice Error thrown when the function is called by an address other than the arbitrable address
     error ONLY_ARBITRABLE();
 
+    /// @notice Error thrown when a fixed budget context is invalid.
+    error INVALID_FIXED_BUDGET_CONTEXT();
+
     /// @notice Error thrown when the reveal period is outside the allowed range
     error INVALID_REVEAL_PERIOD();
 
@@ -128,6 +131,7 @@ interface IERC20VotesArbitrator is IArbitrator {
      * @return token The ERC20 voting token address.
      */
     function votingToken() external view returns (IVotes token);
+    function fixedBudgetTreasury() external view returns (address budgetTreasury);
 
     /**
      * @notice Emitted when the voting period is set
@@ -333,6 +337,59 @@ interface IERC20VotesArbitrator is IArbitrator {
         uint256 revealPeriod,
         uint256 arbitrationCost,
         address stakeVault,
+        uint256 wrongOrMissedSlashBps,
+        uint256 slashCallerBountyBps
+    ) external;
+
+    /**
+     * @notice Used to initialize the contract with stake-vault-backed voting and fixed budget scope.
+     * @param invalidRoundRewardsSink The sink address for invalid/no-vote round rewards.
+     * @param votingToken The address of the ERC20 token used for arbitration costs/rewards.
+     * @param arbitrable The address of the arbitrable contract.
+     * @param votingPeriod The initial voting period.
+     * @param votingDelay The initial voting delay.
+     * @param revealPeriod The initial reveal period to reveal committed votes.
+     * @param arbitrationCost The initial arbitration cost.
+     * @param stakeVault The stake vault used for juror voting power snapshots.
+     * @param fixedBudgetTreasury Optional fixed budget scope. Set zero for global mode.
+     */
+    function initializeWithStakeVaultAndBudgetScope(
+        address invalidRoundRewardsSink,
+        address votingToken,
+        address arbitrable,
+        uint256 votingPeriod,
+        uint256 votingDelay,
+        uint256 revealPeriod,
+        uint256 arbitrationCost,
+        address stakeVault,
+        address fixedBudgetTreasury
+    ) external;
+
+    /**
+     * @notice Used to initialize the contract with stake-vault-backed voting, fixed budget scope,
+     * and explicit slash config.
+     * @param invalidRoundRewardsSink The sink address for invalid/no-vote round rewards.
+     * @param votingToken The address of the ERC20 token used for arbitration costs/rewards.
+     * @param arbitrable The address of the arbitrable contract.
+     * @param votingPeriod The initial voting period.
+     * @param votingDelay The initial voting delay.
+     * @param revealPeriod The initial reveal period to reveal committed votes.
+     * @param arbitrationCost The initial arbitration cost.
+     * @param stakeVault The stake vault used for juror voting power snapshots.
+     * @param fixedBudgetTreasury Optional fixed budget scope. Set zero for global mode.
+     * @param wrongOrMissedSlashBps The slash amount in bps for wrong vote or missed reveal.
+     * @param slashCallerBountyBps The caller bounty bps paid from slashed amount.
+     */
+    function initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
+        address invalidRoundRewardsSink,
+        address votingToken,
+        address arbitrable,
+        uint256 votingPeriod,
+        uint256 votingDelay,
+        uint256 revealPeriod,
+        uint256 arbitrationCost,
+        address stakeVault,
+        address fixedBudgetTreasury,
         uint256 wrongOrMissedSlashBps,
         uint256 slashCallerBountyBps
     ) external;

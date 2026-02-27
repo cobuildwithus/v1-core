@@ -23,7 +23,6 @@ interface IBudgetTreasury is
 
     struct BudgetConfig {
         address flow;
-        address stakeVault;
         uint64 fundingDeadline;
         uint64 executionDuration;
         uint256 activationThreshold;
@@ -63,7 +62,6 @@ interface IBudgetTreasury is
     error ACTIVATION_THRESHOLD_NOT_REACHED(uint256 treasuryBalance, uint256 activationThreshold);
     error FUNDING_WINDOW_NOT_ENDED();
     error DEADLINE_NOT_REACHED();
-    error STAKE_VAULT_BUDGET_MISMATCH(address expected, address actual);
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
     error PARENT_FLOW_NOT_CONFIGURED();
     error ONLY_SUCCESS_RESOLVER();
@@ -80,7 +78,6 @@ interface IBudgetTreasury is
     event BudgetConfigured(
         address indexed controller,
         address flow,
-        address stakeVault,
         uint64 fundingDeadline,
         uint64 executionDuration,
         uint256 activationThreshold,
@@ -123,7 +120,6 @@ interface IBudgetTreasury is
     function resolved() external view returns (bool);
     function state() external view returns (BudgetState);
     function flow() external view returns (address);
-    function stakeVault() external view returns (address);
     function superToken() external view returns (ISuperToken);
 
     function treasuryBalance() external view returns (uint256);

@@ -11,7 +11,6 @@ import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
-    SharedMockStakeVault,
     SharedMockSuperToken,
     SharedMockUnderlying
 } from "test/goals/helpers/TreasurySharedMocks.sol";
@@ -38,7 +37,7 @@ contract BudgetTreasuryTest is Test {
     SharedMockUnderlying internal underlyingToken;
     SharedMockSuperToken internal superToken;
     SharedMockFlow internal flow;
-    SharedMockStakeVault internal stakeVault;
+    SharedMockFlow internal parentFlow;
     TreasuryMockOptimisticOracleV3 internal assertionOracle;
     TreasuryMockUmaResolverConfig internal successResolverConfig;
     BudgetTreasury internal treasury;
@@ -61,8 +60,9 @@ contract BudgetTreasuryTest is Test {
         host.setCFA(address(cfa));
         superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
+        parentFlow = new SharedMockFlow(ISuperToken(address(superToken)));
+        flow.setParent(address(parentFlow));
         flow.setMaxSafeFlowRate(type(int96).max);
-        stakeVault = new SharedMockStakeVault();
         budgetTreasuryImplementation = new BudgetTreasury();
 
         treasury = _deploy(
@@ -91,7 +91,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnSecondInitialize() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         candidate.initialize(owner, _defaultBudgetConfig());
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -100,16 +99,15 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnZeroOwner() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
 
         vm.expectRevert(IBudgetTreasury.ADDRESS_ZERO.selector);
         candidate.initialize(address(0), _defaultBudgetConfig());
     }
 
-    function test_initialize_revertsOnZeroStakeVaultAddress() public {
+    function test_initialize_revertsOnZeroSuccessResolverAddress() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
-        config.stakeVault = address(0);
+        config.successResolver = address(0);
 
         vm.expectRevert(IBudgetTreasury.ADDRESS_ZERO.selector);
         candidate.initialize(owner, config);
@@ -117,7 +115,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnZeroFundingDeadline() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.fundingDeadline = 0;
 
@@ -128,7 +125,6 @@ contract BudgetTreasuryTest is Test {
     function test_initialize_revertsWhenFlowSuperTokenIsZero() public {
         flow.setReturnZeroSuperToken(true);
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
 
         vm.expectRevert(IBudgetTreasury.ADDRESS_ZERO.selector);
         candidate.initialize(owner, _defaultBudgetConfig());
@@ -136,7 +132,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnInvalidDeadlines() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.fundingDeadline = uint64(block.timestamp - 1);
 
@@ -146,7 +141,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsWhenFundingDeadlineAndExecutionOverflowUint64() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.fundingDeadline = type(uint64).max;
         config.executionDuration = 1;
@@ -157,7 +151,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnZeroExecutionDuration() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.executionDuration = 0;
 
@@ -167,7 +160,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsOnInvalidThresholds() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.activationThreshold = 100e18;
         config.runwayCap = 99e18;
@@ -176,33 +168,8 @@ contract BudgetTreasuryTest is Test {
         candidate.initialize(owner, config);
     }
 
-    function test_initialize_revertsOnStakeVaultBudgetMismatch() public {
-        BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(0xDEAD));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IBudgetTreasury.STAKE_VAULT_BUDGET_MISMATCH.selector, address(candidate), address(0xDEAD)
-            )
-        );
-        candidate.initialize(owner, _defaultBudgetConfig());
-    }
-
-    function test_initialize_revertsWhenStakeVaultAnchorsInitializerCaller() public {
-        BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(this));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IBudgetTreasury.STAKE_VAULT_BUDGET_MISMATCH.selector, address(candidate), address(this)
-            )
-        );
-        candidate.initialize(owner, _defaultBudgetConfig());
-    }
-
     function test_initialize_revertsWhenFlowOperatorIsNotTreasury() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         address unexpectedOperator = address(0xDEAD);
         flow.setFlowOperator(unexpectedOperator);
 
@@ -219,7 +186,6 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsWhenSweeperIsNotTreasury() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         address unexpectedSweeper = address(0xDEAD);
         flow.setSweeper(unexpectedSweeper);
 
@@ -236,8 +202,23 @@ contract BudgetTreasuryTest is Test {
 
     function test_initialize_revertsWhenParentFlowMissing() public {
         BudgetTreasury candidate = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(candidate));
         flow.setParent(address(0));
+
+        vm.expectRevert(IBudgetTreasury.PARENT_FLOW_NOT_CONFIGURED.selector);
+        candidate.initialize(owner, _defaultBudgetConfig());
+    }
+
+    function test_initialize_revertsWhenParentFlowHasNoCode() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        flow.setParent(address(0xBEEF));
+
+        vm.expectRevert(IBudgetTreasury.PARENT_FLOW_NOT_CONFIGURED.selector);
+        candidate.initialize(owner, _defaultBudgetConfig());
+    }
+
+    function test_initialize_revertsWhenParentFlowMissingMemberRateSurface() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        flow.setParent(address(new BudgetParentFlowWithoutMemberRate()));
 
         vm.expectRevert(IBudgetTreasury.PARENT_FLOW_NOT_CONFIGURED.selector);
         candidate.initialize(owner, _defaultBudgetConfig());
@@ -274,17 +255,16 @@ contract BudgetTreasuryTest is Test {
         BudgetReentrantUnderlying reentrantUnderlying = new BudgetReentrantUnderlying();
         SharedMockSuperToken reentrantSuperToken = new SharedMockSuperToken(address(reentrantUnderlying));
         SharedMockFlow reentrantFlow = new SharedMockFlow(ISuperToken(address(reentrantSuperToken)));
+        SharedMockFlow reentrantParentFlow = new SharedMockFlow(ISuperToken(address(reentrantSuperToken)));
+        reentrantFlow.setParent(address(reentrantParentFlow));
         reentrantFlow.setMaxSafeFlowRate(type(int96).max);
-        SharedMockStakeVault reentrantStakeVault = new SharedMockStakeVault();
         BudgetTreasury reentrantTreasury = _cloneBudgetTreasury();
         reentrantFlow.setFlowOperator(address(reentrantTreasury));
         reentrantFlow.setSweeper(address(reentrantTreasury));
-        reentrantStakeVault.setGoalTreasury(address(reentrantTreasury));
         reentrantTreasury.initialize(
             owner,
             IBudgetTreasury.BudgetConfig({
                 flow: address(reentrantFlow),
-                stakeVault: address(reentrantStakeVault),
                 fundingDeadline: uint64(block.timestamp + 3 days),
                 executionDuration: uint64(30 days),
                 activationThreshold: 100e18,
@@ -531,6 +511,54 @@ contract BudgetTreasuryTest is Test {
         assertNotEq(flow.targetOutflowRate(), initialRate);
     }
 
+    function test_sync_active_parentZeroMemberRate_forcesZeroOutflowEvenWhenNetFlowSpoofed() public {
+        superToken.mint(address(flow), 500e18);
+
+        _setIncomingFlowRate(40);
+        treasury.sync();
+        assertEq(flow.targetOutflowRate(), 40);
+
+        _setIncomingFlowRate(0);
+        vm.prank(outsider);
+        flow.setNetFlowRate(type(int96).max - flow.targetOutflowRate());
+        vm.prank(outsider);
+        treasury.sync();
+
+        assertEq(treasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_sync_active_parentNegativeMemberRate_clampsTargetToZero() public {
+        superToken.mint(address(flow), 500e18);
+
+        _setIncomingFlowRate(40);
+        treasury.sync();
+        assertEq(flow.targetOutflowRate(), 40);
+
+        _setIncomingFlowRate(-25);
+        treasury.sync();
+
+        assertEq(treasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_sync_active_permissionlessSpoofedNetFlowDoesNotAffectTrustedParentRate() public {
+        superToken.mint(address(flow), 500e18);
+
+        int96 trustedIncoming = 40;
+        _setIncomingFlowRate(trustedIncoming);
+        treasury.sync();
+        assertEq(flow.targetOutflowRate(), trustedIncoming);
+
+        vm.prank(outsider);
+        flow.setNetFlowRate(type(int96).max - flow.targetOutflowRate());
+        vm.prank(outsider);
+        treasury.sync();
+
+        assertEq(treasury.targetFlowRate(), trustedIncoming);
+        assertEq(flow.targetOutflowRate(), trustedIncoming);
+    }
+
     function test_sync_activeNoRateChange_reappliesCachedTargetOutflow() public {
         superToken.mint(address(flow), 100e18);
         _setIncomingFlowRate(80);
@@ -729,7 +757,6 @@ contract BudgetTreasuryTest is Test {
             );
 
         BudgetTreasury unresolvedConfigTreasury = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(unresolvedConfigTreasury));
 
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.successResolver = address(revertingResolverConfig);
@@ -770,7 +797,6 @@ contract BudgetTreasuryTest is Test {
         );
 
         BudgetTreasury zeroOracleTreasury = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(zeroOracleTreasury));
 
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.successResolver = address(zeroOracleResolverConfig);
@@ -812,7 +838,6 @@ contract BudgetTreasuryTest is Test {
         );
 
         BudgetTreasury unresolvedAssertionReadTreasury = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(unresolvedAssertionReadTreasury));
 
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         config.successResolver = address(revertingAssertionReadResolver);
@@ -1423,8 +1448,8 @@ contract BudgetTreasuryTest is Test {
         vm.prank(owner);
         treasury.resolveFailure();
 
-        address parentFlow = flow.parent();
-        uint256 parentBalanceBefore = superToken.balanceOf(parentFlow);
+        address parentFlowAddr = flow.parent();
+        uint256 parentBalanceBefore = superToken.balanceOf(parentFlowAddr);
         superToken.mint(address(flow), 40e18);
 
         vm.prank(outsider);
@@ -1432,9 +1457,9 @@ contract BudgetTreasuryTest is Test {
 
         assertEq(settled, 40e18);
         assertEq(flow.sweepCallCount(), 2);
-        assertEq(flow.lastSweepTo(), parentFlow);
+        assertEq(flow.lastSweepTo(), parentFlowAddr);
         assertEq(flow.lastSweepAmount(), 40e18);
-        assertEq(superToken.balanceOf(parentFlow) - parentBalanceBefore, 40e18);
+        assertEq(superToken.balanceOf(parentFlowAddr) - parentBalanceBefore, 40e18);
     }
 
     function test_targetFlowRate_capsAtInt96Max() public {
@@ -1569,27 +1594,6 @@ contract BudgetTreasuryTest is Test {
         assertEq(flow.setFlowRateCallCount(), 0);
     }
 
-    function test_finalize_marksVaultWhenUnresolved() public {
-        superToken.mint(address(flow), 100e18);
-        treasury.sync();
-
-        vm.warp(treasury.deadline());
-        vm.prank(owner);
-        treasury.resolveFailure();
-        assertEq(stakeVault.markCallCount(), 1);
-    }
-
-    function test_finalize_skipsVaultMarkWhenAlreadyResolved() public {
-        superToken.mint(address(flow), 100e18);
-        treasury.sync();
-        stakeVault.setGoalResolved(true);
-
-        vm.warp(treasury.deadline());
-        vm.prank(owner);
-        treasury.resolveFailure();
-        assertEq(stakeVault.markCallCount(), 0);
-    }
-
     function test_finalize_sweepsResidualToParentFlow() public {
         superToken.mint(address(flow), 125e18);
         treasury.sync();
@@ -1637,7 +1641,6 @@ contract BudgetTreasuryTest is Test {
         assertTrue(treasury.resolved());
         assertEq(treasury.resolvedAt(), uint64(block.timestamp));
         assertEq(flow.sweepCallCount(), 1);
-        assertTrue(stakeVault.goalResolved());
     }
 
     function test_finalize_keepsTerminalStateWhenParentFlowMissing_andRetrySettlesResidual() public {
@@ -1688,27 +1691,6 @@ contract BudgetTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(flow)), 0);
     }
 
-    function test_finalize_keepsTerminalStateWhenVaultMarkFails_andRetryCanResolveVault() public {
-        superToken.mint(address(flow), 100e18);
-        treasury.sync();
-        stakeVault.setShouldRevertMark(true);
-
-        vm.warp(treasury.deadline());
-        vm.prank(owner);
-        treasury.resolveFailure();
-
-        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
-        assertTrue(treasury.resolved());
-        assertFalse(stakeVault.goalResolved());
-
-        stakeVault.setShouldRevertMark(false);
-        vm.prank(outsider);
-        treasury.retryTerminalSideEffects();
-
-        assertTrue(stakeVault.goalResolved());
-        assertEq(stakeVault.markCallCount(), 1);
-    }
-
     function test_canAcceptFunding_falseWhenActiveAndRunwayCapReached() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
@@ -1750,12 +1732,10 @@ contract BudgetTreasuryTest is Test {
         uint256 runwayCap
     ) internal returns (BudgetTreasury deployed) {
         deployed = _cloneBudgetTreasury();
-        stakeVault.setGoalTreasury(address(deployed));
         deployed.initialize(
             owner,
             IBudgetTreasury.BudgetConfig({
                 flow: address(flow),
-                stakeVault: address(stakeVault),
                 fundingDeadline: fundingDeadline,
                 executionDuration: executionDuration,
                 activationThreshold: activationThreshold,
@@ -1772,7 +1752,6 @@ contract BudgetTreasuryTest is Test {
     function _defaultBudgetConfig() internal view returns (IBudgetTreasury.BudgetConfig memory config) {
         config = IBudgetTreasury.BudgetConfig({
             flow: address(flow),
-            stakeVault: address(stakeVault),
             fundingDeadline: uint64(block.timestamp + 1 days),
             executionDuration: uint64(30 days),
             activationThreshold: 1,
@@ -1849,7 +1828,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function _setIncomingFlowRate(int96 incomingFlowRate) internal {
-        flow.setNetFlowRate(incomingFlowRate - flow.targetOutflowRate());
+        parentFlow.setMemberFlowRate(address(flow), incomingFlowRate);
     }
 }
 
@@ -1876,6 +1855,8 @@ contract BudgetRevertingGetAssertionOracle {
         revert GET_ASSERTION_REVERT();
     }
 }
+
+contract BudgetParentFlowWithoutMemberRate { }
 
 contract BudgetReentrantUnderlying is SharedMockUnderlying {
     bytes4 private constant DONATE_UNDERLYING_AND_UPGRADE_SELECTOR =

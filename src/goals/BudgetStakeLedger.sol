@@ -10,9 +10,12 @@ import { FlowUnitMath } from "../library/FlowUnitMath.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { SortedRecipientMerge } from "../library/SortedRecipientMerge.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract BudgetStakeLedger is IBudgetStakeLedger {
     using EnumerableSet for EnumerableSet.AddressSet;
+    using Checkpoints for Checkpoints.Trace224;
 
     struct UserBudgetCheckpoint {
         uint256 allocatedStake;
@@ -66,10 +69,29 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     mapping(address => uint256) private _preparedSuccessfulPointsCursor;
 
     EnumerableSet.AddressSet private _trackedBudgets;
+    mapping(address => mapping(address => Checkpoints.Trace224)) private _userAllocatedStakeCheckpoints;
+    mapping(address => Checkpoints.Trace224) private _budgetTotalAllocatedStakeCheckpoints;
 
     constructor(address goalTreasury_) {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
         goalTreasury = goalTreasury_;
+    }
+
+    function getPastUserAllocatedStakeOnBudget(
+        address account,
+        address budget,
+        uint256 blockNumber
+    ) external view override returns (uint256) {
+        if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
+        return _userAllocatedStakeCheckpoints[account][budget].upperLookupRecent(SafeCast.toUint32(blockNumber));
+    }
+
+    function getPastBudgetTotalAllocatedStake(
+        address budget,
+        uint256 blockNumber
+    ) external view override returns (uint256) {
+        if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
+        return _budgetTotalAllocatedStakeCheckpoints[budget].upperLookupRecent(SafeCast.toUint32(blockNumber));
     }
 
     modifier onlyGoalSettlementAuthority() {
@@ -510,6 +532,15 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
         if (userCheckpoint.unmaturedStake != unmaturedAfter) {
             userCheckpoint.unmaturedStake = unmaturedAfter;
+        }
+
+        if (newAllocated != oldAllocated) {
+            uint32 blockKey = SafeCast.toUint32(block.number);
+            _userAllocatedStakeCheckpoints[account][budget].push(blockKey, SafeCast.toUint224(newAllocated));
+            _budgetTotalAllocatedStakeCheckpoints[budget].push(
+                blockKey,
+                SafeCast.toUint224(budgetCheckpointData.totalAllocatedStake)
+            );
         }
 
         emit AllocationCheckpointed(account, budget, newAllocated, checkpointTime);

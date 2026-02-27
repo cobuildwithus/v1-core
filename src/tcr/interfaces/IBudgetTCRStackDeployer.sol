@@ -7,7 +7,6 @@ import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 interface IBudgetTCRStackDeployer {
     struct PreparationResult {
-        address stakeVault;
         address strategy;
         address budgetTreasury;
     }
@@ -26,13 +25,13 @@ interface IBudgetTCRStackDeployer {
     ) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(
-        address stakeVault,
+        address budgetTreasury,
         address childFlow,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
-    ) external returns (address budgetTreasury);
+    ) external returns (address deployedBudgetTreasury);
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external;
 }

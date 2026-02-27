@@ -11,7 +11,6 @@ contract BudgetTCRStorageV1 {
     struct BudgetDeployment {
         address childFlow;
         address budgetTreasury;
-        address stakeVault;
         address strategy;
         bool active;
     }
@@ -27,6 +26,7 @@ contract BudgetTCRStorageV1 {
     uint8 public paymentTokenDecimals;
 
     address public stackDeployer;
+    // Deprecated: validation now runs via BudgetTCRValidationLib.
     address public itemValidator;
     address public budgetSuccessResolver;
     address public managerRewardPool;

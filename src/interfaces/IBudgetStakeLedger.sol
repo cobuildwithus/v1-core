@@ -53,6 +53,7 @@ interface IBudgetStakeLedger {
     error ALLOCATION_DRIFT(address account, address budget, uint256 storedAllocated, uint256 expectedAllocated);
     error TOTAL_ALLOCATED_UNDERFLOW(address budget, uint256 totalAllocated, uint256 attemptedDecrease);
     error TOTAL_UNMATURED_UNDERFLOW(address budget, uint256 totalUnmatured, uint256 attemptedDecrease);
+    error BLOCK_NOT_YET_MINED();
 
     event StakeLedgerFinalized(uint8 indexed finalState, uint256 totalPointsSnapshot, uint64 goalFinalizedAt);
     event AllocationCheckpointed(
@@ -105,6 +106,12 @@ interface IBudgetStakeLedger {
 
     function userAllocatedStakeOnBudget(address account, address budget) external view returns (uint256);
     function budgetTotalAllocatedStake(address budget) external view returns (uint256);
+    function getPastUserAllocatedStakeOnBudget(
+        address account,
+        address budget,
+        uint256 blockNumber
+    ) external view returns (uint256);
+    function getPastBudgetTotalAllocatedStake(address budget, uint256 blockNumber) external view returns (uint256);
 
     function budgetSucceededAtFinalize(address budget) external view returns (bool);
     function budgetResolvedAtFinalize(address budget) external view returns (uint64);

@@ -11,6 +11,8 @@ import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 
 contract BudgetTCRFactory {
     uint256 internal constant BPS_DENOMINATOR = 10_000;
@@ -20,6 +22,9 @@ contract BudgetTCRFactory {
     error ADDRESS_ZERO();
     error INVALID_ESCROW_BOND_BPS(uint256 escrowBondBps);
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
+    error UNSUPPORTED_JUROR_SLASHER(address configuredSlasher);
+    error INVALID_SLASHER_AUTHORITY(address expected, address actual);
+    error INVALID_SLASHER_STAKE_VAULT(address expected, address actual);
 
     struct RegistryConfigInput {
         address governor;
@@ -121,7 +126,35 @@ contract BudgetTCRFactory {
             arbitratorParams.slashCallerBountyBps
         );
         if (deploymentConfig.goalTreasury.authority() == address(this)) {
-            deploymentConfig.goalTreasury.configureJurorSlasher(arbitrator);
+            address configuredSlasher = IStakeVault(stakeVault).jurorSlasher();
+            address router = configuredSlasher;
+
+            if (configuredSlasher == address(0)) {
+                router = address(new JurorSlasherRouter(IStakeVault(stakeVault), address(this)));
+                deploymentConfig.goalTreasury.configureJurorSlasher(router);
+            } else {
+                address slasherAuthority;
+                try JurorSlasherRouter(configuredSlasher).authority() returns (address authority_) {
+                    slasherAuthority = authority_;
+                } catch {
+                    revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
+                }
+                if (slasherAuthority != address(this)) {
+                    revert INVALID_SLASHER_AUTHORITY(address(this), slasherAuthority);
+                }
+
+                address slasherStakeVault;
+                try JurorSlasherRouter(configuredSlasher).stakeVault() returns (IStakeVault stakeVault_) {
+                    slasherStakeVault = address(stakeVault_);
+                } catch {
+                    revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
+                }
+                if (slasherStakeVault != stakeVault) {
+                    revert INVALID_SLASHER_STAKE_VAULT(stakeVault, slasherStakeVault);
+                }
+            }
+
+            JurorSlasherRouter(router).setAuthorizedSlasher(arbitrator, true);
         }
 
         (

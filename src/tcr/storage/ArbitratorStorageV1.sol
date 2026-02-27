@@ -234,6 +234,12 @@ contract ArbitratorStorageV1 {
     IStakeVault internal _stakeVault;
 
     /**
+     * @notice Optional fixed budget treasury context for stake-vault-backed voting.
+     * @dev Zero means global juror voting mode (no budget cap).
+     */
+    address internal _fixedBudgetTreasury;
+
+    /**
      * @notice Tracks per-round voter slash processing to prevent duplicate slashing.
      * disputeId => round => voter => processed
      */

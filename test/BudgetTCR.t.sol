@@ -39,7 +39,7 @@ import { Vm } from "forge-std/Vm.sol";
 
 contract BudgetTCRTest is TestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
-        keccak256("BudgetStackDeployed(bytes32,address,address,address,address)");
+        keccak256("BudgetStackDeployed(bytes32,address,address,address)");
     bytes32 internal constant BUDGET_STACK_ACTIVATION_QUEUED_SIG = keccak256("BudgetStackActivationQueued(bytes32)");
     bytes32 internal constant BUDGET_STACK_REMOVAL_QUEUED_SIG = keccak256("BudgetStackRemovalQueued(bytes32)");
     bytes32 internal constant BUDGET_STACK_REMOVAL_HANDLED_SIG =
@@ -49,7 +49,7 @@ contract BudgetTCRTest is TestUtils {
     bytes32 internal constant BUDGET_TERMINALIZATION_STEP_FAILED_SIG =
         keccak256("BudgetTerminalizationStepFailed(bytes32,address,bytes4,bytes)");
     bytes32 internal constant BUDGET_CONFIGURED_SIG =
-        keccak256("BudgetConfigured(address,address,address,uint64,uint64,uint256,uint256)");
+        keccak256("BudgetConfigured(address,address,uint64,uint64,uint256,uint256)");
     bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG =
         keccak256("BudgetTreasuryBatchSyncAttempted(bytes32,address,bool)");
     bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_SKIPPED_SIG =
@@ -1102,33 +1102,11 @@ contract BudgetTCRTest is TestUtils {
         );
     }
 
-    function test_finalizeRemovedBudget_unlocksStakeVaultWithdrawalImmediately() public {
+    function test_finalizeRemovedBudget_terminalizesWithoutStakeVaultSideEffects() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = MockBudgetChildFlow(childFlow).recipientAdmin();
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-        IStakeVault stakeVault = IStakeVault(treasury.stakeVault());
-
-        address staker = makeAddr("staker");
-        uint256 stakedAmount = 20e18;
-        uint256 withdrawalAmount = 5e18;
-        JBRuleset memory ruleset;
-        ruleset.weight = 1e18;
-
-        vm.mockCall(
-            address(0x1234),
-            abi.encodeWithSelector(IJBRulesets.currentOf.selector, uint256(1)),
-            abi.encode(ruleset)
-        );
-
-        goalToken.mint(staker, stakedAmount);
-
-        vm.startPrank(staker);
-        goalToken.approve(address(stakeVault), stakedAmount);
-        stakeVault.depositGoal(stakedAmount);
-        vm.stopPrank();
-
-        assertEq(stakeVault.stakedGoalOf(staker), stakedAmount);
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -1136,11 +1114,6 @@ contract BudgetTCRTest is TestUtils {
         assertTrue(budgetTcr.finalizeRemovedBudget(itemID));
         assertTrue(treasury.resolved());
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
-        assertTrue(stakeVault.goalResolved());
-
-        vm.prank(staker);
-        stakeVault.withdrawGoal(withdrawalAmount, staker);
-        assertEq(stakeVault.stakedGoalOf(staker), stakedAmount - withdrawalAmount);
     }
 
     function test_finalizeRemovedBudget_preservesPendingSuccessAssertion_whenRewardHistoryIsLocked() public {

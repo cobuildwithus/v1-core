@@ -8,7 +8,6 @@ import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { StakeVault } from "src/goals/StakeVault.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -48,16 +47,16 @@ contract BudgetTCRStackDeploymentLibHarness {
 
     function deployBudgetTreasury(
         address budgetTCR,
-        address stakeVault,
+        address budgetTreasury,
         address childFlow,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
-    ) external returns (address budgetTreasury) {
-        budgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
+    ) external returns (address deployedBudgetTreasury) {
+        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
             budgetTCR,
-            stakeVault,
+            budgetTreasury,
             childFlow,
             listing,
             successResolver,
@@ -140,18 +139,6 @@ contract BudgetTCRStackDeploymentLibMockBudgetStakeLedger {
     }
 }
 
-contract BudgetTCRStackDeploymentLibMockStakeVault {
-    address internal immutable _goalTreasury;
-
-    constructor(address goalTreasury_) {
-        _goalTreasury = goalTreasury_;
-    }
-
-    function goalTreasury() external view returns (address) {
-        return _goalTreasury;
-    }
-}
-
 contract BudgetTCRStackDeploymentLibPermissiveFallbackTreasury {
     fallback() external payable {
         assembly ("memory-safe") {
@@ -201,9 +188,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
             address(sharedStrategy)
         );
 
-        assertTrue(prepared.stakeVault != address(0));
         assertTrue(prepared.strategy != address(0));
-        assertEq(StakeVault(prepared.stakeVault).goalTreasury(), treasuryAnchor);
         assertEq(prepared.strategy, address(sharedStrategy));
 
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
@@ -215,9 +200,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         childFlow.setSweeper(treasuryAnchor);
 
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
-        address budgetTreasury = _deployBudgetTreasury(
-            budgetTCR, prepared.stakeVault, address(childFlow), listing, budgetTCR
-        );
+        address budgetTreasury = _deployBudgetTreasury(budgetTCR, treasuryAnchor, address(childFlow), listing, budgetTCR);
 
         assertEq(budgetTreasury, treasuryAnchor);
         assertEq(childFlow.recipientAdmin(), budgetTCR);
@@ -295,42 +278,31 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         sharedStrategy.registerFlowRecipient(address(childFlow), recipientId);
     }
 
-    function test_deployBudgetTreasury_revertsWhenStakeVaultAnchorsNonContractAddress() public {
-        BudgetTCRStackDeploymentLib.PreparationResult memory prepared = harness.prepareBudgetStack(
-            address(0xCAFE),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy)
-        );
-
+    function test_deployBudgetTreasury_revertsWhenBudgetTreasuryIsNonContractAddress() public {
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
             budgetTCR,
             address(goalToken),
-            prepared.strategy
+            address(sharedStrategy)
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY_ANCHOR.selector, address(0xCAFE))
+            abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY.selector, address(0xCAFE))
         );
-        _deployBudgetTreasury(budgetTCR, prepared.stakeVault, address(childFlow), _defaultListing(), budgetTCR);
+        _deployBudgetTreasury(budgetTCR, address(0xCAFE), address(childFlow), _defaultListing(), budgetTCR);
     }
 
-    function test_deployBudgetTreasury_revertsWhenStakeVaultAnchorsZeroAddress() public {
-        BudgetTCRStackDeploymentLibMockStakeVault stakeVault = new BudgetTCRStackDeploymentLibMockStakeVault(address(0));
+    function test_deployBudgetTreasury_revertsWhenBudgetTreasuryIsZeroAddress() public {
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
             budgetTCR,
             address(goalToken),
             address(sharedStrategy)
         );
 
-        vm.expectRevert(abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY_ANCHOR.selector, address(0)));
-        _deployBudgetTreasury(budgetTCR, address(stakeVault), address(childFlow), _defaultListing(), budgetTCR);
+        vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
+        _deployBudgetTreasury(budgetTCR, address(0), address(childFlow), _defaultListing(), budgetTCR);
     }
 
-    function test_deployBudgetTreasury_revertsWhenStakeVaultAnchorsNonTreasuryContract() public {
+    function test_deployBudgetTreasury_revertsWhenBudgetTreasuryHasInvalidConfiguration() public {
         BudgetTCRStackDeploymentLibPermissiveFallbackTreasury invalidTreasury =
             new BudgetTCRStackDeploymentLibPermissiveFallbackTreasury();
 
@@ -355,7 +327,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
                 BudgetTCRStackDeploymentLib.INVALID_TREASURY_CONFIGURATION.selector, address(invalidTreasury)
             )
         );
-        _deployBudgetTreasury(budgetTCR, prepared.stakeVault, address(childFlow), _defaultListing(), budgetTCR);
+        _deployBudgetTreasury(budgetTCR, address(invalidTreasury), address(childFlow), _defaultListing(), budgetTCR);
     }
 
     function test_deployBudgetTreasury_revertsWhenTreasuryCloneAlreadyInitialized() public {
@@ -378,24 +350,24 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         childFlow.setFlowOperator(treasuryAnchor);
         childFlow.setSweeper(treasuryAnchor);
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
-        _deployBudgetTreasury(budgetTCR, prepared.stakeVault, address(childFlow), listing, budgetTCR);
+        _deployBudgetTreasury(budgetTCR, treasuryAnchor, address(childFlow), listing, budgetTCR);
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        _deployBudgetTreasury(budgetTCR, prepared.stakeVault, address(childFlow), listing, budgetTCR);
+        _deployBudgetTreasury(budgetTCR, treasuryAnchor, address(childFlow), listing, budgetTCR);
     }
 
     function test_deployBudgetTreasury_revertsOnZeroCriticalAddresses() public {
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
-        _deployBudgetTreasury(address(0), makeAddr("vault"), makeAddr("flow"), _defaultListing(), budgetTCR);
+        _deployBudgetTreasury(address(0), makeAddr("treasury"), makeAddr("flow"), _defaultListing(), budgetTCR);
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
         _deployBudgetTreasury(budgetTCR, address(0), makeAddr("flow"), _defaultListing(), budgetTCR);
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
-        _deployBudgetTreasury(budgetTCR, makeAddr("vault"), address(0), _defaultListing(), budgetTCR);
+        _deployBudgetTreasury(budgetTCR, makeAddr("treasury"), address(0), _defaultListing(), budgetTCR);
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
-        _deployBudgetTreasury(budgetTCR, makeAddr("vault"), makeAddr("flow"), _defaultListing(), address(0));
+        _deployBudgetTreasury(budgetTCR, makeAddr("treasury"), makeAddr("flow"), _defaultListing(), address(0));
     }
 
     function test_prepareBudgetStack_revertsOnZeroCriticalAddresses() public {
@@ -426,14 +398,14 @@ contract BudgetTCRStackDeploymentLibTest is Test {
 
     function _deployBudgetTreasury(
         address budgetTCR_,
-        address stakeVault,
+        address budgetTreasury_,
         address childFlow,
         IBudgetTCR.BudgetListing memory listing,
         address successResolver
     ) internal returns (address budgetTreasury) {
         budgetTreasury = harness.deployBudgetTreasury(
             budgetTCR_,
-            stakeVault,
+            budgetTreasury_,
             childFlow,
             listing,
             successResolver,
@@ -583,7 +555,6 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
             bytes32(uint256(1))
         );
 
-        assertTrue(firstPreparation.stakeVault != address(0));
         assertTrue(firstPreparation.budgetTreasury != address(0));
         assertEq(firstPreparation.strategy, deployer.sharedBudgetFlowStrategy());
         assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(budgetStakeLedgerA));
@@ -599,7 +570,6 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         );
 
         assertEq(secondPreparation.strategy, firstPreparation.strategy);
-        assertNotEq(secondPreparation.stakeVault, firstPreparation.stakeVault);
         assertNotEq(secondPreparation.budgetTreasury, firstPreparation.budgetTreasury);
 
         vm.expectRevert(

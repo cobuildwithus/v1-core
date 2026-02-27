@@ -30,13 +30,11 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
-    address internal immutable stakeVault;
     address internal immutable strategy;
 
     constructor(address preparedBudgetTreasury_, address deployedBudgetTreasury_) {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
-        stakeVault = address(0x1111111111111111111111111111111111111111);
         strategy = address(0x2222222222222222222222222222222222222222);
     }
 
@@ -49,11 +47,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         address,
         bytes32
     ) external returns (PreparationResult memory result) {
-        result = PreparationResult({
-            stakeVault: stakeVault,
-            strategy: strategy,
-            budgetTreasury: preparedBudgetTreasury
-        });
+        result = PreparationResult({ strategy: strategy, budgetTreasury: preparedBudgetTreasury });
     }
 
     function deployBudgetTreasury(

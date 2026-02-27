@@ -22,6 +22,10 @@ contract MockInvalidRulingVotesArbitratorWithTimeout is IERC20VotesArbitrator {
         return _token;
     }
 
+    function fixedBudgetTreasury() external pure returns (address budgetTreasury) {
+        budgetTreasury = address(0);
+    }
+
     function initialize(address, address, address, uint256, uint256, uint256, uint256) external pure {}
 
     function initializeWithSlashConfig(address, address, address, uint256, uint256, uint256, uint256, uint256, uint256)
@@ -51,6 +55,32 @@ contract MockInvalidRulingVotesArbitratorWithTimeout is IERC20VotesArbitrator {
         uint256,
         uint256,
         address
+    ) external pure {}
+
+    function initializeWithStakeVaultAndBudgetScope(
+        address,
+        address,
+        address,
+        uint256,
+        uint256,
+        uint256,
+        uint256,
+        address,
+        address
+    ) external pure {}
+
+    function initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
+        address,
+        address,
+        address,
+        uint256,
+        uint256,
+        uint256,
+        uint256,
+        address,
+        address,
+        uint256,
+        uint256
     ) external pure {}
 
     function createDispute(uint256, bytes calldata) external view returns (uint256) {

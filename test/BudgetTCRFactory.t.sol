@@ -440,6 +440,58 @@ contract BudgetTCRFactoryTest is Test {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
+    function test_deployBudgetTCRStackForGoal_reverts_whenExistingRouterStakeVaultMismatch() public {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address rewardEscrow = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCR budgetImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
+        BudgetTCRFactory factory = new BudgetTCRFactory(
+            address(budgetImpl),
+            address(arbImpl),
+            address(deployerImpl),
+            DEFAULT_ESCROW_BOND_BPS
+        );
+        goalTreasury.setAuthority(address(factory));
+
+        _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        _MockStakeVaultForFactory otherStakeVault = new _MockStakeVaultForFactory(address(otherGoalTreasury));
+        JurorSlasherRouter mismatchedRouter =
+            new JurorSlasherRouter(IStakeVault(address(otherStakeVault)), address(factory));
+        goalTreasury.configureJurorSlasher(address(mismatchedRouter));
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            governor: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            arbitratorExtraData: bytes(""),
+            registrationMetaEvidence: "ipfs://reg",
+            clearingMetaEvidence: "ipfs://clear",
+            votingToken: IVotes(address(votingToken)),
+            submissionBaseDeposit: 100e18,
+            removalBaseDeposit: 50e18,
+            submissionChallengeBaseDeposit: 120e18,
+            removalChallengeBaseDeposit: 70e18,
+            challengePeriodDuration: 3 days,
+            submissionDepositStrategy: submissionDepositStrategy
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BudgetTCRFactory.INVALID_SLASHER_STAKE_VAULT.selector, address(stakeVault), address(otherStakeVault)
+            )
+        );
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+    }
+
     function test_deployBudgetTCRStackForGoal_skipsSlasherConfigureWhenFactoryNotAuthority() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
