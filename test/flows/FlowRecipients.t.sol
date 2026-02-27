@@ -136,6 +136,31 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(flow.distributionPool().getUnits(recipientAddr), 0);
     }
 
+    function test_removedAddFlowRecipientWithParams_selector_notExposed_andCannotMutateState() public {
+        bytes32 recipientId = bytes32(uint256(44));
+        address[] memory strategies = new address[](1);
+        strategies[0] = address(strategy);
+
+        bytes memory legacyCallData = abi.encodeWithSignature(
+            "addFlowRecipientWithParams(bytes32,(string,string,string,string,string),address,address,address,address,uint32,address[])",
+            recipientId,
+            recipientMetadata,
+            manager,
+            manager,
+            manager,
+            managerRewardPool,
+            uint32(250_000),
+            strategies
+        );
+
+        vm.prank(manager);
+        _assertCallFails(address(flow), legacyCallData);
+
+        vm.expectRevert(IFlow.RECIPIENT_NOT_FOUND.selector);
+        flow.getRecipientById(recipientId);
+        assertEq(flow.getChildFlows().length, 0);
+    }
+
     function test_removeRecipient_eoa_happyAndReverts() public {
         bytes32 recipientId = bytes32(uint256(1));
         address recipientAddr = address(0x111);
@@ -343,75 +368,11 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(address(child.superToken()), address(superToken));
         assertEq(child.flowImplementation(), address(flowImplementation));
         assertEq(child.managerRewardPool(), managerRewardPool);
-        assertEq(child.managerRewardPoolFlowRatePpm(), flow.managerRewardPoolFlowRatePpm());
+        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
+        assertEq(child.managerRewardPoolFlowRatePpm(), 0);
         assertEq(child.allocationPipeline(), address(0));
 
         assertEq(flow.distributionPool().getUnits(childAddr), 0);
-    }
-
-    function test_addFlowRecipientWithParams_overridesChildManagerRewardRate() public {
-        bytes32 rid = bytes32(uint256(12));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
-
-        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
-
-        vm.prank(manager);
-        (, address childAddr) = flow.addFlowRecipientWithParams(
-            rid,
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
-            0,
-            strategies
-        );
-
-        assertEq(CustomFlow(childAddr).managerRewardPoolFlowRatePpm(), 0);
-    }
-
-    function test_addFlowRecipientWithParams_appliesExplicitNonZeroManagerRewardRate() public {
-        bytes32 rid = bytes32(uint256(1201));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
-
-        uint32 explicitRatePpm = 250_000;
-        assertEq(flow.managerRewardPoolFlowRatePpm(), 100_000);
-
-        vm.prank(manager);
-        (, address childAddr) = flow.addFlowRecipientWithParams(
-            rid,
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
-            explicitRatePpm,
-            strategies
-        );
-
-        assertEq(CustomFlow(childAddr).managerRewardPoolFlowRatePpm(), explicitRatePpm);
-        assertTrue(CustomFlow(childAddr).managerRewardPoolFlowRatePpm() != flow.managerRewardPoolFlowRatePpm());
-    }
-
-    function test_addFlowRecipientWithParams_revertsWhenRateExceedsScale() public {
-        bytes32 rid = bytes32(uint256(1202));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
-
-        vm.prank(manager);
-        vm.expectRevert(IFlow.INVALID_RATE_PPM.selector);
-        flow.addFlowRecipientWithParams(
-            rid,
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
-            1_000_001,
-            strategies
-        );
     }
 
     function test_addFlowRecipient_emitsRecipientCreatedBeforeFlowRecipientCreated() public {
@@ -430,6 +391,8 @@ contract FlowRecipientsTest is FlowTestBase {
         uint256 childFlowInitializedLogIndex = missing;
         uint256 recipientCreatedLogIndex = missing;
         uint256 flowRecipientCreatedLogIndex = missing;
+        address emittedDistributionPool = address(0);
+        uint32 emittedManagerRewardPoolFlowRatePpm;
 
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter == address(flow)) {
@@ -445,6 +408,7 @@ contract FlowRecipientsTest is FlowTestBase {
                 }
                 if (logs[i].topics[0] == FLOW_RECIPIENT_CREATED_SIG && flowRecipientCreatedLogIndex == missing) {
                     flowRecipientCreatedLogIndex = i;
+                    (emittedDistributionPool, emittedManagerRewardPoolFlowRatePpm) = abi.decode(logs[i].data, (address, uint32));
                 }
                 continue;
             }
@@ -467,6 +431,8 @@ contract FlowRecipientsTest is FlowTestBase {
         assertLt(childFlowDeployedLogIndex, childFlowInitializedLogIndex);
         assertLt(childFlowDeployedLogIndex, recipientCreatedLogIndex);
         assertLt(recipientCreatedLogIndex, flowRecipientCreatedLogIndex);
+        assertEq(emittedDistributionPool, address(CustomFlow(childFlowAddress).distributionPool()));
+        assertEq(emittedManagerRewardPoolFlowRatePpm, 0);
     }
 
     function test_addFlowRecipient_emitsChildFlowDeployed_withExpectedPayload() public {
