@@ -166,6 +166,12 @@ contract MockRewardEscrowWithBudgetStakeLedger {
     }
 }
 
+contract MockRewardEscrowBudgetStakeLedgerReadReverts {
+    function budgetStakeLedger() external pure returns (address) {
+        revert("BUDGET_STAKE_LEDGER_READ_FAILED");
+    }
+}
+
 contract MockGoalTreasuryForArbitratorBudgetScope {
     address public rewardEscrow;
     address public flow;
@@ -429,6 +435,34 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         _warpRoll(revealEndTime + 1);
         vm.expectRevert(ERC20VotesArbitrator.JUROR_SLASHER_NOT_CONFIGURED.selector);
         arb.slashVoter(disputeId, 0, voter2);
+    }
+
+    function test_createDispute_budgetScope_totalSupplyUsesStakeVault_whenBudgetLedgerReadReverts() public {
+        MockRewardEscrowBudgetStakeLedgerReadReverts rewardEscrowWithRevertingLedger =
+            new MockRewardEscrowBudgetStakeLedgerReadReverts();
+        MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
+        MockGoalTreasuryForArbitratorBudgetScope scopedGoalTreasury =
+            new MockGoalTreasuryForArbitratorBudgetScope(address(rewardEscrowWithRevertingLedger), address(goalFlow));
+        MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
+        MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
+            new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        scopedStakeVault.setJurorVotes(voter1, 100e18);
+        scopedStakeVault.setJurorVotes(voter2, 200e18);
+
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
+            scopedArbitrable,
+            address(scopedStakeVault),
+            address(budgetTreasury)
+        );
+
+        vm.roll(block.number + 1);
+        (uint256 disputeId,,,, uint256 creationBlock) = _createDisputeWith(scopedArbitrable);
+        IERC20VotesArbitrator.VotingRoundInfo memory info = scopedArb.getVotingRoundInfo(disputeId, 0);
+
+        assertEq(info.creationBlock, creationBlock);
+        assertEq(info.totalSupply, scopedStakeVault.getPastTotalJurorWeight(creationBlock));
     }
 
     function test_slashVoter_budgetScope_scalesSnapshotVotesByBudgetAllocationShare() public {
