@@ -753,6 +753,86 @@ contract StakeVaultTest is Test {
         assertEq(rentVault.pendingGoalRentOf(alice), 0);
     }
 
+    function test_withdrawGoal_withDeadlineAfterResolution_stillCapsAtGoalResolvedAt() public {
+        uint64 deadlineTs = uint64(block.timestamp + 5 days);
+        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
+        StakeVault rentVault = new StakeVault(
+            address(deadlineTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            rentCollector,
+            RENT_RATE_WAD_PER_SECOND
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(rentVault), type(uint256).max);
+
+        vm.prank(alice);
+        rentVault.depositGoal(100e18);
+
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(address(deadlineTreasury));
+        rentVault.markGoalResolved();
+
+        vm.warp(block.timestamp + 3 days);
+
+        uint256 expectedRent = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
+        uint256 expectedNet = 10e18 - expectedRent;
+
+        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
+        uint256 aliceBefore = goalToken.balanceOf(alice);
+
+        vm.prank(alice);
+        rentVault.withdrawGoal(10e18, alice);
+
+        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
+        assertEq(goalToken.balanceOf(alice) - aliceBefore, expectedNet);
+        assertEq(rentVault.pendingGoalRentOf(alice), 0);
+    }
+
+    function test_withdrawGoal_withholdsRent_andCapsAtGoalDeadlineWhenResolutionIsLate() public {
+        uint64 deadlineTs = uint64(block.timestamp + 2 days);
+        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
+        StakeVault rentVault = new StakeVault(
+            address(deadlineTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            rentCollector,
+            RENT_RATE_WAD_PER_SECOND
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(rentVault), type(uint256).max);
+
+        vm.prank(alice);
+        rentVault.depositGoal(100e18);
+
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(address(deadlineTreasury));
+        rentVault.markGoalResolved();
+
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 expectedRent = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
+        uint256 expectedNet = 10e18 - expectedRent;
+
+        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
+        uint256 aliceBefore = goalToken.balanceOf(alice);
+
+        vm.prank(alice);
+        rentVault.withdrawGoal(10e18, alice);
+
+        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
+        assertEq(goalToken.balanceOf(alice) - aliceBefore, expectedNet);
+        assertEq(rentVault.pendingGoalRentOf(alice), 0);
+    }
+
     function test_withdrawCobuild_whenRentExceedsWithdrawal_withholdsFullAmount() public {
         uint256 aggressiveRate = 1e14;
         StakeVault rentVault = new StakeVault(
@@ -885,6 +965,35 @@ contract StakeVaultTest is Test {
 
         vm.warp(block.timestamp + 3 days);
         assertEq(rentVault.pendingCobuildRentOf(alice), pendingAtResolve);
+    }
+
+    function test_pendingRentViews_capAtGoalDeadlineWhileUnresolved() public {
+        uint64 deadlineTs = uint64(block.timestamp + 2 days);
+        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
+        StakeVault rentVault = new StakeVault(
+            address(deadlineTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18,
+            rentCollector,
+            RENT_RATE_WAD_PER_SECOND
+        );
+
+        vm.prank(alice);
+        cobuildToken.approve(address(rentVault), type(uint256).max);
+
+        vm.prank(alice);
+        rentVault.depositCobuild(50e18);
+
+        vm.warp(deadlineTs + 1 days);
+        uint256 expectedAtDeadline = Math.mulDiv(50e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
+        uint256 pendingAfterDeadline = rentVault.pendingCobuildRentOf(alice);
+        assertEq(pendingAfterDeadline, expectedAtDeadline);
+
+        vm.warp(deadlineTs + 3 days);
+        assertEq(rentVault.pendingCobuildRentOf(alice), pendingAfterDeadline);
     }
 
     function test_secondDeposit_accruesPriorStakeRentBeforeIncreasingPrincipal() public {
@@ -1768,6 +1877,18 @@ contract VaultGoalTreasuryWithFlow {
 
     function authority() external pure returns (address) {
         return address(0);
+    }
+}
+
+contract VaultGoalTreasuryWithDeadline {
+    uint64 internal immutable _deadline;
+
+    constructor(uint64 deadline_) {
+        _deadline = deadline_;
+    }
+
+    function deadline() external view returns (uint64) {
+        return _deadline;
     }
 }
 
