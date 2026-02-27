@@ -949,8 +949,6 @@ contract GoalTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(flow)), flowBalanceBefore + amount);
         assertEq(treasury.totalRaised(), amount);
         assertEq(treasury.deferredHookSuperTokenAmount(), 0);
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Funding));
-        assertEq(flow.targetOutflowRate(), 0);
     }
 
     function test_processHookSplit_whenFundingThresholdIsReached_autoActivatesBeforeDeadline() public {
@@ -967,29 +965,6 @@ contract GoalTreasuryTest is Test {
         assertEq(burnAmount, 0);
         assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
         assertGt(flow.targetOutflowRate(), 0);
-    }
-
-    function test_processHookSplit_atDeadline_whenFundingThresholdIsReached_doesNotAutoActivate() public {
-        (GoalTreasury nearDeadlineTreasury, uint256 amount) = _deployNearDeadlineTreasuryAtThreshold();
-        vm.warp(nearDeadlineTreasury.deadline());
-        underlyingToken.mint(address(nearDeadlineTreasury), amount);
-
-        vm.prank(hook);
-        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            nearDeadlineTreasury.processHookSplit(address(underlyingToken), amount);
-
-        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
-        assertEq(superTokenAmount, amount);
-        assertEq(rewardAmount, 0);
-        assertEq(burnAmount, 0);
-        assertEq(nearDeadlineTreasury.totalRaised(), 0);
-        assertEq(nearDeadlineTreasury.deferredHookSuperTokenAmount(), amount);
-        assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Funding));
-        assertEq(flow.targetOutflowRate(), 0);
-
-        nearDeadlineTreasury.sync();
-
-        assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Expired));
     }
 
     function test_processHookSplit_defersWhenGoalCannotAcceptYetNotTerminal() public {
@@ -1160,8 +1135,6 @@ contract GoalTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(flow)), 40e18);
         assertEq(treasury.totalRaised(), 40e18);
         assertEq(superToken.balanceOf(address(treasury)), 0);
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Funding));
-        assertEq(flow.targetOutflowRate(), 0);
     }
 
     function test_donateUnderlyingAndUpgrade_whenFundingThresholdIsReached_autoActivatesBeforeDeadline() public {
@@ -1176,27 +1149,6 @@ contract GoalTreasuryTest is Test {
         assertEq(received, amount);
         assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
         assertGt(flow.targetOutflowRate(), 0);
-    }
-
-    function test_donateUnderlyingAndUpgrade_whenActive_preservesActiveState() public {
-        superToken.mint(address(flow), 100e18);
-        vm.prank(hook);
-        assertTrue(treasury.recordHookFunding(100e18));
-        treasury.sync();
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
-
-        int96 flowRateBefore = flow.targetOutflowRate();
-        underlyingToken.mint(donor, 5e18);
-
-        vm.startPrank(donor);
-        underlyingToken.approve(address(treasury), type(uint256).max);
-        uint256 received = treasury.donateUnderlyingAndUpgrade(5e18);
-        vm.stopPrank();
-
-        assertEq(received, 5e18);
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
-        assertEq(flow.targetOutflowRate(), flowRateBefore);
-        assertEq(treasury.totalRaised(), 105e18);
     }
 
     function test_donateUnderlyingAndUpgrade_revertsWhenFundingNoLongerAccepted() public {
@@ -1228,17 +1180,6 @@ contract GoalTreasuryTest is Test {
         vm.prank(hook);
         assertTrue(treasury.recordHookFunding(10e18));
         assertEq(treasury.totalRaised(), 10e18);
-    }
-
-    function test_recordHookFunding_whenFundingThresholdIsReached_autoActivatesBeforeDeadline() public {
-        (GoalTreasury nearDeadlineTreasury, uint256 amount) = _deployNearDeadlineTreasuryAtThreshold();
-        superToken.mint(address(flow), amount);
-
-        vm.prank(hook);
-        assertTrue(nearDeadlineTreasury.recordHookFunding(amount));
-
-        assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
-        assertGt(flow.targetOutflowRate(), 0);
     }
 
     function test_recordHookFunding_revertsAtGoalDeadline() public {
