@@ -77,6 +77,24 @@ contract TreasuryFlowRateSyncSuperfluidIntegrationTest is Test {
         }
     }
 
+    function test_applyCappedFlowRate_clampsToZeroAfterExistingFlowDrainsAvailableBalance() public {
+        int96 initialMaxRate = _expectedMaxRateFromBalance(address(flow));
+        int96 seedRate = initialMaxRate / 2;
+        if (seedRate == 0) seedRate = 1;
+        flow.setTargetOutflowRate(seedRate);
+
+        uint256 currentBalance = superToken.balanceOf(address(flow));
+        uint256 drainSeconds = (currentBalance / uint256(uint96(seedRate))) + 1 days;
+        vm.warp(block.timestamp + drainSeconds);
+
+        _assertBalanceOfMatchesRealtimeAvailable(address(flow));
+        assertEq(superToken.balanceOf(address(flow)), 0);
+
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), MAX_TARGET_RATE);
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
     function _assertApplyCappedRateMatchesExpectedMax(address account) internal {
         _assertBalanceOfMatchesRealtimeAvailable(account);
         int96 expectedMaxRate = _expectedMaxRateFromBalance(account);
