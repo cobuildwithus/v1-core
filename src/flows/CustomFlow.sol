@@ -192,6 +192,7 @@ contract CustomFlow is ICustomFlow, Flow {
      * @param flowOperator The flow-rate operations authority for the new contract
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
+     * @param managerRewardPoolFlowRatePpm The manager reward flow share for the child in 1e6-scale.
      * @param strategies The allocation strategies to use.
      * @return recipient address The address of the newly created Flow contract
      */
@@ -202,6 +203,7 @@ contract CustomFlow is ICustomFlow, Flow {
         address flowOperator,
         address sweeper,
         address managerRewardPool,
+        uint32 managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata strategies
     ) internal override returns (address recipient) {
         recipient = CustomFlowLibrary.deployFlowRecipient(
@@ -212,6 +214,7 @@ contract CustomFlow is ICustomFlow, Flow {
             flowOperator,
             sweeper,
             managerRewardPool,
+            managerRewardPoolFlowRatePpm,
             strategies
         );
     }

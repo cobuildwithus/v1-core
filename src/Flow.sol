@@ -126,6 +126,64 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _managerRewardPool,
         IAllocationStrategy[] calldata _strategies
     ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
+        return _addFlowRecipient(
+            _recipientId,
+            _metadata,
+            _recipientAdmin,
+            _flowOperator,
+            _sweeper,
+            _managerRewardPool,
+            _cfgStorage().managerRewardPoolFlowRatePpm,
+            _strategies
+        );
+    }
+
+    /**
+     * @notice Adds a new Flow contract as a recipient with explicit child-flow parameters.
+     * @param _recipientId The ID of the recipient. Must be unique and not already in use.
+     * @param _metadata The metadata of the recipient.
+     * @param _recipientAdmin The recipient-admin authority for the new contract.
+     * @param _flowOperator The flow-rate operations authority for the new contract.
+     * @param _sweeper The sweep authority for the new contract.
+     * @param _managerRewardPool The address of the manager reward pool for the new contract.
+     * @param _managerRewardPoolFlowRatePpm The manager reward flow share for the child in 1e6-scale.
+     * @param _strategies The allocation strategies to use.
+     * @return bytes32 The recipientId of the newly created Flow contract.
+     * @return address The address of the newly created Flow contract.
+     */
+    function addFlowRecipientWithParams(
+        bytes32 _recipientId,
+        RecipientMetadata calldata _metadata,
+        address _recipientAdmin,
+        address _flowOperator,
+        address _sweeper,
+        address _managerRewardPool,
+        uint32 _managerRewardPoolFlowRatePpm,
+        IAllocationStrategy[] calldata _strategies
+    ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
+        return
+            _addFlowRecipient(
+                _recipientId,
+                _metadata,
+                _recipientAdmin,
+                _flowOperator,
+                _sweeper,
+                _managerRewardPool,
+                _managerRewardPoolFlowRatePpm,
+                _strategies
+            );
+    }
+
+    function _addFlowRecipient(
+        bytes32 _recipientId,
+        RecipientMetadata calldata _metadata,
+        address _recipientAdmin,
+        address _flowOperator,
+        address _sweeper,
+        address _managerRewardPool,
+        uint32 _managerRewardPoolFlowRatePpm,
+        IAllocationStrategy[] calldata _strategies
+    ) internal returns (bytes32, address) {
         Config storage cfg = _cfgStorage();
         RecipientsState storage recipientsState = _recipientsStorage();
         if (cfg.parent != address(0)) revert NESTED_FLOW_RECIPIENTS_DISABLED();
@@ -139,6 +197,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             _flowOperator,
             _sweeper,
             _managerRewardPool,
+            _managerRewardPoolFlowRatePpm,
             _strategies
         );
 
@@ -168,6 +227,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param _flowOperator The flow-rate operations authority for the new contract
      * @param _sweeper The sweep authority for the new contract
      * @param _managerRewardPool The address of the manager reward pool for the new contract
+     * @param _managerRewardPoolFlowRatePpm The manager reward flow share for the child in 1e6-scale.
      * @param _strategies The allocation strategies to use.
      * @return address The address of the newly created Flow contract
      */
@@ -178,6 +238,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _flowOperator,
         address _sweeper,
         address _managerRewardPool,
+        uint32 _managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata _strategies
     ) internal virtual returns (address);
 

@@ -25,6 +25,7 @@ contract MockBudgetChildFlow {
     address private immutable _owner;
     address private immutable _parent;
     address private immutable _strategy;
+    uint32 private immutable _managerRewardPoolFlowRatePpm;
 
     int96 private _maxSafeFlowRate;
     int96 private _totalFlowRate;
@@ -38,7 +39,8 @@ contract MockBudgetChildFlow {
         address sweeper_,
         address owner_,
         address parent_,
-        address strategy_
+        address strategy_,
+        uint32 managerRewardPoolFlowRatePpm_
     ) {
         _superToken = superToken_;
         _recipientAdmin = recipientAdmin_;
@@ -47,6 +49,7 @@ contract MockBudgetChildFlow {
         _owner = owner_;
         _parent = parent_;
         _strategy = strategy_;
+        _managerRewardPoolFlowRatePpm = managerRewardPoolFlowRatePpm_;
     }
 
     function superToken() external view returns (ISuperToken) {
@@ -90,6 +93,10 @@ contract MockBudgetChildFlow {
     function getNetFlowRate() external view returns (int96) {
         if (_hasNetFlowRateOverride) return _netFlowRateOverride;
         return -_totalFlowRate;
+    }
+
+    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        return _managerRewardPoolFlowRatePpm;
     }
 
     function setMaxSafeFlowRate(int96 rate) external {
@@ -138,9 +145,11 @@ contract MockGoalFlowForBudgetTCR {
     address private _owner;
     address private _recipientAdmin;
     address private _managerRewardPool;
+    uint32 private _managerRewardPoolFlowRatePpm;
     ISuperToken private immutable _superToken;
 
     mapping(bytes32 => RecipientInfo) public recipients;
+    mapping(address => int96) private _memberFlowRates;
 
     constructor(address owner_, address recipientAdmin_, address managerRewardPool_, ISuperToken superToken_) {
         _owner = owner_;
@@ -165,8 +174,8 @@ contract MockGoalFlowForBudgetTCR {
         return _superToken;
     }
 
-    function managerRewardPoolFlowRatePpm() external pure returns (uint32) {
-        return 0;
+    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        return _managerRewardPoolFlowRatePpm;
     }
 
     function strategies() external pure returns (IAllocationStrategy[] memory s) {
@@ -179,6 +188,10 @@ contract MockGoalFlowForBudgetTCR {
 
     function distributionPool() external pure returns (ISuperfluidPool) {
         return ISuperfluidPool(address(0));
+    }
+
+    function getMemberFlowRate(address member) external view returns (int96 flowRate) {
+        flowRate = _memberFlowRates[member];
     }
 
     function recipientExists(address recipient) external view returns (bool exists) {
@@ -201,6 +214,16 @@ contract MockGoalFlowForBudgetTCR {
         _managerRewardPool = newManagerRewardPool;
     }
 
+    function setManagerRewardPoolFlowRatePpm(uint32 newManagerRewardPoolFlowRatePpm) external {
+        if (msg.sender != _owner && msg.sender != _recipientAdmin) revert NOT_OWNER_OR_RECIPIENT_ADMIN();
+        _managerRewardPoolFlowRatePpm = newManagerRewardPoolFlowRatePpm;
+    }
+
+    function setMemberFlowRate(address member, int96 flowRate) external {
+        if (msg.sender != _owner && msg.sender != _recipientAdmin) revert NOT_OWNER_OR_RECIPIENT_ADMIN();
+        _memberFlowRates[member] = flowRate;
+    }
+
     function addRecipient(bytes32 newRecipientId, address recipient, FlowTypes.RecipientMetadata memory)
         external
         returns (bytes32 recipientId, address recipientAddress)
@@ -219,6 +242,38 @@ contract MockGoalFlowForBudgetTCR {
         address,
         IAllocationStrategy[] calldata strategies
     ) external returns (bytes32 recipientId, address recipientAddress) {
+        return _addFlowRecipient(newRecipientId, childRecipientAdmin, flowOperator, sweeper, _managerRewardPoolFlowRatePpm, strategies);
+    }
+
+    function addFlowRecipientWithParams(
+        bytes32 newRecipientId,
+        FlowTypes.RecipientMetadata memory,
+        address childRecipientAdmin,
+        address flowOperator,
+        address sweeper,
+        address,
+        uint32 childManagerRewardPoolFlowRatePpm,
+        IAllocationStrategy[] calldata strategies
+    ) external returns (bytes32 recipientId, address recipientAddress) {
+        return
+            _addFlowRecipient(
+                newRecipientId,
+                childRecipientAdmin,
+                flowOperator,
+                sweeper,
+                childManagerRewardPoolFlowRatePpm,
+                strategies
+            );
+    }
+
+    function _addFlowRecipient(
+        bytes32 newRecipientId,
+        address childRecipientAdmin,
+        address flowOperator,
+        address sweeper,
+        uint32 childManagerRewardPoolFlowRatePpm,
+        IAllocationStrategy[] calldata strategies
+    ) internal returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
         address strategy = strategies.length == 0 ? address(0) : address(strategies[0]);
 
@@ -230,7 +285,8 @@ contract MockGoalFlowForBudgetTCR {
                 sweeper,
                 address(this),
                 address(this),
-                strategy
+                strategy,
+                childManagerRewardPoolFlowRatePpm
             );
         recipients[newRecipientId] = RecipientInfo({ recipient: address(child), isRemoved: false });
         return (newRecipientId, address(child));

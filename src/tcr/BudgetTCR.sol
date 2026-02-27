@@ -39,7 +39,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         if (budgetBounds.maxExecutionDuration < budgetBounds.minExecutionDuration) revert INVALID_BOUNDS();
         if (budgetBounds.maxActivationThreshold < budgetBounds.minActivationThreshold) revert INVALID_BOUNDS();
-        if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0 || oracleBounds.maxOracleType < 1) {
+        if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0) {
             revert INVALID_BOUNDS();
         }
 
@@ -76,7 +76,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function _verifyItemData(bytes calldata item) internal view override returns (bool valid) {
-        return BudgetTCRValidationLib.verifyItemData(item, budgetValidationBounds, oracleValidationBounds, goalTreasury.deadline());
+        return BudgetTCRValidationLib.verifyItemData(item, budgetValidationBounds, goalTreasury.deadline());
     }
 
     function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
@@ -242,13 +242,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address localManagerRewardPool = managerRewardPool != address(0)
             ? managerRewardPool
             : goalFlow.managerRewardPool();
-        (, address childFlow) = goalFlow.addFlowRecipient(
+        (, address childFlow) = goalFlow.addFlowRecipientWithParams(
             itemID,
             listing.metadata,
             prepared.budgetTreasury,
             prepared.budgetTreasury,
             prepared.budgetTreasury,
             localManagerRewardPool,
+            0,
             childStrategies
         );
 

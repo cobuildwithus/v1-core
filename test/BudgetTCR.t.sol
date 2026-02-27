@@ -270,18 +270,6 @@ contract BudgetTCRTest is TestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_initialize_reverts_when_max_oracle_type_lt_uma_type() public {
-        (
-            BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
-            IBudgetTCR.DeploymentConfig memory deploymentConfig
-        ) = _freshInitializeConfig();
-        deploymentConfig.oracleValidationBounds.maxOracleType = 0;
-
-        vm.expectRevert(IBudgetTCR.INVALID_BOUNDS.selector);
-        freshTcr.initialize(registryConfig, deploymentConfig);
-    }
-
     function test_governor_is_init_only_with_no_direct_setter() public {
         address initialGovernor = budgetTcr.governor();
 
@@ -408,6 +396,20 @@ contract BudgetTCRTest is TestUtils {
         uint256 requesterBefore = depositToken.balanceOf(requester);
         budgetTcr.withdrawFeesAndRewards(requester, itemID, 0, 0);
         assertEq(depositToken.balanceOf(requester) - requesterBefore, arbitrationCost);
+    }
+
+    function test_activateRegisteredBudget_forcesChildManagerRewardRateToZero() public {
+        goalFlow.setManagerRewardPoolFlowRatePpm(250_000);
+
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
+
+        (address childFlow,) = goalFlow.recipients(itemID);
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 0);
     }
 
     function test_activateRegisteredBudget_usesGlobalOracleBoundsForSuccessAssertionConfig() public {
@@ -1558,7 +1560,6 @@ contract BudgetTCRTest is TestUtils {
                 maxRunwayCap: 2_000_000e18
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                maxOracleType: 3,
                 liveness: 1 days,
                 bondAmount: 10e18
             })
@@ -1609,7 +1610,6 @@ contract BudgetTCRTest is TestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleType: 1,
             oracleSpecHash: keccak256("budget-oracle-spec"),
             assertionPolicyHash: keccak256("budget-assertion-policy")
         });
