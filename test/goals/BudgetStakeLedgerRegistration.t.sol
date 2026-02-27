@@ -12,6 +12,9 @@ contract BudgetStakeLedgerRegistrationTest is Test {
     bytes32 internal constant RECIPIENT_A = bytes32(uint256(1));
     bytes32 internal constant RECIPIENT_B = bytes32(uint256(2));
     bytes32 internal constant RECIPIENT_C = bytes32(uint256(3));
+    uint32 internal constant FULL_SCALED = 1_000_000;
+    uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
+    address internal constant ACCOUNT = address(0xA11CE);
 
     address internal manager = address(0xB0B);
 
@@ -160,6 +163,28 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         ledger.removeBudget(RECIPIENT_A);
     }
 
+    function test_registerBudget_andRemoveBudget_revertAfterImmediateFinalization() public {
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(uint8(IGoalTreasury.GoalState.Expired), uint64(block.timestamp));
+
+        assertTrue(ledger.finalized());
+        assertFalse(ledger.finalizationInProgress());
+
+        MockBudgetFlow anotherFlow = new MockBudgetFlow(address(goalFlow));
+        MockBudgetTreasury anotherBudget = new MockBudgetTreasury(address(anotherFlow));
+
+        vm.prank(manager);
+        vm.expectRevert(IBudgetStakeLedger.REGISTRATION_CLOSED.selector);
+        ledger.registerBudget(RECIPIENT_B, address(anotherBudget));
+
+        vm.prank(manager);
+        vm.expectRevert(IBudgetStakeLedger.REGISTRATION_CLOSED.selector);
+        ledger.removeBudget(RECIPIENT_A);
+    }
+
     function test_registerBudget_requiresFlowRecipientAdmin_notLegacyManager() public {
         address recipientAdmin = address(0xACE);
         goalFlow.setRecipientAdmin(recipientAdmin);
@@ -254,13 +279,37 @@ contract BudgetStakeLedgerRegistrationTest is Test {
         budget.setState(IBudgetTreasury.BudgetState.Failed);
         assertTrue(ledger.allTrackedBudgetsResolved());
     }
+
+    function test_checkpointAllocation_beforeRegister_isIgnored_thenRegisterStartsClean() public {
+        uint256 weight = 25 * UNIT_WEIGHT_SCALE;
+        bytes32[] memory newIds = new bytes32[](1);
+        newIds[0] = RECIPIENT_A;
+        uint32[] memory newScaled = new uint32[](1);
+        newScaled[0] = FULL_SCALED;
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(ACCOUNT, 0, new bytes32[](0), new uint32[](0), weight, newIds, newScaled);
+
+        vm.prank(manager);
+        ledger.registerBudget(RECIPIENT_A, address(budget));
+
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget)), 0);
+        assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
+        assertEq(ledger.userPointsOnBudget(ACCOUNT, address(budget)), 0);
+        assertEq(ledger.budgetPoints(address(budget)), 0);
+    }
 }
 
 contract MockGoalTreasury {
     address public flow;
+    bool public resolved;
 
     constructor(address flow_) {
         flow = flow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

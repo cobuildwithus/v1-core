@@ -155,6 +155,7 @@ library GoalFlowLedgerMode {
         if (ledger == address(0)) return (0, false);
 
         (address treasury, address stakeVault) = validateOrRevertView(strategies, cache, ledger, expectedFlow);
+        if (_goalTreasuryResolvedOrRevert(ledger, treasury)) return (0, false);
 
         bool goalResolved;
         try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
@@ -185,6 +186,7 @@ library GoalFlowLedgerMode {
         if (ledger == address(0)) return (0, false);
 
         (address treasury, address stakeVault) = validateOrRevert(strategies, cache, ledger, expectedFlow);
+        if (_goalTreasuryResolvedOrRevert(ledger, treasury)) return (0, false);
 
         bool goalResolved;
         try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
@@ -312,6 +314,14 @@ library GoalFlowLedgerMode {
             unchecked {
                 ++i;
             }
+        }
+    }
+
+    function _goalTreasuryResolvedOrRevert(address ledger, address treasury) private view returns (bool goalResolved) {
+        try IGoalTreasury(treasury).resolved() returns (bool resolved_) {
+            goalResolved = resolved_;
+        } catch {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledger, treasury);
         }
     }
 

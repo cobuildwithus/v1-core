@@ -142,10 +142,15 @@ contract GoalFlowLedgerModeValidationLedger {
 contract GoalFlowLedgerModeValidationGoalTreasury {
     address public flow;
     address public stakeVault;
+    bool public resolved;
 
     constructor(address flow_, address stakeVault_) {
         flow = flow_;
         stakeVault = stakeVault_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

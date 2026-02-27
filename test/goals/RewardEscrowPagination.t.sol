@@ -296,6 +296,7 @@ contract RewardEscrowPaginationMockStakeVault {
 contract RewardEscrowPaginationMockGoalTreasury {
     address public flow;
     address public rewardEscrow;
+    bool public resolved;
 
     constructor(address flow_) {
         flow = flow_;
@@ -303,6 +304,10 @@ contract RewardEscrowPaginationMockGoalTreasury {
 
     function setRewardEscrow(address rewardEscrow_) external {
         rewardEscrow = rewardEscrow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

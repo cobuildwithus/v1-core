@@ -162,6 +162,7 @@ contract RewardEscrowDustMockToken is ERC20 {
 contract RewardEscrowDustMockGoalTreasury {
     address public flow;
     address public rewardEscrow;
+    bool public resolved;
 
     function setFlow(address flow_) external {
         flow = flow_;
@@ -169,6 +170,10 @@ contract RewardEscrowDustMockGoalTreasury {
 
     function setRewardEscrow(address rewardEscrow_) external {
         rewardEscrow = rewardEscrow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

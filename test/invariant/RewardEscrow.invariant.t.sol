@@ -81,6 +81,10 @@ contract RewardEscrowInvariantHandler is Test {
         return address(escrow);
     }
 
+    function resolved() external pure returns (bool) {
+        return false;
+    }
+
     function checkpointAllocation(uint256 actorSeed, uint256 newWeight, uint64 advanceBy) external {
         if (escrow.finalized()) return;
         address actor = _actors[actorSeed % _actors.length];

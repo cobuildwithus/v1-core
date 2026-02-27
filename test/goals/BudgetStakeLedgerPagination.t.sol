@@ -108,6 +108,65 @@ contract BudgetStakeLedgerPaginationTest is Test {
         assertEq(ledger.budgetResolvedAtFinalize(address(budgets[unresolvedIndex])), resolvedAt);
     }
 
+    function test_finalize_success_unresolvedBudgetKeepsStallingWhenNeverResolved() public {
+        uint64 finalizeTs = uint64(block.timestamp);
+        _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
+
+        uint256 unresolvedIndex = 5;
+        budgets[unresolvedIndex].setResolvedAt(0);
+        budgets[unresolvedIndex].setState(IBudgetTreasury.BudgetState.Active);
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(GOAL_SUCCEEDED, finalizeTs);
+
+        assertTrue(ledger.finalizationInProgress());
+        assertEq(ledger.finalizeCursor(), unresolvedIndex);
+
+        for (uint256 i = 0; i < 3; ) {
+            (bool done, uint256 processed) = ledger.finalizeStep(7);
+            assertFalse(done);
+            assertEq(processed, 0);
+            assertEq(ledger.finalizeCursor(), unresolvedIndex);
+            assertTrue(ledger.finalizationInProgress());
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function test_finalize_success_outOfOrderResolutionDoesNotAdvancePastFirstBlocker() public {
+        uint64 finalizeTs = uint64(block.timestamp);
+        _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
+
+        uint256 firstBlockerIndex = 3;
+        uint256 laterIndex = 7;
+        budgets[firstBlockerIndex].setResolvedAt(0);
+        budgets[firstBlockerIndex].setState(IBudgetTreasury.BudgetState.Active);
+        budgets[laterIndex].setResolvedAt(0);
+        budgets[laterIndex].setState(IBudgetTreasury.BudgetState.Active);
+
+        vm.prank(address(goalTreasury));
+        ledger.finalize(GOAL_SUCCEEDED, finalizeTs);
+        assertEq(ledger.finalizeCursor(), firstBlockerIndex);
+
+        budgets[laterIndex].setResolvedAt(finalizeTs + 1);
+        budgets[laterIndex].setState(IBudgetTreasury.BudgetState.Succeeded);
+
+        (bool doneBefore, uint256 processedBefore) = ledger.finalizeStep(10);
+        assertFalse(doneBefore);
+        assertEq(processedBefore, 0);
+        assertEq(ledger.finalizeCursor(), firstBlockerIndex);
+        assertTrue(ledger.finalizationInProgress());
+
+        budgets[firstBlockerIndex].setResolvedAt(finalizeTs + 2);
+        budgets[firstBlockerIndex].setState(IBudgetTreasury.BudgetState.Succeeded);
+
+        (bool doneAfter, uint256 processedAfter) = ledger.finalizeStep(10);
+        assertFalse(doneAfter);
+        assertGt(processedAfter, 0);
+        assertGt(ledger.finalizeCursor(), firstBlockerIndex);
+    }
+
     function test_finalize_success_doesNotStallOnRemovedBudgetWithZeroResolvedAt() public {
         uint64 finalizeTs = uint64(block.timestamp);
         _markAllBudgetsResolved(IBudgetTreasury.BudgetState.Succeeded, finalizeTs);
@@ -343,7 +402,6 @@ contract BudgetStakeLedgerPaginationTest is Test {
             budgets.push(budget);
             recipientIds.push(recipientId);
 
-            vm.prank(address(this));
             ledger.registerBudget(recipientId, address(budget));
 
             unchecked {
@@ -396,9 +454,14 @@ contract BudgetStakeLedgerPaginationTest is Test {
 
 contract PaginationMockGoalTreasury {
     address public flow;
+    bool public resolved;
 
     constructor(address flow_) {
         flow = flow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

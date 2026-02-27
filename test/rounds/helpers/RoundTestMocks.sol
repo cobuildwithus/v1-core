@@ -190,6 +190,7 @@ contract RoundTestGoalTreasury {
     address public flow;
     address public rewardEscrow;
     address public stakeVault;
+    bool public resolved;
 
     constructor(address flow_, address rewardEscrow_, address stakeVault_) {
         flow = flow_;
@@ -207,6 +208,10 @@ contract RoundTestGoalTreasury {
 
     function setStakeVault(address stakeVault_) external {
         stakeVault = stakeVault_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

@@ -130,6 +130,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint32[] calldata newScaled
     ) external override onlyGoalFlow {
         if (finalized || finalizationInProgress) return;
+        if (IGoalTreasury(goalTreasury).resolved()) return;
         if (account == address(0)) revert ADDRESS_ZERO();
         if (prevRecipientIds.length != prevScaled.length) revert INVALID_CHECKPOINT_DATA();
         if (newRecipientIds.length != newScaled.length) revert INVALID_CHECKPOINT_DATA();
