@@ -13,6 +13,7 @@ Last verified: 2026-02-27
 - Local required gate composition: `pnpm -s test:lite:shared` (includes shared build)
 - CI-parity gate composition: `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
 - `verify:required` is queue-backed/coalesced for concurrent local agents (`scripts/verify-queue.sh submit required --wait`).
+- Queue `required` mode defaults to `FOUNDRY_PROFILE=default` and `TEST_SCOPE_SKIP_SHARED_BUILD=1` to avoid duplicate prebuild+test compile passes in the gated path.
 - Queue worker start has no batch-delay path (workers start immediately).
 - Queue worker lane caches are lane-scoped (not fingerprint-scoped) so adjacent requests can reuse prior `FOUNDRY_OUT`/`FOUNDRY_CACHE_PATH` artifacts.
 
@@ -40,7 +41,8 @@ Last verified: 2026-02-27
 - Optional compile strategy toggles for scoped experiments:
   - `TEST_SCOPE_DYNAMIC_TEST_LINKING=1` to pass `--dynamic-test-linking`.
   - `TEST_SCOPE_SPARSE_MODE=1` to enable `FOUNDRY_SPARSE_MODE=true`.
-- Optional fast local iteration profile (keeps required gate unchanged):
+  - `TEST_SCOPE_SKIP_SHARED_BUILD=1` to skip prebuild and compile directly in `forge test`.
+- Optional fast local iteration profile (same fast profile, but outside queue/coalescing path):
   - `pnpm -s test:lite:fast`
   - `pnpm -s test:flows:fast`
   - `pnpm -s test:goals:fast`

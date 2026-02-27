@@ -5,6 +5,7 @@
 - `pnpm -s verify:required`
 - `pnpm -s verify:required:ci` (optional local CI parity, includes invariants)
 - `verify:required` is queue-backed/coalesced to reduce duplicate concurrent local runs.
+- Queue `required` mode defaults to `FOUNDRY_PROFILE=default` and `TEST_SCOPE_SKIP_SHARED_BUILD=1` for a single-compile local gate path.
 - Queue worker start is immediate (no batch-delay config path).
 - Queue worker lane caches are lane-scoped (not fingerprint-scoped) to maximize artifact reuse across adjacent local requests.
 - `bash scripts/check-agent-docs-drift.sh`
@@ -15,13 +16,14 @@
 - Shared machine test pass: `pnpm -s test:lite:shared` (default test `-j 0`, shared-build `-j 0`).
 - Shared machine build pass: `pnpm -s build` (shared compile lane + workspace-fingerprint reuse).
 - `test:lite` and `test:lite:shared` are now routed through `scripts/test-scope.sh all-lite` (single invariant-exclusion path).
-- Fast local iteration profile (reduced compile pressure, non-gating):
+- Fast local iteration profile shortcuts (reduced compile pressure for direct lane runs):
   - `pnpm -s test:lite:fast`
   - `pnpm -s test:flows:fast`
   - `pnpm -s test:goals:fast`
 - Optional compile strategy variants for scoped lanes:
   - `pnpm -s test:flows:shared:dynamic` (`--dynamic-test-linking` + `FOUNDRY_SPARSE_MODE=true`)
   - `pnpm -s test:goals:shared:dynamic` (`--dynamic-test-linking` + `FOUNDRY_SPARSE_MODE=true`)
+  - `TEST_SCOPE_SKIP_SHARED_BUILD=1 pnpm -s test:lite:shared` (skip prebuild; compile directly in test run)
 - Shared machine coverage pass: `pnpm -s coverage:ci:shared` (`-j 4` thread cap).
 - Serialized full gate (shared log + stale detection): `pnpm -s verify:full`.
 - Strict serialized full gate (fails on workspace drift): `pnpm -s verify:full:strict`.

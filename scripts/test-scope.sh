@@ -18,6 +18,7 @@ Scopes:
 Environment:
   TEST_SCOPE_THREADS=<n>                 Thread cap passed to forge test via -j (default: 0=all cores).
   TEST_SCOPE_BUILD_THREADS=<n>           Shared-build thread cap (default: SHARED_BUILD_THREADS or 0).
+  TEST_SCOPE_SKIP_SHARED_BUILD=1         Skip shared prebuild and let forge test compile directly.
   TEST_SCOPE_DYNAMIC_TEST_LINKING=1      Pass --dynamic-test-linking to forge test.
   TEST_SCOPE_SPARSE_MODE=1               Run forge test with FOUNDRY_SPARSE_MODE=true.
   TEST_SCOPE_BUILD_DYNAMIC_TEST_LINKING=1  Force shared build to use --dynamic-test-linking.
@@ -45,6 +46,7 @@ if [ -n "$build_threads" ] && ! [[ "$build_threads" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+skip_shared_build="${TEST_SCOPE_SKIP_SHARED_BUILD:-0}"
 dynamic_test_linking="${TEST_SCOPE_DYNAMIC_TEST_LINKING:-0}"
 sparse_mode="${TEST_SCOPE_SPARSE_MODE:-0}"
 build_dynamic_test_linking="${TEST_SCOPE_BUILD_DYNAMIC_TEST_LINKING:-$dynamic_test_linking}"
@@ -61,21 +63,23 @@ is_truthy() {
   esac
 }
 
-build_cmd=(scripts/forge-build-shared.sh)
-build_env=()
-if [ -n "$build_threads" ]; then
-  build_cmd+=(--threads "$build_threads")
-fi
-if is_truthy "$build_dynamic_test_linking"; then
-  build_env+=(SHARED_BUILD_DYNAMIC_TEST_LINKING=1)
-fi
-if is_truthy "$build_sparse_mode"; then
-  build_env+=(SHARED_BUILD_SPARSE_MODE=1)
-fi
-if [ "${#build_env[@]}" -gt 0 ]; then
-  env "${build_env[@]}" "${build_cmd[@]}"
-else
-  "${build_cmd[@]}"
+if ! is_truthy "$skip_shared_build"; then
+  build_cmd=(scripts/forge-build-shared.sh)
+  build_env=()
+  if [ -n "$build_threads" ]; then
+    build_cmd+=(--threads "$build_threads")
+  fi
+  if is_truthy "$build_dynamic_test_linking"; then
+    build_env+=(SHARED_BUILD_DYNAMIC_TEST_LINKING=1)
+  fi
+  if is_truthy "$build_sparse_mode"; then
+    build_env+=(SHARED_BUILD_SPARSE_MODE=1)
+  fi
+  if [ "${#build_env[@]}" -gt 0 ]; then
+    env "${build_env[@]}" "${build_cmd[@]}"
+  else
+    "${build_cmd[@]}"
+  fi
 fi
 
 cmd=(forge test -vvv)

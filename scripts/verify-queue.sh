@@ -12,7 +12,7 @@ Usage:
 
 Commands:
   submit  Enqueue a verification request. Default mode is "required".
-          Mode "required" runs:    pnpm -s test:lite:shared
+          Mode "required" runs:    FOUNDRY_PROFILE=default TEST_SCOPE_SKIP_SHARED_BUILD=1 pnpm -s test:lite:shared (defaults)
           Mode "required-ci" runs: pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
           Mode "full" runs:     pnpm -s verify:full
   worker  Process queued requests in batches. Requests are grouped by workspace fingerprint.
@@ -26,6 +26,10 @@ Environment:
   VERIFY_QUEUE_WORKER_LANES=<n>         Max concurrent worker lanes (default: 4).
   VERIFY_QUEUE_LOCK_STALE_SECONDS=<n>   Stale worker-lock cleanup threshold (default: 600).
   VERIFY_QUEUE_RUNTIME_DIR=<path>       Override runtime root (default: <git-dir>/agent-runtime).
+  VERIFY_QUEUE_REQUIRED_PROFILE=<name>  Foundry profile for required mode (default: default).
+  VERIFY_QUEUE_REQUIRED_THREADS=<n>     TEST_SCOPE_THREADS for required mode (default: 8).
+  VERIFY_QUEUE_REQUIRED_BUILD_THREADS=<n> TEST_SCOPE_BUILD_THREADS for required mode (default: 8).
+  VERIFY_QUEUE_REQUIRED_SKIP_SHARED_BUILD=<bool>  TEST_SCOPE_SKIP_SHARED_BUILD for required mode (default: 1).
 USAGE
   exit 2
 }
@@ -53,6 +57,10 @@ poll_seconds="${VERIFY_QUEUE_POLL_SECONDS:-3}"
 max_batch="${VERIFY_QUEUE_MAX_BATCH:-50}"
 worker_lanes="${VERIFY_QUEUE_WORKER_LANES:-4}"
 lock_stale_seconds="${VERIFY_QUEUE_LOCK_STALE_SECONDS:-600}"
+required_profile="${VERIFY_QUEUE_REQUIRED_PROFILE:-default}"
+required_threads="${VERIFY_QUEUE_REQUIRED_THREADS:-8}"
+required_build_threads="${VERIFY_QUEUE_REQUIRED_BUILD_THREADS:-8}"
+required_skip_shared_build="${VERIFY_QUEUE_REQUIRED_SKIP_SHARED_BUILD:-1}"
 
 fingerprint_scope_paths=(
   "src"
@@ -125,6 +133,15 @@ require_positive_int() {
   local value="$2"
   if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 1 ]; then
     printf 'Error: %s must be a positive integer\n' "$name" >&2
+    exit 1
+  fi
+}
+
+require_non_negative_int() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 0 ]; then
+    printf 'Error: %s must be a non-negative integer\n' "$name" >&2
     exit 1
   fi
 }
@@ -561,6 +578,19 @@ run_worker() {
   require_positive_int "VERIFY_QUEUE_POLL_SECONDS" "$poll_local"
   require_positive_int "VERIFY_QUEUE_WORKER_LANES" "$worker_lanes_local"
   require_positive_int "VERIFY_QUEUE_LOCK_STALE_SECONDS" "$lock_stale_seconds"
+  require_non_negative_int "VERIFY_QUEUE_REQUIRED_THREADS" "$required_threads"
+  require_non_negative_int "VERIFY_QUEUE_REQUIRED_BUILD_THREADS" "$required_build_threads"
+  case "$required_skip_shared_build" in
+    1|true|TRUE|yes|YES|on|ON|0|false|FALSE|no|NO|off|OFF) ;;
+    *)
+      printf 'Error: VERIFY_QUEUE_REQUIRED_SKIP_SHARED_BUILD must be boolean-like (1/0/true/false)\n' >&2
+      return 1
+      ;;
+  esac
+  if ! [[ "$required_profile" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf 'Error: VERIFY_QUEUE_REQUIRED_PROFILE must match ^[A-Za-z0-9._-]+$\n' >&2
+    return 1
+  fi
 
   if ! acquire_worker_lane "$wait_for_lock" "$poll_local" "$lock_stale_seconds" "$worker_lanes_local"; then
     if [ "$wait_for_lock" = false ]; then
@@ -658,17 +688,24 @@ run_worker() {
       else
         run_exit=$?
       fi
-    else
+    elif [ "$mode" = "required-ci" ]; then
       if env "${lane_env[@]}" pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
-        if [ "$mode" = "required-ci" ]; then
-          if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
-            run_exit=0
-          else
-            run_exit=$?
-          fi
-        else
+        if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
           run_exit=0
+        else
+          run_exit=$?
         fi
+      else
+        run_exit=$?
+      fi
+    else
+      if env "${lane_env[@]}" \
+        "FOUNDRY_PROFILE=$required_profile" \
+        "TEST_SCOPE_THREADS=$required_threads" \
+        "TEST_SCOPE_BUILD_THREADS=$required_build_threads" \
+        "TEST_SCOPE_SKIP_SHARED_BUILD=$required_skip_shared_build" \
+        pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
+        run_exit=0
       else
         run_exit=$?
       fi
