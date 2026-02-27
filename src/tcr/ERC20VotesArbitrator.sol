@@ -43,7 +43,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     error UNAUTHORIZED_DELEGATE();
     error STAKE_VAULT_NOT_SET();
     error STAKE_VAULT_ALREADY_SET();
-    error JUROR_SLASHER_NOT_CONFIGURED();
 
     event StakeVaultConfigured(address indexed stakeVault);
     event VoterSlashed(
@@ -1120,7 +1119,8 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             uint256 allocationWeight = ledger.getPastUserAllocationWeight(voter, blockNumber);
             if (allocationWeight == 0) return 0;
 
-            uint256 proportionalVotes = Math.mulDiv(jurorVotes, budgetVotes, allocationWeight);
+            uint256 cappedJurorVotes = Math.min(jurorVotes, allocationWeight);
+            uint256 proportionalVotes = Math.mulDiv(cappedJurorVotes, budgetVotes, allocationWeight);
             return Math.min(Math.min(proportionalVotes, jurorVotes), budgetVotes);
         }
         return _votingToken.getPastVotes(voter, blockNumber);
@@ -1134,13 +1134,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     }
 
     function _slashJurorStake(address juror, uint256 weightAmount, address recipient) internal {
-        address slasher = _stakeVault.jurorSlasher();
-        if (slasher == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
-        if (slasher == address(this)) {
-            _stakeVault.slashJurorStake(juror, weightAmount, recipient);
-            return;
-        }
-        IJurorSlasher(slasher).slashJurorStake(juror, weightAmount, recipient);
+        IJurorSlasher(_stakeVault.jurorSlasher()).slashJurorStake(juror, weightAmount, recipient);
     }
 
     /**
