@@ -71,6 +71,12 @@ contract BudgetTCRStackDeploymentLibMockToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
 }
 
+contract BudgetTCRStackDeploymentLibMockParentFlow {
+    function getMemberFlowRate(address) external pure returns (int96) {
+        return 0;
+    }
+}
+
 contract BudgetTCRStackDeploymentLibMockChildFlow {
     error NOT_RECIPIENT_ADMIN();
 
@@ -85,7 +91,7 @@ contract BudgetTCRStackDeploymentLibMockChildFlow {
         recipientAdmin = recipientAdmin_;
         flowOperator = recipientAdmin_;
         sweeper = recipientAdmin_;
-        parent = address(0xBEEF);
+        parent = address(new BudgetTCRStackDeploymentLibMockParentFlow());
         _superToken = superToken_;
         _strategy = strategy_;
     }
@@ -449,7 +455,6 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleType: 1,
             oracleSpecHash: keccak256("oracle-spec"),
             assertionPolicyHash: keccak256("oracle-policy")
         });

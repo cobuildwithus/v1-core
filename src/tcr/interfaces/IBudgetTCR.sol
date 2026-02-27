@@ -23,13 +23,11 @@ interface IBudgetTCR is IGeneralizedTCR {
     }
 
     struct OracleValidationBounds {
-        uint8 maxOracleType;
         uint64 liveness;
         uint256 bondAmount;
     }
 
     struct OracleConfig {
-        uint8 oracleType;
         bytes32 oracleSpecHash;
         bytes32 assertionPolicyHash;
     }
@@ -77,7 +75,6 @@ interface IBudgetTCR is IGeneralizedTCR {
         bytes32 indexed itemID,
         address indexed childFlow,
         address indexed budgetTreasury,
-        address stakeVault,
         address strategy
     );
     event BudgetStackActivationQueued(bytes32 indexed itemID);

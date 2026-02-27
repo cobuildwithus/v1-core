@@ -18,7 +18,7 @@ Use these as the default deployment profile unless a goal/budget has unusually h
 | `assertionCurrency` | `USDC` | Deep liquidity and familiar ops profile. Matches common market-resolution practice. |
 | `successAssertionBond` | `750 USDC` (`750e6` in 6-decimal units) | Reasonable anti-spam/economic-signaling baseline aligned with Polymarket's commonly cited operator policy. |
 | `successAssertionLiveness` | `2 hours` (`7200`) | Fast resolution baseline; increase for higher-value treasuries. |
-| `oracleConfig.oracleType` (Budget TCR listings) | `1` (UMA OOv3) | Required by current validator bounds. |
+| `oracleConfig.oracleSpecHash` + `oracleConfig.assertionPolicyHash` (Budget TCR listings) | Non-zero hashes | Required by current validator bounds. |
 
 ## Required Minimums vs Defaults
 
@@ -80,4 +80,4 @@ These are operator recommendations, not protocol rules.
   - `src/goals/UMATreasurySuccessResolver.sol`
   - `src/goals/GoalTreasury.sol`
   - `src/goals/BudgetTreasury.sol`
-  - `src/tcr/BudgetTCRValidator.sol`
+  - `src/tcr/library/BudgetTCRValidationLib.sol`

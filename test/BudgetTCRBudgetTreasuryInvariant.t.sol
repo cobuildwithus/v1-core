@@ -206,7 +206,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
                 maxRunwayCap: 2_000_000e18
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                maxOracleType: 3,
                 liveness: 1 days,
                 bondAmount: 10e18
             })
@@ -226,7 +225,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleType: 1,
             oracleSpecHash: keccak256("budget-oracle-spec"),
             assertionPolicyHash: keccak256("budget-assertion-policy")
         });

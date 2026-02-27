@@ -81,7 +81,7 @@ cobuild-protocol/
   - Goal treasury uses a spend-pattern target model (linear locked today) from treasury balance over remaining time.
     Goal sync proactively caps linear targets with a buffer-derived liquidation-horizon bound when the target is currently
     buffer-affordable, then applies best-effort writes (target, fallback bounded, then zero on persistent write failure).
-  - Budget treasury uses pass-through targeting from measured incoming flow (`net + outgoing`) and applies
+  - Budget treasury uses pass-through targeting from trusted parent member flow-rate (`parent.getMemberFlowRate(child)`) and applies
     best-effort writes with buffer-aware fallback semantics.
 - `GoalRevnetSplitHook` is controller-gated and treasury-state derived:
   - If `goalTreasury.canAcceptHookFunding()`, reserved inflow funds the goal flow.
@@ -117,8 +117,9 @@ cobuild-protocol/
   - immutable `successResolver` (per treasury) controls `registerSuccessAssertion`/`clearSuccessAssertion`,
   - goal treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful,
   - budget treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful.
-- Budget listing oracle mode is UMA-only:
-  - `BudgetTCRValidationLib` requires `listing.oracleConfig.oracleType == 1` (UMA OOv3).
+- Budget listing oracle config is hash-only:
+  - `BudgetTCRValidationLib` requires non-zero `listing.oracleConfig.oracleSpecHash` and
+    non-zero `listing.oracleConfig.assertionPolicyHash`.
 - Policy C deadline semantics are enforced at treasury level:
   - goal success assertions can only be registered before treasury deadline,
   - budget success assertions are pre-deadline by default, with a one-time post-deadline registration exception during active reassert grace,

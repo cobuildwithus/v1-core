@@ -34,14 +34,17 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - raw linear target is `treasuryBalance / timeRemaining`,
   - when the linear target is currently buffer-affordable, sync applies a proactive buffer-derived liquidation-horizon cap before write attempts,
   - write-time fallback ladder remains active on reverts.
+- Budget active flow-rate targeting is parent-member-rate based:
+  - raw budget target is `parentFlow.getMemberFlowRate(address(budgetFlow))` clamped at `>= 0`,
+  - unsolicited third-party inbound streams to the budget flow must not increase budget target rate.
 - Manual failure is budget-only and controller-gated (`resolveFailure`), with no goal manual-failure entrypoint.
 - Goal terminal states are `Succeeded` and `Expired`; resolved-false or invalid post-deadline success assertions finalize to `Expired`.
 - Success transitions are assertion-backed:
   - immutable `successResolver` controls assertion registration/clearing,
   - goal `resolveSuccess` is success-resolver-only and requires an active pending truthful assertion id,
   - budget `resolveSuccess` is success-resolver-only and requires an active pending truthful assertion id.
-- Budget listing oracle mode is UMA-only:
-  - `oracleConfig.oracleType` must equal `1` (UMA OOv3).
+- Budget listing oracle config is hash-only:
+  - `oracleConfig.oracleSpecHash` and `oracleConfig.assertionPolicyHash` must both be non-zero.
 - Budget success assertion registration is funding-window gated (no registration before `fundingDeadline`).
 - Policy C deadline behavior:
   - goal success assertions must be initiated pre-deadline,

@@ -273,7 +273,6 @@ contract BudgetTCRFactoryCoverageTest is Test {
                 maxRunwayCap: 2_000_000e18
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                maxOracleType: 3,
                 liveness: 1 days,
                 bondAmount: 10e18
             })

@@ -443,7 +443,6 @@ contract BudgetTCRFactoryTest is Test {
             maxRunwayCap: 4_000_000e18
         });
         deploymentConfig.oracleValidationBounds = IBudgetTCR.OracleValidationBounds({
-            maxOracleType: 5,
             liveness: 2 hours,
             bondAmount: 2e18
         });
@@ -498,12 +497,7 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(maxActivationThreshold, deploymentConfig.budgetValidationBounds.maxActivationThreshold);
         assertEq(maxRunwayCap, deploymentConfig.budgetValidationBounds.maxRunwayCap);
 
-        (
-            uint8 maxOracleType,
-            uint64 liveness,
-            uint256 bondAmount
-        ) = deployedBudgetTCR.oracleValidationBounds();
-        assertEq(maxOracleType, deploymentConfig.oracleValidationBounds.maxOracleType);
+        (uint64 liveness, uint256 bondAmount) = deployedBudgetTCR.oracleValidationBounds();
         assertEq(liveness, deploymentConfig.oracleValidationBounds.liveness);
         assertEq(bondAmount, deploymentConfig.oracleValidationBounds.bondAmount);
     }
@@ -766,7 +760,6 @@ contract BudgetTCRFactoryTest is Test {
                 maxRunwayCap: 2_000_000e18
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                maxOracleType: 3,
                 liveness: 1 days,
                 bondAmount: 10e18
             })
