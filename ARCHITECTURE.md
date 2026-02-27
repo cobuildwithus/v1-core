@@ -44,7 +44,7 @@ cobuild-protocol/
 - Goal/escrow/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/rent/reward math modules).
 - Allocation strategies:
   - `src/goals/GoalStakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
-  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution; reward points are computed as window-normalized matured support on the same effective stake basis, with warmup derived from scoring-window length).
+  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution; reward points are computed as window-normalized matured support on the same effective stake basis, with warmup using a fixed global maturation window).
 - Reward escrow for finalized goal distribution: `src/goals/RewardEscrow.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 

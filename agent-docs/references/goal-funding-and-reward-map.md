@@ -95,7 +95,7 @@
 - Slash settlement is taken from live staked balances (with juror-lock accounting clamped afterward), preventing exit-finalization slash evasion.
 - `GoalStakeVault` projects live vault weight into goal-flow allocation permissions via built-in strategy methods.
 - `BudgetFlowRouterStrategy` projects per-budget stake from `BudgetStakeLedger.userAllocatedStakeOnBudget(...)` into budget-flow allocation permissions via registered `childFlow -> recipientId` routing.
-- Reward points use `BudgetStakeLedger` checkpointed effective stake (quantized to Flow unit-weight scale, `1e15`) with maturation/warmup: recent stake increments start unmatured and decay to full point-rate over a scoring-window-derived period (`window / 10`, clamped to `[1 second, 30 days]`).
+- Reward points use `BudgetStakeLedger` checkpointed effective stake (quantized to Flow unit-weight scale, `1e15`) with maturation/warmup: recent stake increments start unmatured and decay to full point-rate over a fixed global period (`6 hours`).
 - Reward points are fundraising-window scoped per budget and window-normalized: raw matured stake-time accrual stops at the earliest applicable exogenous cutoff (`activatedAt`, `fundingDeadline`, goal success, or removal), then divides by scoring-window seconds.
 - Warmup and normalization are points-only on effective stake; sub-unit raw stake dust that does not affect Flow units does not accrue points.
 - Budget stake-ledger checkpointing requires sorted/unique recipient-id arrays and reverts on malformed ordering.

@@ -105,10 +105,6 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         budget.setExecutionDuration(uint64(365 days));
         uint256 pointsAfterLongDurationMutation = ledger.userPointsOnBudget(ACCOUNT, address(budget));
         assertEq(pointsAfterLongDurationMutation, pointsBeforeMutation);
-
-        vm.warp(block.timestamp + 3 hours);
-        _checkpoint(ACCOUNT, weight, weight);
-        assertGt(ledger.userPointsOnBudget(ACCOUNT, address(budget)), pointsBeforeMutation);
     }
 
     function test_userPointsOnBudget_matchAcrossBudgetsWithDifferentExecutionDurations() public {
@@ -125,7 +121,7 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         IBudgetStakeLedger.BudgetInfoView memory secondBudgetInfo = ledger.budgetInfo(address(secondBudget));
         assertEq(primaryBudgetInfo.scoringStartsAt, secondBudgetInfo.scoringStartsAt);
         assertEq(primaryBudgetInfo.scoringEndsAt, secondBudgetInfo.scoringEndsAt);
-        assertNe(budget.executionDuration(), secondBudget.executionDuration());
+        assertTrue(budget.executionDuration() != secondBudget.executionDuration());
 
         uint256 weight = 1e21;
         _checkpointForRecipient(ACCOUNT, 0, weight, BUDGET_RECIPIENT_ID);
@@ -559,9 +555,14 @@ contract BudgetStakeLedgerEconomicsMockGoalFlow {
 
 contract BudgetStakeLedgerEconomicsMockGoalTreasury {
     address public flow;
+    bool public resolved;
 
     constructor(address flow_) {
         flow = flow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

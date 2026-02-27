@@ -65,7 +65,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     `min(goal success timestamp, budget fundingDeadline, budget activation timestamp, budget removal timestamp)`,
   - budget activation timestamp (`activatedAt`) is written on permissionless `sync()` when funding transitions to active (keeper-timing dependent),
   - payout points are window-normalized (`raw matured stake-time / scoring-window seconds`), where scoring window starts at budget registration time,
-  - maturation/warmup is derived from scoring-window length (`window / 10`, clamped to `[1 second, 30 days]`),
+  - maturation/warmup uses a fixed global period (`6 hours`),
   - budget `resolvedAt` no longer truncates point accrual.
 - Terminal residual handling remains callable after finalization (`GoalTreasury.settleLateResidual`, `BudgetTreasury.settleLateResidualToParent`) to absorb late inflows without stranded value.
 - Failed escrow sweep policy is no-reward: goal sweep burns via `goalRevnetId`, cobuild sweep burns via immutable `cobuildRevnetId` (seeded from `goalRevnetId`).

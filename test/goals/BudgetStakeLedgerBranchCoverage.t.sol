@@ -206,7 +206,7 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
     }
 
-    function test_registerBudget_setsMinimumMaturationPeriodWhenScoringWindowBelowDivisor() public {
+    function test_registerBudget_shortScoringWindowStillRegisters() public {
         BudgetStakeLedgerCoverageBudgetTreasury budget2 = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
         budget2.setFundingDeadline(uint64(block.timestamp + 1));
 
@@ -214,7 +214,9 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
 
         IBudgetStakeLedger.BudgetInfoView memory info = ledger.budgetInfo(address(budget2));
-        assertEq(info.maturationPeriodSeconds, 1);
+        assertEq(info.scoringEndsAt, uint64(block.timestamp + 1));
+        assertGt(info.scoringStartsAt, 0);
+        assertLe(info.scoringStartsAt, info.scoringEndsAt);
     }
 
     function test_registerBudget_clampsScoringStartToPastFundingDeadlineAndPreventsPointAccrual() public {
@@ -228,7 +230,6 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         IBudgetStakeLedger.BudgetInfoView memory info = ledger.budgetInfo(address(budget2));
         assertEq(info.scoringEndsAt, 95);
         assertEq(info.scoringStartsAt, 95);
-        assertEq(info.maturationPeriodSeconds, 1);
 
         bytes32[] memory newIds = new bytes32[](1);
         newIds[0] = SECOND_RECIPIENT;
@@ -435,6 +436,7 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
 contract BudgetStakeLedgerCoverageGoalTreasury {
     address private _flow;
     address private _rewardEscrow;
+    bool private _resolved;
 
     constructor(address flow_) {
         _flow = flow_;
@@ -454,6 +456,14 @@ contract BudgetStakeLedgerCoverageGoalTreasury {
 
     function rewardEscrow() external view returns (address) {
         return _rewardEscrow;
+    }
+
+    function setResolved(bool resolved_) external {
+        _resolved = resolved_;
+    }
+
+    function resolved() external view returns (bool) {
+        return _resolved;
     }
 }
 

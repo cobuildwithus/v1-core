@@ -527,6 +527,58 @@ contract RewardEscrowTest is Test {
         assertGt(claimAmount, 0);
     }
 
+    function test_checkpointAllocation_noopsWhenGoalTreasuryResolved() public {
+        bytes32[] memory ids = _ids1(RECIPIENT_A);
+        uint32[] memory scaled = _scaled1(1_000_000);
+
+        vm.warp(100);
+        _checkpointInitial(alice, 100, ids, scaled);
+        IBudgetStakeLedger.BudgetCheckpointView memory before = ledger.budgetCheckpoint(address(budgetA));
+        assertGt(before.lastCheckpoint, 0);
+
+        goalTreasury.setResolved(true);
+
+        vm.warp(200);
+        IBudgetStakeLedger.BudgetCheckpointView memory expectedAtResolvedTs = ledger.budgetCheckpoint(address(budgetA));
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        IBudgetStakeLedger.BudgetCheckpointView memory afterCheckpoint = ledger.budgetCheckpoint(address(budgetA));
+
+        assertEq(afterCheckpoint.totalAllocatedStake, expectedAtResolvedTs.totalAllocatedStake);
+        assertEq(afterCheckpoint.totalUnmaturedStake, expectedAtResolvedTs.totalUnmaturedStake);
+        assertEq(afterCheckpoint.accruedPoints, expectedAtResolvedTs.accruedPoints);
+        assertEq(afterCheckpoint.lastCheckpoint, expectedAtResolvedTs.lastCheckpoint);
+        assertEq(afterCheckpoint.totalAllocatedStake, before.totalAllocatedStake);
+        assertEq(afterCheckpoint.lastCheckpoint, before.lastCheckpoint);
+    }
+
+    function test_checkpointAllocation_noopsWhenGoalTreasuryResolved_evenWithInvalidPayload() public {
+        bytes32[] memory ids = _ids1(RECIPIENT_A);
+        uint32[] memory scaled = _scaled1(1_000_000);
+        uint32[] memory emptyScaled = new uint32[](0);
+
+        vm.warp(100);
+        _checkpointInitial(alice, 100, ids, scaled);
+        goalTreasury.setResolved(true);
+
+        IBudgetStakeLedger.UserBudgetCheckpointView memory beforeUser = ledger.userBudgetCheckpoint(alice, address(budgetA));
+        IBudgetStakeLedger.BudgetCheckpointView memory beforeBudget = ledger.budgetCheckpoint(address(budgetA));
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(address(0), 1, ids, emptyScaled, 1, ids, scaled);
+
+        IBudgetStakeLedger.UserBudgetCheckpointView memory afterUser = ledger.userBudgetCheckpoint(alice, address(budgetA));
+        IBudgetStakeLedger.BudgetCheckpointView memory afterBudget = ledger.budgetCheckpoint(address(budgetA));
+
+        assertEq(afterUser.allocatedStake, beforeUser.allocatedStake);
+        assertEq(afterUser.unmaturedStake, beforeUser.unmaturedStake);
+        assertEq(afterUser.accruedPoints, beforeUser.accruedPoints);
+        assertEq(afterUser.lastCheckpoint, beforeUser.lastCheckpoint);
+        assertEq(afterBudget.totalAllocatedStake, beforeBudget.totalAllocatedStake);
+        assertEq(afterBudget.totalUnmaturedStake, beforeBudget.totalUnmaturedStake);
+        assertEq(afterBudget.accruedPoints, beforeBudget.accruedPoints);
+        assertEq(afterBudget.lastCheckpoint, beforeBudget.lastCheckpoint);
+    }
+
     function test_finalize_success_removedBudgetCapsPointsAtRemoval_andExcludesRewards() public {
         bytes32[] memory ids = _ids1(RECIPIENT_A);
         uint32[] memory scaled = _scaled1(1_000_000);
@@ -719,7 +771,7 @@ contract RewardEscrowTest is Test {
     }
 
     function test_warmup_snipingLargeLateStakeUnderperformsLongerHold() public {
-        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000, 201); // M = 100s
+        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000, 201); // fixed tau
         bytes32[] memory ids = _ids1(RECIPIENT_WARMUP);
         uint32[] memory scaled = _scaled1(1_000_000);
 
@@ -746,7 +798,7 @@ contract RewardEscrowTest is Test {
     }
 
     function test_warmup_decreaseDoesNotInstantlyMatureRemainingStake() public {
-        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000); // M = 100s
+        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000); // fixed tau
         bytes32[] memory ids = _ids1(RECIPIENT_WARMUP);
         uint32[] memory scaled = _scaled1(1_000_000);
 
@@ -767,7 +819,7 @@ contract RewardEscrowTest is Test {
     }
 
     function test_warmup_budgetPointsApproximatelyMatchSumOfUserPoints() public {
-        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000); // M = 100s
+        RewardEscrowMockBudgetTreasury warmupBudget = _registerWarmupBudget(RECIPIENT_WARMUP, 1_000); // fixed tau
         bytes32[] memory ids = _ids1(RECIPIENT_WARMUP);
         uint32[] memory scaled = _scaled1(1_000_000);
 
@@ -1379,6 +1431,7 @@ contract RewardEscrowMockToken is ERC20 {
 contract RewardEscrowMockGoalTreasury {
     address public flow;
     address public rewardEscrow;
+    bool public resolved;
 
     function setFlow(address flow_) external {
         flow = flow_;
@@ -1386,6 +1439,10 @@ contract RewardEscrowMockGoalTreasury {
 
     function setRewardEscrow(address rewardEscrow_) external {
         rewardEscrow = rewardEscrow_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 

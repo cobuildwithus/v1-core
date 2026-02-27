@@ -10,7 +10,6 @@ interface IBudgetStakeLedger {
         uint64 activatedAt;
         uint64 scoringStartsAt;
         uint64 scoringEndsAt;
-        uint64 maturationPeriodSeconds;
         uint64 resolvedOrRemovedAt;
     }
 
