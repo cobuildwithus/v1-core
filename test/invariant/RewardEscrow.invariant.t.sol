@@ -8,7 +8,7 @@ import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -50,7 +50,7 @@ contract RewardEscrowInvariantHandler is Test {
         escrow = new RewardEscrow(
             address(this),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             ledger
         );

@@ -10,7 +10,7 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { SharedMockFlow, SharedMockStakeVault } from "test/goals/helpers/TreasurySharedMocks.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -90,7 +90,7 @@ contract RewardEscrowTest is Test {
         escrow = new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -108,7 +108,7 @@ contract RewardEscrowTest is Test {
         new RewardEscrow(
             address(0),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -117,7 +117,7 @@ contract RewardEscrowTest is Test {
         new RewardEscrow(
             address(goalTreasury),
             IERC20(address(0)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -126,7 +126,7 @@ contract RewardEscrowTest is Test {
         new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(0)),
+            IStakeVault(address(0)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -135,7 +135,7 @@ contract RewardEscrowTest is Test {
         new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(0))
         );
@@ -148,7 +148,7 @@ contract RewardEscrowTest is Test {
         new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(badStakeVault)),
+            IStakeVault(address(badStakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -525,6 +525,54 @@ contract RewardEscrowTest is Test {
         vm.prank(alice);
         (uint256 claimAmount, ) = escrow.claim(alice);
         assertEq(claimAmount, 0);
+    }
+
+    function test_finalize_success_removedActivationLockedBudgetCapsPointsAtRemoval_andPreservesRewards() public {
+        bytes32[] memory ids = _ids1(RECIPIENT_A);
+        uint32[] memory scaled = _scaled1(1_000_000);
+
+        vm.warp(100);
+        _checkpointInitial(alice, 100, ids, scaled);
+
+        vm.warp(200);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        uint256 pointsAtRemoval = escrow.budgetPoints(address(budgetA));
+        assertGt(pointsAtRemoval, 0);
+
+        budgetA.setDeadline(1);
+        budgetA.setState(IBudgetTreasury.BudgetState.Active);
+        budgetA.setResolvedAt(0);
+
+        budgetB.setResolvedAt(210);
+        budgetC.setResolvedAt(210);
+        assertFalse(escrow.allTrackedBudgetsResolved());
+
+        bool lockRewardHistory = ledger.removeBudget(RECIPIENT_A);
+        assertTrue(lockRewardHistory);
+        assertEq(ledger.budgetForRecipient(RECIPIENT_A), address(0));
+        assertFalse(escrow.allTrackedBudgetsResolved());
+
+        budgetA.setState(IBudgetTreasury.BudgetState.Succeeded);
+        budgetA.setResolvedAt(260);
+        assertTrue(escrow.allTrackedBudgetsResolved());
+
+        vm.warp(300);
+        _checkpoint(alice, 100, ids, scaled, 100, ids, scaled);
+        assertEq(escrow.budgetPoints(address(budgetA)), pointsAtRemoval);
+
+        rewardToken.mint(address(escrow), 100e18);
+
+        vm.warp(400);
+        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
+
+        assertEq(escrow.budgetPoints(address(budgetA)), pointsAtRemoval);
+        assertEq(escrow.userPointsOnBudget(alice, address(budgetA)), pointsAtRemoval);
+        assertTrue(escrow.budgetSucceededAtFinalize(address(budgetA)));
+        assertEq(escrow.totalPointsSnapshot(), pointsAtRemoval);
+
+        vm.prank(alice);
+        (uint256 claimAmount, ) = escrow.claim(alice);
+        assertGt(claimAmount, 0);
     }
 
     function test_finalize_success_usersWithoutSuccessfulBudgetPointsClaimZero() public {
@@ -1255,6 +1303,9 @@ contract RewardEscrowMockBudgetTreasury {
     uint64 public resolvedAt;
     uint64 public executionDuration = 10;
     uint64 public fundingDeadline = type(uint64).max;
+    uint64 public deadline;
+    uint256 public activationThreshold = 1;
+    uint256 public treasuryBalance;
 
     constructor(address flow_) {
         flow = flow_;
@@ -1279,6 +1330,18 @@ contract RewardEscrowMockBudgetTreasury {
 
     function setFundingDeadline(uint64 fundingDeadline_) external {
         fundingDeadline = fundingDeadline_;
+    }
+
+    function setDeadline(uint64 deadline_) external {
+        deadline = deadline_;
+    }
+
+    function setActivationThreshold(uint256 activationThreshold_) external {
+        activationThreshold = activationThreshold_;
+    }
+
+    function setTreasuryBalance(uint256 treasuryBalance_) external {
+        treasuryBalance = treasuryBalance_;
     }
 }
 

@@ -54,20 +54,17 @@ contract BudgetTCRFactory {
     address public immutable budgetTCRImplementation;
     address public immutable arbitratorImplementation;
     address public immutable stackDeployerImplementation;
-    address public immutable itemValidatorImplementation;
     uint256 public immutable escrowBondBps;
 
     constructor(
         address budgetTCRImplementation_,
         address arbitratorImplementation_,
         address stackDeployerImplementation_,
-        address itemValidatorImplementation_,
         uint256 escrowBondBps_
     ) {
         if (budgetTCRImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (arbitratorImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (stackDeployerImplementation_ == address(0)) revert ADDRESS_ZERO();
-        if (itemValidatorImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (escrowBondBps_ == 0 || escrowBondBps_ > BPS_DENOMINATOR) {
             revert INVALID_ESCROW_BOND_BPS(escrowBondBps_);
         }
@@ -80,14 +77,10 @@ contract BudgetTCRFactory {
         if (stackDeployerImplementation_.code.length == 0) {
             revert IMPLEMENTATION_HAS_NO_CODE(stackDeployerImplementation_);
         }
-        if (itemValidatorImplementation_.code.length == 0) {
-            revert IMPLEMENTATION_HAS_NO_CODE(itemValidatorImplementation_);
-        }
 
         budgetTCRImplementation = budgetTCRImplementation_;
         arbitratorImplementation = arbitratorImplementation_;
         stackDeployerImplementation = stackDeployerImplementation_;
-        itemValidatorImplementation = itemValidatorImplementation_;
         escrowBondBps = escrowBondBps_;
     }
 
@@ -113,7 +106,6 @@ contract BudgetTCRFactory {
         address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
-        address itemValidator = Clones.clone(itemValidatorImplementation);
         IBudgetTCRDeployer(stackDeployer).initialize(budgetTCR);
 
         IERC20VotesArbitrator(arbitrator).initializeWithStakeVaultAndSlashConfig(
@@ -150,8 +142,7 @@ contract BudgetTCRFactory {
 
         IBudgetTCR.DeploymentConfig memory deploymentConfigFull = _buildDeploymentConfig(
             deploymentConfig,
-            stackDeployer,
-            itemValidator
+            stackDeployer
         );
 
         IBudgetTCR(budgetTCR).initialize(registryConfigFull, deploymentConfigFull);
@@ -215,12 +206,10 @@ contract BudgetTCRFactory {
 
     function _buildDeploymentConfig(
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
-        address stackDeployer,
-        address itemValidator
+        address stackDeployer
     ) internal pure returns (IBudgetTCR.DeploymentConfig memory config) {
         config = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
-            itemValidator: itemValidator,
             budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
             goalFlow: deploymentConfig.goalFlow,
             goalTreasury: deploymentConfig.goalTreasury,

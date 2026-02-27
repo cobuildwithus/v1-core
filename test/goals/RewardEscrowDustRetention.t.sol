@@ -8,7 +8,7 @@ import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { SharedMockFlow, SharedMockStakeVault } from "test/goals/helpers/TreasurySharedMocks.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -58,7 +58,7 @@ contract RewardEscrowDustRetentionTest is Test {
         escrow = new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -26,7 +26,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     TreasuryReassertGrace.State private _reassertGrace;
 
     IFlow private _flow;
-    IGoalStakeVault private _stakeVault;
+    IStakeVault private _stakeVault;
 
     ISuperToken public override superToken;
 
@@ -82,7 +82,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         }
 
         _flow = IFlow(config.flow);
-        _stakeVault = IGoalStakeVault(config.stakeVault);
+        _stakeVault = IStakeVault(config.stakeVault);
 
         address configuredGoalTreasury = _stakeVault.goalTreasury();
         if (configuredGoalTreasury != address(this)) {

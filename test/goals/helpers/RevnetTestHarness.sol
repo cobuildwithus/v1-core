@@ -73,7 +73,7 @@ contract RevnetTestDirectory is IJBDirectory {
 
 /// @notice Minimal ruleset simulator used by Goal/Revnet integration tests.
 /// @dev Not a canonical Nana/JBX rulesets implementation. Keep parity/spec-lock tests up to date when changing this.
-/// @dev Implements only behavior relied on by GoalStakeVault/GoalTreasury integration paths.
+/// @dev Implements only behavior relied on by StakeVault/GoalTreasury integration paths.
 contract RevnetTestRulesets is IJBRulesets {
     error UNSUPPORTED();
     error UNAUTHORIZED(address caller);

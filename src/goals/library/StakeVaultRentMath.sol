@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-library GoalStakeVaultRentMath {
+library StakeVaultRentMath {
     uint256 private constant _WAD = 1e18;
 
     function accrualCutoff(uint64 nowTs, uint64 goalResolvedAt) internal pure returns (uint64 cutoff) {

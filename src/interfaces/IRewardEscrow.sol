@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { IGoalStakeVault } from "./IGoalStakeVault.sol";
+import { IStakeVault } from "./IStakeVault.sol";
 
 interface IRewardEscrow {
     struct ClaimPreview {
@@ -65,7 +65,7 @@ interface IRewardEscrow {
     function rewardToken() external view returns (IERC20);
     function cobuildToken() external view returns (IERC20);
     function rewardSuperToken() external view returns (ISuperToken);
-    function stakeVault() external view returns (IGoalStakeVault);
+    function stakeVault() external view returns (IStakeVault);
     function rewardPoolSnapshot() external view returns (uint256);
     function cobuildPoolSnapshot() external view returns (uint256);
     function totalPointsSnapshot() external view returns (uint256);

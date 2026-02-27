@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
-import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IRewardEscrow } from "../interfaces/IRewardEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
@@ -52,7 +52,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     uint64 public override resolvedAt;
 
     IFlow private _flow;
-    IGoalStakeVault private _stakeVault;
+    IStakeVault private _stakeVault;
     IRewardEscrow private _rewardEscrow;
     address private _hook;
     address private _authority;
@@ -137,7 +137,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (config.minRaiseDeadline == 0 || config.minRaiseDeadline < nowTs) revert INVALID_DEADLINES();
 
         _flow = IFlow(config.flow);
-        _stakeVault = IGoalStakeVault(config.stakeVault);
+        _stakeVault = IStakeVault(config.stakeVault);
         _rewardEscrow = IRewardEscrow(config.rewardEscrow);
         _hook = config.hook;
         _authority = initialOwner;
@@ -906,7 +906,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
     function _requireGoalTokenInvariants(
         ISuperToken configuredSuperToken,
-        IGoalStakeVault configuredStakeVault,
+        IStakeVault configuredStakeVault,
         IJBRulesets configuredGoalRulesets,
         address configuredHook,
         uint256 configuredGoalRevnetId

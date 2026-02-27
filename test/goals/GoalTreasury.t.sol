@@ -10,7 +10,7 @@ import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {
@@ -2442,7 +2442,7 @@ contract GoalTreasuryTest is Test {
         RewardEscrow rewardEscrow = new RewardEscrow(
             foreignGoalTreasury,
             IERC20(address(underlyingToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(superToken)),
             IBudgetStakeLedger(address(ledger))
         );
@@ -3498,7 +3498,7 @@ contract GoalTreasuryTest is Test {
         rewardEscrow = new RewardEscrow(
             predictedTreasury,
             IERC20(address(underlyingToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(superToken)),
             IBudgetStakeLedger(address(ledger))
         );

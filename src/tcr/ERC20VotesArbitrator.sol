@@ -8,7 +8,7 @@ import { IERC20Votes } from "./interfaces/IERC20Votes.sol";
 import { ArbitratorStorageV1 } from "./storage/ArbitratorStorageV1.sol";
 import { ArbitrationCostExtraData } from "./utils/ArbitrationCostExtraData.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
@@ -1008,7 +1008,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         if (stakeVault_ == address(0)) revert INVALID_STAKE_VAULT_ADDRESS();
         if (address(_stakeVault) != address(0)) revert STAKE_VAULT_ALREADY_SET();
 
-        address goalTreasury = IGoalStakeVault(stakeVault_).goalTreasury();
+        address goalTreasury = IStakeVault(stakeVault_).goalTreasury();
         if (goalTreasury == address(0)) revert INVALID_STAKE_VAULT_GOAL_TREASURY();
         address rewardEscrow;
         try IGoalTreasury(goalTreasury).rewardEscrow() returns (address rewardEscrow_) {
@@ -1018,7 +1018,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         }
         if (rewardEscrow == address(0) || rewardEscrow.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
 
-        _stakeVault = IGoalStakeVault(stakeVault_);
+        _stakeVault = IStakeVault(stakeVault_);
         emit StakeVaultConfigured(stakeVault_);
     }
 

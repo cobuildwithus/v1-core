@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-library GoalStakeVaultJurorMath {
+library StakeVaultJurorMath {
     function computeOptInGoalWeightDelta(
         uint256 goalAmount,
         uint256 stakedGoal,

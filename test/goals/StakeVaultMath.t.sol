@@ -3,13 +3,13 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { GoalStakeVaultRentMath } from "src/goals/library/GoalStakeVaultRentMath.sol";
-import { GoalStakeVaultJurorMath } from "src/goals/library/GoalStakeVaultJurorMath.sol";
-import { GoalStakeVaultSlashMath } from "src/goals/library/GoalStakeVaultSlashMath.sol";
+import { StakeVaultRentMath } from "src/goals/library/StakeVaultRentMath.sol";
+import { StakeVaultJurorMath } from "src/goals/library/StakeVaultJurorMath.sol";
+import { StakeVaultSlashMath } from "src/goals/library/StakeVaultSlashMath.sol";
 
-contract GoalStakeVaultMathTest is Test {
+contract StakeVaultMathTest is Test {
     function testFuzz_accrualCutoff_differentialMatchesLegacy(uint64 nowTs, uint64 goalResolvedAt) public view {
-        uint64 newCutoff = GoalStakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt);
+        uint64 newCutoff = StakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt);
         uint64 refCutoff = _legacyAccrualCutoff(nowTs, goalResolvedAt);
         assertEq(newCutoff, refCutoff);
     }
@@ -24,7 +24,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 staked = bound(stakedSeed, 0, 1e36);
         uint256 rentWadPerSecond = bound(rentRateSeed, 0, 1e18);
 
-        uint256 newValue = GoalStakeVaultRentMath.previewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
+        uint256 newValue = StakeVaultRentMath.previewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
         uint256 refValue = _legacyPreviewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
 
         assertEq(newValue, refValue);
@@ -46,7 +46,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 pendingCobuildRent = bound(pendingCobuildSeed, 0, 1e30);
         uint256 rentWadPerSecond = bound(rentRateSeed, 0, 1e18);
 
-        (uint64 newLast, uint256 newPendingGoal, uint256 newPendingCobuild) = GoalStakeVaultRentMath.accrueRent(
+        (uint64 newLast, uint256 newPendingGoal, uint256 newPendingCobuild) = StakeVaultRentMath.accrueRent(
             lastCheckpoint,
             cutoff,
             goalStake,
@@ -86,7 +86,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 freeGoal = stakedGoal - lockedGoal;
         uint256 goalAmount = freeGoal == 0 ? 0 : bound(goalAmountSeed, 0, freeGoal);
 
-        uint256 newDelta = GoalStakeVaultJurorMath.computeOptInGoalWeightDelta(
+        uint256 newDelta = StakeVaultJurorMath.computeOptInGoalWeightDelta(
             goalAmount,
             stakedGoal,
             lockedGoal,
@@ -114,7 +114,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 goalAmount = lockedGoal == 0 ? 0 : bound(goalAmountSeed, 0, lockedGoal);
 
         uint256 newReduction =
-            GoalStakeVaultJurorMath.computeFinalizeGoalWeightReduction(goalAmount, lockedGoal, lockedGoalWeight);
+            StakeVaultJurorMath.computeFinalizeGoalWeightReduction(goalAmount, lockedGoal, lockedGoalWeight);
         uint256 refReduction = _legacyComputeFinalizeGoalWeightReduction(goalAmount, lockedGoal, lockedGoalWeight);
 
         assertEq(newReduction, refReduction);
@@ -197,7 +197,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 requestedWeight,
         uint256 currentStakeWeight
     ) internal pure returns (uint256 goalSlash, uint256 goalWeightSlash, uint256 cobuildSlash) {
-        GoalStakeVaultSlashMath.StakeSlashSnapshot memory snapshot = GoalStakeVaultSlashMath.StakeSlashSnapshot({
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = StakeVaultSlashMath.StakeSlashSnapshot({
             stakedGoal: stakedGoal,
             goalWeight: goalWeight,
             stakedCobuild: stakedCobuild,
@@ -205,8 +205,8 @@ contract GoalStakeVaultMathTest is Test {
             lockedGoalWeight: 0,
             lockedCobuild: 0
         });
-        GoalStakeVaultSlashMath.SlashAmounts memory slash =
-            GoalStakeVaultSlashMath.computeStakeSlashBreakdown(snapshot, requestedWeight, currentStakeWeight);
+        StakeVaultSlashMath.SlashAmounts memory slash =
+            StakeVaultSlashMath.computeStakeSlashBreakdown(snapshot, requestedWeight, currentStakeWeight);
         return (slash.goalAmount, slash.goalWeight, slash.cobuildAmount);
     }
 
@@ -220,7 +220,7 @@ contract GoalStakeVaultMathTest is Test {
         uint256 slashGoalAmount,
         uint256 slashCobuildAmount
     ) internal pure returns (uint256 goalSlash, uint256 goalWeightSlash, uint256 cobuildSlash) {
-        GoalStakeVaultSlashMath.StakeSlashSnapshot memory snapshot = GoalStakeVaultSlashMath.StakeSlashSnapshot({
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = StakeVaultSlashMath.StakeSlashSnapshot({
             stakedGoal: stakedGoal,
             goalWeight: goalWeight,
             stakedCobuild: stakedCobuild,
@@ -228,10 +228,10 @@ contract GoalStakeVaultMathTest is Test {
             lockedGoalWeight: lockedGoalWeight,
             lockedCobuild: lockedCobuild
         });
-        GoalStakeVaultSlashMath.SlashAmounts memory slash =
-            GoalStakeVaultSlashMath.SlashAmounts({goalAmount: slashGoalAmount, goalWeight: 0, cobuildAmount: slashCobuildAmount});
-        GoalStakeVaultSlashMath.SlashAmounts memory lockedSlash =
-            GoalStakeVaultSlashMath.computeLockedSlashBreakdown(snapshot, slash);
+        StakeVaultSlashMath.SlashAmounts memory slash =
+            StakeVaultSlashMath.SlashAmounts({goalAmount: slashGoalAmount, goalWeight: 0, cobuildAmount: slashCobuildAmount});
+        StakeVaultSlashMath.SlashAmounts memory lockedSlash =
+            StakeVaultSlashMath.computeLockedSlashBreakdown(snapshot, slash);
         return (lockedSlash.goalAmount, lockedSlash.goalWeight, lockedSlash.cobuildAmount);
     }
 

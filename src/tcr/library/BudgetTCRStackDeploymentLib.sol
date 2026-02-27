@@ -3,9 +3,9 @@ pragma solidity ^0.8.34;
 
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
+import { StakeVault } from "src/goals/StakeVault.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
@@ -33,7 +33,7 @@ library BudgetTCRStackDeploymentLib {
         if (strategy == address(0) || strategy.code.length == 0) revert INVALID_STRATEGY(strategy);
 
         address stakeVault = address(
-            new GoalStakeVault(
+            new StakeVault(
                 treasuryAnchor,
                 goalToken,
                 cobuildToken,
@@ -62,7 +62,7 @@ library BudgetTCRStackDeploymentLib {
         if (childFlow == address(0)) revert ADDRESS_ZERO();
         if (successResolver == address(0)) revert ADDRESS_ZERO();
 
-        budgetTreasury = IGoalStakeVault(stakeVault).goalTreasury();
+        budgetTreasury = IStakeVault(stakeVault).goalTreasury();
         if (budgetTreasury == address(0) || budgetTreasury.code.length == 0) {
             revert INVALID_TREASURY_ANCHOR(budgetTreasury);
         }

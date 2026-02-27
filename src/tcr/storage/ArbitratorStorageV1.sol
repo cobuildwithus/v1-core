@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import { IArbitrable } from "../interfaces/IArbitrable.sol";
 import { IERC20Votes } from "../interfaces/IERC20Votes.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 /**
  * @title ArbitratorStorageV1
@@ -231,7 +231,7 @@ contract ArbitratorStorageV1 {
      * @notice Optional stake vault used for juror voting power snapshots.
      * @dev If zero, voting power falls back to ERC20Votes token snapshots.
      */
-    IGoalStakeVault internal _stakeVault;
+    IStakeVault internal _stakeVault;
 
     /**
      * @notice Tracks per-round voter slash processing to prevent duplicate slashing.

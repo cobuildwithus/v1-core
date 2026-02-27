@@ -4,8 +4,8 @@ pragma solidity ^0.8.34;
 import { Test } from "forge-std/Test.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { StakeVault } from "src/goals/StakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { ICustomFlow } from "src/interfaces/IFlow.sol";
 
@@ -21,7 +21,7 @@ import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import { MockFeeOnTransferVotesToken } from "test/mocks/MockFeeOnTransferVotesToken.sol";
 import { MockSelectiveFeeVotesToken } from "test/mocks/MockSelectiveFeeVotesToken.sol";
 
-contract GoalStakeVaultTest is Test {
+contract StakeVaultTest is Test {
     uint256 internal constant GOAL_PROJECT_ID = 111;
     uint256 internal constant RENT_RATE_WAD_PER_SECOND = 1e10;
     bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
@@ -41,7 +41,7 @@ contract GoalStakeVaultTest is Test {
     VaultMockDirectory internal directory;
     VaultMockTokens internal controllerTokens;
     VaultMockController internal controller;
-    GoalStakeVault internal vault;
+    StakeVault internal vault;
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
@@ -57,7 +57,7 @@ contract GoalStakeVaultTest is Test {
         controllerTokens.setDefaultProjectId(GOAL_PROJECT_ID);
         controllerTokens.setProjectIdOf(address(goalToken), GOAL_PROJECT_ID);
 
-        vault = new GoalStakeVault(
+        vault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -78,8 +78,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnZeroAddresses() public {
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        new StakeVault(
             address(0),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -111,7 +111,7 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_strategyKey_constant() public view {
-        assertEq(vault.strategyKey(), "GoalStakeVault");
+        assertEq(vault.strategyKey(), "StakeVault");
     }
 
     function test_stakeVault_returnsSelf() public view {
@@ -151,8 +151,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnZeroGoalToken() public {
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        new StakeVault(
             address(this),
             IERC20(address(0)),
             IERC20(address(cobuildToken)),
@@ -165,8 +165,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnZeroCobuildToken() public {
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(0)),
@@ -179,8 +179,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnZeroRulesets() public {
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -196,8 +196,8 @@ contract GoalStakeVaultTest is Test {
         VaultMockDecimalsToken token6 = new VaultMockDecimalsToken("USDC", "USDC", 6);
         VaultMockDecimalsToken token18 = new VaultMockDecimalsToken("Token", "TKN", 18);
 
-        vm.expectRevert(abi.encodeWithSelector(IGoalStakeVault.DECIMALS_MISMATCH.selector, 6, 18));
-        new GoalStakeVault(
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.DECIMALS_MISMATCH.selector, 6, 18));
+        new StakeVault(
             address(this),
             IERC20(address(token6)),
             IERC20(address(token18)),
@@ -210,8 +210,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnInvalidPaymentTokenDecimals() public {
-        vm.expectRevert(abi.encodeWithSelector(IGoalStakeVault.INVALID_PAYMENT_TOKEN_DECIMALS.selector, 78));
-        new GoalStakeVault(
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_PAYMENT_TOKEN_DECIMALS.selector, 78));
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -224,8 +224,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnPaymentTokenDecimalsMismatch() public {
-        vm.expectRevert(abi.encodeWithSelector(IGoalStakeVault.PAYMENT_TOKEN_DECIMALS_MISMATCH.selector, 18, 6));
-        new GoalStakeVault(
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.PAYMENT_TOKEN_DECIMALS_MISMATCH.selector, 18, 6));
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -238,8 +238,8 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_constructor_revertsOnInvalidRentConfig() public {
-        vm.expectRevert(IGoalStakeVault.INVALID_RENT_CONFIG.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.INVALID_RENT_CONFIG.selector);
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -250,8 +250,8 @@ contract GoalStakeVaultTest is Test {
             RENT_RATE_WAD_PER_SECOND
         );
 
-        vm.expectRevert(IGoalStakeVault.INVALID_RENT_CONFIG.selector);
-        new GoalStakeVault(
+        vm.expectRevert(IStakeVault.INVALID_RENT_CONFIG.selector);
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -266,8 +266,8 @@ contract GoalStakeVaultTest is Test {
     function test_constructor_revertsWhenGoalProjectControllerMissing() public {
         directory.setController(GOAL_PROJECT_ID, address(0));
 
-        vm.expectRevert(abi.encodeWithSelector(IGoalStakeVault.INVALID_REVNET_CONTROLLER.selector, address(0)));
-        new GoalStakeVault(
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_REVNET_CONTROLLER.selector, address(0)));
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -283,9 +283,9 @@ contract GoalStakeVaultTest is Test {
         goalRulesets.setDirectory(IJBDirectory(address(0)));
 
         vm.expectRevert(
-            abi.encodeWithSelector(IGoalStakeVault.GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE.selector, address(goalToken))
+            abi.encodeWithSelector(IStakeVault.GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE.selector, address(goalToken))
         );
-        new GoalStakeVault(
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -303,13 +303,13 @@ contract GoalStakeVaultTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalStakeVault.GOAL_TOKEN_REVNET_MISMATCH.selector,
+                IStakeVault.GOAL_TOKEN_REVNET_MISMATCH.selector,
                 address(goalToken),
                 GOAL_PROJECT_ID,
                 foreignProjectId
             )
         );
-        new GoalStakeVault(
+        new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -332,7 +332,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_depositGoal_revertsOnZeroAmount() public {
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INVALID_AMOUNT.selector);
+        vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
         vault.depositGoal(0);
     }
 
@@ -347,7 +347,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_depositCobuild_revertsOnZeroAmount() public {
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INVALID_AMOUNT.selector);
+        vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
         vault.depositCobuild(0);
     }
 
@@ -355,7 +355,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_ALREADY_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_ALREADY_RESOLVED.selector);
         vault.depositGoal(1e18);
     }
 
@@ -363,42 +363,42 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_ALREADY_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_ALREADY_RESOLVED.selector);
         vault.depositCobuild(1e18);
     }
 
     function test_depositGoal_revertsWhenGoalWeightZero() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 0);
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_STAKING_CLOSED.selector);
+        vm.expectRevert(IStakeVault.GOAL_STAKING_CLOSED.selector);
         vault.depositGoal(1e18);
     }
 
     function test_depositGoal_revertsWhenRulesetReadReverts() public {
         goalRulesets.setShouldRevertCurrent(true);
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_STAKING_CLOSED.selector);
+        vm.expectRevert(IStakeVault.GOAL_STAKING_CLOSED.selector);
         vault.depositGoal(1e18);
     }
 
     function test_depositGoal_revertsWhenWeightDeltaRoundsToZero() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 2e18);
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.ZERO_WEIGHT_DELTA.selector);
+        vm.expectRevert(IStakeVault.ZERO_WEIGHT_DELTA.selector);
         vault.depositGoal(1);
     }
 
     function test_depositCobuild_revertsWhenGoalWeightZero() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 0);
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_STAKING_CLOSED.selector);
+        vm.expectRevert(IStakeVault.GOAL_STAKING_CLOSED.selector);
         vault.depositCobuild(1e18);
     }
 
     function test_depositGoal_revertsOnFeeOnTransferToken() public {
         MockFeeOnTransferVotesToken feeGoal = new MockFeeOnTransferVotesToken("FeeGoal", "fGOAL", 100, address(0xFEE));
 
-        GoalStakeVault feeVault = new GoalStakeVault(
+        StakeVault feeVault = new StakeVault(
             address(this),
             IERC20(address(feeGoal)),
             IERC20(address(cobuildToken)),
@@ -414,7 +414,7 @@ contract GoalStakeVaultTest is Test {
         feeGoal.approve(address(feeVault), type(uint256).max);
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
+        vm.expectRevert(IStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
         feeVault.depositGoal(100e18);
     }
 
@@ -422,7 +422,7 @@ contract GoalStakeVaultTest is Test {
         MockFeeOnTransferVotesToken feeCobuild =
             new MockFeeOnTransferVotesToken("FeeCobuild", "fCOBUILD", 100, address(0xFEE));
 
-        GoalStakeVault feeVault = new GoalStakeVault(
+        StakeVault feeVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(feeCobuild)),
@@ -438,7 +438,7 @@ contract GoalStakeVaultTest is Test {
         feeCobuild.approve(address(feeVault), type(uint256).max);
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
+        vm.expectRevert(IStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
         feeVault.depositCobuild(100e18);
     }
 
@@ -461,7 +461,7 @@ contract GoalStakeVaultTest is Test {
         VaultMockDecimalsToken cobuildToken6 = new VaultMockDecimalsToken("Cobuild 6", "COB6", 6);
         goalRulesets.setWeight(GOAL_PROJECT_ID, 2e6);
 
-        GoalStakeVault sixDecimalVault = new GoalStakeVault(
+        StakeVault sixDecimalVault = new StakeVault(
             address(this),
             IERC20(address(goalToken6)),
             IERC20(address(cobuildToken6)),
@@ -480,20 +480,20 @@ contract GoalStakeVaultTest is Test {
 
     function test_quoteGoalToCobuildWeight_revertsWhenStakingClosed() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 0);
-        vm.expectRevert(IGoalStakeVault.GOAL_STAKING_CLOSED.selector);
+        vm.expectRevert(IStakeVault.GOAL_STAKING_CLOSED.selector);
         vault.quoteGoalToCobuildWeightRatio(1e18);
     }
 
     function test_quoteGoalToCobuildWeight_revertsWhenRulesetReadReverts() public {
         goalRulesets.setShouldRevertCurrent(true);
-        vm.expectRevert(IGoalStakeVault.GOAL_STAKING_CLOSED.selector);
+        vm.expectRevert(IStakeVault.GOAL_STAKING_CLOSED.selector);
         vault.quoteGoalToCobuildWeightRatio(1e18);
     }
 
     function test_markGoalResolved_revertsForUnauthorizedWhenTreasuryNotResolved() public {
         VaultResolvedSignal signal = new VaultResolvedSignal();
 
-        GoalStakeVault signalVault = new GoalStakeVault(
+        StakeVault signalVault = new StakeVault(
             address(signal),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -505,14 +505,14 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         signalVault.markGoalResolved();
     }
 
     function test_markGoalResolved_permissionlessWhenTreasuryReportsResolved() public {
         VaultResolvedSignal signal = new VaultResolvedSignal();
 
-        GoalStakeVault signalVault = new GoalStakeVault(
+        StakeVault signalVault = new StakeVault(
             address(signal),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -534,7 +534,7 @@ contract GoalStakeVaultTest is Test {
         downstreamTreasury.setResolved(true);
         VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
 
-        GoalStakeVault signalVault = new GoalStakeVault(
+        StakeVault signalVault = new StakeVault(
             address(legacyForwarder),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -546,14 +546,14 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         signalVault.markGoalResolved();
     }
 
     function test_markGoalResolved_revertsWhenTreasuryHasNoResolvedSurface() public {
         VaultNoAuthorityTreasury noResolvedTreasury = new VaultNoAuthorityTreasury();
 
-        GoalStakeVault signalVault = new GoalStakeVault(
+        StakeVault signalVault = new StakeVault(
             address(noResolvedTreasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -565,12 +565,12 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         signalVault.markGoalResolved();
     }
 
     function test_markGoalResolved_revertsWhenTreasuryHasNoCode() public {
-        GoalStakeVault eoaTreasuryVault = new GoalStakeVault(
+        StakeVault eoaTreasuryVault = new StakeVault(
             address(0x1234),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -582,14 +582,14 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         eoaTreasuryVault.markGoalResolved();
     }
 
     function test_markGoalResolved_revertsWhenAlreadyResolved() public {
         vault.markGoalResolved();
 
-        vm.expectRevert(IGoalStakeVault.GOAL_ALREADY_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_ALREADY_RESOLVED.selector);
         vault.markGoalResolved();
     }
 
@@ -598,7 +598,7 @@ contract GoalStakeVaultTest is Test {
         vault.depositGoal(10e18);
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         vault.withdrawGoal(1e18, alice);
     }
 
@@ -608,7 +608,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INVALID_AMOUNT.selector);
+        vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
         vault.withdrawGoal(0, alice);
     }
 
@@ -618,7 +618,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
         vault.withdrawGoal(1e18, address(0));
     }
 
@@ -628,7 +628,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
+        vm.expectRevert(IStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
         vault.withdrawGoal(11e18, alice);
     }
 
@@ -670,7 +670,7 @@ contract GoalStakeVaultTest is Test {
         vault.depositCobuild(10e18);
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.GOAL_NOT_RESOLVED.selector);
+        vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
         vault.withdrawCobuild(1e18, alice);
     }
 
@@ -680,7 +680,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INVALID_AMOUNT.selector);
+        vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
         vault.withdrawCobuild(0, alice);
     }
 
@@ -690,7 +690,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.ADDRESS_ZERO.selector);
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
         vault.withdrawCobuild(1e18, address(0));
     }
 
@@ -700,7 +700,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
+        vm.expectRevert(IStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
         vault.withdrawCobuild(11e18, alice);
     }
 
@@ -718,7 +718,7 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_withdrawGoal_withholdsRent_andCapsAtGoalResolvedAt() public {
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -755,7 +755,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_withdrawCobuild_whenRentExceedsWithdrawal_withholdsFullAmount() public {
         uint256 aggressiveRate = 1e14;
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -789,7 +789,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_withdrawCobuild_partialWithdrawals_carryAndSettleRentDebt() public {
         uint256 moderateRate = 4e12;
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -831,7 +831,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_withdrawCobuild_fullExit_clearsUncollectableRentDebt() public {
         uint256 aggressiveRate = 2e14;
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -859,7 +859,7 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_pendingRentViews_includeLiveAccrual_andFreezeAfterResolution() public {
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -888,7 +888,7 @@ contract GoalStakeVaultTest is Test {
     }
 
     function test_secondDeposit_accruesPriorStakeRentBeforeIncreasingPrincipal() public {
-        GoalStakeVault rentVault = new GoalStakeVault(
+        StakeVault rentVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -930,7 +930,7 @@ contract GoalStakeVaultTest is Test {
     function test_withdrawGoal_revertsOnFeeDuringVaultTransfer() public {
         MockSelectiveFeeVotesToken selective = new MockSelectiveFeeVotesToken("Goal", "GOAL", 100, address(0xFEE));
 
-        GoalStakeVault selectiveVault = new GoalStakeVault(
+        StakeVault selectiveVault = new StakeVault(
             address(this),
             IERC20(address(selective)),
             IERC20(address(cobuildToken)),
@@ -951,14 +951,14 @@ contract GoalStakeVaultTest is Test {
         selective.setFeeFrom(address(selectiveVault));
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
+        vm.expectRevert(IStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
         selectiveVault.withdrawGoal(10e18, alice);
     }
 
     function test_withdrawCobuild_revertsOnFeeDuringVaultTransfer() public {
         MockSelectiveFeeVotesToken selective = new MockSelectiveFeeVotesToken("Cobuild", "COBUILD", 100, address(0xFEE));
 
-        GoalStakeVault selectiveVault = new GoalStakeVault(
+        StakeVault selectiveVault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(selective)),
@@ -979,7 +979,7 @@ contract GoalStakeVaultTest is Test {
         selective.setFeeFrom(address(selectiveVault));
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
+        vm.expectRevert(IStakeVault.TRANSFER_AMOUNT_MISMATCH.selector);
         selectiveVault.withdrawCobuild(10e18, alice);
     }
 
@@ -1033,7 +1033,7 @@ contract GoalStakeVaultTest is Test {
         vault.optInAsJuror(0, 60e18, address(0));
         vault.requestJurorExit(0, 30e18);
 
-        vm.expectRevert(IGoalStakeVault.EXIT_NOT_READY.selector);
+        vm.expectRevert(IStakeVault.EXIT_NOT_READY.selector);
         vault.finalizeJurorExit();
 
         vm.warp(block.timestamp + 7 days);
@@ -1058,7 +1058,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.EXIT_NOT_READY.selector);
+        vm.expectRevert(IStakeVault.EXIT_NOT_READY.selector);
         vault.finalizeJurorExit();
 
         vm.warp(resolvedAt + 7 days + 1);
@@ -1079,13 +1079,13 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.startPrank(alice);
-        vm.expectRevert(IGoalStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
         vault.withdrawGoal(21e18, alice);
-        vm.expectRevert(IGoalStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
         vault.withdrawCobuild(21e18, alice);
 
         vault.requestJurorExit(80e18, 80e18);
-        vm.expectRevert(IGoalStakeVault.EXIT_NOT_READY.selector);
+        vm.expectRevert(IStakeVault.EXIT_NOT_READY.selector);
         vault.finalizeJurorExit();
 
         vm.warp(block.timestamp + 7 days + 1);
@@ -1179,7 +1179,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
         vault.withdrawGoal(21e18, alice);
 
         vm.prank(alice);
@@ -1198,7 +1198,7 @@ contract GoalStakeVaultTest is Test {
         vault.markGoalResolved();
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
         vault.withdrawCobuild(31e18, alice);
 
         vm.prank(alice);
@@ -1218,7 +1218,7 @@ contract GoalStakeVaultTest is Test {
         vault.setJurorSlasher(bob);
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.ONLY_JUROR_SLASHER.selector);
+        vm.expectRevert(IStakeVault.ONLY_JUROR_SLASHER.selector);
         vault.slashJurorStake(alice, 15e18, rentCollector);
 
         uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
@@ -1285,7 +1285,7 @@ contract GoalStakeVaultTest is Test {
     function test_slashJurorStake_bestEffortGoalFlowSync_callsSyncForJurorWhenFlowPresent() public {
         VaultRecordingSyncFlow recordingFlow = new VaultRecordingSyncFlow();
         VaultGoalTreasuryWithFlow treasuryWithFlow = new VaultGoalTreasuryWithFlow(address(recordingFlow));
-        GoalStakeVault syncingVault = new GoalStakeVault(
+        StakeVault syncingVault = new StakeVault(
             address(treasuryWithFlow),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1320,7 +1320,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_slashJurorStake_bestEffortGoalFlowSync_doesNotRevertWhenFlowUnset() public {
         VaultGoalTreasuryWithFlow treasuryWithFlow = new VaultGoalTreasuryWithFlow(address(0));
-        GoalStakeVault syncingVault = new GoalStakeVault(
+        StakeVault syncingVault = new StakeVault(
             address(treasuryWithFlow),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1359,7 +1359,7 @@ contract GoalStakeVaultTest is Test {
     function test_slashJurorStake_bestEffortGoalFlowSyncDoesNotRevertOnSyncFailure() public {
         VaultRevertingSyncFlow revertingFlow = new VaultRevertingSyncFlow();
         VaultGoalTreasuryWithFlow treasuryWithFlow = new VaultGoalTreasuryWithFlow(address(revertingFlow));
-        GoalStakeVault syncingVault = new GoalStakeVault(
+        StakeVault syncingVault = new StakeVault(
             address(treasuryWithFlow),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1400,7 +1400,7 @@ contract GoalStakeVaultTest is Test {
 
     function test_slashJurorStake_bestEffortGoalFlowSyncDoesNotRevertWhenFlowLookupReverts() public {
         VaultGoalTreasuryRevertingFlowLookup treasuryWithRevertingLookup = new VaultGoalTreasuryRevertingFlowLookup();
-        GoalStakeVault syncingVault = new GoalStakeVault(
+        StakeVault syncingVault = new StakeVault(
             address(treasuryWithRevertingLookup),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1443,7 +1443,7 @@ contract GoalStakeVaultTest is Test {
         VaultRecordingSyncFlow recordingFlow = new VaultRecordingSyncFlow();
         VaultGoalTreasuryWithFlow downstreamTreasury = new VaultGoalTreasuryWithFlow(address(recordingFlow));
         VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
-        GoalStakeVault syncingVault = new GoalStakeVault(
+        StakeVault syncingVault = new StakeVault(
             address(legacyForwarder),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1485,7 +1485,7 @@ contract GoalStakeVaultTest is Test {
     function test_setJurorSlasher_revertsWhenUnauthorized() public {
         VaultAuthorityTreasury controlledTreasury = new VaultAuthorityTreasury(bob);
 
-        GoalStakeVault controlledVault = new GoalStakeVault(
+        StakeVault controlledVault = new StakeVault(
             address(controlledTreasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1497,7 +1497,7 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.UNAUTHORIZED.selector);
+        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
         controlledVault.setJurorSlasher(bob);
     }
 
@@ -1505,7 +1505,7 @@ contract GoalStakeVaultTest is Test {
         VaultAuthorityTreasury downstreamTreasury = new VaultAuthorityTreasury(bob);
         VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
 
-        GoalStakeVault controlledVault = new GoalStakeVault(
+        StakeVault controlledVault = new StakeVault(
             address(legacyForwarder),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1519,7 +1519,7 @@ contract GoalStakeVaultTest is Test {
         vm.prank(bob);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(legacyForwarder)
+                IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(legacyForwarder)
             )
         );
         controlledVault.setJurorSlasher(alice);
@@ -1528,14 +1528,14 @@ contract GoalStakeVaultTest is Test {
     function test_setJurorSlasher_revertsWhenAlreadySet() public {
         vault.setJurorSlasher(bob);
 
-        vm.expectRevert(IGoalStakeVault.JUROR_SLASHER_ALREADY_SET.selector);
+        vm.expectRevert(IStakeVault.JUROR_SLASHER_ALREADY_SET.selector);
         vault.setJurorSlasher(alice);
     }
 
     function test_setJurorSlasher_allowsTreasuryAuthority() public {
         VaultAuthorityTreasury ownedTreasury = new VaultAuthorityTreasury(bob);
 
-        GoalStakeVault ownedVault = new GoalStakeVault(
+        StakeVault ownedVault = new StakeVault(
             address(ownedTreasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1554,7 +1554,7 @@ contract GoalStakeVaultTest is Test {
     function test_setJurorSlasher_revertsWhenTreasuryReportsZeroAuthority() public {
         VaultAuthorityTreasury controlledTreasury = new VaultAuthorityTreasury(address(0));
 
-        GoalStakeVault controlledVault = new GoalStakeVault(
+        StakeVault controlledVault = new StakeVault(
             address(controlledTreasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1566,14 +1566,14 @@ contract GoalStakeVaultTest is Test {
         );
 
         vm.prank(alice);
-        vm.expectRevert(IGoalStakeVault.UNAUTHORIZED.selector);
+        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
         controlledVault.setJurorSlasher(alice);
     }
 
     function test_setJurorSlasher_revertsWhenTreasuryHasNoAuthoritySurface() public {
         VaultNoAuthorityTreasury noAuthorityTreasury = new VaultNoAuthorityTreasury();
 
-        GoalStakeVault controlledVault = new GoalStakeVault(
+        StakeVault controlledVault = new StakeVault(
             address(noAuthorityTreasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
@@ -1587,7 +1587,7 @@ contract GoalStakeVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(noAuthorityTreasury)
+                IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(noAuthorityTreasury)
             )
         );
         controlledVault.setJurorSlasher(alice);
@@ -1628,7 +1628,7 @@ contract GoalStakeVaultTest is Test {
         vm.prank(alice);
         vault.optInAsJuror(0, 10e18, address(0));
 
-        vm.expectRevert(IGoalStakeVault.BLOCK_NOT_YET_MINED.selector);
+        vm.expectRevert(IStakeVault.BLOCK_NOT_YET_MINED.selector);
         vault.getPastJurorWeight(alice, block.number);
     }
 

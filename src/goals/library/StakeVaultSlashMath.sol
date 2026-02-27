@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-library GoalStakeVaultSlashMath {
+library StakeVaultSlashMath {
     struct StakeSlashSnapshot {
         uint256 stakedGoal;
         uint256 goalWeight;

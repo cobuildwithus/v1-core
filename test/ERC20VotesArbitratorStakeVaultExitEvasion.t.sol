@@ -4,7 +4,7 @@ pragma solidity ^0.8.34;
 import { TestUtils } from "test/utils/TestUtils.sol";
 
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
+import { StakeVault } from "src/goals/StakeVault.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import { MockArbitrable } from "test/mocks/MockArbitrable.sol";
@@ -88,7 +88,7 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
     MockArbitrable internal arbitrable;
-    GoalStakeVault internal vault;
+    StakeVault internal vault;
     StakeVaultExitEvasionRulesetsMock internal rulesets;
     StakeVaultExitEvasionDirectoryMock internal directory;
     StakeVaultExitEvasionTokensMock internal controllerTokens;
@@ -126,7 +126,7 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
         controllerTokens.setDefaultProjectId(GOAL_PROJECT_ID);
         controllerTokens.setProjectIdOf(address(goalToken), GOAL_PROJECT_ID);
 
-        vault = new GoalStakeVault(
+        vault = new StakeVault(
             address(this),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),

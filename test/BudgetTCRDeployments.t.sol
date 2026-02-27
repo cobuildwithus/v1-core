@@ -8,7 +8,7 @@ import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
+import { StakeVault } from "src/goals/StakeVault.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -197,7 +197,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
 
         assertTrue(prepared.stakeVault != address(0));
         assertTrue(prepared.strategy != address(0));
-        assertEq(GoalStakeVault(prepared.stakeVault).goalTreasury(), treasuryAnchor);
+        assertEq(StakeVault(prepared.stakeVault).goalTreasury(), treasuryAnchor);
         assertEq(prepared.strategy, address(sharedStrategy));
 
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(

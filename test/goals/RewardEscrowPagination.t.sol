@@ -7,7 +7,7 @@ import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalStakeVault } from "src/interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 
@@ -45,7 +45,7 @@ contract RewardEscrowPaginationTest is Test {
         escrow = new RewardEscrow(
             address(goalTreasury),
             IERC20(address(rewardToken)),
-            IGoalStakeVault(address(stakeVault)),
+            IStakeVault(address(stakeVault)),
             ISuperToken(address(0)),
             IBudgetStakeLedger(address(ledger))
         );

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IRewardEscrow } from "../interfaces/IRewardEscrow.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
@@ -23,7 +23,7 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
     IERC20 public immutable override rewardToken;
     IERC20 public immutable override cobuildToken;
     ISuperToken public immutable override rewardSuperToken;
-    IGoalStakeVault public immutable override stakeVault;
+    IStakeVault public immutable override stakeVault;
     address public immutable override goalTreasury;
     IBudgetStakeLedger private immutable _budgetStakeLedger;
 
@@ -52,7 +52,7 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
     constructor(
         address goalTreasury_,
         IERC20 rewardToken_,
-        IGoalStakeVault stakeVault_,
+        IStakeVault stakeVault_,
         ISuperToken rewardSuperToken_,
         IBudgetStakeLedger budgetStakeLedger_
     ) {

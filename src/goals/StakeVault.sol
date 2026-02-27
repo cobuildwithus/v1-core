@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { IGoalStakeVault } from "../interfaces/IGoalStakeVault.sol";
+import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
 import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
@@ -20,16 +20,16 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { GoalStakeVaultRentMath } from "./library/GoalStakeVaultRentMath.sol";
-import { GoalStakeVaultJurorMath } from "./library/GoalStakeVaultJurorMath.sol";
-import { GoalStakeVaultSlashMath } from "./library/GoalStakeVaultSlashMath.sol";
+import { StakeVaultRentMath } from "./library/StakeVaultRentMath.sol";
+import { StakeVaultJurorMath } from "./library/StakeVaultJurorMath.sol";
+import { StakeVaultSlashMath } from "./library/StakeVaultSlashMath.sol";
 
-contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
+contract StakeVault is IStakeVault, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace224;
 
     uint64 public constant JUROR_EXIT_DELAY = 7 days;
-    string public constant STRATEGY_KEY = "GoalStakeVault";
+    string public constant STRATEGY_KEY = "StakeVault";
 
     IERC20 public immutable override goalToken;
     IERC20 public immutable override cobuildToken;
@@ -289,7 +289,7 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         if (goalAmount != 0) {
             uint256 goalWeight = _goalWeight[msg.sender];
             uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
-            goalWeightDelta = GoalStakeVaultJurorMath.computeOptInGoalWeightDelta(
+            goalWeightDelta = StakeVaultJurorMath.computeOptInGoalWeightDelta(
                 goalAmount,
                 stakedGoal,
                 lockedGoal,
@@ -352,12 +352,12 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
         uint256 lockedCobuild = _jurorLockedCobuild[msg.sender];
 
-        uint256 goalAmount = GoalStakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
-        uint256 cobuildAmount = GoalStakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
+        uint256 goalAmount = StakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
+        uint256 cobuildAmount = StakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
 
         uint256 goalWeightReduction = 0;
         if (goalAmount != 0) {
-            goalWeightReduction = GoalStakeVaultJurorMath.computeFinalizeGoalWeightReduction(
+            goalWeightReduction = StakeVaultJurorMath.computeFinalizeGoalWeightReduction(
                 goalAmount,
                 lockedGoal,
                 lockedGoalWeight
@@ -410,8 +410,8 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
 
         uint256 requestedWeight = Math.min(weightAmount, currentStakeWeight);
 
-        GoalStakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(juror);
-        GoalStakeVaultSlashMath.SlashAmounts memory slash = GoalStakeVaultSlashMath.computeStakeSlashBreakdown(
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(juror);
+        StakeVaultSlashMath.SlashAmounts memory slash = StakeVaultSlashMath.computeStakeSlashBreakdown(
             snapshot,
             requestedWeight,
             currentStakeWeight
@@ -419,7 +419,7 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
 
         snapshot = _loadLockedStakeSlashSnapshot(juror, snapshot);
-        GoalStakeVaultSlashMath.SlashAmounts memory lockedSlash = GoalStakeVaultSlashMath.computeLockedSlashBreakdown(
+        StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
             snapshot,
             slash
         );
@@ -467,7 +467,7 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
 
     function _loadStakeSlashSnapshot(
         address juror
-    ) internal view returns (GoalStakeVaultSlashMath.StakeSlashSnapshot memory snapshot) {
+    ) internal view returns (StakeVaultSlashMath.StakeSlashSnapshot memory snapshot) {
         snapshot.stakedGoal = _stakedGoal[juror];
         snapshot.goalWeight = _goalWeight[juror];
         snapshot.stakedCobuild = _stakedCobuild[juror];
@@ -475,8 +475,8 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
 
     function _loadLockedStakeSlashSnapshot(
         address juror,
-        GoalStakeVaultSlashMath.StakeSlashSnapshot memory snapshot
-    ) internal view returns (GoalStakeVaultSlashMath.StakeSlashSnapshot memory) {
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot
+    ) internal view returns (StakeVaultSlashMath.StakeSlashSnapshot memory) {
         snapshot.lockedGoal = _jurorLockedGoal[juror];
         snapshot.lockedGoalWeight = _jurorLockedGoalWeight[juror];
         snapshot.lockedCobuild = _jurorLockedCobuild[juror];
@@ -578,12 +578,12 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
     }
 
     function pendingGoalRentOf(address user) external view override returns (uint256) {
-        uint64 cutoff = GoalStakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
+        uint64 cutoff = StakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
         return _pendingGoalRent[user] + _previewAdditionalRent(_rentLastCheckpoint[user], _stakedGoal[user], cutoff);
     }
 
     function pendingCobuildRentOf(address user) external view override returns (uint256) {
-        uint64 cutoff = GoalStakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
+        uint64 cutoff = StakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
         return
             _pendingCobuildRent[user] + _previewAdditionalRent(_rentLastCheckpoint[user], _stakedCobuild[user], cutoff);
     }
@@ -669,17 +669,17 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
         uint256 lockedGoal = _jurorLockedGoal[juror];
         uint256 lockedCobuild = _jurorLockedCobuild[juror];
 
-        request.goalAmount = GoalStakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
-        request.cobuildAmount = GoalStakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
+        request.goalAmount = StakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
+        request.cobuildAmount = StakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
     }
 
     function _accrueRent(address account, uint64 nowTs) internal {
         if (rentWadPerSecond == 0 || rentRecipient == address(0)) return;
 
-        (_rentLastCheckpoint[account], _pendingGoalRent[account], _pendingCobuildRent[account]) = GoalStakeVaultRentMath
+        (_rentLastCheckpoint[account], _pendingGoalRent[account], _pendingCobuildRent[account]) = StakeVaultRentMath
             .accrueRent(
                 _rentLastCheckpoint[account],
-                GoalStakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt),
+                StakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt),
                 _stakedGoal[account],
                 _stakedCobuild[account],
                 _pendingGoalRent[account],
@@ -711,7 +711,7 @@ contract GoalStakeVault is IGoalStakeVault, ReentrancyGuard {
     ) internal view returns (uint256) {
         if (rentWadPerSecond == 0 || rentRecipient == address(0)) return 0;
 
-        return GoalStakeVaultRentMath.previewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
+        return StakeVaultRentMath.previewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
     }
 
     function _stakeWeightOf(address user) internal view returns (uint256) {

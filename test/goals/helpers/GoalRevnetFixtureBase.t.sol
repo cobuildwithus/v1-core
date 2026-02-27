@@ -6,7 +6,7 @@ import { IRevnetHarness, RevnetHarnessDeployer } from "test/goals/helpers/Revnet
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { GoalStakeVault } from "src/goals/GoalStakeVault.sol";
+import { StakeVault } from "src/goals/StakeVault.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { GoalFlowAllocationLedgerPipeline } from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
@@ -47,7 +47,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
     uint256 internal goalRevnetId;
     uint40 internal goalMintCloseTimestamp;
 
-    GoalStakeVault internal vault;
+    StakeVault internal vault;
     GoalTreasury internal treasury;
     GoalRevnetSplitHook internal hook;
     BudgetStakeLedger internal budgetStakeLedger;
@@ -135,7 +135,7 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
             predictedEscrow = vm.computeCreateAddress(address(this), nonce + escrowNonceOffset);
         }
 
-        vault = new GoalStakeVault(
+        vault = new StakeVault(
             address(treasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
