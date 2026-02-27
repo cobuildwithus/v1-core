@@ -67,24 +67,20 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
             strategy
         );
 
-        result = PreparationResult({
-            stakeVault: prepared.stakeVault,
-            strategy: prepared.strategy,
-            budgetTreasury: treasuryAnchor
-        });
+        result = PreparationResult({ strategy: prepared.strategy, budgetTreasury: treasuryAnchor });
     }
 
     function deployBudgetTreasury(
-        address stakeVault,
+        address budgetTreasury,
         address childFlow,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
-    ) external onlyBudgetTCR returns (address budgetTreasury) {
-        budgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
+    ) external onlyBudgetTCR returns (address deployedBudgetTreasury) {
+        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
             budgetTCR,
-            stakeVault,
+            budgetTreasury,
             childFlow,
             listing,
             successResolver,

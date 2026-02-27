@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
-import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -19,15 +18,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
-    uint8 private constant TERMINAL_OP_STAKE_VAULT_RESOLVE = 3;
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
     TreasuryReassertGrace.State private _reassertGrace;
 
     IFlow private _flow;
-    IStakeVault private _stakeVault;
-
     ISuperToken public override superToken;
 
     uint64 public override fundingDeadline;
@@ -61,7 +57,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     function initialize(address initialController, BudgetConfig calldata config) external initializer {
         controller = _requireNonZeroController(initialController);
         if (config.flow == address(0)) revert ADDRESS_ZERO();
-        if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
             config.successAssertionLiveness == 0 ||
@@ -82,12 +77,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         }
 
         _flow = IFlow(config.flow);
-        _stakeVault = IStakeVault(config.stakeVault);
-
-        address configuredGoalTreasury = _stakeVault.goalTreasury();
-        if (configuredGoalTreasury != address(this)) {
-            revert STAKE_VAULT_BUDGET_MISMATCH(address(this), configuredGoalTreasury);
-        }
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();
@@ -96,7 +85,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         if (configuredFlowOperator != address(this) || configuredSweeper != address(this)) {
             revert FLOW_AUTHORITY_MISMATCH(address(this), configuredFlowOperator, configuredSweeper);
         }
-        if (_flow.parent() == address(0)) revert PARENT_FLOW_NOT_CONFIGURED();
+        address parentFlow = _flow.parent();
+        if (parentFlow == address(0) || parentFlow.code.length == 0) revert PARENT_FLOW_NOT_CONFIGURED();
+        try IFlow(parentFlow).getMemberFlowRate(address(_flow)) returns (int96) { } catch {
+            revert PARENT_FLOW_NOT_CONFIGURED();
+        }
 
         fundingDeadline = config.fundingDeadline;
         executionDuration = config.executionDuration;
@@ -113,7 +106,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         emit BudgetConfigured(
             initialController,
             config.flow,
-            config.stakeVault,
             config.fundingDeadline,
             config.executionDuration,
             config.activationThreshold,
@@ -257,10 +249,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         return address(_flow);
     }
 
-    function stakeVault() external view override returns (address) {
-        return address(_stakeVault);
-    }
-
     function authority() external view override returns (address) {
         return controller;
     }
@@ -308,14 +296,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         });
     }
 
-    function _incomingFlowRate() internal view returns (int96 incoming) {
-        int96 outFlow = _flow.getActualFlowRate();
-        int96 netFlow = _flow.getNetFlowRate();
-
-        int256 inFlow = int256(netFlow) + int256(outFlow);
-        if (inFlow <= 0) return 0;
-        if (inFlow > int256(type(int96).max)) return type(int96).max;
-        return int96(inFlow);
+    function _incomingFlowRate() internal view returns (int96) {
+        int96 parentMemberFlowRate = IFlow(_flow.parent()).getMemberFlowRate(address(_flow));
+        if (parentMemberFlowRate <= 0) return 0;
+        return parentMemberFlowRate;
     }
 
     function _activateAndSync() internal {
@@ -362,27 +346,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         }
 
         _trySettleResidualToParent();
-        _tryMarkStakeVaultResolved();
     }
 
     function _trySettleResidualToParent() internal {
         try this.settleResidualToParentForFinalize() {} catch (bytes memory reason) {
             emit TerminalSideEffectFailed(TERMINAL_OP_RESIDUAL_SETTLE, reason);
-        }
-    }
-
-    function _tryMarkStakeVaultResolved() internal {
-        bool stakeVaultResolved;
-        try _stakeVault.goalResolved() returns (bool resolved_) {
-            stakeVaultResolved = resolved_;
-        } catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_STAKE_VAULT_RESOLVE, reason);
-            return;
-        }
-        if (stakeVaultResolved) return;
-
-        try _stakeVault.markGoalResolved() {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_STAKE_VAULT_RESOLVE, reason);
         }
     }
 

@@ -10,6 +10,11 @@ import { ArbitrationCostExtraData } from "./utils/ArbitrationCostExtraData.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
+import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { IJurorSlasher } from "src/interfaces/IJurorSlasher.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { IFlow } from "src/interfaces/IFlow.sol";
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -37,6 +42,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     error UNAUTHORIZED_DELEGATE();
     error STAKE_VAULT_NOT_SET();
     error STAKE_VAULT_ALREADY_SET();
+    error JUROR_SLASHER_NOT_CONFIGURED();
 
     event StakeVaultConfigured(address indexed stakeVault);
     event VoterSlashed(
@@ -72,14 +78,14 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 revealPeriod_,
         uint256 arbitrationCost_
     ) public initializer {
-        _initializeWithSlashConfig(
-            invalidRoundRewardsSink_,
+        _initialize(
             votingToken_,
             arbitrable_,
             votingPeriod_,
             votingDelay_,
             revealPeriod_,
             arbitrationCost_,
+            invalidRoundRewardsSink_,
             DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
             DEFAULT_SLASH_CALLER_BOUNTY_BPS
         );
@@ -108,14 +114,14 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 wrongOrMissedSlashBps_,
         uint256 slashCallerBountyBps_
     ) public initializer {
-        _initializeWithSlashConfig(
-            invalidRoundRewardsSink_,
+        _initialize(
             votingToken_,
             arbitrable_,
             votingPeriod_,
             votingDelay_,
             revealPeriod_,
             arbitrationCost_,
+            invalidRoundRewardsSink_,
             wrongOrMissedSlashBps_,
             slashCallerBountyBps_
         );
@@ -151,6 +157,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             revealPeriod_,
             arbitrationCost_,
             stakeVault_,
+            address(0),
             DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
             DEFAULT_SLASH_CALLER_BOUNTY_BPS
         );
@@ -190,6 +197,61 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             revealPeriod_,
             arbitrationCost_,
             stakeVault_,
+            address(0),
+            wrongOrMissedSlashBps_,
+            slashCallerBountyBps_
+        );
+    }
+
+    function initializeWithStakeVaultAndBudgetScope(
+        address invalidRoundRewardsSink_,
+        address votingToken_,
+        address arbitrable_,
+        uint256 votingPeriod_,
+        uint256 votingDelay_,
+        uint256 revealPeriod_,
+        uint256 arbitrationCost_,
+        address stakeVault_,
+        address fixedBudgetTreasury_
+    ) public initializer {
+        _initializeWithStakeVaultAndSlashConfig(
+            invalidRoundRewardsSink_,
+            votingToken_,
+            arbitrable_,
+            votingPeriod_,
+            votingDelay_,
+            revealPeriod_,
+            arbitrationCost_,
+            stakeVault_,
+            fixedBudgetTreasury_,
+            DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
+            DEFAULT_SLASH_CALLER_BOUNTY_BPS
+        );
+    }
+
+    function initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
+        address invalidRoundRewardsSink_,
+        address votingToken_,
+        address arbitrable_,
+        uint256 votingPeriod_,
+        uint256 votingDelay_,
+        uint256 revealPeriod_,
+        uint256 arbitrationCost_,
+        address stakeVault_,
+        address fixedBudgetTreasury_,
+        uint256 wrongOrMissedSlashBps_,
+        uint256 slashCallerBountyBps_
+    ) public initializer {
+        _initializeWithStakeVaultAndSlashConfig(
+            invalidRoundRewardsSink_,
+            votingToken_,
+            arbitrable_,
+            votingPeriod_,
+            votingDelay_,
+            revealPeriod_,
+            arbitrationCost_,
+            stakeVault_,
+            fixedBudgetTreasury_,
             wrongOrMissedSlashBps_,
             slashCallerBountyBps_
         );
@@ -204,31 +266,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 revealPeriod_,
         uint256 arbitrationCost_,
         address stakeVault_,
-        uint256 wrongOrMissedSlashBps_,
-        uint256 slashCallerBountyBps_
-    ) internal {
-        _initializeWithSlashConfig(
-            invalidRoundRewardsSink_,
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            wrongOrMissedSlashBps_,
-            slashCallerBountyBps_
-        );
-        _setStakeVault(stakeVault_);
-    }
-
-    function _initializeWithSlashConfig(
-        address invalidRoundRewardsSink_,
-        address votingToken_,
-        address arbitrable_,
-        uint256 votingPeriod_,
-        uint256 votingDelay_,
-        uint256 revealPeriod_,
-        uint256 arbitrationCost_,
+        address fixedBudgetTreasury_,
         uint256 wrongOrMissedSlashBps_,
         uint256 slashCallerBountyBps_
     ) internal {
@@ -243,6 +281,8 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             wrongOrMissedSlashBps_,
             slashCallerBountyBps_
         );
+        _setStakeVault(stakeVault_);
+        _setFixedBudgetTreasury(fixedBudgetTreasury_);
     }
 
     function _initialize(
@@ -731,7 +771,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         if (_voterSlashedOrProcessed[disputeId][round][voter]) return;
 
-        uint256 snapshotVotes = _stakeVault.getPastJurorWeight(voter, votingRound.creationBlock);
+        uint256 snapshotVotes = _votingPowerAt(voter, votingRound.creationBlock);
         if (snapshotVotes == 0) {
             _voterSlashedOrProcessed[disputeId][round][voter] = true;
             return;
@@ -757,10 +797,10 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             uint256 rewardEscrowWeight = slashWeight - callerBountyWeight;
 
             if (callerBountyWeight != 0) {
-                _stakeVault.slashJurorStake(voter, callerBountyWeight, msg.sender);
+                _slashJurorStake(voter, callerBountyWeight, msg.sender);
             }
             if (rewardEscrowWeight != 0) {
-                _stakeVault.slashJurorStake(voter, rewardEscrowWeight, rewardEscrow);
+                _slashJurorStake(voter, rewardEscrowWeight, rewardEscrow);
             }
         }
 
@@ -1022,18 +1062,82 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         emit StakeVaultConfigured(stakeVault_);
     }
 
+    function _setFixedBudgetTreasury(address fixedBudgetTreasury_) internal {
+        if (fixedBudgetTreasury_ == address(0)) return;
+        if (address(_stakeVault) == address(0)) revert STAKE_VAULT_NOT_SET();
+        if (fixedBudgetTreasury_.code.length == 0) revert INVALID_FIXED_BUDGET_CONTEXT();
+
+        address goalFlow;
+        try IGoalTreasury(_stakeVault.goalTreasury()).flow() returns (address goalFlow_) {
+            goalFlow = goalFlow_;
+        } catch {
+            revert INVALID_FIXED_BUDGET_CONTEXT();
+        }
+        if (goalFlow == address(0) || goalFlow.code.length == 0) revert INVALID_FIXED_BUDGET_CONTEXT();
+
+        address budgetFlow;
+        try IBudgetTreasury(fixedBudgetTreasury_).flow() returns (address budgetFlow_) {
+            budgetFlow = budgetFlow_;
+        } catch {
+            revert INVALID_FIXED_BUDGET_CONTEXT();
+        }
+        if (budgetFlow == address(0) || budgetFlow.code.length == 0) revert INVALID_FIXED_BUDGET_CONTEXT();
+
+        address parentFlow;
+        try IFlow(budgetFlow).parent() returns (address parentFlow_) {
+            parentFlow = parentFlow_;
+        } catch {
+            revert INVALID_FIXED_BUDGET_CONTEXT();
+        }
+        if (parentFlow != goalFlow) revert INVALID_FIXED_BUDGET_CONTEXT();
+
+        _fixedBudgetTreasury = fixedBudgetTreasury_;
+    }
+
+    function _budgetStakeLedger() internal view returns (IBudgetStakeLedger ledger) {
+        address rewardEscrow = IGoalTreasury(_stakeVault.goalTreasury()).rewardEscrow();
+        if (rewardEscrow == address(0) || rewardEscrow.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+
+        address ledgerAddr = IRewardEscrow(rewardEscrow).budgetStakeLedger();
+        if (ledgerAddr == address(0) || ledgerAddr.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+
+        return IBudgetStakeLedger(ledgerAddr);
+    }
+
     function _votingPowerAt(address voter, uint256 blockNumber) internal view returns (uint256 votes) {
         if (address(_stakeVault) != address(0)) {
-            return _stakeVault.getPastJurorWeight(voter, blockNumber);
+            uint256 jurorVotes = _stakeVault.getPastJurorWeight(voter, blockNumber);
+            if (jurorVotes == 0) return 0;
+
+            address budgetTreasury = _fixedBudgetTreasury;
+            if (budgetTreasury == address(0)) return jurorVotes;
+
+            uint256 budgetVotes = _budgetStakeLedger().getPastUserAllocatedStakeOnBudget(voter, budgetTreasury, blockNumber);
+            return budgetVotes < jurorVotes ? budgetVotes : jurorVotes;
         }
         return _votingToken.getPastVotes(voter, blockNumber);
     }
 
     function _totalVotingPowerAt(uint256 blockNumber) internal view returns (uint256 totalVotes) {
         if (address(_stakeVault) != address(0)) {
-            return _stakeVault.getPastTotalJurorWeight(blockNumber);
+            uint256 jurorVotes = _stakeVault.getPastTotalJurorWeight(blockNumber);
+            address budgetTreasury = _fixedBudgetTreasury;
+            if (budgetTreasury == address(0)) return jurorVotes;
+
+            uint256 budgetVotes = _budgetStakeLedger().getPastBudgetTotalAllocatedStake(budgetTreasury, blockNumber);
+            return budgetVotes < jurorVotes ? budgetVotes : jurorVotes;
         }
         return _votingToken.getPastTotalSupply(blockNumber);
+    }
+
+    function _slashJurorStake(address juror, uint256 weightAmount, address recipient) internal {
+        address slasher = _stakeVault.jurorSlasher();
+        if (slasher == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
+        if (slasher == address(this)) {
+            _stakeVault.slashJurorStake(juror, weightAmount, recipient);
+            return;
+        }
+        IJurorSlasher(slasher).slashJurorStake(juror, weightAmount, recipient);
     }
 
     /**
@@ -1087,6 +1191,10 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
      */
     function stakeVault() external view returns (address vault) {
         return address(_stakeVault);
+    }
+
+    function fixedBudgetTreasury() external view returns (address budgetTreasury) {
+        return _fixedBudgetTreasury;
     }
 
     function _ensureVotingTokenCompatibility(address votingToken_) internal view {
