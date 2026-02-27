@@ -578,14 +578,21 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function pendingGoalRentOf(address user) external view override returns (uint256) {
-        uint64 cutoff = StakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
-        return _pendingGoalRent[user] + _previewAdditionalRent(_rentLastCheckpoint[user], _stakedGoal[user], cutoff);
+        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return _pendingGoalRent[user];
+        uint64 cutoff = _rentAccrualCutoff(uint64(block.timestamp));
+        return
+            _pendingGoalRent[user] +
+            StakeVaultRentMath.previewAdditionalRent(_rentLastCheckpoint[user], cutoff, _stakedGoal[user], rentWadPerSecond);
     }
 
     function pendingCobuildRentOf(address user) external view override returns (uint256) {
-        uint64 cutoff = StakeVaultRentMath.accrualCutoff(uint64(block.timestamp), goalResolvedAt);
+        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return _pendingCobuildRent[user];
+        uint64 cutoff = _rentAccrualCutoff(uint64(block.timestamp));
         return
-            _pendingCobuildRent[user] + _previewAdditionalRent(_rentLastCheckpoint[user], _stakedCobuild[user], cutoff);
+            _pendingCobuildRent[user] +
+            StakeVaultRentMath.previewAdditionalRent(
+                _rentLastCheckpoint[user], cutoff, _stakedCobuild[user], rentWadPerSecond
+            );
     }
 
     function quoteGoalToCobuildWeightRatio(
@@ -679,7 +686,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         (_rentLastCheckpoint[account], _pendingGoalRent[account], _pendingCobuildRent[account]) = StakeVaultRentMath
             .accrueRent(
                 _rentLastCheckpoint[account],
-                StakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt),
+                _rentAccrualCutoff(nowTs),
                 _stakedGoal[account],
                 _stakedCobuild[account],
                 _pendingGoalRent[account],
@@ -704,14 +711,23 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         netAmount = amount - rentPaid;
     }
 
-    function _previewAdditionalRent(
-        uint64 lastCheckpoint,
-        uint256 staked,
-        uint64 cutoff
-    ) internal view returns (uint256) {
-        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return 0;
+    function _rentAccrualCutoff(uint64 nowTs) internal view returns (uint64 cutoff) {
+        cutoff = StakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt);
 
-        return StakeVaultRentMath.previewAdditionalRent(lastCheckpoint, cutoff, staked, rentWadPerSecond);
+        uint64 deadlineTs = _goalTreasuryDeadline();
+        if (deadlineTs != 0 && deadlineTs < cutoff) {
+            cutoff = deadlineTs;
+        }
+    }
+
+    function _goalTreasuryDeadline() internal view returns (uint64 deadlineTs) {
+        if (goalTreasury.code.length == 0) return 0;
+
+        try IGoalTreasury(goalTreasury).deadline() returns (uint64 resolvedDeadline) {
+            return resolvedDeadline;
+        } catch {
+            return 0;
+        }
     }
 
     function _stakeWeightOf(address user) internal view returns (uint256) {
