@@ -951,22 +951,6 @@ contract GoalTreasuryTest is Test {
         assertEq(treasury.deferredHookSuperTokenAmount(), 0);
     }
 
-    function test_processHookSplit_whenFundingThresholdIsReached_autoActivatesBeforeDeadline() public {
-        (GoalTreasury nearDeadlineTreasury, uint256 amount) = _deployNearDeadlineTreasuryAtThreshold();
-        underlyingToken.mint(address(nearDeadlineTreasury), amount);
-
-        vm.prank(hook);
-        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 rewardAmount, uint256 burnAmount) =
-            nearDeadlineTreasury.processHookSplit(address(underlyingToken), amount);
-
-        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Funded));
-        assertEq(superTokenAmount, amount);
-        assertEq(rewardAmount, 0);
-        assertEq(burnAmount, 0);
-        assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
-        assertGt(flow.targetOutflowRate(), 0);
-    }
-
     function test_processHookSplit_defersWhenGoalCannotAcceptYetNotTerminal() public {
         vm.warp(treasury.minRaiseDeadline() + 1);
         uint256 amount = 19e18;
@@ -1135,20 +1119,6 @@ contract GoalTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(flow)), 40e18);
         assertEq(treasury.totalRaised(), 40e18);
         assertEq(superToken.balanceOf(address(treasury)), 0);
-    }
-
-    function test_donateUnderlyingAndUpgrade_whenFundingThresholdIsReached_autoActivatesBeforeDeadline() public {
-        (GoalTreasury nearDeadlineTreasury, uint256 amount) = _deployNearDeadlineTreasuryAtThreshold();
-        underlyingToken.mint(donor, amount);
-
-        vm.startPrank(donor);
-        underlyingToken.approve(address(nearDeadlineTreasury), type(uint256).max);
-        uint256 received = nearDeadlineTreasury.donateUnderlyingAndUpgrade(amount);
-        vm.stopPrank();
-
-        assertEq(received, amount);
-        assertEq(uint256(nearDeadlineTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
-        assertGt(flow.targetOutflowRate(), 0);
     }
 
     function test_donateUnderlyingAndUpgrade_revertsWhenFundingNoLongerAccepted() public {
@@ -3267,12 +3237,6 @@ contract GoalTreasuryTest is Test {
 
     function _deploy(uint64 minRaiseDeadline, uint256 minRaise) internal returns (GoalTreasury) {
         return _deploy(minRaiseDeadline, minRaise, address(0), 0);
-    }
-
-    function _deployNearDeadlineTreasuryAtThreshold() internal returns (GoalTreasury target, uint256 amount) {
-        target = _deploy(uint64(block.timestamp + 29 days), 100e18);
-        amount = target.minRaise();
-        vm.warp(target.minRaiseDeadline());
     }
 
     function _runHookSplitMatrixCase(HookSplitMatrixCase memory matrixCase) internal {

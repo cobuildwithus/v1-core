@@ -464,12 +464,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         _syncFlowRate();
     }
 
-    function _autoActivateIfFundingThresholdMet() internal {
-        if (_state == GoalState.Funding && block.timestamp < deadline && _raisedForLifecycle() >= minRaise) {
-            _activateAndSync();
-        }
-    }
-
     function _syncFlowRate() internal {
         uint256 balance = treasuryBalance();
         uint256 remaining = timeRemaining();
@@ -533,7 +527,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     ) internal override {
         totalRaised += superTokenAmount;
         emit DonationRecorded(donor, sourceToken, sourceAmount, superTokenAmount, totalRaised);
-        _autoActivateIfFundingThresholdMet();
     }
 
     function _revertInvalidState() internal pure override {
@@ -801,7 +794,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         _requireHookSuperTokenAmountMatches(sourceAmount, superTokenAmount);
         totalRaised += superTokenAmount;
         emit HookFundingRecorded(superTokenAmount, totalRaised);
-        _autoActivateIfFundingThresholdMet();
     }
 
     function _processSuccessSettlement(
