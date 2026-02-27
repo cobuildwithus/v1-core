@@ -552,7 +552,7 @@ contract GoalFactoryTest is Test {
             maxActivationThreshold: 66,
             maxRunwayCap: 77
         });
-        request.oracleBounds = IBudgetTCR.OracleValidationBounds({ maxOracleType: 2, liveness: 3, bondAmount: 4 });
+        request.oracleBounds = IBudgetTCR.OracleValidationBounds({ liveness: 3, bondAmount: 4 });
         request.arbitratorParams = IArbitrator.ArbitratorParams({
             votingPeriod: 10,
             votingDelay: 20,
@@ -586,7 +586,8 @@ contract GoalFactoryTest is Test {
         assertEq(budgetTcrFactoryProbe.lastGoalRevnetId(), request.goalRevnetId);
         assertEq(budgetTcrFactoryProbe.lastPaymentTokenDecimals(), COBUILD_DECIMALS);
         assertEq(budgetTcrFactoryProbe.lastBudgetMinFundingLeadTime(), request.budgetBounds.minFundingLeadTime);
-        assertEq(budgetTcrFactoryProbe.lastOracleMaxType(), request.oracleBounds.maxOracleType);
+        assertEq(budgetTcrFactoryProbe.lastOracleLiveness(), request.oracleBounds.liveness);
+        assertEq(budgetTcrFactoryProbe.lastOracleBondAmount(), request.oracleBounds.bondAmount);
         assertEq(budgetTcrFactoryProbe.lastArbitrationCost(), request.arbitratorParams.arbitrationCost);
     }
 
@@ -754,7 +755,7 @@ contract GoalFactoryTest is Test {
             maxActivationThreshold: 6,
             maxRunwayCap: 7
         });
-        p.oracleBounds = IBudgetTCR.OracleValidationBounds({ maxOracleType: 1, liveness: 2, bondAmount: 3 });
+        p.oracleBounds = IBudgetTCR.OracleValidationBounds({ liveness: 2, bondAmount: 3 });
         p.budgetSuccessResolver = BUDGET_SUCCESS_RESOLVER;
         p.arbitratorParams = IArbitrator.ArbitratorParams({
             votingPeriod: 1,
@@ -1049,7 +1050,8 @@ contract GoalFactoryBudgetTcrFactoryProbe {
     uint256 public lastGoalRevnetId;
     uint8 public lastPaymentTokenDecimals;
     uint256 public lastBudgetMinFundingLeadTime;
-    uint8 public lastOracleMaxType;
+    uint64 public lastOracleLiveness;
+    uint256 public lastOracleBondAmount;
     uint256 public lastArbitrationCost;
 
     constructor(address returnedBudgetTcr, address returnedArbitrator, address returnedToken) {
@@ -1077,7 +1079,8 @@ contract GoalFactoryBudgetTcrFactoryProbe {
         lastGoalRevnetId = deploymentConfig.goalRevnetId;
         lastPaymentTokenDecimals = deploymentConfig.paymentTokenDecimals;
         lastBudgetMinFundingLeadTime = deploymentConfig.budgetValidationBounds.minFundingLeadTime;
-        lastOracleMaxType = deploymentConfig.oracleValidationBounds.maxOracleType;
+        lastOracleLiveness = deploymentConfig.oracleValidationBounds.liveness;
+        lastOracleBondAmount = deploymentConfig.oracleValidationBounds.bondAmount;
         lastArbitrationCost = arbitratorParams.arbitrationCost;
         return BudgetTCRFactory.DeployedBudgetTCRStack({
             budgetTCR: _returnedBudgetTcr,
