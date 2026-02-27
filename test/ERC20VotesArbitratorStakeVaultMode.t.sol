@@ -429,6 +429,31 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         arb.slashVoter(disputeId, 0, voter2);
     }
 
+    function test_slashVoter_reverts_whenJurorSlasherPointsToArbitrator() public {
+        stakeVault.setJurorSlasher(address(arb));
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDispute();
+        _warpRoll(startTime + 1);
+
+        bytes32 salt1 = bytes32("self-slasher-1");
+        bytes32 salt2 = bytes32("self-slasher-2");
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", salt1));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 2, "", salt2));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", salt1);
+
+        _warpRoll(revealEndTime + 1);
+        vm.expectRevert();
+        arb.slashVoter(disputeId, 0, voter2);
+
+        assertFalse(arb.isVoterSlashedOrProcessed(disputeId, 0, voter2));
+        assertEq(stakeVault.slashCallCount(), 0);
+    }
+
     function test_createDispute_budgetScope_totalSupplyUsesStakeVault_whenBudgetLedgerReadReverts() public {
         MockRewardEscrowBudgetStakeLedgerReadReverts rewardEscrowWithRevertingLedger =
             new MockRewardEscrowBudgetStakeLedgerReadReverts();

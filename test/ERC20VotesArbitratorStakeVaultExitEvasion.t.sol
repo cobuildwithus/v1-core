@@ -5,6 +5,8 @@ import { TestUtils } from "test/utils/TestUtils.sol";
 
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { StakeVault } from "src/goals/StakeVault.sol";
+import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import { MockArbitrable } from "test/mocks/MockArbitrable.sol";
@@ -94,6 +96,7 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
     StakeVaultExitEvasionTokensMock internal controllerTokens;
     StakeVaultExitEvasionControllerMock internal controller;
     ERC20VotesArbitrator internal arb;
+    JurorSlasherRouter internal slasherRouter;
 
     address internal owner = makeAddr("owner");
     address internal juror1 = makeAddr("juror1");
@@ -160,7 +163,9 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
         votingToken.mint(address(arbitrable), 1_000_000e18);
         arbitrable.approveArbitrator(arbitrationCost * 10);
 
-        vault.setJurorSlasher(address(arb));
+        slasherRouter = new JurorSlasherRouter(IStakeVault(address(vault)), address(this));
+        slasherRouter.setAuthorizedSlasher(address(arb), true);
+        vault.setJurorSlasher(address(slasherRouter));
         vm.roll(block.number + 1);
     }
 
