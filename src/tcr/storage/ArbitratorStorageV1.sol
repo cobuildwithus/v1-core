@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import { IArbitrable } from "../interfaces/IArbitrable.sol";
 import { IERC20Votes } from "../interfaces/IERC20Votes.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 
 /**
  * @title ArbitratorStorageV1
@@ -238,6 +239,12 @@ contract ArbitratorStorageV1 {
      * @dev Zero means global juror voting mode (no budget cap).
      */
     address internal _fixedBudgetTreasury;
+
+    /**
+     * @notice Optional cached budget stake ledger discovered from stake-vault goal treasury reward escrow.
+     * @dev Zero means "unavailable at setup time"; budget-scoped reads still fail closed when the ledger is required.
+     */
+    IBudgetStakeLedger internal _budgetStakeLedgerCache;
 
     /**
      * @notice Tracks per-round voter slash processing to prevent duplicate slashing.

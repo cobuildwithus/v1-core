@@ -1128,12 +1128,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
     function _totalVotingPowerAt(uint256 blockNumber) internal view returns (uint256 totalVotes) {
         if (address(_stakeVault) != address(0)) {
-            uint256 jurorVotes = _stakeVault.getPastTotalJurorWeight(blockNumber);
-            address budgetTreasury = _fixedBudgetTreasury;
-            if (budgetTreasury == address(0)) return jurorVotes;
-
-            uint256 budgetVotes = _budgetStakeLedger().getPastBudgetTotalAllocatedStake(budgetTreasury, blockNumber);
-            return Math.min(budgetVotes, jurorVotes);
+            return _stakeVault.getPastTotalJurorWeight(blockNumber);
         }
         return _votingToken.getPastTotalSupply(blockNumber);
     }

@@ -112,14 +112,9 @@ contract MockBudgetStakeLedgerForArbitratorBudgetScope {
 
     mapping(address => mapping(address => Checkpoint[])) internal _userBudgetVotes;
     mapping(address => Checkpoint[]) internal _userAllocationWeights;
-    mapping(address => Checkpoint[]) internal _budgetTotals;
 
     function setPastUserAllocatedStakeOnBudget(address account, address budgetTreasury, uint256 votes) external {
         _writeCheckpoint(_userBudgetVotes[account][budgetTreasury], votes);
-    }
-
-    function setPastBudgetTotalAllocatedStake(address budgetTreasury, uint256 votes) external {
-        _writeCheckpoint(_budgetTotals[budgetTreasury], votes);
     }
 
     function setPastUserAllocationWeight(address account, uint256 weight) external {
@@ -132,10 +127,6 @@ contract MockBudgetStakeLedgerForArbitratorBudgetScope {
         uint256 blockNumber
     ) external view returns (uint256) {
         return _lookupCheckpoint(_userBudgetVotes[account][budgetTreasury], blockNumber);
-    }
-
-    function getPastBudgetTotalAllocatedStake(address budgetTreasury, uint256 blockNumber) external view returns (uint256) {
-        return _lookupCheckpoint(_budgetTotals[budgetTreasury], blockNumber);
     }
 
     function getPastUserAllocationWeight(address account, uint256 blockNumber) external view returns (uint256) {
@@ -182,6 +173,26 @@ contract MockGoalTreasuryForArbitratorBudgetScope {
     constructor(address rewardEscrow_, address flow_) {
         rewardEscrow = rewardEscrow_;
         flow = flow_;
+    }
+}
+
+contract MockGoalTreasuryForArbitratorBudgetScopeMutable {
+    address internal _rewardEscrow;
+    address public flow;
+    bool internal _rewardEscrowReadReverts;
+
+    constructor(address rewardEscrow_, address flow_) {
+        _rewardEscrow = rewardEscrow_;
+        flow = flow_;
+    }
+
+    function rewardEscrow() external view returns (address) {
+        if (_rewardEscrowReadReverts) revert("REWARD_ESCROW_READ_FAILED");
+        return _rewardEscrow;
+    }
+
+    function setRewardEscrowReadReverts(bool shouldRevert) external {
+        _rewardEscrowReadReverts = shouldRevert;
     }
 }
 
@@ -438,7 +449,6 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter2, address(budgetTreasury), 200e18);
         budgetStakeLedger.setPastUserAllocationWeight(voter1, 160e18);
         budgetStakeLedger.setPastUserAllocationWeight(voter2, 200e18);
-        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 240e18);
 
         MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
         ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
@@ -554,7 +564,6 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         // Initial snapshot data prior to dispute creation.
         budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
         budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
-        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 40e18);
 
         MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
         ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
@@ -576,6 +585,38 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         assertEq(voterPower, 40e18);
     }
 
+    function test_votingPower_budgetScope_usesCachedLedger_whenRewardEscrowReadRevertsPostInit() public {
+        MockBudgetStakeLedgerForArbitratorBudgetScope budgetStakeLedger = new MockBudgetStakeLedgerForArbitratorBudgetScope();
+        MockRewardEscrowWithBudgetStakeLedger rewardEscrowWithLedger =
+            new MockRewardEscrowWithBudgetStakeLedger(address(budgetStakeLedger));
+        MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
+        MockGoalTreasuryForArbitratorBudgetScopeMutable scopedGoalTreasury =
+            new MockGoalTreasuryForArbitratorBudgetScopeMutable(address(rewardEscrowWithLedger), address(goalFlow));
+        MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
+        MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
+            new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        scopedStakeVault.setJurorVotes(voter1, 100e18);
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
+        budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
+
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
+            scopedArbitrable,
+            address(scopedStakeVault),
+            address(budgetTreasury)
+        );
+
+        // After setup, force rewardEscrow() reads to revert; budget-scope voting power should still resolve via cached ledger.
+        scopedGoalTreasury.setRewardEscrowReadReverts(true);
+
+        vm.roll(block.number + 1);
+        (uint256 disputeId,,,,) = _createDisputeWith(scopedArbitrable);
+        (uint256 voterPower, bool canVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter1);
+        assertTrue(canVote);
+        assertEq(voterPower, 40e18);
+    }
+
     function test_votingPower_budgetScope_sameBlockSnapshotWritesAreExcluded() public {
         MockBudgetStakeLedgerForArbitratorBudgetScope budgetStakeLedger = new MockBudgetStakeLedgerForArbitratorBudgetScope();
         MockRewardEscrowWithBudgetStakeLedger rewardEscrowWithLedger =
@@ -591,7 +632,6 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
 
         budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
         budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
-        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 40e18);
 
         MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
         ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
@@ -626,7 +666,6 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         budgetStakeLedger.setPastUserAllocationWeight(voter1, 0);
         budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter2, address(budgetTreasury), 200e18);
         budgetStakeLedger.setPastUserAllocationWeight(voter2, 200e18);
-        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 240e18);
 
         MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
         ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
