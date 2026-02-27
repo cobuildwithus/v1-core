@@ -14,6 +14,10 @@ contract BudgetStakeLedgerEconomicsTest is Test {
 
     uint32 internal constant FULL_SCALED = 1_000_000;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
+    uint64 internal constant MIN_SCORING_WINDOW_SECONDS = 1;
+    uint64 internal constant MIN_MATURATION_SECONDS = 1;
+    uint64 internal constant MAX_MATURATION_SECONDS = 30 days;
+    uint64 internal constant MATURATION_WINDOW_DIVISOR = 10;
 
     BudgetStakeLedgerEconomicsMockGoalFlow internal goalFlow;
     BudgetStakeLedgerEconomicsMockGoalTreasury internal goalTreasury;
@@ -128,9 +132,11 @@ contract BudgetStakeLedgerEconomicsTest is Test {
 
         IBudgetStakeLedger.BudgetInfoView memory info = ledger.budgetInfo(address(budget));
         assertTrue(info.isTracked);
+        assertGt(info.scoringStartsAt, 0);
+        assertLe(info.scoringStartsAt, info.scoringEndsAt);
         assertEq(info.scoringEndsAt, budget.fundingDeadline());
         assertEq(info.removedAt, 0);
-        assertEq(info.maturationPeriodSeconds, budget.executionDuration() / 10);
+        assertEq(info.maturationPeriodSeconds, _expectedMaturationPeriodSeconds(info.scoringStartsAt, info.scoringEndsAt));
 
         IBudgetStakeLedger.UserBudgetCheckpointView memory userCheckpoint =
             ledger.userBudgetCheckpoint(ACCOUNT, address(budget));
@@ -230,7 +236,7 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         assertGt(ledger.budgetPoints(address(budget)), 0);
     }
 
-    function testFuzz_pointsMonotonicAcrossIncreaseDecreaseZeroAndReaddTransitions(
+    function testFuzz_pointsRemainBoundedAcrossIncreaseDecreaseZeroAndReaddTransitions(
         uint96 startWeightSeed,
         uint96 increaseDeltaSeed,
         uint96 decreaseWeightSeed,
@@ -250,31 +256,33 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         uint64 secondStep = uint64(bound(uint256(secondStepSeed), 1, 30 days));
         uint64 thirdStep = uint64(bound(uint256(thirdStepSeed), 1, 30 days));
         uint64 fourthStep = uint64(bound(uint256(fourthStepSeed), 1, 30 days));
+        uint256 maxEffectiveStake = _max4(
+            _effectiveWeight(startWeight),
+            _effectiveWeight(increasedWeight),
+            _effectiveWeight(decreasedWeight),
+            _effectiveWeight(readdWeight)
+        );
 
         _checkpoint(ACCOUNT, 0, startWeight);
-        (uint256 userPoints0, uint256 budgetPoints0) = _currentPoints();
-        _assertPointsNonDecreasing(0, 0);
+        _assertSingleAccountPointConsistency(maxEffectiveStake);
 
         vm.warp(block.timestamp + firstStep);
         _checkpoint(ACCOUNT, startWeight, increasedWeight);
-        _assertPointsNonDecreasing(userPoints0, budgetPoints0);
-        (uint256 userPoints1, uint256 budgetPoints1) = _currentPoints();
+        _assertSingleAccountPointConsistency(maxEffectiveStake);
 
         vm.warp(block.timestamp + secondStep);
         _checkpoint(ACCOUNT, increasedWeight, decreasedWeight);
-        _assertPointsNonDecreasing(userPoints1, budgetPoints1);
-        (uint256 userPoints2, uint256 budgetPoints2) = _currentPoints();
+        _assertSingleAccountPointConsistency(maxEffectiveStake);
 
         vm.warp(block.timestamp + thirdStep);
         _checkpoint(ACCOUNT, decreasedWeight, 0);
-        _assertPointsNonDecreasing(userPoints2, budgetPoints2);
-        (uint256 userPoints3, uint256 budgetPoints3) = _currentPoints();
+        _assertSingleAccountPointConsistency(maxEffectiveStake);
         assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget)), 0);
         assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
 
         vm.warp(block.timestamp + fourthStep);
         _checkpoint(ACCOUNT, 0, readdWeight);
-        _assertPointsNonDecreasing(userPoints3, budgetPoints3);
+        _assertSingleAccountPointConsistency(maxEffectiveStake);
         uint256 expectedReaddAllocated = (readdWeight / UNIT_WEIGHT_SCALE) * UNIT_WEIGHT_SCALE;
         assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget)), expectedReaddAllocated);
         assertEq(ledger.budgetTotalAllocatedStake(address(budget)), expectedReaddAllocated);
@@ -386,10 +394,32 @@ contract BudgetStakeLedgerEconomicsTest is Test {
         budgetPoints = ledger.budgetPoints(address(budget));
     }
 
-    function _assertPointsNonDecreasing(uint256 minUserPoints, uint256 minBudgetPoints) internal view {
+    function _assertSingleAccountPointConsistency(uint256 maxEffectiveStake) internal view {
         (uint256 userPoints, uint256 budgetPoints) = _currentPoints();
-        assertGe(userPoints, minUserPoints);
-        assertGe(budgetPoints, minBudgetPoints);
+        assertEq(userPoints, budgetPoints);
+        assertLe(userPoints, maxEffectiveStake);
+    }
+
+    function _effectiveWeight(uint256 weight) internal pure returns (uint256) {
+        return (weight / UNIT_WEIGHT_SCALE) * UNIT_WEIGHT_SCALE;
+    }
+
+    function _max4(uint256 a, uint256 b, uint256 c, uint256 d) internal pure returns (uint256) {
+        uint256 maxValue = a;
+        if (b > maxValue) maxValue = b;
+        if (c > maxValue) maxValue = c;
+        if (d > maxValue) maxValue = d;
+        return maxValue;
+    }
+
+    function _expectedMaturationPeriodSeconds(uint64 scoringStartsAt, uint64 scoringEndsAt) internal pure returns (uint64) {
+        uint64 scoringWindow = scoringEndsAt > scoringStartsAt
+            ? scoringEndsAt - scoringStartsAt
+            : MIN_SCORING_WINDOW_SECONDS;
+        uint64 maturity = scoringWindow / MATURATION_WINDOW_DIVISOR;
+        if (maturity < MIN_MATURATION_SECONDS) maturity = MIN_MATURATION_SECONDS;
+        if (maturity > MAX_MATURATION_SECONDS) maturity = MAX_MATURATION_SECONDS;
+        return maturity;
     }
 
     function _singleBudgetAllocation() internal pure returns (bytes32[] memory ids, uint32[] memory scaled) {

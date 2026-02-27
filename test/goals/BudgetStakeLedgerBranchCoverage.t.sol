@@ -197,15 +197,41 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
     }
 
-    function test_registerBudget_setsMinimumMaturationPeriodWhenExecutionDurationBelowDivisor() public {
+    function test_registerBudget_setsMinimumMaturationPeriodWhenScoringWindowBelowDivisor() public {
         BudgetStakeLedgerCoverageBudgetTreasury budget2 = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
-        budget2.setExecutionDuration(1);
+        budget2.setFundingDeadline(uint64(block.timestamp + 1));
 
         vm.prank(MANAGER);
         ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
 
         IBudgetStakeLedger.BudgetInfoView memory info = ledger.budgetInfo(address(budget2));
         assertEq(info.maturationPeriodSeconds, 1);
+    }
+
+    function test_registerBudget_clampsScoringStartToPastFundingDeadlineAndPreventsPointAccrual() public {
+        vm.warp(100);
+        BudgetStakeLedgerCoverageBudgetTreasury budget2 = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        budget2.setFundingDeadline(95);
+
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(budget2));
+
+        IBudgetStakeLedger.BudgetInfoView memory info = ledger.budgetInfo(address(budget2));
+        assertEq(info.scoringEndsAt, 95);
+        assertEq(info.scoringStartsAt, 95);
+        assertEq(info.maturationPeriodSeconds, 1);
+
+        bytes32[] memory newIds = new bytes32[](1);
+        newIds[0] = SECOND_RECIPIENT;
+        uint32[] memory newScaled = new uint32[](1);
+        newScaled[0] = FULL_SCALED;
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(ACCOUNT, 0, new bytes32[](0), new uint32[](0), 20 * UNIT_WEIGHT_SCALE, newIds, newScaled);
+
+        vm.warp(150);
+        assertEq(ledger.userPointsOnBudget(ACCOUNT, address(budget2)), 0);
+        assertEq(ledger.budgetPoints(address(budget2)), 0);
     }
 
     function test_registerBudget_revertsWhenGoalFlowIsNotContract() public {
@@ -317,9 +343,44 @@ contract BudgetStakeLedgerBranchCoverageTest is Test {
         _checkpointSingle(ACCOUNT, oldAllocated, newAllocated);
     }
 
-    function test_userPointsOnUntrackedBudget_revertsInvalidBudget() public {
-        vm.expectRevert(IBudgetStakeLedger.INVALID_BUDGET.selector);
-        ledger.userPointsOnBudget(ACCOUNT, address(0x1234));
+    function test_userAndBudgetPointsOnUntrackedBudget_returnZero() public {
+        address unknownBudget = address(0x1234);
+        assertEq(ledger.userPointsOnBudget(ACCOUNT, unknownBudget), 0);
+        assertEq(ledger.budgetPoints(unknownBudget), 0);
+    }
+
+    function test_getPastUserAllocationWeight_returnsSnapshotValueByBlock() public {
+        uint256 weight1 = 25 * UNIT_WEIGHT_SCALE;
+        uint256 weight2 = 10 * UNIT_WEIGHT_SCALE;
+        uint256 startBlock = block.number;
+
+        vm.roll(startBlock + 1);
+        _checkpointSingle(ACCOUNT, 0, weight1);
+        vm.roll(startBlock + 2);
+        _checkpointSingle(ACCOUNT, weight1, weight2);
+        vm.roll(startBlock + 3);
+
+        assertEq(ledger.getPastUserAllocationWeight(ACCOUNT, startBlock + 1), weight1);
+        assertEq(ledger.getPastUserAllocationWeight(ACCOUNT, startBlock + 2), weight2);
+    }
+
+    function test_getPastUserAllocationWeight_preservesSnapshotAcrossUnchangedCheckpoint() public {
+        uint256 weight = 25 * UNIT_WEIGHT_SCALE;
+        uint256 startBlock = block.number;
+
+        vm.roll(startBlock + 1);
+        _checkpointSingle(ACCOUNT, 0, weight);
+        vm.roll(startBlock + 2);
+        _checkpointSingle(ACCOUNT, weight, weight);
+        vm.roll(startBlock + 3);
+
+        assertEq(ledger.getPastUserAllocationWeight(ACCOUNT, startBlock + 1), weight);
+        assertEq(ledger.getPastUserAllocationWeight(ACCOUNT, startBlock + 2), weight);
+    }
+
+    function test_getPastUserAllocationWeight_revertsForCurrentBlock() public {
+        vm.expectRevert(IBudgetStakeLedger.BLOCK_NOT_YET_MINED.selector);
+        ledger.getPastUserAllocationWeight(ACCOUNT, block.number);
     }
 
     function _checkpointSingle(address account, uint256 prevWeight, uint256 newWeight) internal {

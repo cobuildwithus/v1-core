@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-02-26
+Last verified: 2026-02-27
 
 ## Purpose
 
@@ -13,9 +13,9 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/design-docs/index.md` | Index for durable design/principles docs. | `agent-docs/design-docs/**` | Protocol Maintainers | Monthly | Medium | 2026-02-18 |
 | `agent-docs/design-docs/core-beliefs.md` | Core agent-first repo principles. | Team architecture and process decisions | Protocol Maintainers | Quarterly | Medium | 2026-02-18 |
 | `agent-docs/product-specs/index.md` | Index for protocol behavior contracts. | `agent-docs/product-specs/**` | Protocol + Product Maintainers | Monthly | High | 2026-02-18 |
-| `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per behavior-change PR | High | 2026-02-22 |
-| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-02-24 |
-| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-02-24 |
+| `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per behavior-change PR | High | 2026-02-27 |
+| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-02-27 |
+| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-02-27 |
 | `agent-docs/protocol-audit-deep-dive.md` | Auditor guide to lifecycle states, fund routes, unlock gates, and review anchors. | `src/goals/**`, `src/hooks/**`, `src/Flow.sol`, `src/tcr/**`, `test/**` | Protocol Maintainers | Per protocol behavior PR | High | 2026-02-23 |
 | `agent-docs/PLANS.md` | Execution plan workflow and quality bar. | `agent-docs/exec-plans/**` | Protocol Maintainers | Per process change | Medium | 2026-02-18 |
 | `agent-docs/operations/verification-and-runtime.md` | Verification lanes, required-check matrix, queue behavior, and runtime guardrails. | `package.json`, `scripts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process/CI change | High | 2026-02-26 |
@@ -32,7 +32,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/references/module-boundary-map.md` | Contract/module boundary map and dependency directions. | `src/**` | Protocol Maintainers | Per module-boundary PR | High | 2026-02-23 |
 | `agent-docs/references/flow-allocation-and-child-sync-map.md` | Flow allocation, snapshot/commit, and child-sync runtime map. | `src/Flow.sol`, `src/library/**`, `src/flows/CustomFlow.sol` | Protocol Maintainers | Per flow/allocation PR | High | 2026-02-23 |
 | `agent-docs/references/tcr-and-arbitration-map.md` | TCR request/challenge/dispute lifecycle map. | `src/tcr/**` | Protocol Maintainers | Per tcr/arbitrator PR | High | 2026-02-24 |
-| `agent-docs/references/goal-funding-and-reward-map.md` | Goal/Budget treasury funding and resolution flow map. | `src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol` | Protocol Maintainers | Per goals/treasury PR | High | 2026-02-21 |
+| `agent-docs/references/goal-funding-and-reward-map.md` | Goal/Budget treasury funding and resolution flow map. | `src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol` | Protocol Maintainers | Per goals/treasury PR | High | 2026-02-27 |
 | `agent-docs/references/economic-considerations.md` | Incentive-risk notes and attack surfaces for treasury/reward/TCR interactions. | `src/goals/**`, `src/tcr/**`, protocol mechanism-design reviews | Protocol Maintainers | Per economics/mechanism PR | High | 2026-02-25 |
 | `agent-docs/references/uma-deployment-recommendations.md` | Pre-launch UMA resolver deployment defaults and policy guidance (`USDC`, `$750`, bond/liveness overrides). | `src/goals/UMATreasurySuccessResolver.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, UMA/Polymarket primary docs | Protocol Maintainers | Per oracle-policy PR | High | 2026-02-25 |
 | `agent-docs/references/testing-ci-map.md` | Testing and CI enforcement map. | `.github/workflows/**`, `scripts/**`, `package.json` | Protocol Maintainers | Per CI/process PR | Medium | 2026-02-26 |

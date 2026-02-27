@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-02-24
+Last updated: 2026-02-27
 
 ## Purpose
 
@@ -133,7 +133,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget treasury supports direct donation ingress while funding is open:
   - `donateUnderlyingAndUpgrade(amount)`.
 - Activation threshold and execution-duration semantics govern outflow windows.
-- Active target flow-rate is measured incoming flow (`net + outgoing`) only (pass-through budget invariant).
+- Active target flow-rate is trusted parent member flow-rate (`parent.getMemberFlowRate(child)`) only (pass-through budget invariant).
 - Budget terminal resolution settles residual child-flow SuperToken balance back to the parent goal flow.
 - Post-finalization late child-flow inflows can be settled with `BudgetTreasury.settleLateResidualToParent()`.
 
@@ -142,8 +142,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `GoalStakeVault` can charge continuous rent on both stake assets (lazy accrual, withheld on withdraw, routed to reward escrow).
 - `GoalStakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
-- `BudgetStakeLedger` applies maturation on that effective unit-scale stake: each user/budget increment starts as fully unmatured and decays over time (derived from budget `executionDuration`) before contributing full reward-point rate.
-- `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points now track effective funding influence (unit-scale stake), not sub-unit raw dust.
+- `BudgetStakeLedger` applies maturation on that effective unit-scale stake: each user/budget increment starts as fully unmatured and decays over time before contributing full reward-point rate. The maturation period is derived from the budget scoring-window length (`window / 10`, clamped to `[1 second, 30 days]`) instead of budget `executionDuration`.
+- `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points are window-normalized (`raw matured stake-time / scoring-window seconds`) so longer funding deadlines do not linearly increase point yield for the same support pattern.
 - `RewardEscrow` recognizes budget recipients either directly (budget treasury recipient) or via child-flow recipient admin (`recipientAdmin`, typically the budget treasury).
 - When configured with a goal SuperToken manager-reward stream, `RewardEscrow` can permissionlessly unwrap to goal-token balances and finalization snapshots normalized pools.
 - `RewardEscrow.claim` now handles both one-time snapshot rewards and incremental rent redistribution using per-point indexes for post-finalize rent inflows.
@@ -168,7 +168,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - treasury initialization happens in `deployBudgetTreasury` after child-flow creation.
 - `BudgetTCR` now performs runtime parent-flow recipient add/remove operations directly.
 - On accepted removal, budget child outflow is force-zeroed immediately; stack terminalization then follows terminal-only retries via `BudgetTCR.retryRemovedBudgetResolution(...)`.
-- On accepted removal, `BudgetTCR` also disables budget success resolution permanently (`disableSuccessResolution`) before terminalization retries.
+- On accepted removal, `BudgetTCR` disables budget success resolution only for non-locked/pre-activation removals; activation-locked removals preserve reward-history/success-eligibility paths while still terminalizing through retries.
 - `BudgetTCRDeployer` remains `onlyBudgetTCR` and mechanical (`prepareBudgetStack` + `deployBudgetTreasury`).
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Treasury authority reads are standardized:

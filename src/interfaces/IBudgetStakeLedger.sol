@@ -7,6 +7,7 @@ interface IBudgetStakeLedger {
         bool wasSuccessfulAtFinalization;
         uint64 resolvedAtFinalization;
         uint64 removedAt;
+        uint64 scoringStartsAt;
         uint64 scoringEndsAt;
         uint64 maturationPeriodSeconds;
         uint64 resolvedOrRemovedAt;
@@ -111,6 +112,7 @@ interface IBudgetStakeLedger {
         address budget,
         uint256 blockNumber
     ) external view returns (uint256);
+    function getPastUserAllocationWeight(address account, uint256 blockNumber) external view returns (uint256);
     function getPastBudgetTotalAllocatedStake(address budget, uint256 blockNumber) external view returns (uint256);
 
     function budgetSucceededAtFinalize(address budget) external view returns (bool);
