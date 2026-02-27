@@ -141,6 +141,47 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertFalse(shouldCheckpoint);
     }
 
+    function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolved() public {
+        treasury.setResolved(true);
+        stakeVault.setWeight(ACCOUNT, 123);
+
+        (uint256 weight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        assertEq(weight, 0);
+        assertFalse(shouldCheckpoint);
+    }
+
+    function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolvedEvenIfGoalResolvedProbeReverts() public {
+        treasury.setResolved(true);
+        stakeVault.setRevertGoalResolved(true);
+
+        (uint256 weight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        assertEq(weight, 0);
+        assertFalse(shouldCheckpoint);
+    }
+
+    function test_prepareCheckpointContextFromCommittedWeight_returnsNoCheckpointWhenTreasuryResolved() public {
+        treasury.setResolved(true);
+
+        (uint256 resolvedWeight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+        assertEq(resolvedWeight, 0);
+        assertFalse(shouldCheckpoint);
+    }
+
+    function test_prepareCheckpointContextFromCommittedWeight_returnsNoCheckpointWhenTreasuryResolvedEvenIfGoalResolvedProbeReverts()
+        public
+    {
+        treasury.setResolved(true);
+        stakeVault.setRevertGoalResolved(true);
+
+        (uint256 resolvedWeight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+        assertEq(resolvedWeight, 0);
+        assertFalse(shouldCheckpoint);
+    }
+
     function test_prepareCheckpointContext_returnsWeightWhenGoalActive() public {
         stakeVault.setWeight(ACCOUNT, 123);
 
@@ -161,6 +202,32 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
             )
         );
         harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+    }
+
+    function test_prepareCheckpointContext_revertsWhenTreasuryResolvedProbeReverts() public {
+        treasury.setRevertResolved(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY.selector,
+                address(ledger),
+                address(treasury)
+            )
+        );
+        harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+    }
+
+    function test_prepareCheckpointContextFromCommittedWeight_revertsWhenTreasuryResolvedProbeReverts() public {
+        treasury.setRevertResolved(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY.selector,
+                address(ledger),
+                address(treasury)
+            )
+        );
+        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
     }
 
     function test_prepareCheckpointContext_revertsWhenWeightProbeReverts() public {
@@ -504,7 +571,9 @@ contract GoalFlowLedgerModeCoverageLedger {
 contract GoalFlowLedgerModeCoverageGoalTreasury {
     address private _flow;
     address private _stakeVault;
+    bool private _resolved;
     bool private _revertFlow;
+    bool private _revertResolved;
     bool private _revertStakeVault;
 
     constructor(address flow_, address stakeVault_) {
@@ -524,6 +593,14 @@ contract GoalFlowLedgerModeCoverageGoalTreasury {
         _revertFlow = shouldRevert;
     }
 
+    function setResolved(bool resolved_) external {
+        _resolved = resolved_;
+    }
+
+    function setRevertResolved(bool shouldRevert) external {
+        _revertResolved = shouldRevert;
+    }
+
     function setRevertStakeVault(bool shouldRevert) external {
         _revertStakeVault = shouldRevert;
     }
@@ -536,6 +613,11 @@ contract GoalFlowLedgerModeCoverageGoalTreasury {
     function stakeVault() external view returns (address) {
         if (_revertStakeVault) revert("stakeVault");
         return _stakeVault;
+    }
+
+    function resolved() external view returns (bool) {
+        if (_revertResolved) revert("resolved");
+        return _resolved;
     }
 }
 
