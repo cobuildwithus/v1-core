@@ -35,7 +35,7 @@
     "verify:full:nowait": "FULL_GATE_BUILD_THREADS=${FULL_GATE_BUILD_THREADS:-0} scripts/verify-full-gate.sh --no-wait",
     "verify:full:tail": "scripts/tail-full-gate-log.sh",
     "verify:full:tail:latest": "scripts/tail-full-gate-log.sh --latest",
-    "verify:required": "pnpm -s test:lite:shared",
+    "verify:required": "scripts/verify-queue.sh submit required --wait",
     "verify:required:ci": "pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared",
     "verify:required:full": "pnpm -s verify:full",
     "test:coverage": "pnpm -s coverage && pnpm -s coverage:check",

@@ -4,6 +4,7 @@
 
 - `pnpm -s verify:required`
 - `pnpm -s verify:required:ci` (optional local CI parity, includes invariants)
+- `verify:required` is queue-backed/coalesced to reduce duplicate concurrent local runs.
 - `bash scripts/check-agent-docs-drift.sh`
 - `bash scripts/doc-gardening.sh --fail-on-issues`
 
