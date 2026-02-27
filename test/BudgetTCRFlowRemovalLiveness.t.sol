@@ -6,7 +6,8 @@ import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import {
     MockGoalTreasuryForBudgetTCR,
     MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR
+    MockBudgetStakeLedgerForBudgetTCR,
+    MockStakeVaultForBudgetTCR
 } from "test/mocks/MockBudgetTCRSystem.sol";
 import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
 import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
@@ -158,6 +159,8 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
         budgetStakeLedger = new MockBudgetStakeLedgerForBudgetTCR();
         goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
+        goalTreasury.setFlow(address(goalFlow));
+        goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         bytes memory arbInit = abi.encodeCall(
             ERC20VotesArbitrator.initialize,
@@ -187,8 +190,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         scaled[0] = HALF_SCALED;
         scaled[1] = HALF_SCALED;
 
-        _allocateWithPrevState(allocator, ids, scaled, "");
-        bytes memory previousState = abi.encode(ids, scaled);
+        _allocateWithPrevState(allocator, ids, scaled);
 
         _removeListing(itemID);
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
@@ -211,10 +213,12 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
 
         address childFlow = goalFlow.getRecipientById(itemID).recipient;
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address allocationMechanism = IFlow(childFlow).recipientAdmin();
 
         assertTrue(childFlow != address(0));
         assertTrue(budgetTreasury != address(0));
-        assertEq(IFlow(childFlow).recipientAdmin(), budgetTreasury);
+        assertTrue(allocationMechanism != address(0));
+        assertTrue(allocationMechanism != budgetTreasury);
         assertEq(IFlow(childFlow).flowOperator(), budgetTreasury);
         assertEq(IFlow(childFlow).sweeper(), budgetTreasury);
     }
@@ -228,8 +232,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         scaled[0] = HALF_SCALED;
         scaled[1] = HALF_SCALED;
 
-        _allocateWithPrevState(allocator, ids, scaled, "");
-        bytes memory previousState = abi.encode(ids, scaled);
+        _allocateWithPrevState(allocator, ids, scaled);
 
         _removeListing(itemID);
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
@@ -239,7 +242,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         uint32[] memory nextScaled = new uint32[](1);
         nextScaled[0] = 1_000_000;
 
-        _allocateWithPrevState(allocator, nextIds, nextScaled, previousState);
+        _allocateWithPrevState(allocator, nextIds, nextScaled);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(
@@ -261,8 +264,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         scaled[0] = HALF_SCALED;
         scaled[1] = HALF_SCALED;
 
-        _allocateWithPrevState(allocator, ids, scaled, "");
-        bytes memory previousState = abi.encode(ids, scaled);
+        _allocateWithPrevState(allocator, ids, scaled);
 
         _removeListing(itemID);
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
@@ -275,7 +277,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         uint32[] memory nextScaled = new uint32[](1);
         nextScaled[0] = 1_000_000;
 
-        _allocateWithPrevState(allocator, nextIds, nextScaled, previousState);
+        _allocateWithPrevState(allocator, nextIds, nextScaled);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(
@@ -297,7 +299,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         scaled[0] = HALF_SCALED;
         scaled[1] = HALF_SCALED;
 
-        _allocateWithPrevState(allocator, ids, scaled, "");
+        _allocateWithPrevState(allocator, ids, scaled);
 
         _removeListing(itemID);
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
@@ -317,8 +319,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     function _allocateWithPrevState(
         address caller,
         bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm,
-        bytes memory
+        uint32[] memory allocationsPpm
     ) internal {
         vm.prank(caller);
         goalFlow.allocate(recipientIds, allocationsPpm);

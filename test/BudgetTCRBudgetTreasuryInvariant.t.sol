@@ -8,11 +8,14 @@ import {
     MockGoalFlowForBudgetTCR,
     MockGoalTreasuryForBudgetTCR,
     MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR
+    MockBudgetStakeLedgerForBudgetTCR,
+    MockStakeVaultForBudgetTCR
 } from "test/mocks/MockBudgetTCRSystem.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -31,11 +34,17 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
     address internal immutable strategy;
+    address internal immutable _roundFactory;
+    address internal immutable _mechanismTcrImplementation;
+    address internal immutable _mechanismArbitratorImplementation;
 
     constructor(address preparedBudgetTreasury_, address deployedBudgetTreasury_) {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
         strategy = address(0x2222222222222222222222222222222222222222);
+        _roundFactory = address(new RoundFactory());
+        _mechanismTcrImplementation = address(new AllocationMechanismTCR());
+        _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
 
     function prepareBudgetStack(
@@ -62,6 +71,18 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     }
 
     function registerChildFlowRecipient(bytes32, address) external { }
+
+    function roundFactory() external view returns (address) {
+        return _roundFactory;
+    }
+
+    function allocationMechanismTcrImplementation() external view returns (address) {
+        return _mechanismTcrImplementation;
+    }
+
+    function allocationMechanismArbitratorImplementation() external view returns (address) {
+        return _mechanismArbitratorImplementation;
+    }
 }
 
 contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
@@ -112,6 +133,8 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
         budgetStakeLedger = new MockBudgetStakeLedgerForBudgetTCR();
         goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
+        goalTreasury.setFlow(address(goalFlow));
+        goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();

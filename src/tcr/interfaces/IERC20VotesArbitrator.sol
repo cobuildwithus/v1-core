@@ -131,6 +131,7 @@ interface IERC20VotesArbitrator is IArbitrator {
      */
     function votingToken() external view returns (IVotes token);
     function fixedBudgetTreasury() external view returns (address budgetTreasury);
+    function invalidRoundRewardsSink() external view returns (address sink);
 
     /**
      * @notice Emitted when the voting period is set

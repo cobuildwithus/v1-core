@@ -22,6 +22,10 @@ contract MockVotesArbitrator is IERC20VotesArbitrator {
         budgetTreasury = address(0);
     }
 
+    function invalidRoundRewardsSink() external pure returns (address sink) {
+        sink = address(0);
+    }
+
     function initialize(address, address, address, uint256, uint256, uint256, uint256) external pure {}
 
     function initializeWithSlashConfig(address, address, address, uint256, uint256, uint256, uint256, uint256, uint256)

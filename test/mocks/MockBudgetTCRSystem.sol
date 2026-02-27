@@ -240,10 +240,10 @@ contract MockGoalFlowForBudgetTCR {
         address flowOperator,
         address sweeper,
         address,
-        IAllocationStrategy[] calldata strategies
+        IAllocationStrategy[] calldata childStrategies
     ) external returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
-        address strategy = strategies.length == 0 ? address(0) : address(strategies[0]);
+        address strategy = childStrategies.length == 0 ? address(0) : address(childStrategies[0]);
 
         MockBudgetChildFlow child =
             new MockBudgetChildFlow(
@@ -273,6 +273,8 @@ contract MockGoalFlowForBudgetTCR {
 contract MockGoalTreasuryForBudgetTCR {
     uint64 public deadline;
     address public rewardEscrow;
+    address public flow;
+    address public stakeVault;
 
     constructor(uint64 deadline_) {
         deadline = deadline_;
@@ -281,6 +283,14 @@ contract MockGoalTreasuryForBudgetTCR {
 
     function setRewardEscrow(address rewardEscrow_) external {
         rewardEscrow = rewardEscrow_;
+    }
+
+    function setFlow(address flow_) external {
+        flow = flow_;
+    }
+
+    function setStakeVault(address stakeVault_) external {
+        stakeVault = stakeVault_;
     }
 }
 
@@ -333,5 +343,18 @@ contract MockBudgetStakeLedgerForBudgetTCR {
         } catch { }
 
         return hasBalance && hasThreshold && treasuryBalance_ >= activationThreshold_;
+    }
+}
+
+contract MockStakeVaultForBudgetTCR {
+    address public goalTreasury;
+    address public jurorSlasher;
+
+    constructor(address goalTreasury_) {
+        goalTreasury = goalTreasury_;
+    }
+
+    function setJurorSlasher(address jurorSlasher_) external {
+        jurorSlasher = jurorSlasher_;
     }
 }

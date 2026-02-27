@@ -11,6 +11,7 @@ contract BudgetTCRStorageV1 {
     struct BudgetDeployment {
         address childFlow;
         address budgetTreasury;
+        address allocationMechanism;
         address strategy;
         bool active;
     }

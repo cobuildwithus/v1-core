@@ -77,6 +77,12 @@ interface IBudgetTCR is IGeneralizedTCR {
         address indexed budgetTreasury,
         address strategy
     );
+    event BudgetAllocationMechanismDeployed(
+        bytes32 indexed itemID,
+        address indexed allocationMechanism,
+        address indexed allocationMechanismArbitrator,
+        address roundFactory
+    );
     event BudgetStackActivationQueued(bytes32 indexed itemID);
     event BudgetStackRemovalQueued(bytes32 indexed itemID);
 

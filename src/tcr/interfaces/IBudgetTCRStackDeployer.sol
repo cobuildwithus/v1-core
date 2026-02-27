@@ -34,4 +34,8 @@ interface IBudgetTCRStackDeployer {
     ) external returns (address deployedBudgetTreasury);
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external;
+
+    function roundFactory() external view returns (address);
+    function allocationMechanismTcrImplementation() external view returns (address);
+    function allocationMechanismArbitratorImplementation() external view returns (address);
 }

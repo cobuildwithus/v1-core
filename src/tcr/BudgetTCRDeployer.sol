@@ -6,6 +6,9 @@ import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
+import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -16,6 +19,9 @@ import { BudgetTCRStackDeploymentLib } from "./library/BudgetTCRStackDeploymentL
 contract BudgetTCRDeployer is IBudgetTCRDeployer {
     address public override budgetTCR;
     address public immutable budgetTreasuryImplementation;
+    address public immutable override roundFactory;
+    address public immutable override allocationMechanismTcrImplementation;
+    address public immutable override allocationMechanismArbitratorImplementation;
     address public sharedBudgetFlowStrategy;
     address public sharedBudgetFlowStrategyLedger;
 
@@ -29,6 +35,9 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
 
     constructor() {
         budgetTreasuryImplementation = address(new BudgetTreasury());
+        roundFactory = address(new RoundFactory());
+        allocationMechanismTcrImplementation = address(new AllocationMechanismTCR());
+        allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
 
     function initialize(address budgetTCR_) external {

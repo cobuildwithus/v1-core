@@ -363,6 +363,8 @@ contract BudgetTCRTest is TestUtils {
     }
 
     function test_executeRequest_queues_budget_activation_and_activateRegisteredBudget_deploys_stack() public {
+        assertEq(goalFlow.recipientAdmin(), address(budgetTcr));
+
         _approveAddCost(requester);
         bytes32 itemID = _submitListing(requester, _defaultListing());
 
@@ -378,6 +380,7 @@ contract BudgetTCRTest is TestUtils {
         Vm.Log[] memory activationLogs = vm.getRecordedLogs();
 
         assertFalse(budgetTcr.isRegistrationPending(itemID));
+        assertEq(goalFlow.recipientAdmin(), address(budgetTcr));
         (address childFlow, bool removed) = goalFlow.recipients(itemID);
         assertFalse(removed);
         assertTrue(childFlow != address(0));
@@ -682,6 +685,7 @@ contract BudgetTCRTest is TestUtils {
     function test_executeRequest_removal_queues_then_finalizeRemovedBudget_handles_parent_removal() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        assertEq(goalFlow.recipientAdmin(), address(budgetTcr));
 
         assertFalse(IBudgetTreasury(budgetTreasury).resolved());
 
@@ -697,6 +701,7 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.finalizeRemovedBudget(itemID);
 
         assertFalse(budgetTcr.isRemovalPending(itemID));
+        assertEq(goalFlow.recipientAdmin(), address(budgetTcr));
         (, bool removed) = goalFlow.recipients(itemID);
         assertTrue(removed);
         assertTrue(IBudgetTreasury(budgetTreasury).resolved());

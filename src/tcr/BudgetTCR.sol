@@ -4,6 +4,9 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "./interfaces/IBudgetTCRStackDeployer.sol";
+import { IArbitrator } from "./interfaces/IArbitrator.sol";
+import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
+import { AllocationMechanismTCR } from "./AllocationMechanismTCR.sol";
 import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
 import { BudgetTCRItems } from "./library/BudgetTCRItems.sol";
 import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
@@ -11,6 +14,8 @@ import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
@@ -239,6 +244,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
         childStrategies[0] = IAllocationStrategy(prepared.strategy);
         address budgetTreasury = prepared.budgetTreasury;
+        address allocationMechanism = Clones.clone(deployer.allocationMechanismTcrImplementation());
 
         address localManagerRewardPool = managerRewardPool != address(0)
             ? managerRewardPool
@@ -246,7 +252,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         (, address childFlow) = goalFlow.addFlowRecipient(
             itemID,
             listing.metadata,
-            budgetTreasury,
+            allocationMechanism,
             budgetTreasury,
             budgetTreasury,
             localManagerRewardPool,
@@ -270,12 +276,90 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             revert BUDGET_TREASURY_MISMATCH();
         }
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
+        address allocationMechanismArbitrator =
+            _initializeBudgetAllocationMechanism(deployer, allocationMechanism, budgetTreasury);
+        emit BudgetAllocationMechanismDeployed(
+            itemID, allocationMechanism, allocationMechanismArbitrator, deployer.roundFactory()
+        );
 
         _budgetDeployments[itemID] = BudgetDeployment({
             childFlow: childFlow,
             budgetTreasury: budgetTreasury,
+            allocationMechanism: allocationMechanism,
             strategy: prepared.strategy,
             active: true
+        });
+    }
+
+    function _initializeBudgetAllocationMechanism(
+        IBudgetTCRStackDeployer deployer,
+        address allocationMechanism,
+        address budgetTreasury
+    ) internal returns (address mechanismArbitrator) {
+        IArbitrator.ArbitratorParams memory arbParams = arbitrator.getArbitratorParamsForFactory();
+        mechanismArbitrator = Clones.clone(deployer.allocationMechanismArbitratorImplementation());
+
+        IERC20VotesArbitrator(mechanismArbitrator).initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
+            IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
+            address(erc20),
+            allocationMechanism,
+            arbParams.votingPeriod,
+            arbParams.votingDelay,
+            arbParams.revealPeriod,
+            arbParams.arbitrationCost,
+            goalTreasury.stakeVault(),
+            budgetTreasury,
+            arbParams.wrongOrMissedSlashBps,
+            arbParams.slashCallerBountyBps
+        );
+
+        AllocationMechanismTCR(allocationMechanism).initialize(
+            budgetTreasury,
+            deployer.roundFactory(),
+            _mechanismRoundDefaults(arbParams),
+            _mechanismRegistryConfig(mechanismArbitrator)
+        );
+    }
+
+    function _mechanismRoundDefaults(
+        IArbitrator.ArbitratorParams memory arbParams
+    ) internal view returns (AllocationMechanismTCR.RoundDefaults memory defaults) {
+        defaults = AllocationMechanismTCR.RoundDefaults({
+            arbitratorExtraData: arbitratorExtraData,
+            registrationMetaEvidence: registrationMetaEvidence,
+            clearingMetaEvidence: clearingMetaEvidence,
+            governor: governor,
+            submissionBaseDeposit: submissionBaseDeposit,
+            removalBaseDeposit: removalBaseDeposit,
+            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+            challengePeriodDuration: challengePeriodDuration,
+            votingPeriod: arbParams.votingPeriod,
+            votingDelay: arbParams.votingDelay,
+            revealPeriod: arbParams.revealPeriod,
+            arbitrationCost: arbParams.arbitrationCost,
+            wrongOrMissedSlashBps: arbParams.wrongOrMissedSlashBps,
+            slashCallerBountyBps: arbParams.slashCallerBountyBps,
+            roundOperator: governor
+        });
+    }
+
+    function _mechanismRegistryConfig(
+        address mechanismArbitrator
+    ) internal view returns (AllocationMechanismTCR.RegistryConfig memory cfg) {
+        cfg = AllocationMechanismTCR.RegistryConfig({
+            arbitrator: IArbitrator(mechanismArbitrator),
+            arbitratorExtraData: arbitratorExtraData,
+            registrationMetaEvidence: registrationMetaEvidence,
+            clearingMetaEvidence: clearingMetaEvidence,
+            governor: governor,
+            votingToken: IVotes(address(erc20)),
+            submissionBaseDeposit: submissionBaseDeposit,
+            submissionDepositStrategy: submissionDepositStrategy,
+            removalBaseDeposit: removalBaseDeposit,
+            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+            challengePeriodDuration: challengePeriodDuration
         });
     }
 
