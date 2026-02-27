@@ -21,6 +21,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeable, ArbitratorStorageV1 {
     using SafeERC20 for IERC20;
@@ -1112,8 +1113,15 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             address budgetTreasury = _fixedBudgetTreasury;
             if (budgetTreasury == address(0)) return jurorVotes;
 
-            uint256 budgetVotes = _budgetStakeLedger().getPastUserAllocatedStakeOnBudget(voter, budgetTreasury, blockNumber);
-            return budgetVotes < jurorVotes ? budgetVotes : jurorVotes;
+            IBudgetStakeLedger ledger = _budgetStakeLedger();
+            uint256 budgetVotes = ledger.getPastUserAllocatedStakeOnBudget(voter, budgetTreasury, blockNumber);
+            if (budgetVotes == 0) return 0;
+
+            uint256 allocationWeight = ledger.getPastUserAllocationWeight(voter, blockNumber);
+            if (allocationWeight == 0) return 0;
+
+            uint256 proportionalVotes = Math.mulDiv(jurorVotes, budgetVotes, allocationWeight);
+            return Math.min(Math.min(proportionalVotes, jurorVotes), budgetVotes);
         }
         return _votingToken.getPastVotes(voter, blockNumber);
     }
@@ -1125,7 +1133,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             if (budgetTreasury == address(0)) return jurorVotes;
 
             uint256 budgetVotes = _budgetStakeLedger().getPastBudgetTotalAllocatedStake(budgetTreasury, blockNumber);
-            return budgetVotes < jurorVotes ? budgetVotes : jurorVotes;
+            return Math.min(budgetVotes, jurorVotes);
         }
         return _votingToken.getPastTotalSupply(blockNumber);
     }

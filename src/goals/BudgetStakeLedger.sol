@@ -37,6 +37,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         bool wasSuccessfulAtFinalization;
         uint64 resolvedAtFinalization;
         uint64 removedAt;
+        uint64 scoringStartsAt;
         uint64 scoringEndsAt;
         uint64 maturationPeriodSeconds;
     }
@@ -48,7 +49,9 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     uint256 private constant _INLINE_FINALIZE_BUDGETS = 32;
     uint64 private constant _MIN_MATURATION_SECONDS = 1;
-    uint64 private constant _MATURATION_DIVISOR = 10;
+    uint64 private constant _MAX_MATURATION_SECONDS = 30 days;
+    uint64 private constant _MIN_SCORING_WINDOW_SECONDS = 1;
+    uint64 private constant _MATURATION_WINDOW_DIVISOR = 10;
 
     address public immutable override goalTreasury;
 
@@ -70,6 +73,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     EnumerableSet.AddressSet private _trackedBudgets;
     mapping(address => mapping(address => Checkpoints.Trace224)) private _userAllocatedStakeCheckpoints;
+    mapping(address => Checkpoints.Trace224) private _userAllocationWeightCheckpoints;
     mapping(address => Checkpoints.Trace224) private _budgetTotalAllocatedStakeCheckpoints;
 
     constructor(address goalTreasury_) {
@@ -92,6 +96,11 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     ) external view override returns (uint256) {
         if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
         return _budgetTotalAllocatedStakeCheckpoints[budget].upperLookupRecent(SafeCast.toUint32(blockNumber));
+    }
+
+    function getPastUserAllocationWeight(address account, uint256 blockNumber) external view override returns (uint256) {
+        if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
+        return _userAllocationWeightCheckpoints[account].upperLookupRecent(SafeCast.toUint32(blockNumber));
     }
 
     modifier onlyGoalSettlementAuthority() {
@@ -143,6 +152,12 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         if (!validMergeInput) revert INVALID_CHECKPOINT_DATA();
 
         uint64 nowTs = uint64(block.timestamp);
+        if (prevWeight != newWeight) {
+            _userAllocationWeightCheckpoints[account].push(
+                SafeCast.toUint32(block.number),
+                SafeCast.toUint224(newWeight)
+            );
+        }
         uint256 oldLen = prevRecipientIds.length;
         uint256 newLen = newRecipientIds.length;
 
@@ -177,7 +192,9 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
         if (finalized || finalizationInProgress) revert REGISTRATION_CLOSED();
         if (budget == address(0)) revert ADDRESS_ZERO();
-        (uint64 scoringEndsAt, uint64 maturationPeriodSeconds) = _validateBudgetForRegistration(budget);
+        uint64 scoringEndsAt = _validateBudgetForRegistration(budget);
+        uint64 scoringStartsAt = _deriveScoringStart(scoringEndsAt);
+        uint64 maturationPeriodSeconds = _computeMaturationSeconds(_scoringWindowSeconds(scoringStartsAt, scoringEndsAt));
 
         address existing = _budgetByRecipientId[recipientId];
         if (existing != address(0) && existing != budget) revert BUDGET_ALREADY_REGISTERED();
@@ -188,6 +205,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         _budgetByRecipientId[recipientId] = budget;
         info.isTracked = true;
         _trackedBudgets.add(budget);
+        info.scoringStartsAt = scoringStartsAt;
         info.scoringEndsAt = scoringEndsAt;
         info.maturationPeriodSeconds = maturationPeriodSeconds;
 
@@ -264,13 +282,18 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function budgetPoints(address budget) external view override returns (uint256) {
-        return _budgetCheckpoints[budget].accruedPoints;
+        BudgetInfo storage info = _budgetInfo[budget];
+        if (!_hasScoringParameters(info)) return 0;
+        uint64 cutoff = _effectiveUserCutoff(budget);
+        return _previewBudgetPoints(_budgetCheckpoints[budget], info, cutoff);
     }
 
     function userPointsOnBudget(address account, address budget) external view override returns (uint256) {
+        BudgetInfo storage info = _budgetInfo[budget];
+        if (!_hasScoringParameters(info)) return 0;
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
         uint64 cutoff = _effectiveUserCutoff(budget);
-        return _previewUserPoints(userCheckpoint, budget, cutoff);
+        return _previewUserPoints(userCheckpoint, info, cutoff);
     }
 
     function userSuccessfulPoints(address account) external view override returns (uint256 totalPoints) {
@@ -281,10 +304,11 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
         for (uint256 i = 0; i < trackedCount; ) {
             address budget = _trackedBudgets.at(i);
-            if (_budgetInfo[budget].wasSuccessfulAtFinalization) {
+            BudgetInfo storage info = _budgetInfo[budget];
+            if (info.wasSuccessfulAtFinalization) {
                 UserBudgetCheckpoint storage checkpoint = _userBudgetCheckpoints[account][budget];
                 uint64 cutoff = _effectiveUserCutoff(budget);
-                totalPoints += _previewUserPoints(checkpoint, budget, cutoff);
+                totalPoints += _previewUserPoints(checkpoint, info, cutoff);
             }
             unchecked {
                 ++i;
@@ -318,10 +342,11 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
         for (uint256 i = cursor; i < endExclusive; ) {
             address budget = _trackedBudgets.at(i);
-            if (_budgetInfo[budget].wasSuccessfulAtFinalization) {
+            BudgetInfo storage info = _budgetInfo[budget];
+            if (info.wasSuccessfulAtFinalization) {
                 UserBudgetCheckpoint storage checkpoint = _userBudgetCheckpoints[account][budget];
                 uint64 cutoff = _effectiveUserCutoff(budget);
-                points += _previewUserPoints(checkpoint, budget, cutoff);
+                points += _previewUserPoints(checkpoint, info, cutoff);
             }
             unchecked {
                 ++i;
@@ -370,6 +395,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         info.wasSuccessfulAtFinalization = budgetInfo_.wasSuccessfulAtFinalization;
         info.resolvedAtFinalization = budgetInfo_.resolvedAtFinalization;
         info.removedAt = budgetInfo_.removedAt;
+        info.scoringStartsAt = budgetInfo_.scoringStartsAt;
         info.scoringEndsAt = budgetInfo_.scoringEndsAt;
         info.maturationPeriodSeconds = budgetInfo_.maturationPeriodSeconds;
         info.resolvedOrRemovedAt = _effectiveBudgetResolvedOrRemovedAt(budget);
@@ -380,20 +406,24 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         address budget
     ) external view override returns (UserBudgetCheckpointView memory checkpoint) {
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
+        BudgetInfo storage info = _budgetInfo[budget];
+        uint64 cutoff = _effectiveUserCutoff(budget);
         checkpoint.allocatedStake = userCheckpoint.allocatedStake;
         checkpoint.unmaturedStake = userCheckpoint.unmaturedStake;
-        checkpoint.accruedPoints = userCheckpoint.accruedPoints;
+        checkpoint.accruedPoints = _previewUserPoints(userCheckpoint, info, cutoff);
         checkpoint.lastCheckpoint = userCheckpoint.lastCheckpoint;
-        checkpoint.effectiveCutoff = _effectiveUserCutoff(budget);
+        checkpoint.effectiveCutoff = cutoff;
     }
 
     function budgetCheckpoint(address budget) external view override returns (BudgetCheckpointView memory checkpoint) {
         BudgetCheckpoint storage budgetCheckpoint_ = _budgetCheckpoints[budget];
+        BudgetInfo storage info = _budgetInfo[budget];
+        uint64 cutoff = _effectiveUserCutoff(budget);
         checkpoint.totalAllocatedStake = budgetCheckpoint_.totalAllocatedStake;
         checkpoint.totalUnmaturedStake = budgetCheckpoint_.totalUnmaturedStake;
-        checkpoint.accruedPoints = budgetCheckpoint_.accruedPoints;
+        checkpoint.accruedPoints = _previewBudgetPoints(budgetCheckpoint_, info, cutoff);
         checkpoint.lastCheckpoint = budgetCheckpoint_.lastCheckpoint;
-        checkpoint.effectiveCutoff = _effectiveUserCutoff(budget);
+        checkpoint.effectiveCutoff = cutoff;
     }
 
     function trackedBudgetSlice(
@@ -411,11 +441,12 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         for (uint256 i = 0; i < length; ) {
             address budget = _trackedBudgets.at(start + i);
             BudgetInfo storage info = _budgetInfo[budget];
+            uint64 cutoff = _effectiveUserCutoff(budget);
             summaries[i] = TrackedBudgetSummary({
                 budget: budget,
                 wasSuccessfulAtFinalization: info.wasSuccessfulAtFinalization,
                 resolvedAtFinalization: info.resolvedAtFinalization,
-                points: _budgetCheckpoints[budget].accruedPoints
+                points: _previewBudgetPoints(_budgetCheckpoints[budget], info, cutoff)
             });
             unchecked {
                 ++i;
@@ -446,14 +477,14 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
             uint64 cutoff = _clampCutoffToBudgetInfo(finalizationTs, info);
 
-            _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudget(budget));
+            _accrueBudgetPoints(budgetCheckpointData, cutoff, _maturationSecondsForBudgetInfo(info));
 
             bool succeeded = _isBudgetSucceededAtFinalization(budget, info, resolvedAt);
             info.wasSuccessfulAtFinalization = succeeded;
             info.resolvedAtFinalization = resolvedAt;
 
             if (succeeded) {
-                pointsSnapshot += budgetCheckpointData.accruedPoints;
+                pointsSnapshot += _normalizePointsForCutoff(budgetCheckpointData.accruedPoints, info, cutoff);
             }
 
             unchecked {
@@ -489,7 +520,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         BudgetInfo storage budgetInfoData = _budgetInfo[budget];
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
         uint64 checkpointTime = _clampCutoffToBudgetInfo(nowTs, budgetInfoData);
-        uint64 maturationSeconds = _maturationSecondsForBudget(budget);
+        uint64 maturationSeconds = _maturationSecondsForBudgetInfo(budgetInfoData);
 
         uint256 userStoredAllocated = userCheckpoint.allocatedStake;
         if (userStoredAllocated != oldAllocated) {
@@ -610,17 +641,45 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     function _previewUserPoints(
         UserBudgetCheckpoint storage checkpoint,
-        address budget,
+        BudgetInfo storage info,
         uint64 cutoff
     ) internal view returns (uint256 points) {
-        points = BudgetStakeLedgerMath.previewPoints(
+        uint256 rawPoints = BudgetStakeLedgerMath.previewPoints(
             checkpoint.allocatedStake,
             checkpoint.unmaturedStake,
             checkpoint.accruedPoints,
             checkpoint.lastCheckpoint,
             cutoff,
-            _maturationSecondsForBudget(budget)
+            _maturationSecondsForBudgetInfo(info)
         );
+        points = _normalizePointsForCutoff(rawPoints, info, cutoff);
+    }
+
+    function _previewBudgetPoints(
+        BudgetCheckpoint storage checkpoint,
+        BudgetInfo storage info,
+        uint64 cutoff
+    ) internal view returns (uint256 points) {
+        uint256 rawPoints = BudgetStakeLedgerMath.previewPoints(
+            checkpoint.totalAllocatedStake,
+            checkpoint.totalUnmaturedStake,
+            checkpoint.accruedPoints,
+            checkpoint.lastCheckpoint,
+            cutoff,
+            _maturationSecondsForBudgetInfo(info)
+        );
+        points = _normalizePointsForCutoff(rawPoints, info, cutoff);
+    }
+
+    function _normalizePointsForCutoff(
+        uint256 rawPoints,
+        BudgetInfo storage info,
+        uint64 cutoff
+    ) internal view returns (uint256 points) {
+        uint64 scoringStartsAt = _scoringStartForBudgetInfo(info);
+        uint64 scoringWindowSeconds = _scoringWindowSeconds(scoringStartsAt, cutoff);
+        if (rawPoints == 0) return 0;
+        points = rawPoints / uint256(scoringWindowSeconds);
     }
 
     function _decodeCachedSuccessfulPoints(uint256 cachedPointsPlusOne) internal pure returns (uint256) {
@@ -646,16 +705,25 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         return FlowUnitMath.effectiveAllocatedStake(weight, scaled, FlowProtocolConstants.PPM_SCALE_UINT256);
     }
 
-    function _computeMaturationSeconds(uint64 executionDuration) internal pure returns (uint64 maturationSeconds) {
-        if (executionDuration == 0) revert INVALID_BUDGET();
+    function _computeMaturationSeconds(uint64 scoringWindowSeconds) internal pure returns (uint64 maturationSeconds) {
+        if (scoringWindowSeconds == 0) scoringWindowSeconds = _MIN_SCORING_WINDOW_SECONDS;
 
-        maturationSeconds = executionDuration / _MATURATION_DIVISOR;
-        if (maturationSeconds == 0) maturationSeconds = _MIN_MATURATION_SECONDS;
+        maturationSeconds = scoringWindowSeconds / _MATURATION_WINDOW_DIVISOR;
+        if (maturationSeconds < _MIN_MATURATION_SECONDS) maturationSeconds = _MIN_MATURATION_SECONDS;
+        if (maturationSeconds > _MAX_MATURATION_SECONDS) maturationSeconds = _MAX_MATURATION_SECONDS;
     }
 
-    function _validateBudgetForRegistration(
-        address budget
-    ) internal view returns (uint64 fundingDeadline, uint64 maturationSeconds) {
+    function _deriveScoringStart(uint64 scoringEndsAt) internal view returns (uint64 scoringStartsAt) {
+        scoringStartsAt = uint64(block.timestamp);
+        if (scoringEndsAt < scoringStartsAt) scoringStartsAt = scoringEndsAt;
+    }
+
+    function _scoringWindowSeconds(uint64 scoringStartsAt, uint64 cutoff) internal pure returns (uint64 windowSeconds) {
+        if (cutoff <= scoringStartsAt) return _MIN_SCORING_WINDOW_SECONDS;
+        windowSeconds = cutoff - scoringStartsAt;
+    }
+
+    function _validateBudgetForRegistration(address budget) internal view returns (uint64 fundingDeadline) {
         if (budget.code.length == 0) revert INVALID_BUDGET();
 
         address goalFlow = _goalFlow();
@@ -677,7 +745,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
 
         try budgetTreasury.executionDuration() returns (uint64 executionDuration_) {
-            maturationSeconds = _computeMaturationSeconds(executionDuration_);
+            if (executionDuration_ == 0) revert INVALID_BUDGET();
         } catch {
             revert INVALID_BUDGET();
         }
@@ -698,9 +766,18 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
     }
 
-    function _maturationSecondsForBudget(address budget) internal view returns (uint64 maturationSeconds) {
-        maturationSeconds = _budgetInfo[budget].maturationPeriodSeconds;
+    function _maturationSecondsForBudgetInfo(BudgetInfo storage info) internal view returns (uint64 maturationSeconds) {
+        maturationSeconds = info.maturationPeriodSeconds;
         if (maturationSeconds == 0) revert INVALID_BUDGET();
+    }
+
+    function _hasScoringParameters(BudgetInfo storage info) internal view returns (bool) {
+        return info.scoringStartsAt != 0 && info.maturationPeriodSeconds != 0;
+    }
+
+    function _scoringStartForBudgetInfo(BudgetInfo storage info) internal view returns (uint64 scoringStartsAt) {
+        scoringStartsAt = info.scoringStartsAt;
+        if (scoringStartsAt == 0) revert INVALID_BUDGET();
     }
 
     function _effectiveUserCutoff(address budget) internal view returns (uint64 cutoff) {

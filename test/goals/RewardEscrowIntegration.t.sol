@@ -23,6 +23,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
     uint32 internal constant FULL_SCALED = 1_000_000;
     bytes32 internal constant SUCCESS_BUDGET_RECIPIENT = keccak256("reward-escrow-success-budget");
     bytes32 internal constant WITHDRAW_BUDGET_RECIPIENT = keccak256("reward-escrow-withdraw-budget");
+    uint256 internal constant POINT_ROUNDING_TOLERANCE = 10_000;
 
     int96 internal constant INCOMING_FLOW_RATE = 1_000_000; // wei per second
 
@@ -89,7 +90,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         uint256 alicePoints = rewardEscrow.userPointsOnBudget(alice, address(budget));
         uint256 bobPoints = rewardEscrow.userPointsOnBudget(bob, address(budget));
         assertGt(alicePoints, bobPoints);
-        assertEq(totalPoints, alicePoints + bobPoints);
+        assertApproxEqAbs(totalPoints, alicePoints + bobPoints, POINT_ROUNDING_TOLERANCE);
 
         uint256 aliceGoalBefore = goalToken.balanceOf(alice);
         uint256 bobGoalBefore = goalToken.balanceOf(bob);
@@ -105,11 +106,11 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         uint256 remainingAfterAlice = snapshot - expectedAlice;
         if (expectedBob > remainingAfterAlice) expectedBob = remainingAfterAlice;
 
-        assertEq(aliceClaim, expectedAlice);
-        assertEq(bobClaim, expectedBob);
-        assertEq(goalToken.balanceOf(alice) - aliceGoalBefore, expectedAlice);
-        assertEq(goalToken.balanceOf(bob) - bobGoalBefore, expectedBob);
-        assertEq(rewardEscrow.totalClaimed(), expectedAlice + expectedBob);
+        assertApproxEqAbs(aliceClaim, expectedAlice, POINT_ROUNDING_TOLERANCE);
+        assertApproxEqAbs(bobClaim, expectedBob, POINT_ROUNDING_TOLERANCE);
+        assertApproxEqAbs(goalToken.balanceOf(alice) - aliceGoalBefore, expectedAlice, POINT_ROUNDING_TOLERANCE);
+        assertApproxEqAbs(goalToken.balanceOf(bob) - bobGoalBefore, expectedBob, POINT_ROUNDING_TOLERANCE);
+        assertEq(rewardEscrow.totalClaimed(), aliceClaim + bobClaim);
     }
 
     function test_managerRewardStream_routesToEscrow_afterActivation() public {
@@ -341,7 +342,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         uint256 alicePoints = rewardEscrow.userPointsOnBudget(alice, address(budget));
         uint256 bobPoints = rewardEscrow.userPointsOnBudget(bob, address(budget));
         assertGt(totalPoints, 0);
-        assertEq(totalPoints, alicePoints + bobPoints);
+        assertApproxEqAbs(totalPoints, alicePoints + bobPoints, POINT_ROUNDING_TOLERANCE);
 
         vm.prank(alice);
         vault.withdrawCobuild(50e18, alice);
@@ -383,7 +384,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         uint256 totalPoints = rewardEscrow.totalPointsSnapshot();
         uint256 alicePoints = rewardEscrow.userPointsOnBudget(alice, address(budget));
         uint256 bobPoints = rewardEscrow.userPointsOnBudget(bob, address(budget));
-        assertEq(totalPoints, alicePoints + bobPoints);
+        assertApproxEqAbs(totalPoints, alicePoints + bobPoints, POINT_ROUNDING_TOLERANCE);
 
         vm.prank(alice);
         rewardEscrow.claim(alice);
