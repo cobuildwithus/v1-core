@@ -124,9 +124,10 @@ cobuild-protocol/
   - budget success assertions are pre-deadline by default, with a one-time post-deadline registration exception during active reassert grace,
   - once registered, success can finalize after deadline,
   - pending success assertions block terminalization only while unresolved.
-- Removed budgets are permanently success-ineligible:
-  - `BudgetTCR` disables budget success resolution on accepted removal,
-  - disabled budgets can no longer register/resolve success assertions.
+- Removed budgets use activation-locked split semantics:
+  - pre-activation removals disable budget success resolution and remain success-ineligible,
+  - post-activation removals stop forward spend/funding but preserve reward-history eligibility;
+    those budgets remain success-eligible only if they later resolve terminal `Succeeded`.
 
 3. Allocation determinism
 - Allocation inputs and witness/commit semantics must remain deterministic and auditable.

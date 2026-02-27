@@ -82,7 +82,7 @@ interface IBudgetStakeLedger {
         uint32[] calldata newScaled
     ) external;
     function registerBudget(bytes32 recipientId, address budget) external;
-    function removeBudget(bytes32 recipientId) external;
+    function removeBudget(bytes32 recipientId) external returns (bool lockRewardHistory);
     function budgetForRecipient(bytes32 recipientId) external view returns (address);
 
     function finalize(uint8 finalState_, uint64 goalFinalizedAt_) external;
