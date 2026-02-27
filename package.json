@@ -36,7 +36,7 @@
     "verify:full:tail": "scripts/tail-full-gate-log.sh",
     "verify:full:tail:latest": "scripts/tail-full-gate-log.sh --latest",
     "verify:required": "scripts/verify-queue.sh submit required --wait",
-    "verify:required:ci": "pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared",
+    "verify:required:ci": "pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared",
     "verify:required:full": "pnpm -s verify:full",
     "test:coverage": "pnpm -s coverage && pnpm -s coverage:check",
     "test:coverage:ci": "pnpm -s coverage:ci && pnpm -s coverage:check",

@@ -10,9 +10,10 @@ Last verified: 2026-02-26
 - Serialized full gate with shared logs: `pnpm -s verify:full`
 - Strict freshness full gate: `pnpm -s verify:full:strict`
 - Follow active full gate logs: `pnpm -s verify:full:tail`
-- Local required gate composition: `pnpm -s build` + `pnpm -s test:lite:shared`
-- CI-parity gate composition: `pnpm -s build` + `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
+- Local required gate composition: `pnpm -s test:lite:shared` (includes shared build)
+- CI-parity gate composition: `pnpm -s test:lite:shared` + `FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared`
 - `verify:required` is queue-backed/coalesced for concurrent local agents (`scripts/verify-queue.sh submit required --wait`).
+- Queue worker start has no batch-delay path (workers start immediately).
 
 ## Temporary Slither Exception
 

@@ -6,14 +6,14 @@ usage() {
   cat <<'USAGE' >&2
 Usage:
   scripts/verify-queue.sh submit [required|required-ci|full] [--wait] [--timeout-seconds N]
-  scripts/verify-queue.sh worker [--no-wait] [--batch-window-seconds N] [--max-batch N] [--worker-lanes N]
+  scripts/verify-queue.sh worker [--no-wait] [--max-batch N] [--worker-lanes N]
   scripts/verify-queue.sh wait <request-id> [--timeout-seconds N]
   scripts/verify-queue.sh status
 
 Commands:
   submit  Enqueue a verification request. Default mode is "required".
-          Mode "required" runs:    pnpm -s build && pnpm -s test:lite:shared
-          Mode "required-ci" runs: pnpm -s build && pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
+          Mode "required" runs:    pnpm -s test:lite:shared
+          Mode "required-ci" runs: pnpm -s test:lite:shared && FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared
           Mode "full" runs:     pnpm -s verify:full
   worker  Process queued requests in batches. Requests are grouped by workspace fingerprint.
           Multiple workers can run in parallel across different fingerprints.
@@ -22,7 +22,6 @@ Commands:
 
 Environment:
   VERIFY_QUEUE_POLL_SECONDS=<n>         Poll interval for wait loops (default: 3).
-  VERIFY_QUEUE_BATCH_WINDOW_SECONDS=<n> Worker batch window before execution (default: 5).
   VERIFY_QUEUE_MAX_BATCH=<n>            Max requests processed per batch (default: 50).
   VERIFY_QUEUE_WORKER_LANES=<n>         Max concurrent worker lanes (default: 4).
   VERIFY_QUEUE_LOCK_STALE_SECONDS=<n>   Stale worker-lock cleanup threshold (default: 600).
@@ -51,7 +50,6 @@ mkdir -p "$runtime_dir" "$results_dir" "$logs_dir" "$worker_lanes_dir" "$fingerp
 touch "$queue_file"
 
 poll_seconds="${VERIFY_QUEUE_POLL_SECONDS:-3}"
-batch_window_seconds="${VERIFY_QUEUE_BATCH_WINDOW_SECONDS:-5}"
 max_batch="${VERIFY_QUEUE_MAX_BATCH:-50}"
 worker_lanes="${VERIFY_QUEUE_WORKER_LANES:-4}"
 lock_stale_seconds="${VERIFY_QUEUE_LOCK_STALE_SECONDS:-600}"
@@ -524,7 +522,6 @@ acquire_worker_lane() {
 
 run_worker() {
   local wait_for_lock=true
-  local batch_window_local="$batch_window_seconds"
   local max_batch_local="$max_batch"
   local poll_local="$poll_seconds"
   local worker_lanes_local="$worker_lanes"
@@ -534,11 +531,6 @@ run_worker() {
       --no-wait)
         wait_for_lock=false
         shift
-        ;;
-      --batch-window-seconds)
-        [ "$#" -ge 2 ] || usage
-        batch_window_local="$2"
-        shift 2
         ;;
       --max-batch)
         [ "$#" -ge 2 ] || usage
@@ -565,7 +557,6 @@ run_worker() {
     esac
   done
 
-  require_positive_int "VERIFY_QUEUE_BATCH_WINDOW_SECONDS" "$batch_window_local"
   require_positive_int "VERIFY_QUEUE_MAX_BATCH" "$max_batch_local"
   require_positive_int "VERIFY_QUEUE_POLL_SECONDS" "$poll_local"
   require_positive_int "VERIFY_QUEUE_WORKER_LANES" "$worker_lanes_local"
@@ -586,10 +577,6 @@ run_worker() {
     printf 'lane=%s\n' "$worker_lane_id"
     printf 'started=%s\n' "$(utc_now)"
   } > "$worker_lane_active_file"
-
-  if [ "$batch_window_local" -gt 0 ]; then
-    sleep "$batch_window_local"
-  fi
 
   while true; do
     local batch_file
@@ -667,19 +654,15 @@ run_worker() {
         run_exit=$?
       fi
     else
-      if env "${lane_env[@]}" pnpm -s build 2>&1 | tee -a "$log_file"; then
-        if env "${lane_env[@]}" pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
-          if [ "$mode" = "required-ci" ]; then
-            if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
-              run_exit=0
-            else
-              run_exit=$?
-            fi
-          else
+      if env "${lane_env[@]}" pnpm -s test:lite:shared 2>&1 | tee -a "$log_file"; then
+        if [ "$mode" = "required-ci" ]; then
+          if env "${lane_env[@]}" FOUNDRY_PROFILE=ci pnpm -s test:invariant:shared 2>&1 | tee -a "$log_file"; then
             run_exit=0
+          else
+            run_exit=$?
           fi
         else
-          run_exit=$?
+          run_exit=0
         fi
       else
         run_exit=$?
@@ -705,7 +688,6 @@ submit_request() {
   local start_worker=true
   local timeout_seconds=0
   local poll_local="$poll_seconds"
-  local batch_window_local="$batch_window_seconds"
   local max_batch_local="$max_batch"
   local worker_lanes_local="$worker_lanes"
 
@@ -738,11 +720,6 @@ submit_request() {
         poll_local="$2"
         shift 2
         ;;
-      --batch-window-seconds)
-        [ "$#" -ge 2 ] || usage
-        batch_window_local="$2"
-        shift 2
-        ;;
       --max-batch)
         [ "$#" -ge 2 ] || usage
         max_batch_local="$2"
@@ -772,7 +749,6 @@ submit_request() {
   esac
 
   require_positive_int "VERIFY_QUEUE_POLL_SECONDS" "$poll_local"
-  require_positive_int "VERIFY_QUEUE_BATCH_WINDOW_SECONDS" "$batch_window_local"
   require_positive_int "VERIFY_QUEUE_MAX_BATCH" "$max_batch_local"
   require_positive_int "VERIFY_QUEUE_WORKER_LANES" "$worker_lanes_local"
   if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [ "$timeout_seconds" -lt 0 ]; then
@@ -828,7 +804,6 @@ submit_request() {
     (
       scripts/verify-queue.sh worker \
         --no-wait \
-        --batch-window-seconds "$batch_window_local" \
         --max-batch "$max_batch_local" \
         --poll-seconds "$poll_local" \
         --worker-lanes "$worker_lanes_local" >/dev/null 2>&1 || true
