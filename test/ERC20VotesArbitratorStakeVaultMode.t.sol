@@ -105,36 +105,65 @@ contract MockBudgetTreasuryForArbitratorBudgetScope {
 }
 
 contract MockBudgetStakeLedgerForArbitratorBudgetScope {
-    mapping(address => mapping(address => uint256)) internal _userBudgetVotes;
-    mapping(address => uint256) internal _userAllocationWeights;
-    mapping(address => uint256) internal _budgetTotals;
+    struct Checkpoint {
+        uint32 blockNumber;
+        uint224 value;
+    }
+
+    mapping(address => mapping(address => Checkpoint[])) internal _userBudgetVotes;
+    mapping(address => Checkpoint[]) internal _userAllocationWeights;
+    mapping(address => Checkpoint[]) internal _budgetTotals;
 
     function setPastUserAllocatedStakeOnBudget(address account, address budgetTreasury, uint256 votes) external {
-        _userBudgetVotes[account][budgetTreasury] = votes;
+        _writeCheckpoint(_userBudgetVotes[account][budgetTreasury], votes);
     }
 
     function setPastBudgetTotalAllocatedStake(address budgetTreasury, uint256 votes) external {
-        _budgetTotals[budgetTreasury] = votes;
+        _writeCheckpoint(_budgetTotals[budgetTreasury], votes);
     }
 
     function setPastUserAllocationWeight(address account, uint256 weight) external {
-        _userAllocationWeights[account] = weight;
+        _writeCheckpoint(_userAllocationWeights[account], weight);
     }
 
     function getPastUserAllocatedStakeOnBudget(
         address account,
         address budgetTreasury,
-        uint256
+        uint256 blockNumber
     ) external view returns (uint256) {
-        return _userBudgetVotes[account][budgetTreasury];
+        return _lookupCheckpoint(_userBudgetVotes[account][budgetTreasury], blockNumber);
     }
 
-    function getPastBudgetTotalAllocatedStake(address budgetTreasury, uint256) external view returns (uint256) {
-        return _budgetTotals[budgetTreasury];
+    function getPastBudgetTotalAllocatedStake(address budgetTreasury, uint256 blockNumber) external view returns (uint256) {
+        return _lookupCheckpoint(_budgetTotals[budgetTreasury], blockNumber);
     }
 
-    function getPastUserAllocationWeight(address account, uint256) external view returns (uint256) {
-        return _userAllocationWeights[account];
+    function getPastUserAllocationWeight(address account, uint256 blockNumber) external view returns (uint256) {
+        return _lookupCheckpoint(_userAllocationWeights[account], blockNumber);
+    }
+
+    function _writeCheckpoint(Checkpoint[] storage checkpoints, uint256 value) internal {
+        uint32 blockNumber = uint32(block.number);
+        uint224 boundedValue = uint224(value);
+        uint256 len = checkpoints.length;
+        if (len != 0 && checkpoints[len - 1].blockNumber == blockNumber) {
+            checkpoints[len - 1].value = boundedValue;
+            return;
+        }
+
+        checkpoints.push(Checkpoint({ blockNumber: blockNumber, value: boundedValue }));
+    }
+
+    function _lookupCheckpoint(Checkpoint[] storage checkpoints, uint256 blockNumber) internal view returns (uint256) {
+        uint256 len = checkpoints.length;
+        while (len != 0) {
+            unchecked {
+                --len;
+            }
+            Checkpoint storage checkpoint = checkpoints[len];
+            if (checkpoint.blockNumber <= blockNumber) return checkpoint.value;
+        }
+        return 0;
     }
 }
 
@@ -419,6 +448,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         );
         scopedStakeVault.setJurorSlasher(address(scopedArb));
 
+        vm.roll(block.number + 1);
         (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
         _warpRoll(startTime + 1);
 
@@ -497,6 +527,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             address(budgetTreasury)
         );
 
+        vm.roll(block.number + 1);
         (uint256 disputeId,,,,) = _createDisputeWith(scopedArbitrable);
         (uint256 voter1Power, bool voter1CanVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter1);
         (uint256 voter2Power, bool voter2CanVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter2);
@@ -505,6 +536,76 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         assertEq(voter1Power, 7e18);
         assertTrue(voter2CanVote);
         assertEq(voter2Power, 9e18);
+    }
+
+    function test_votingPower_budgetScope_usesDisputeCreationBlockSnapshots() public {
+        MockBudgetStakeLedgerForArbitratorBudgetScope budgetStakeLedger = new MockBudgetStakeLedgerForArbitratorBudgetScope();
+        MockRewardEscrowWithBudgetStakeLedger rewardEscrowWithLedger =
+            new MockRewardEscrowWithBudgetStakeLedger(address(budgetStakeLedger));
+        MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
+        MockGoalTreasuryForArbitratorBudgetScope scopedGoalTreasury =
+            new MockGoalTreasuryForArbitratorBudgetScope(address(rewardEscrowWithLedger), address(goalFlow));
+        MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
+        MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
+            new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        scopedStakeVault.setJurorVotes(voter1, 100e18);
+
+        // Initial snapshot data prior to dispute creation.
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
+        budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
+        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 40e18);
+
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
+            scopedArbitrable,
+            address(scopedStakeVault),
+            address(budgetTreasury)
+        );
+
+        vm.roll(block.number + 1);
+        (uint256 disputeId,,,,) = _createDisputeWith(scopedArbitrable);
+
+        // Mutate ledger values in a later block; voting power must still use creation-block snapshots.
+        vm.roll(block.number + 1);
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 90e18);
+        budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
+
+        (uint256 voterPower, bool canVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter1);
+        assertTrue(canVote);
+        assertEq(voterPower, 40e18);
+    }
+
+    function test_votingPower_budgetScope_sameBlockSnapshotWritesAreExcluded() public {
+        MockBudgetStakeLedgerForArbitratorBudgetScope budgetStakeLedger = new MockBudgetStakeLedgerForArbitratorBudgetScope();
+        MockRewardEscrowWithBudgetStakeLedger rewardEscrowWithLedger =
+            new MockRewardEscrowWithBudgetStakeLedger(address(budgetStakeLedger));
+        MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
+        MockGoalTreasuryForArbitratorBudgetScope scopedGoalTreasury =
+            new MockGoalTreasuryForArbitratorBudgetScope(address(rewardEscrowWithLedger), address(goalFlow));
+        MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
+        MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
+            new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        scopedStakeVault.setJurorVotes(voter1, 100e18);
+
+        budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
+        budgetStakeLedger.setPastUserAllocationWeight(voter1, 100e18);
+        budgetStakeLedger.setPastBudgetTotalAllocatedStake(address(budgetTreasury), 40e18);
+
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        ERC20VotesArbitrator scopedArb = _deployBudgetScopedArbitrator(
+            scopedArbitrable,
+            address(scopedStakeVault),
+            address(budgetTreasury)
+        );
+
+        // No roll: dispute creation snapshots block.number - 1, so same-block checkpoint writes are excluded.
+        (uint256 disputeId,,,,) = _createDisputeWith(scopedArbitrable);
+
+        (uint256 voterPower, bool canVote) = scopedArb.votingPowerInCurrentRound(disputeId, voter1);
+        assertEq(voterPower, 0);
+        assertFalse(canVote);
     }
 
     function test_slashVoter_budgetScope_zeroAllocationWeight_marksProcessedWithoutSlash() public {
@@ -535,6 +636,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         );
         scopedStakeVault.setJurorSlasher(address(scopedArb));
 
+        vm.roll(block.number + 1);
         (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
         _warpRoll(startTime + 1);
 
