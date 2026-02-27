@@ -23,7 +23,8 @@ import {
 } from "test/goals/helpers/TreasurySharedMocks.sol";
 import {
     TreasuryMockOptimisticOracleV3,
-    TreasuryMockUmaResolverConfig
+    TreasuryMockUmaResolverConfig,
+    TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 import { TreasurySuccessAssertions } from "src/goals/library/TreasurySuccessAssertions.sol";
 
@@ -1659,6 +1660,36 @@ contract GoalTreasuryTest is Test {
         assertTrue(treasury.reassertGraceUsed());
         assertGt(treasury.reassertGraceDeadline(), block.timestamp);
         assertEq(_countFailClosedResolutionEvents(logs, address(treasury)), 0);
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizesResolverAssertion() public {
+        TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
+            OptimisticOracleV3Interface(address(assertionOracle)),
+            IERC20(address(underlyingToken)),
+            address(0),
+            keccak256("goal-finalize-cleanup-domain")
+        );
+        GoalTreasury finalizeCleanupTreasury =
+            _deployWithSuccessResolver(uint64(block.timestamp + 3 days), 100e18, address(0), 0, address(resolverWithFinalize));
+
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(finalizeCleanupTreasury.recordHookFunding(100e18));
+        finalizeCleanupTreasury.sync();
+
+        bytes32 assertionId = keccak256("goal-finalize-cleanup-assertion");
+        vm.prank(address(resolverWithFinalize));
+        finalizeCleanupTreasury.registerSuccessAssertion(assertionId);
+        _setPendingSuccessAssertion(finalizeCleanupTreasury, true, false);
+
+        vm.warp(finalizeCleanupTreasury.deadline());
+        finalizeCleanupTreasury.sync();
+
+        assertEq(resolverWithFinalize.finalizeCallCount(), 1);
+        assertEq(resolverWithFinalize.lastFinalizedAssertionId(), assertionId);
+        assertEq(finalizeCleanupTreasury.pendingSuccessAssertionId(), bytes32(0));
+        assertTrue(finalizeCleanupTreasury.reassertGraceUsed());
+        assertGt(finalizeCleanupTreasury.reassertGraceDeadline(), block.timestamp);
     }
 
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_opensReassertGraceWhenResolverConfigOracleReadReverts(

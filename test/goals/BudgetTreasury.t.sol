@@ -16,7 +16,8 @@ import {
 } from "test/goals/helpers/TreasurySharedMocks.sol";
 import {
     TreasuryMockOptimisticOracleV3,
-    TreasuryMockUmaResolverConfig
+    TreasuryMockUmaResolverConfig,
+    TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -727,6 +728,120 @@ contract BudgetTreasuryTest is Test {
         assertEq(flow.targetOutflowRate(), 0);
         assertTrue(treasury.reassertGraceUsed());
         assertGt(treasury.reassertGraceDeadline(), block.timestamp);
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizesResolverAssertion() public {
+        TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
+            OptimisticOracleV3Interface(address(assertionOracle)),
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
+
+        BudgetTreasury finalizeCleanupTreasury = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.successResolver = address(resolverWithFinalize);
+        finalizeCleanupTreasury.initialize(owner, config);
+
+        superToken.mint(address(flow), 200e18);
+        _setIncomingFlowRate(100);
+        finalizeCleanupTreasury.sync();
+
+        vm.warp(finalizeCleanupTreasury.fundingDeadline());
+        bytes32 assertionId = keccak256("budget-finalize-cleanup-assertion");
+        vm.prank(address(resolverWithFinalize));
+        finalizeCleanupTreasury.registerSuccessAssertion(assertionId);
+
+        uint64 assertedAt = finalizeCleanupTreasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: owner,
+                    escalationManager: successResolverConfig.escalationManager()
+                }),
+                asserter: owner,
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + finalizeCleanupTreasury.successAssertionLiveness(),
+                settlementResolution: false,
+                domainId: successResolverConfig.domainId(),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: finalizeCleanupTreasury.successAssertionBond(),
+                callbackRecipient: owner,
+                disputer: address(0)
+            })
+        );
+
+        vm.warp(finalizeCleanupTreasury.deadline());
+        finalizeCleanupTreasury.sync();
+
+        assertEq(resolverWithFinalize.finalizeCallCount(), 1);
+        assertEq(resolverWithFinalize.lastFinalizedAssertionId(), assertionId);
+        assertEq(finalizeCleanupTreasury.pendingSuccessAssertionId(), bytes32(0));
+        assertTrue(finalizeCleanupTreasury.reassertGraceUsed());
+        assertEq(finalizeCleanupTreasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizeRevertStillOpensReassertGrace(
+    ) public {
+        TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
+            OptimisticOracleV3Interface(address(assertionOracle)),
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
+        resolverWithFinalize.setShouldRevertFinalize(true);
+
+        BudgetTreasury finalizeCleanupTreasury = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.successResolver = address(resolverWithFinalize);
+        finalizeCleanupTreasury.initialize(owner, config);
+
+        superToken.mint(address(flow), 200e18);
+        _setIncomingFlowRate(100);
+        finalizeCleanupTreasury.sync();
+
+        vm.warp(finalizeCleanupTreasury.fundingDeadline());
+        bytes32 assertionId = keccak256("budget-finalize-cleanup-assertion");
+        vm.prank(address(resolverWithFinalize));
+        finalizeCleanupTreasury.registerSuccessAssertion(assertionId);
+
+        uint64 assertedAt = finalizeCleanupTreasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: owner,
+                    escalationManager: successResolverConfig.escalationManager()
+                }),
+                asserter: owner,
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + finalizeCleanupTreasury.successAssertionLiveness(),
+                settlementResolution: false,
+                domainId: successResolverConfig.domainId(),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: finalizeCleanupTreasury.successAssertionBond(),
+                callbackRecipient: owner,
+                disputer: address(0)
+            })
+        );
+
+        vm.warp(finalizeCleanupTreasury.deadline());
+        finalizeCleanupTreasury.sync();
+
+        assertEq(finalizeCleanupTreasury.pendingSuccessAssertionId(), bytes32(0));
+        assertTrue(finalizeCleanupTreasury.reassertGraceUsed());
+        assertEq(finalizeCleanupTreasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
     }
 
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_emitsGraceEvents() public {
