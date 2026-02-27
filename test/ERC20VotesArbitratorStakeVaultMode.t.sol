@@ -40,7 +40,6 @@ contract MockStakeVaultForArbitrator {
     address public immutable goalTreasury;
 
     mapping(address => uint256) public jurorVotes;
-    uint256 public totalJurorVotes;
     mapping(address => mapping(address => bool)) public operatorAuth;
     address public jurorSlasher;
 
@@ -51,7 +50,6 @@ contract MockStakeVaultForArbitrator {
     }
 
     function setJurorVotes(address juror, uint256 votes) external {
-        totalJurorVotes = totalJurorVotes - jurorVotes[juror] + votes;
         jurorVotes[juror] = votes;
     }
 
@@ -65,10 +63,6 @@ contract MockStakeVaultForArbitrator {
 
     function getPastJurorWeight(address juror, uint256) external view returns (uint256) {
         return jurorVotes[juror];
-    }
-
-    function getPastTotalJurorWeight(uint256) external view returns (uint256) {
-        return totalJurorVotes;
     }
 
     function isAuthorizedJurorOperator(address juror, address operator) external view returns (bool) {
@@ -454,7 +448,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         assertEq(stakeVault.slashCallCount(), 0);
     }
 
-    function test_createDispute_budgetScope_totalSupplyUsesStakeVault_whenBudgetLedgerReadReverts() public {
+    function test_createDispute_budgetScope_succeeds_whenBudgetLedgerReadReverts() public {
         MockRewardEscrowBudgetStakeLedgerReadReverts rewardEscrowWithRevertingLedger =
             new MockRewardEscrowBudgetStakeLedgerReadReverts();
         MockFlowForArbitratorBudgetScope goalFlow = new MockFlowForArbitratorBudgetScope(address(0));
@@ -479,7 +473,6 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         IERC20VotesArbitrator.VotingRoundInfo memory info = scopedArb.getVotingRoundInfo(disputeId, 0);
 
         assertEq(info.creationBlock, creationBlock);
-        assertEq(info.totalSupply, scopedStakeVault.getPastTotalJurorWeight(creationBlock));
     }
 
     function test_slashVoter_budgetScope_scalesSnapshotVotesByBudgetAllocationShare() public {

@@ -29,7 +29,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         uint256 expectedEnd = expectedStart + votingPeriod;
         uint256 expectedRevealEnd = expectedEnd + revealPeriod;
         uint256 expectedCreationBlock = block.number - 1;
-        uint256 expectedSupply = token.getPastTotalSupply(expectedCreationBlock);
 
         vm.expectEmit(true, true, true, true, address(arb));
         emit IERC20VotesArbitrator.DisputeCreated(
@@ -38,7 +37,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
             expectedStart,
             expectedEnd,
             expectedRevealEnd,
-            expectedSupply,
             expectedCreationBlock,
             arbitrationCost,
             extraData,
@@ -67,16 +65,11 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         assertEq(winningChoice, 0);
     }
 
-    function test_createDispute_uses_creationBlock_totalSupply_snapshot() public {
+    function test_createDispute_uses_creationBlock_snapshot() public {
         uint256 expectedStart = block.timestamp + votingDelay;
         uint256 expectedEnd = expectedStart + votingPeriod;
         uint256 expectedRevealEnd = expectedEnd + revealPeriod;
         uint256 expectedCreationBlock = block.number - 1;
-        uint256 expectedSupply = token.getPastTotalSupply(expectedCreationBlock);
-
-        uint256 sameBlockMint = 123e18;
-        token.mint(makeAddr("lateMinter"), sameBlockMint);
-        assertEq(token.totalSupply(), expectedSupply + sameBlockMint);
 
         vm.expectEmit(true, true, true, true, address(arb));
         emit IERC20VotesArbitrator.DisputeCreated(
@@ -85,7 +78,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
             expectedStart,
             expectedEnd,
             expectedRevealEnd,
-            expectedSupply,
             expectedCreationBlock,
             arbitrationCost,
             "",
@@ -110,7 +102,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         uint256 expectedEnd = expectedStart + votingPeriod;
         uint256 expectedRevealEnd = expectedEnd + revealPeriod;
         uint256 expectedCreationBlock = block.number - 1;
-        uint256 expectedSupply = token.getPastTotalSupply(expectedCreationBlock);
 
         vm.expectEmit(true, true, true, true, address(arb));
         emit IERC20VotesArbitrator.DisputeCreated(
@@ -119,7 +110,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
             expectedStart,
             expectedEnd,
             expectedRevealEnd,
-            expectedSupply,
             expectedCreationBlock,
             snapshotCost,
             extraData,
@@ -266,7 +256,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
 
     function test_createDispute_l2NoRoll_snapshotUses_previousBlock() public {
         uint256 expectedCreationBlock = block.number - 1;
-        uint256 expectedSupply = token.getPastTotalSupply(expectedCreationBlock);
         uint256 expectedVotes = token.getPastVotes(voter1, expectedCreationBlock);
 
         // Simulate timestamp movement without block increments.
@@ -276,7 +265,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         IERC20VotesArbitrator.VotingRoundInfo memory info = arb.getVotingRoundInfo(disputeId, 0);
 
         assertEq(info.creationBlock, expectedCreationBlock);
-        assertEq(info.totalSupply, expectedSupply);
 
         (uint256 votingPower, bool canVote) = arb.votingPowerInRound(disputeId, 0, voter1);
         assertTrue(canVote);
