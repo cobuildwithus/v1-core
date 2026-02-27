@@ -7,6 +7,7 @@ import { BudgetStakeLedgerMath } from "src/goals/library/BudgetStakeLedgerMath.s
 
 contract BudgetStakeLedgerMathTest is Test {
     uint256 private constant _WAD = 1e18;
+    uint256 private constant _WEEK = 7 days;
 
     function testFuzz_decayUnmatured_differentialMatchesLegacy(
         uint256 unmaturedSeed,
@@ -105,6 +106,108 @@ contract BudgetStakeLedgerMathTest is Test {
         uint256 fullStakeTimeTwo = allocatedStake * uint256(stepOne + stepTwo);
         assertLe(pointsOne - accruedPoints, fullStakeTimeOne);
         assertLe(pointsTwo - accruedPoints, fullStakeTimeTwo);
+    }
+
+    function test_previewPoints_monotonicWhenAllocatedStakePositive() public pure {
+        uint256 allocatedStake = 1e24;
+        uint256 unmaturedStake = allocatedStake;
+        uint256 accruedPoints = 0;
+        uint64 lastCheckpoint = 100;
+        uint64 cutoffOne = 100 + 3 days;
+        uint64 cutoffTwo = cutoffOne + 9 days;
+        uint64 maturationSeconds = 30 days;
+
+        uint256 pointsOne = BudgetStakeLedgerMath.previewPoints(
+            allocatedStake,
+            unmaturedStake,
+            accruedPoints,
+            lastCheckpoint,
+            cutoffOne,
+            maturationSeconds
+        );
+        uint256 pointsTwo = BudgetStakeLedgerMath.previewPoints(
+            allocatedStake,
+            unmaturedStake,
+            accruedPoints,
+            lastCheckpoint,
+            cutoffTwo,
+            maturationSeconds
+        );
+
+        assertGe(pointsOne, accruedPoints);
+        assertGe(pointsTwo, pointsOne);
+    }
+
+    function test_accruePoints_clampsAreaToFullStakeTimeBound() public pure {
+        uint256 allocatedStake = 100;
+        uint256 unmaturedStake = 1_000;
+        uint256 accruedPoints = 77;
+        uint64 lastCheckpoint = 10;
+        uint64 checkpointTime = 12;
+        uint64 maturationSeconds = 1;
+
+        (uint256 unmaturedAfter, uint256 accruedAfter, uint64 lastAfter) = BudgetStakeLedgerMath.accruePoints(
+            allocatedStake,
+            unmaturedStake,
+            accruedPoints,
+            lastCheckpoint,
+            checkpointTime,
+            maturationSeconds
+        );
+
+        assertEq(unmaturedAfter, 0);
+        assertEq(accruedAfter, accruedPoints);
+        assertEq(lastAfter, checkpointTime);
+    }
+
+    function test_decayUnmatured_maturationOne_zeroesUnmaturedAfterOneSecond() public pure {
+        uint256 unmatured = 5e21;
+        (uint256 unmaturedEnd, uint256 area) = BudgetStakeLedgerMath.decayUnmatured(unmatured, 1, 1);
+        assertEq(unmaturedEnd, 0);
+        assertEq(area, unmatured);
+    }
+
+    function test_accruePoints_maturationOne_firstSecondAddsZeroMatured() public pure {
+        uint256 allocatedStake = 5e21;
+        uint256 unmaturedStake = allocatedStake;
+        uint256 accruedPoints = 3e18;
+        uint64 lastCheckpoint = 100;
+        uint64 checkpointTime = 101;
+
+        (uint256 unmaturedAfter, uint256 accruedAfter, uint64 lastAfter) = BudgetStakeLedgerMath.accruePoints(
+            allocatedStake,
+            unmaturedStake,
+            accruedPoints,
+            lastCheckpoint,
+            checkpointTime,
+            1
+        );
+
+        assertEq(unmaturedAfter, 0);
+        assertEq(accruedAfter, accruedPoints);
+        assertEq(lastAfter, checkpointTime);
+    }
+
+    function test_previewPoints_largeWeeksLargeMaturation_noOverflowAndBounded() public pure {
+        uint256 allocatedStake = 1e30;
+        uint256 unmaturedStake = allocatedStake;
+        uint256 accruedPoints = 4e35;
+        uint64 lastCheckpoint = 1;
+        uint64 cutoff = lastCheckpoint + uint64(8 * _WEEK);
+        uint64 maturationSeconds = uint64(365 days);
+
+        uint256 points = BudgetStakeLedgerMath.previewPoints(
+            allocatedStake,
+            unmaturedStake,
+            accruedPoints,
+            lastCheckpoint,
+            cutoff,
+            maturationSeconds
+        );
+        uint256 fullStakeTime = allocatedStake * uint256(cutoff - lastCheckpoint);
+
+        assertGe(points, accruedPoints);
+        assertLe(points - accruedPoints, fullStakeTime);
     }
 
     function testFuzz_applyStakeChangeToUnmatured_differentialAndBounds(

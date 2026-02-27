@@ -2,12 +2,18 @@
 pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Vm.sol";
 
 import { TreasuryFlowRateSync } from "src/goals/library/TreasuryFlowRateSync.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { ISuperAgreement, ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract TreasuryFlowRateSyncBranchCoverageTest is Test {
+    bytes32 private constant _FLOW_RATE_SYNC_MANUAL_SIG =
+        keccak256("FlowRateSyncManualInterventionRequired(address,int96,int96,int96)");
+    bytes32 private constant _FLOW_RATE_SYNC_CALL_FAILED_SIG =
+        keccak256("FlowRateSyncCallFailed(address,bytes4,int96,bytes)");
+
     event FlowRateSyncManualInterventionRequired(
         address indexed flow, int96 targetRate, int96 fallbackRate, int96 currentRate
     );
@@ -250,6 +256,114 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
         assertEq(applied, 10);
         assertEq(flow.targetOutflowRate(), 10);
     }
+
+    function test_applyCappedFlowRate_emitsCallFailed_thenFallsBackToZero_whenCappedFallbackWriteReverts() public {
+        flow.setTargetOutflowRateForTest(10);
+        superToken.setBalance(100);
+        cfa.setUseGasAsRate(true);
+        flow.setRevertNonZeroWrites(true);
+
+        vm.recordLogs();
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), type(int96).max);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        assertEq(applied, 0);
+        assertEq(flow.targetOutflowRate(), 0);
+        assertTrue(_hasCallFailed(entries));
+        (bool hasManual,,,) = _manualRates(entries);
+        assertFalse(hasManual);
+    }
+
+    function test_applyCappedFlowRate_emitsCallFailed_andManualIntervention_whenCappedFallbackAndZeroWritesRevert()
+        public
+    {
+        flow.setTargetOutflowRateForTest(10);
+        superToken.setBalance(100);
+        cfa.setUseGasAsRate(true);
+        flow.setRevertAllWrites(true);
+
+        vm.recordLogs();
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), type(int96).max);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        assertEq(applied, 10);
+        assertEq(flow.targetOutflowRate(), 10);
+        assertTrue(_hasCallFailed(entries));
+        (bool hasManual, int96 targetRate, int96 fallbackRate, int96 currentRate) = _manualRates(entries);
+        assertTrue(hasManual);
+        assertLt(fallbackRate, targetRate);
+        assertEq(currentRate, 10);
+    }
+
+    function test_applyLinearSpendDownWithFallback_recomputesLowerFallback_afterBalanceDropBetweenComputeAndWrite()
+        public
+    {
+        flow.setTargetOutflowRateForTest(10);
+        superToken.setBalance(100);
+        cfa.setUseGasAsRate(true);
+        flow.setRevertAllWrites(true);
+
+        vm.recordLogs();
+        int96 applied = harness.applyLinearSpendDownWithFallback(
+            IFlow(address(flow)),
+            type(int96).max,
+            type(uint128).max,
+            1
+        );
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        assertEq(applied, 10);
+        (bool hasManual, int96 targetRate, int96 fallbackRate, int96 currentRate) = _manualRates(entries);
+        assertTrue(hasManual);
+        assertLt(fallbackRate, targetRate);
+        assertEq(currentRate, 10);
+    }
+
+    function _hasCallFailed(Vm.Log[] memory entries) internal view returns (bool) {
+        for (uint256 i = 0; i < entries.length; ) {
+            Vm.Log memory logEntry = entries[i];
+            if (logEntry.topics.length == 3 && logEntry.topics[0] == _FLOW_RATE_SYNC_CALL_FAILED_SIG) {
+                if (address(uint160(uint256(logEntry.topics[1]))) != address(flow)) {
+                    unchecked {
+                        ++i;
+                    }
+                    continue;
+                }
+                if (bytes4(logEntry.topics[2]) != IFlow.setTargetOutflowRate.selector) {
+                    unchecked {
+                        ++i;
+                    }
+                    continue;
+                }
+                return true;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
+    }
+
+    function _manualRates(
+        Vm.Log[] memory entries
+    ) internal view returns (bool found, int96 targetRate, int96 fallbackRate, int96 currentRate) {
+        for (uint256 i = 0; i < entries.length; ) {
+            Vm.Log memory logEntry = entries[i];
+            if (logEntry.topics.length == 2 && logEntry.topics[0] == _FLOW_RATE_SYNC_MANUAL_SIG) {
+                if (address(uint160(uint256(logEntry.topics[1]))) != address(flow)) {
+                    unchecked {
+                        ++i;
+                    }
+                    continue;
+                }
+                (targetRate, fallbackRate, currentRate) = abi.decode(logEntry.data, (int96, int96, int96));
+                return (true, targetRate, fallbackRate, currentRate);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
 }
 
 contract TreasuryFlowRateSyncHarness {
@@ -271,6 +385,7 @@ contract TreasuryFlowRateSyncMockFlow {
     int96 private _targetOutflowRate;
     address private _superToken;
     bool private _revertAllWrites;
+    bool private _revertNonZeroWrites;
     bool private _revertRefresh;
     uint256 private _refreshCallCount;
 
@@ -286,6 +401,10 @@ contract TreasuryFlowRateSyncMockFlow {
 
     function setRevertAllWrites(bool shouldRevert) external {
         _revertAllWrites = shouldRevert;
+    }
+
+    function setRevertNonZeroWrites(bool shouldRevert) external {
+        _revertNonZeroWrites = shouldRevert;
     }
 
     function setRevertOnRate(int96 rate, bool shouldRevert) external {
@@ -305,7 +424,9 @@ contract TreasuryFlowRateSyncMockFlow {
     }
 
     function setTargetOutflowRate(int96 targetRate) external {
-        if (_revertAllWrites || _revertOnRate[targetRate]) revert("setTargetOutflowRate");
+        if (_revertAllWrites || (_revertNonZeroWrites && targetRate != 0) || _revertOnRate[targetRate]) {
+            revert("setTargetOutflowRate");
+        }
         _targetOutflowRate = targetRate;
     }
 
@@ -367,6 +488,8 @@ contract TreasuryFlowRateSyncMockHost {
 contract TreasuryFlowRateSyncMockCFA {
     int96 private _maxRate;
     bool private _revertGetMaxRate;
+    bool private _useDepositAsRate;
+    bool private _useGasAsRate;
 
     function setMaxRate(int96 maxRate) external {
         _maxRate = maxRate;
@@ -376,8 +499,25 @@ contract TreasuryFlowRateSyncMockCFA {
         _revertGetMaxRate = shouldRevert;
     }
 
-    function getMaximumFlowRateFromDeposit(ISuperToken, uint256) external view returns (int96) {
+    function setUseDepositAsRate(bool shouldUseDepositAsRate) external {
+        _useDepositAsRate = shouldUseDepositAsRate;
+    }
+
+    function setUseGasAsRate(bool shouldUseGasAsRate) external {
+        _useGasAsRate = shouldUseGasAsRate;
+    }
+
+    function getMaximumFlowRateFromDeposit(ISuperToken, uint256 available) external view returns (int96) {
         if (_revertGetMaxRate) revert("getMaximumFlowRateFromDeposit");
+        if (_useGasAsRate) {
+            uint256 gasRate = gasleft();
+            if (gasRate > uint256(uint96(type(int96).max))) return type(int96).max;
+            return int96(uint96(gasRate));
+        }
+        if (_useDepositAsRate) {
+            if (available > uint256(uint96(type(int96).max))) return type(int96).max;
+            return int96(uint96(available));
+        }
         return _maxRate;
     }
 }
