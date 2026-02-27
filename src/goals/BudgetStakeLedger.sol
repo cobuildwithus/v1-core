@@ -74,7 +74,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     EnumerableSet.AddressSet private _trackedBudgets;
     mapping(address => mapping(address => Checkpoints.Trace224)) private _userAllocatedStakeCheckpoints;
     mapping(address => Checkpoints.Trace224) private _userAllocationWeightCheckpoints;
-    mapping(address => Checkpoints.Trace224) private _budgetTotalAllocatedStakeCheckpoints;
 
     constructor(address goalTreasury_) {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
@@ -88,14 +87,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     ) external view override returns (uint256) {
         if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
         return _userAllocatedStakeCheckpoints[account][budget].upperLookupRecent(SafeCast.toUint32(blockNumber));
-    }
-
-    function getPastBudgetTotalAllocatedStake(
-        address budget,
-        uint256 blockNumber
-    ) external view override returns (uint256) {
-        if (blockNumber >= block.number) revert BLOCK_NOT_YET_MINED();
-        return _budgetTotalAllocatedStakeCheckpoints[budget].upperLookupRecent(SafeCast.toUint32(blockNumber));
     }
 
     function getPastUserAllocationWeight(address account, uint256 blockNumber) external view override returns (uint256) {
@@ -568,10 +559,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         if (newAllocated != oldAllocated) {
             uint32 blockKey = SafeCast.toUint32(block.number);
             _userAllocatedStakeCheckpoints[account][budget].push(blockKey, SafeCast.toUint224(newAllocated));
-            _budgetTotalAllocatedStakeCheckpoints[budget].push(
-                blockKey,
-                SafeCast.toUint224(budgetCheckpointData.totalAllocatedStake)
-            );
         }
 
         emit AllocationCheckpointed(account, budget, newAllocated, checkpointTime);
