@@ -7,6 +7,8 @@ library TreasuryReassertGrace {
         bool used;
     }
 
+    error INVALID_REASSERT_GRACE_DURATION();
+
     function isActive(State storage self) internal view returns (bool) {
         uint64 graceDeadline = self.deadline;
         return graceDeadline != 0 && block.timestamp < graceDeadline;
@@ -27,6 +29,7 @@ library TreasuryReassertGrace {
         uint64 graceDuration
     ) internal returns (bool activated, uint64 graceDeadline) {
         if (self.used) return (false, self.deadline);
+        if (graceDuration == 0) revert INVALID_REASSERT_GRACE_DURATION();
         self.used = true;
 
         uint256 computedDeadline = block.timestamp + graceDuration;
