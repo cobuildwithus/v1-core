@@ -185,6 +185,53 @@ contract BudgetTCRFactoryTest is Test {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
     }
 
+    function test_deployBudgetTCRStackForGoal_allowsConfiguredAuthorizedCaller_andDeploysAtPredictedAddress() public {
+        address authorizedCaller = makeAddr("authorized-caller");
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address rewardEscrow = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCRFactory factory = _newRealFactory(authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
+        goalTreasury.setAuthority(address(factory));
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            governor: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            arbitratorExtraData: bytes(""),
+            registrationMetaEvidence: "ipfs://reg",
+            clearingMetaEvidence: "ipfs://clear",
+            votingToken: IVotes(address(votingToken)),
+            submissionBaseDeposit: 100e18,
+            removalBaseDeposit: 50e18,
+            submissionChallengeBaseDeposit: 120e18,
+            removalChallengeBaseDeposit: 70e18,
+            challengePeriodDuration: 3 days,
+            submissionDepositStrategy: submissionDepositStrategy
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+        );
+        IArbitrator.ArbitratorParams memory arbitratorParams = _defaultArbitratorParams();
+
+        address predictedBudgetTCR = factory.predictBudgetTCRAddress(
+            authorizedCaller,
+            address(deploymentConfig.goalFlow),
+            address(deploymentConfig.goalTreasury),
+            deploymentConfig.goalRevnetId,
+            address(registryConfig.votingToken)
+        );
+
+        vm.prank(authorizedCaller);
+        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
+            factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
+
+        assertEq(deployed.budgetTCR, predictedBudgetTCR);
+    }
+
     function test_deployBudgetTCRStackForGoal_deploysBudgetTCRAtPredictedDeterministicAddress() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
