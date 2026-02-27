@@ -85,24 +85,14 @@ contract RoundPrizeVault is ReentrancyGuard {
     /// @notice Sets the total entitlement for a submission. May be called multiple times.
     /// @dev Enforces entitlement >= already-claimed.
     function setEntitlement(bytes32 submissionId, uint256 entitlement) external onlyOperator {
-        uint256 alreadyClaimed = claimedOf[submissionId];
-        if (entitlement < alreadyClaimed) revert ENTITLEMENT_LT_CLAIMED(entitlement, alreadyClaimed);
-        _snapshotRecipientIfUnset(submissionId, entitlement);
-        entitlementOf[submissionId] = entitlement;
-        emit EntitlementSet(submissionId, entitlement);
+        _setEntitlement(submissionId, entitlement);
     }
 
     function setEntitlements(bytes32[] calldata submissionIds, uint256[] calldata entitlements) external onlyOperator {
         uint256 length = submissionIds.length;
         if (length != entitlements.length) revert LENGTH_MISMATCH();
         for (uint256 i = 0; i < length;) {
-            bytes32 submissionId = submissionIds[i];
-            uint256 entitlement = entitlements[i];
-            uint256 alreadyClaimed = claimedOf[submissionId];
-            if (entitlement < alreadyClaimed) revert ENTITLEMENT_LT_CLAIMED(entitlement, alreadyClaimed);
-            _snapshotRecipientIfUnset(submissionId, entitlement);
-            entitlementOf[submissionId] = entitlement;
-            emit EntitlementSet(submissionId, entitlement);
+            _setEntitlement(submissionIds[i], entitlements[i]);
             unchecked {
                 ++i;
             }
@@ -113,6 +103,8 @@ contract RoundPrizeVault is ReentrancyGuard {
     function claim(bytes32 submissionId) external nonReentrant returns (uint256 amount) {
         address recipient = payoutRecipientOf[submissionId];
         if (recipient != msg.sender) revert ONLY_SUBMITTER();
+        (, IGeneralizedTCR.Status status) = submissionsTCR.itemManagerAndStatus(submissionId);
+        if (status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
 
         uint256 total = entitlementOf[submissionId];
         uint256 already = claimedOf[submissionId];
@@ -133,6 +125,14 @@ contract RoundPrizeVault is ReentrancyGuard {
         if (manager == address(0) || status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
         payoutRecipientOf[submissionId] = manager;
         emit EntitlementRecipientSnapshotted(submissionId, manager);
+    }
+
+    function _setEntitlement(bytes32 submissionId, uint256 entitlement) internal {
+        uint256 alreadyClaimed = claimedOf[submissionId];
+        if (entitlement < alreadyClaimed) revert ENTITLEMENT_LT_CLAIMED(entitlement, alreadyClaimed);
+        _snapshotRecipientIfUnset(submissionId, entitlement);
+        entitlementOf[submissionId] = entitlement;
+        emit EntitlementSet(submissionId, entitlement);
     }
 
     /// @notice Permissionless helper to downgrade super tokens into underlying tokens.

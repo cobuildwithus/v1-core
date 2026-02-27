@@ -133,6 +133,42 @@ contract RoundFactoryTest is Test {
         );
     }
 
+    function test_createRoundForBudget_revertsOnSuperTokenUnderlyingMismatch() public {
+        MockVotesToken otherUnderlying = new MockVotesToken("Other Goal", "OGOAL");
+        RoundTestSuperToken mismatchedSuperToken = new RoundTestSuperToken("Other SuperGoal", "osGOAL", otherUnderlying);
+        budgetFlow.setSuperToken(address(mismatchedSuperToken));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RoundFactory.SUPER_TOKEN_UNDERLYING_MISMATCH.selector,
+                address(underlying),
+                address(otherUnderlying)
+            )
+        );
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenSuperTokenUnderlyingLookupFails() public {
+        budgetFlow.setSuperToken(address(goalFlow));
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
     function test_createRoundForBudget_deploysAndWiresStack() public {
         bytes32 roundId = keccak256("round-1");
         RoundFactory.DeployedRound memory deployed = _deployRound(roundId);

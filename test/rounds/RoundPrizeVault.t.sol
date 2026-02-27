@@ -162,6 +162,39 @@ contract RoundPrizeVaultTest is Test {
         vault.claim(id);
     }
 
+    function test_claim_revertsWhenSubmissionRemovedAfterEntitlementSnapshot() public {
+        bytes32 id = _submitAndRegister();
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+        underlying.mint(address(vault), 100);
+
+        vm.prank(alice);
+        submissions.removeItem(id, "");
+
+        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(alice);
+        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
+        vault.claim(id);
+    }
+
+    function test_claim_revertsWhenSubmissionIsPendingRemoval() public {
+        bytes32 id = _submitAndRegister();
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+        underlying.mint(address(vault), 100);
+
+        vm.prank(alice);
+        submissions.removeItem(id, "");
+
+        vm.prank(alice);
+        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
+        vault.claim(id);
+    }
+
     function test_claim_revertsWhenNothingToClaim() public {
         bytes32 id = _submitAndRegister();
 

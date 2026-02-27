@@ -99,6 +99,10 @@ contract RoundTestSuperToken is ERC20 {
         _burn(msg.sender, amount);
         require(underlying.transfer(msg.sender, amount), "UNDERLYING_TRANSFER_FAILED");
     }
+
+    function getUnderlyingToken() external view returns (address) {
+        return address(underlying);
+    }
 }
 
 contract RoundTestManagedFlow {

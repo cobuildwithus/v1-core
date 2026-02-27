@@ -34,6 +34,7 @@ contract RoundFactory {
 
     error ADDRESS_ZERO();
     error INVALID_BUDGET_CONTEXT();
+    error SUPER_TOKEN_UNDERLYING_MISMATCH(address expectedUnderlying, address actualUnderlying);
 
     event RoundDeployed(
         bytes32 indexed roundId,
@@ -131,6 +132,11 @@ contract RoundFactory {
         // Tokens.
         IERC20 underlying = IStakeVault(stakeVault).goalToken();
         ISuperToken superTok = IFlow(budgetFlow).superToken();
+        address expectedUnderlying = address(underlying);
+        address superUnderlying = _resolveSuperUnderlying(superTok);
+        if (superUnderlying != expectedUnderlying) {
+            revert SUPER_TOKEN_UNDERLYING_MISMATCH(expectedUnderlying, superUnderlying);
+        }
 
         // 1) Clone the per-round submission TCR.
         address submissionTcr = roundSubmissionTcrImplementation.clone();
@@ -210,5 +216,13 @@ contract RoundFactory {
     function _requireDeployedContract(address candidate) internal view returns (address deployed) {
         if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT();
         return candidate;
+    }
+
+    function _resolveSuperUnderlying(ISuperToken superTok) internal view returns (address underlyingToken) {
+        try superTok.getUnderlyingToken() returns (address resolvedUnderlying) {
+            return resolvedUnderlying;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT();
+        }
     }
 }
