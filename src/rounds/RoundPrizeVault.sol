@@ -20,6 +20,7 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
  *
  *         Payouts are always made in the underlying goal token. If the vault only has super tokens
  *         available, it can downgrade on-demand.
+ *         Unentitled balances intentionally remain in-vault; there is no sweep/closeout path.
  */
 contract RoundPrizeVault is ReentrancyGuard {
     using SafeERC20 for IERC20;

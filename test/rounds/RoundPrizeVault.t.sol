@@ -228,6 +228,26 @@ contract RoundPrizeVaultTest is Test {
         assertEq(vault.entitlementOf(id), 250);
     }
 
+    function test_claim_onlyTransfersEntitledAmount_andLeavesExcessInVault() public {
+        bytes32 id = _submitAndRegister();
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 250);
+
+        underlying.mint(address(vault), 1000);
+
+        vm.prank(alice);
+        vault.claim(id);
+
+        assertEq(vault.claimedOf(id), 250);
+        assertEq(underlying.balanceOf(address(vault)), 750);
+
+        vm.prank(alice);
+        vm.expectRevert(RoundPrizeVault.NOTHING_TO_CLAIM.selector);
+        vault.claim(id);
+        assertEq(underlying.balanceOf(address(vault)), 750);
+    }
+
     function test_claim_supportsIncrementalEntitlements() public {
         bytes32 id = _submitAndRegister();
 

@@ -31,7 +31,7 @@ contract RoundSubmissionTCR is GeneralizedTCR {
         bytes32 roundId;
         /// @dev Earliest time submissions are accepted (0 disables the lower bound).
         uint64 startAt;
-        /// @dev Latest time submissions are accepted (0 disables the upper bound).
+        /// @dev Latest time submissions are accepted, inclusive (0 disables the upper bound).
         uint64 endAt;
         /// @dev Optional informational pointer for indexers/UI.
         address prizeVault;
@@ -58,7 +58,7 @@ contract RoundSubmissionTCR is GeneralizedTCR {
     bytes32 public roundId;
     /// @notice Earliest time submissions are accepted.
     uint64 public startAt;
-    /// @notice Latest time submissions are accepted.
+    /// @notice Latest time submissions are accepted, inclusive.
     uint64 public endAt;
     /// @notice Optional prize vault pointer.
     address public prizeVault;
@@ -115,6 +115,7 @@ contract RoundSubmissionTCR is GeneralizedTCR {
     function _verifyItemData(bytes calldata itemData) internal view override returns (bool valid) {
         // Enforce the submission window if configured.
         if (startAt != 0 && block.timestamp < startAt) return false;
+        // `endAt` is inclusive: submissions at exactly `endAt` remain valid.
         if (endAt != 0 && block.timestamp > endAt) return false;
 
         // Canonical encoding: (uint8 source, bytes32 postId).

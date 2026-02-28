@@ -30,13 +30,19 @@
    - `GoalStakeVault`
    - `BudgetStakeStrategy` (pins `recipientId`, then reads per-budget stake via `BudgetStakeLedger.budgetForRecipient(...)`)
    - no per-budget temporary-manager/forwarder contract.
-4. `activateRegisteredBudget(...)` (as goal-flow `recipientAdmin`) adds the goal-flow recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`), currently all set to the cloned budget treasury address, then calls `BudgetTCRDeployer.deployBudgetTreasury(...)`.
+4. `activateRegisteredBudget(...)` (as goal-flow `recipientAdmin`) adds the goal-flow recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`) where `recipientAdmin` is the per-budget `AllocationMechanismTCR` and operator/sweeper remain the cloned budget treasury, then calls `BudgetTCRDeployer.deployBudgetTreasury(...)`.
 5. On accepted removal, `BudgetTCR` clears any pending registration and queues pending removal finalization (`BudgetStackRemovalQueued`) so TCR request resolution remains uncoupled from flow calls.
 6. Any caller can run `finalizeRemovedBudget(...)` to remove parent recipient + stake-ledger mapping, then attempt terminal-only budget resolution (`forceFlowRateToZero`, controller-gated `resolveFailure` via `BudgetTCR`).
 7. If terminalization is not yet allowed by treasury deadlines after removal finalization, anyone can retry the terminal-only path via `retryRemovedBudgetResolution(...)`.
-8. Listing bounds validation is delegated to `BudgetTCRValidator` to keep `BudgetTCR` runtime size under EIP-170.
-9. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, deployer, and validator implementations.
-10. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
+8. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, and deployer implementations.
+9. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
+
+## Round Stack Notes
+
+- `RoundFactory` is permissionless and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
+- Canonical budget rounds for product/indexing should be sourced from `AllocationMechanismTCR.RoundActivated`, which links an accepted mechanism listing item id to the activated deployed stack.
+- `RoundSubmissionTCR` submission windows are bounded by `startAt` (inclusive lower bound) and `endAt` (inclusive upper bound).
+- `RoundPrizeVault` has no sweep/closeout path by design; only entitled submissions can claim, and unentitled balances remain in-vault.
 
 ## Invariants
 
@@ -46,6 +52,7 @@
 - Dispute mappings and round accounting should remain internally consistent.
 - Budget stack helper deployment side effects are only callable through `BudgetTCRDeployer.onlyBudgetTCR`.
 - Goal flow `recipientAdmin` must be configured to the per-goal `BudgetTCR` for budget recipient add/remove operations.
+- Budget child flow `recipientAdmin` must be configured to the per-budget `AllocationMechanismTCR` for round recipient add/remove operations.
 - BudgetTCR runtime meta-evidence updates are locked after initialization.
 - Deployment-time meta-evidence should be content-addressed (IPFS/Arweave URI or raw CID/txid string).
 
@@ -55,8 +62,11 @@
 - `src/tcr/ERC20VotesArbitrator.sol`
 - `src/tcr/BudgetTCR.sol`
 - `src/tcr/BudgetTCRDeployer.sol`
-- `src/tcr/BudgetTCRValidator.sol`
 - `src/tcr/BudgetTCRFactory.sol`
+- `src/tcr/AllocationMechanismTCR.sol`
+- `src/tcr/RoundSubmissionTCR.sol`
+- `src/rounds/RoundFactory.sol`
+- `src/rounds/RoundPrizeVault.sol`
 - `src/tcr/library/TCRRounds.sol`
 - `src/tcr/utils/ArbitrationCostExtraData.sol`
 - `src/tcr/storage/GeneralizedTCRStorageV1.sol`

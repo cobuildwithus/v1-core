@@ -187,6 +187,29 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.addItem(abi.encode(listing));
     }
 
+    function test_verifyItemData_rejectsMalformedListingPayload() public {
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(hex"1234");
+    }
+
+    function test_verifyItemData_rejectsInvalidTimeWindow() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(200, 100);
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+    }
+
+    function testFuzz_verifyItemData_rejectsMalformedShortPayloads(bytes calldata payload) public {
+        // Valid encoded listings are significantly larger than this bound.
+        vm.assume(payload.length < 224);
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(payload);
+    }
+
     function test_registerQueuesActivation() public {
         AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),

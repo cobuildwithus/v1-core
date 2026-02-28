@@ -263,16 +263,19 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // TCR hooks
     // ---------------------------
 
-    function _verifyItemData(bytes calldata itemData) internal pure override returns (bool valid) {
+    function _verifyItemData(bytes calldata itemData) internal view override returns (bool valid) {
         // Ensure the listing decodes, and validate required metadata fields.
-        RoundMechanismListing memory listing = _decodeListing(itemData);
-        if (listing.endAt != 0 && listing.startAt != 0 && listing.endAt < listing.startAt) return false;
+        try this.decodeListing(itemData) returns (RoundMechanismListing memory decoded) {
+            if (decoded.endAt != 0 && decoded.startAt != 0 && decoded.endAt < decoded.startAt) return false;
 
-        // Flow enforces these, but failing early is cheaper.
-        if (bytes(listing.metadata.title).length == 0) return false;
-        if (bytes(listing.metadata.description).length == 0) return false;
-        if (bytes(listing.metadata.image).length == 0) return false;
-        return true;
+            // Flow enforces these, but failing early is cheaper.
+            if (bytes(decoded.metadata.title).length == 0) return false;
+            if (bytes(decoded.metadata.description).length == 0) return false;
+            if (bytes(decoded.metadata.image).length == 0) return false;
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
@@ -302,6 +305,11 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function _decodeListing(bytes memory itemData) internal pure returns (RoundMechanismListing memory listing) {
         listing = abi.decode(itemData, (RoundMechanismListing));
+    }
+
+    /// @notice Public decode helper used for safe try/catch validation in `_verifyItemData`.
+    function decodeListing(bytes calldata itemData) external pure returns (RoundMechanismListing memory listing) {
+        listing = _decodeListing(itemData);
     }
 
     function _validateRoundDefaults(RoundDefaults calldata defaults) internal pure {

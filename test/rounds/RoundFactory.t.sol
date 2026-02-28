@@ -21,6 +21,12 @@ import {
     RoundTestJurorSlasher
 } from "test/rounds/helpers/RoundTestMocks.sol";
 
+contract RoundTestZeroUnderlyingSuperToken {
+    function getUnderlyingToken() external pure returns (address) {
+        return address(0);
+    }
+}
+
 contract RoundFactoryTest is Test {
     MockVotesToken internal underlying;
     RoundTestSuperToken internal superToken;
@@ -159,6 +165,25 @@ contract RoundFactoryTest is Test {
         budgetFlow.setSuperToken(address(goalFlow));
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenSuperTokenResolvesZeroUnderlying() public {
+        RoundTestZeroUnderlyingSuperToken brokenSuperToken = new RoundTestZeroUnderlyingSuperToken();
+        budgetFlow.setSuperToken(address(brokenSuperToken));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RoundFactory.SUPER_TOKEN_UNDERLYING_MISMATCH.selector, address(underlying), address(0)
+            )
+        );
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),

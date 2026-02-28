@@ -51,6 +51,15 @@ contract RoundSubmissionTCRTest is Test {
         return abi.encode(source, postId);
     }
 
+    function _assertAcceptsAt(uint256 timestamp) internal {
+        vm.warp(timestamp);
+        bytes memory item = _encode(0, DEFAULT_POST_ID);
+
+        vm.prank(alice);
+        bytes32 itemId = tcr.addItem(item);
+        assertTrue(itemId != bytes32(0));
+    }
+
     function _roundConfig(
         bytes32 roundId,
         uint64 startAt,
@@ -122,6 +131,41 @@ contract RoundSubmissionTCRTest is Test {
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         tcr.addItem(item);
+    }
+
+    function test_verifyItemData_acceptsAtExactStartAt() public {
+        _assertAcceptsAt(uint256(tcr.startAt()));
+    }
+
+    function test_verifyItemData_acceptsAtExactEndAt() public {
+        _assertAcceptsAt(uint256(tcr.endAt()));
+    }
+
+    function test_verifyItemData_singleTimestampWindow_semantics() public {
+        RoundSubmissionTCR implementation = new RoundSubmissionTCR();
+        RoundSubmissionTCR tcr2 = RoundSubmissionTCR(Clones.clone(address(implementation)));
+        RoundTestArbitrator arb2 = new RoundTestArbitrator(IVotes(address(token)), address(tcr2), 1, 1, 1, ARBITRATION_COST);
+
+        uint64 exactTs = 1000;
+        tcr2.initialize(_roundConfig(bytes32("single-ts"), exactTs, exactTs), _registryConfig(arb2, 0));
+        vm.prank(alice);
+        token.approve(address(tcr2), type(uint256).max);
+
+        bytes memory item = _encode(0, DEFAULT_POST_ID);
+
+        vm.warp(uint256(exactTs) - 1);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        tcr2.addItem(item);
+
+        vm.warp(uint256(exactTs));
+        vm.prank(alice);
+        tcr2.addItem(item);
+
+        vm.warp(uint256(exactTs) + 1);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        tcr2.addItem(item);
     }
 
     function test_constructItemId_isKeccakSourceAndPostId() public {
