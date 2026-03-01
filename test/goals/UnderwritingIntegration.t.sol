@@ -205,7 +205,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertGt(cobuildToken.balanceOf(address(router)), 0);
     }
 
-    function test_goalResolvedBeforeBudgetClose_withdrawThenSlash_allowsUnderwriterPrincipalEscape() public {
+    function test_goalResolvedBeforeBudgetClose_withdrawBlocked_thenSlashStillCutsPrincipal() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -275,14 +275,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 goalStakeBeforeWithdraw = delayedVault.stakedGoalOf(ALICE);
         uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
         vm.startPrank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
         vm.stopPrank();
 
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        uint256 stakedGoalBeforeSlash = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforeSlash = delayedVault.stakedCobuildOf(ALICE);
+        assertEq(stakedGoalBeforeSlash, goalStake);
+        assertEq(stakedCobuildBeforeSlash, cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(budgetClosedAt);
         vm.prank(address(delayedBudgetTreasury));
@@ -292,16 +296,16 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 slashWeight = delayedEscrow.slash(ALICE);
 
         assertEq(slashWeight, 20e18);
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforeSlash);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforeSlash);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
         assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
     }
 
-    function test_goalResolvedDuringPendingSuccessAssertionDelay_withdrawThenSlash_cannotRecoverPrincipal() public {
+    function test_goalResolvedDuringPendingSuccessAssertionDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -335,14 +339,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 goalStakeBeforeWithdraw = delayedVault.stakedGoalOf(ALICE);
         uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
         vm.startPrank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
         vm.stopPrank();
 
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        uint256 stakedGoalBeforeSlash = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforeSlash = delayedVault.stakedCobuildOf(ALICE);
+        assertEq(stakedGoalBeforeSlash, goalStake);
+        assertEq(stakedCobuildBeforeSlash, cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
         assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), assertionId);
 
         vm.warp(budgetClosedAt);
@@ -353,16 +361,16 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 slashWeight = delayedEscrow.slash(ALICE);
 
         assertEq(slashWeight, 20e18);
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforeSlash);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforeSlash);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
         assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
     }
 
-    function test_goalResolvedDuringReassertGraceDelay_withdrawThenSlash_cannotRecoverPrincipal() public {
+    function test_goalResolvedDuringReassertGraceDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -404,14 +412,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 goalStakeBeforeWithdraw = delayedVault.stakedGoalOf(ALICE);
         uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
         vm.startPrank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
         vm.stopPrank();
 
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        uint256 stakedGoalBeforeSlash = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforeSlash = delayedVault.stakedCobuildOf(ALICE);
+        assertEq(stakedGoalBeforeSlash, goalStake);
+        assertEq(stakedCobuildBeforeSlash, cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(graceDeadline + 1);
         assertFalse(delayedBudgetTreasury.isReassertGraceActive());
@@ -424,13 +436,13 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 slashWeight = delayedEscrow.slash(ALICE);
 
         assertEq(slashWeight, 20e18);
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforeSlash);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforeSlash);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
         assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
     }
 
     function test_goalResolvedBeforeBudgetClose_withoutWithdraw_slashStillCutsPrincipal() public {
@@ -638,6 +650,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         stakeVault.setGoalTreasury(predictedTreasury);
+        budgetStakeLedger.setGoalTreasury(predictedTreasury);
         flow.setFlowOperator(predictedTreasury);
         flow.setSweeper(predictedTreasury);
 
@@ -680,6 +693,45 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         assertEq(treasury.targetFlowRate(), 4);
         assertEq(flow.targetOutflowRate(), 4);
+    }
+
+    function test_initialize_revertsWhenBudgetStakeLedgerGoalTreasuryMismatch() public {
+        UnderwritingMockBudgetStakeLedger mismatchedLedger = new UnderwritingMockBudgetStakeLedger();
+
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+
+        address mismatchedGoalTreasury = address(0xBEEF);
+        mismatchedLedger.setGoalTreasury(mismatchedGoalTreasury);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.BUDGET_STAKE_LEDGER_GOAL_MISMATCH.selector, predictedTreasury, mismatchedGoalTreasury
+            )
+        );
+        new GoalTreasury(
+            address(this),
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                budgetStakeLedger: address(mismatchedLedger),
+                hook: address(hook),
+                goalRulesets: address(rulesets),
+                goalRevnetId: GOAL_REVNET_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                coverageLambda: 10,
+                budgetPremiumPpm: 0,
+                budgetSlashPpm: 0,
+                successResolver: address(this),
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
     }
 
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
@@ -750,9 +802,27 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
 contract UnderwritingMockBudgetStakeLedger {
     mapping(address account => mapping(address budgetTreasury => uint256 coverage)) internal _coverage;
+    address internal _goalTreasury;
+    bool internal _allTrackedBudgetsResolved = true;
 
     function setCoverage(address account, address budgetTreasury, uint256 coverage) external {
         _coverage[account][budgetTreasury] = coverage;
+    }
+
+    function setGoalTreasury(address goalTreasury_) external {
+        _goalTreasury = goalTreasury_;
+    }
+
+    function goalTreasury() external view returns (address) {
+        return _goalTreasury;
+    }
+
+    function setAllTrackedBudgetsResolved(bool resolved_) external {
+        _allTrackedBudgetsResolved = resolved_;
+    }
+
+    function allTrackedBudgetsResolved() external view returns (bool) {
+        return _allTrackedBudgetsResolved;
     }
 
     function userAllocatedStakeOnBudget(address account, address budgetTreasury) external view returns (uint256) {
