@@ -64,6 +64,8 @@ interface IBudgetStakeLedger {
     function trackedBudgetCount() external view returns (uint256);
     function trackedBudgetAt(uint256 index) external view returns (address);
     function allTrackedBudgetsResolved() external view returns (bool);
+    function registeredBudgetCount() external view returns (uint256);
+    function registeredBudgetAt(uint256 index) external view returns (address);
 
     function userAllocatedStakeOnBudget(address account, address budget) external view returns (uint256);
     function budgetTotalAllocatedStake(address budget) external view returns (uint256);

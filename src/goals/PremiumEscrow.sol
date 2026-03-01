@@ -127,11 +127,11 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         return _accountStates[account].claimable;
     }
 
-    function userCov(address account) external view returns (uint256) {
+    function userCov(address account) external view override returns (uint256) {
         return _accountStates[account].userCov;
     }
 
-    function exposureIntegral(address account) external view returns (uint256) {
+    function exposureIntegral(address account) external view override returns (uint256) {
         return _accountStates[account].exposureIntegral;
     }
 

@@ -22,7 +22,7 @@ interface IStakeVault {
     error INVALID_JUROR_LOCK();
     error EXIT_NOT_READY();
     error JUROR_WITHDRAWAL_LOCKED();
-    error UNDERWRITER_WITHDRAWAL_LOCKED();
+    error UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
     error ONLY_JUROR_SLASHER();
     error INVALID_JUROR_SLASHER();
     error JUROR_SLASHER_ALREADY_SET();
@@ -37,6 +37,9 @@ interface IStakeVault {
     event GoalWithdrawn(address indexed user, address indexed to, uint256 amount);
     event CobuildWithdrawn(address indexed user, address indexed to, uint256 amount);
     event GoalResolved();
+    event UnderwriterWithdrawalPrepared(
+        address indexed underwriter, uint256 nextBudgetIndex, uint256 budgetCount, bool complete
+    );
     event JurorOptedIn(
         address indexed juror,
         uint256 goalAmount,
@@ -87,6 +90,9 @@ interface IStakeVault {
 
     function depositGoal(uint256 amount) external;
     function depositCobuild(uint256 amount) external;
+    function prepareUnderwriterWithdrawal(
+        uint256 maxBudgets
+    ) external returns (uint256 nextBudgetIndex, uint256 budgetCount, bool complete);
     function withdrawGoal(uint256 amount, address to) external;
     function withdrawCobuild(uint256 amount, address to) external;
     function markGoalResolved() external;
@@ -101,6 +107,9 @@ interface IStakeVault {
 
     function weightOf(address user) external view returns (uint256);
     function totalWeight() external view returns (uint256);
+    function underwriterWithdrawalPrepareCursor(address underwriter) external view returns (uint256);
+    function underwriterWithdrawalPreparedForResolvedAt(address underwriter) external view returns (uint64);
+    function underwriterWithdrawalPreparedBudgetCount(address underwriter) external view returns (uint256);
     function stakedGoalOf(address user) external view returns (uint256);
     function stakedCobuildOf(address user) external view returns (uint256);
     function jurorLockedGoalOf(address user) external view returns (uint256);
