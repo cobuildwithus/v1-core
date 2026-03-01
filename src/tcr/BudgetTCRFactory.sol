@@ -26,6 +26,10 @@ contract BudgetTCRFactory {
     error UNSUPPORTED_JUROR_SLASHER(address configuredSlasher);
     error INVALID_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_SLASHER_STAKE_VAULT(address expected, address actual);
+    error UNDERWRITER_SLASHER_NOT_CONFIGURED();
+    error UNSUPPORTED_UNDERWRITER_SLASHER(address configuredSlasher);
+    error INVALID_UNDERWRITER_SLASHER_AUTHORITY(address expected, address actual);
+    error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
 
     struct RegistryConfigInput {
         address governor;
@@ -111,7 +115,7 @@ contract BudgetTCRFactory {
         address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
-        IBudgetTCRDeployer(stackDeployer).initialize(budgetTCR);
+        IBudgetTCRDeployer(stackDeployer).initialize(budgetTCR, deploymentConfig.premiumEscrowImplementation);
 
         IERC20VotesArbitrator(arbitrator).initializeWithStakeVaultAndSlashConfig(
             registryConfig.invalidRoundRewardsSink,
@@ -126,6 +130,8 @@ contract BudgetTCRFactory {
             arbitratorParams.slashCallerBountyBps
         );
         _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
+        address underwriterSlasherRouter =
+            _resolveUnderwriterSlasherRouter(deploymentConfig.goalTreasury, deploymentConfig.underwriterSlasherRouter);
 
         (
             uint256 submissionBaseDeposit,
@@ -145,7 +151,8 @@ contract BudgetTCRFactory {
 
         IBudgetTCR.DeploymentConfig memory deploymentConfigFull = _buildDeploymentConfig(
             deploymentConfig,
-            stackDeployer
+            stackDeployer,
+            underwriterSlasherRouter
         );
 
         IBudgetTCR(budgetTCR).initialize(registryConfigFull, deploymentConfigFull);
@@ -255,7 +262,8 @@ contract BudgetTCRFactory {
 
     function _buildDeploymentConfig(
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
-        address stackDeployer
+        address stackDeployer,
+        address underwriterSlasherRouter
     ) internal pure returns (IBudgetTCR.DeploymentConfig memory config) {
         config = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
@@ -267,10 +275,28 @@ contract BudgetTCRFactory {
             goalRulesets: deploymentConfig.goalRulesets,
             goalRevnetId: deploymentConfig.goalRevnetId,
             paymentTokenDecimals: deploymentConfig.paymentTokenDecimals,
+            premiumEscrowImplementation: deploymentConfig.premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: deploymentConfig.budgetPremiumPpm,
+            budgetSlashPpm: deploymentConfig.budgetSlashPpm,
             managerRewardPool: deploymentConfig.managerRewardPool,
             budgetValidationBounds: deploymentConfig.budgetValidationBounds,
             oracleValidationBounds: deploymentConfig.oracleValidationBounds
         });
+    }
+
+    function _resolveUnderwriterSlasherRouter(IGoalTreasury goalTreasury, address configuredRouter)
+        internal
+        returns (address router)
+    {
+        if (configuredRouter == address(0) || configuredRouter.code.length == 0) {
+            revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
+        }
+        router = configuredRouter;
+
+        if (goalTreasury.authority() == address(this)) {
+            goalTreasury.configureUnderwriterSlasher(router);
+        }
     }
 
     function _resolveDeposits(

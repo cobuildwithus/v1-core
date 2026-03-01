@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
+import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
@@ -19,6 +20,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
+    uint8 private constant TERMINAL_OP_PREMIUM_ESCROW_CLOSE = 3;
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -26,6 +28,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
     IFlow private _flow;
     ISuperToken public override superToken;
+    address public override premiumEscrow;
 
     uint64 public override fundingDeadline;
     uint64 public override executionDuration;
@@ -59,6 +62,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     function initialize(address initialController, BudgetConfig calldata config) external initializer {
         controller = _requireNonZeroController(initialController);
         if (config.flow == address(0)) revert ADDRESS_ZERO();
+        address premiumEscrow_ = config.premiumEscrow;
+        if (premiumEscrow_ == address(0) || premiumEscrow_.code.length == 0) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
             config.successAssertionLiveness == 0 ||
@@ -97,6 +102,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         executionDuration = config.executionDuration;
         activationThreshold = config.activationThreshold;
         runwayCap = config.runwayCap;
+        premiumEscrow = premiumEscrow_;
         successResolver = config.successResolver;
         successAssertionLiveness = config.successAssertionLiveness;
         successAssertionBond = config.successAssertionBond;
@@ -337,6 +343,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
+        _tryClosePremiumEscrow(finalState);
 
         _runTerminalSideEffects();
 
@@ -350,6 +357,15 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         }
 
         _trySettleResidualToParent();
+    }
+
+    function _tryClosePremiumEscrow(BudgetState finalState) internal {
+        address escrow = premiumEscrow;
+        if (escrow == address(0)) return;
+
+        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) { } catch (bytes memory reason) {
+            emit TerminalSideEffectFailed(TERMINAL_OP_PREMIUM_ESCROW_CLOSE, reason);
+        }
     }
 
     function _trySettleResidualToParent() internal {

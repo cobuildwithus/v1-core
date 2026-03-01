@@ -18,6 +18,7 @@ import { BudgetTCRStackDeploymentLib } from "./library/BudgetTCRStackDeploymentL
 
 contract BudgetTCRDeployer is IBudgetTCRDeployer {
     address public override budgetTCR;
+    address public premiumEscrowImplementation;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable override allocationMechanismTcrImplementation;
@@ -40,11 +41,15 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
 
-    function initialize(address budgetTCR_) external {
+    function initialize(address budgetTCR_, address premiumEscrowImplementation_) external {
         if (budgetTCR_ == address(0)) revert ADDRESS_ZERO();
+        if (premiumEscrowImplementation_ == address(0) || premiumEscrowImplementation_.code.length == 0) {
+            revert ADDRESS_ZERO();
+        }
         if (budgetTCR != address(0)) revert ALREADY_INITIALIZED();
 
         budgetTCR = budgetTCR_;
+        premiumEscrowImplementation = premiumEscrowImplementation_;
     }
 
     function prepareBudgetStack(
@@ -54,6 +59,9 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         uint256 goalRevnetId,
         uint8 paymentTokenDecimals,
         address budgetStakeLedger,
+        address goalFlow,
+        address underwriterSlasherRouter,
+        uint32 budgetSlashPpm,
         bytes32
     ) external onlyBudgetTCR returns (PreparationResult memory result) {
         address strategy = sharedBudgetFlowStrategy;
@@ -66,22 +74,37 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         }
 
         address treasuryAnchor = Clones.clone(budgetTreasuryImplementation);
+        address premiumEscrow = Clones.clone(premiumEscrowImplementation);
         BudgetTCRStackDeploymentLib.PreparationResult memory prepared = BudgetTCRStackDeploymentLib.prepareBudgetStack(
             treasuryAnchor,
+            premiumEscrow,
             goalToken,
             cobuildToken,
             goalRulesets,
             goalRevnetId,
             paymentTokenDecimals,
-            strategy
+            strategy,
+            budgetStakeLedger,
+            goalFlow,
+            underwriterSlasherRouter,
+            budgetSlashPpm
         );
 
-        result = PreparationResult({ strategy: prepared.strategy, budgetTreasury: treasuryAnchor });
+        result = PreparationResult({
+            strategy: prepared.strategy,
+            budgetTreasury: treasuryAnchor,
+            premiumEscrow: prepared.premiumEscrow
+        });
     }
 
     function deployBudgetTreasury(
         address budgetTreasury,
+        address premiumEscrow,
         address childFlow,
+        address budgetStakeLedger,
+        address goalFlow,
+        address underwriterSlasherRouter,
+        uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
         uint64 successAssertionLiveness,
@@ -90,7 +113,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
             budgetTCR,
             budgetTreasury,
+            premiumEscrow,
             childFlow,
+            budgetStakeLedger,
+            goalFlow,
+            underwriterSlasherRouter,
+            budgetSlashPpm,
             listing,
             successResolver,
             successAssertionLiveness,
