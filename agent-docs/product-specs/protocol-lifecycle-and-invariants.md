@@ -18,6 +18,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `flowOperator`/`parent` govern flow-rate mutation.
   - `sweeper` governs held SuperToken sweep.
 - Child flow creation via `addFlowRecipient(...)` requires explicit child-role inputs (`recipientAdmin`, `flowOperator`, `sweeper`) at creation time.
+- Child flow creation via `addFlowRecipient(...)` also fixes child manager-reward routing (`managerRewardPool` + `managerRewardPoolFlowRatePpm`) at creation time.
 - Allocation updates must pass previous-state snapshot/commit validation and strategy allocation checks.
 - Allocation-ledger-driven child sync and treasury-driven flow-rate synchronization are part of runtime safety.
 
@@ -34,9 +35,25 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - raw linear target is `treasuryBalance / timeRemaining`,
   - when the linear target is currently buffer-affordable, sync applies a proactive buffer-derived liquidation-horizon cap before write attempts,
   - write-time fallback ladder remains active on reverts.
+- Goal active flow-rate targeting is additionally coverage-capped when underwriting is configured:
+  - if `coverageLambda > 0`, sync clamps target by insured capacity `distributionPool.totalUnits / coverageLambda`,
+  - goal outflow cannot exceed insured capacity until coverage units increase.
 - Budget active flow-rate targeting is parent-member-rate based:
   - raw budget target is `parentFlow.getMemberFlowRate(address(budgetFlow))` clamped at `>= 0`,
   - unsolicited third-party inbound streams to the budget flow must not increase budget target rate.
+- Budget underwriting premium/slash lifecycle is per-budget escrowed:
+  - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
+  - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
+  - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
+  - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
+- Budget failure slashing semantics are time-weighted and activation-gated:
+  - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
+  - slash weight derives from average coverage over `[activatedAt, resolvedAt]` and applies `budgetSlashPpm`,
+  - slashing is idempotent per underwriter per escrow.
+- Slashed value recycle path is routed and observable:
+  - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,
+  - router executes StakeVault underwriter slashing, attempts cobuild->goal conversion via revnet terminal, upgrades to goal SuperToken,
+  - router forwards SuperToken to goal funding path; conversion failures emit events and retain cobuild for later attempts.
 - Manual failure is budget-only and controller-gated (`resolveFailure`), with no goal manual-failure entrypoint.
 - Goal terminal states are `Succeeded` and `Expired`; resolved-false or invalid post-deadline success assertions finalize to `Expired`.
 - Success transitions are assertion-backed:
@@ -79,6 +96,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Access-control and governance boundaries are explicit and test-backed.
 - Funds-transfer paths must remain deterministic and fail-safe.
+- Allocation-driven premium accounting fails closed when escrow checkpoints fail; commits must not continue with stale coverage exposure.
 - External hooks and strategies should not silently invalidate core invariants.
 
 ## Breaking-Change Policy

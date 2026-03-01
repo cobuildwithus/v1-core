@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-02-27
+Last updated: 2026-03-01
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -40,12 +40,14 @@ cobuild-protocol/
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`.
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`.
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
-- Goal stake vault: `src/goals/GoalStakeVault.sol`.
-- Goal/escrow/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/rent/reward math modules).
+- Goal stake vault: `src/goals/StakeVault.sol`.
+- Goal/escrow/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/reward math modules).
 - Allocation strategies:
-  - `src/goals/GoalStakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
+  - `src/goals/StakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
   - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution; reward points are computed as window-normalized matured support on the same effective stake basis, with warmup using a fixed global maturation window).
 - Reward escrow for finalized goal distribution: `src/goals/RewardEscrow.sol`.
+- Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
+- Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 
 ### TCR and arbitration system
@@ -81,8 +83,20 @@ cobuild-protocol/
   - Goal treasury uses a spend-pattern target model (linear locked today) from treasury balance over remaining time.
     Goal sync proactively caps linear targets with a buffer-derived liquidation-horizon bound when the target is currently
     buffer-affordable, then applies best-effort writes (target, fallback bounded, then zero on persistent write failure).
+    Goal sync also enforces an underwriting insured-cap clamp when `coverageLambda > 0`:
+    `targetOutflowRate <= distributionPool.totalUnits / coverageLambda`.
   - Budget treasury uses pass-through targeting from trusted parent member flow-rate (`parent.getMemberFlowRate(child)`) and applies
     best-effort writes with buffer-aware fallback semantics.
+- Budget underwriting premium/slash routing is hard-cutover:
+  - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
+  - `PremiumEscrow` premium entitlement uses a balance-index over live `BudgetStakeLedger` coverage checkpoints (no snapshot-only settlement),
+  - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
+  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes time-weighted
+    slash weight from exposure integral and routes slashing through the per-goal underwriter slasher router.
+- Underwriter slash recycling path:
+  - `UnderwriterSlasherRouter` is configured as StakeVault underwriter slasher and receives slashed goal/cobuild tokens,
+  - router best-effort converts cobuild -> goal token via goal revnet terminal (conversion failures are observable and retained),
+  - router upgrades goal token to goal SuperToken and forwards to goal funding path (goal flow/treasury target).
 - `GoalRevnetSplitHook` is controller-gated and treasury-state derived:
   - If `goalTreasury.canAcceptHookFunding()`, reserved inflow funds the goal flow.
   - If treasury state is `Succeeded` and minting is still open, reserved inflow uses success-settlement split (reward escrow + burn) with immutable `successSettlementRewardEscrowPpm`.
@@ -152,6 +166,10 @@ cobuild-protocol/
   sync calls emit `ChildAllocationSyncAttempted(..., success=false)` and parent allocation maintenance paths continue.
 - Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol`
   (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `IHasStakeVault`).
+- Goal allocation pipeline underwriting hook:
+  - after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
+    budget's `PremiumEscrow` for the allocating account,
+  - checkpoint failures fail closed on allocation commit to preserve premium/slash accounting correctness.
 
 4. Governance boundary clarity
 - Recipient-admin/operator/governor permissions should stay explicit with no ambiguous authority paths.
@@ -179,7 +197,7 @@ cobuild-protocol/
 - `BudgetTCRDeployer` remains a mechanical helper (`onlyBudgetTCR`) that prepares stack components and deploys budget treasury instances.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Treasury-controlled integrations use canonical `ITreasuryAuthority.authority()` directly on configured treasury surfaces:
-  - `GoalStakeVault` reads authority through `authority()` on `goalTreasury`,
+  - `StakeVault` reads authority through `authority()` on `goalTreasury`,
   - no runtime forwarding resolution or `controller()`/`owner()` probing paths remain.
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
@@ -189,7 +207,7 @@ cobuild-protocol/
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - `BudgetTCRDeployer` uses clone-first treasury setup:
   - deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack`,
-  - anchors `GoalStakeVault.goalTreasury` to that real clone address,
+  - anchors `StakeVault.goalTreasury` to that real clone address,
   - initializes the clone during `deployBudgetTreasury` after child-flow creation.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 
@@ -207,7 +225,7 @@ Medium-severity Slither findings are suppressed only at specific call-sites, not
 - `incorrect-equality`:
   - `src/goals/BudgetTreasury.sol` (`deadline == 0`, `remaining == 0`)
   - `src/goals/GoalTreasury.sol` (`remaining == 0`)
-  - `src/goals/GoalStakeVault.sol` (`weightDelta == 0`)
+  - `src/goals/StakeVault.sol` (`weightDelta == 0`)
   - `src/tcr/GeneralizedTCR.sol` (`remainingRequired == 0`)
   - Assumption: these are integer/discrete state guards (not floating-point style comparisons), so strict equality is intentional and deterministic.
 

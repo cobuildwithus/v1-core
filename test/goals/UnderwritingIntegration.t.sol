@@ -10,6 +10,7 @@ import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
@@ -42,6 +43,10 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
     address internal constant ALICE = address(0xA11CE);
     address internal constant PREMIUM_RECIPIENT = address(0xB0B);
     address internal constant GOAL_FUNDING_TARGET = address(0xF00D);
+
+    event CobuildConversionFailed(
+        address indexed premiumEscrow, address indexed underwriter, uint256 cobuildAmount, bytes reason
+    );
 
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
@@ -164,6 +169,40 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
         assertEq(goalToken.balanceOf(address(router)), 0);
         assertEq(cobuildToken.balanceOf(address(router)), 0);
+    }
+
+    function test_failedBudgetAfterActivation_slashStillFundsGoal_whenCobuildConversionUnavailable() public {
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
+        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(0)));
+
+        vm.warp(10);
+        budgetTreasury.setActivatedAt(10);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(30);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
+
+        uint256 stakedGoalBefore = stakeVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBefore = stakeVault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        vm.expectEmit(true, true, false, false, address(router));
+        emit CobuildConversionFailed(
+            address(escrow),
+            ALICE,
+            0,
+            abi.encodeWithSelector(IUnderwriterSlasherRouter.INVALID_GOAL_TERMINAL.selector, address(0))
+        );
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, 20e18);
+        assertLt(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
+        assertLt(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
+        assertEq(conversionTerminal.payCallCount(), 0);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertGt(cobuildToken.balanceOf(address(router)), 0);
     }
 }
 
