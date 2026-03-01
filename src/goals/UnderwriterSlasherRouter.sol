@@ -20,7 +20,6 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
     IStakeVault public immutable override stakeVault;
     address public immutable override authority;
     IJBDirectory public immutable directory;
-    IJBTerminal public immutable goalTerminal;
     IERC20 public immutable goalToken;
     IERC20 public immutable cobuildToken;
     ISuperToken public immutable goalSuperToken;
@@ -56,14 +55,11 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
             revert INVALID_COBUILD_TOKEN(expectedCobuildToken, address(cobuildToken_));
         }
 
-        address superTokenUnderlying = goalSuperToken_.getUnderlyingToken();
-        if (superTokenUnderlying != address(goalToken_)) {
-            revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(goalToken_), superTokenUnderlying);
-        }
-
-        IJBTerminal goalTerminal_ = directory_.primaryTerminalOf(goalRevnetId_, address(cobuildToken_));
-        if (address(goalTerminal_) == address(0) || address(goalTerminal_).code.length == 0) {
-            revert INVALID_GOAL_TERMINAL(address(goalTerminal_));
+        if (address(goalSuperToken_).code.length != 0) {
+            address superTokenUnderlying = goalSuperToken_.getUnderlyingToken();
+            if (superTokenUnderlying != address(goalToken_)) {
+                revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(goalToken_), superTokenUnderlying);
+            }
         }
 
         stakeVault = stakeVault_;
@@ -74,7 +70,6 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         cobuildToken = cobuildToken_;
         goalSuperToken = goalSuperToken_;
         goalFundingTarget = goalFundingTarget_;
-        goalTerminal = goalTerminal_;
     }
 
     function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external override {
@@ -118,6 +113,16 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
     {
         uint256 cobuildAmount = cobuildToken.balanceOf(address(this));
         if (cobuildAmount == 0) return 0;
+        IJBTerminal goalTerminal = _resolveGoalTerminal();
+        if (address(goalTerminal) == address(0) || address(goalTerminal).code.length == 0) {
+            emit CobuildConversionFailed(
+                premiumEscrow,
+                underwriter,
+                cobuildAmount,
+                abi.encodeWithSelector(INVALID_GOAL_TERMINAL.selector, address(goalTerminal))
+            );
+            return 0;
+        }
 
         uint256 goalBefore = goalToken.balanceOf(address(this));
         cobuildToken.forceApprove(address(goalTerminal), 0);
@@ -149,5 +154,9 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         if (forwardedSuperTokenAmount != 0) {
             goalSuperTokenErc20.safeTransfer(goalFundingTarget, forwardedSuperTokenAmount);
         }
+    }
+
+    function _resolveGoalTerminal() internal view returns (IJBTerminal) {
+        return directory.primaryTerminalOf(goalRevnetId, address(cobuildToken));
     }
 }

@@ -1,33 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { Vm } from "forge-std/Vm.sol";
+import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-import { StakeVault } from "src/goals/StakeVault.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { ICustomFlow } from "src/interfaces/IFlow.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ICustomFlow} from "src/interfaces/IFlow.sol";
 
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBToken} from "@bananapus/core-v5/interfaces/IJBToken.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
-import { MockFeeOnTransferVotesToken } from "test/mocks/MockFeeOnTransferVotesToken.sol";
-import { MockSelectiveFeeVotesToken } from "test/mocks/MockSelectiveFeeVotesToken.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
+import {MockFeeOnTransferVotesToken} from "test/mocks/MockFeeOnTransferVotesToken.sol";
+import {MockSelectiveFeeVotesToken} from "test/mocks/MockSelectiveFeeVotesToken.sol";
 
 contract StakeVaultTest is Test {
-    uint256 internal constant GOAL_PROJECT_ID = 111;    bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
+    uint256 internal constant GOAL_PROJECT_ID = 111;
+    bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
     bytes4 internal constant SYNC_ALLOCATION_SELECTOR = ICustomFlow.syncAllocationForAccount.selector;
     bytes32 internal constant JUROR_OPTED_IN_EVENT_TOPIC =
         keccak256("JurorOptedIn(address,uint256,uint256,uint256,address)");
     bytes32 internal constant JUROR_DELEGATE_SET_EVENT_TOPIC = keccak256("JurorDelegateSet(address,address)");
     event AllocationSyncFailed(address indexed account, address indexed target, bytes4 indexed selector, bytes reason);
+    event UnderwriterSlashed(
+        address indexed underwriter,
+        uint256 requestedWeight,
+        uint256 appliedWeight,
+        uint256 goalAmount,
+        uint256 cobuildAmount,
+        address indexed recipient
+    );
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
@@ -218,6 +227,7 @@ contract StakeVaultTest is Test {
             6
         );
     }
+
     function test_constructor_revertsWhenGoalProjectControllerMissing() public {
         directory.setController(GOAL_PROJECT_ID, address(0));
 
@@ -254,10 +264,7 @@ contract StakeVaultTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IStakeVault.GOAL_TOKEN_REVNET_MISMATCH.selector,
-                address(goalToken),
-                GOAL_PROJECT_ID,
-                foreignProjectId
+                IStakeVault.GOAL_TOKEN_REVNET_MISMATCH.selector, address(goalToken), GOAL_PROJECT_ID, foreignProjectId
             )
         );
         new StakeVault(
@@ -649,6 +656,7 @@ contract StakeVaultTest is Test {
         assertEq(vault.weightOf(alice), 20e18);
         assertEq(vault.totalWeight(), 20e18);
     }
+
     function test_withdrawGoal_revertsOnFeeDuringVaultTransfer() public {
         MockSelectiveFeeVotesToken selective = new MockSelectiveFeeVotesToken("Goal", "GOAL", 100, address(0xFEE));
 
@@ -954,6 +962,286 @@ contract StakeVaultTest is Test {
         assertEq(vault.totalWeight(), 135e18);
     }
 
+    function test_setUnderwriterSlasher_and_slashUnderwriterStake_proportionalAcrossAssets() public {
+        vm.startPrank(alice);
+        vault.depositGoal(100e18);
+        vault.depositCobuild(100e18);
+        vault.optInAsJuror(100e18, 100e18, address(0));
+        vm.stopPrank();
+
+        vault.setUnderwriterSlasher(address(this));
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.ONLY_UNDERWRITER_SLASHER.selector);
+        vault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit UnderwriterSlashed(alice, 15e18, 15e18, 10e18, 10e18, slashRecipient);
+        vault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
+
+        assertEq(vault.stakedGoalOf(alice), 90e18);
+        assertEq(vault.stakedCobuildOf(alice), 90e18);
+        assertEq(vault.jurorLockedGoalOf(alice), 90e18);
+        assertEq(vault.jurorLockedCobuildOf(alice), 90e18);
+        assertEq(vault.jurorWeightOf(alice), 135e18);
+        assertEq(vault.weightOf(alice), 135e18);
+        assertEq(vault.totalWeight(), 135e18);
+    }
+
+    function test_slashUnderwriterStake_revertsOnZeroRecipient() public {
+        vm.prank(alice);
+        vault.depositGoal(100e18);
+
+        vault.setUnderwriterSlasher(address(this));
+
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        vault.slashUnderwriterStake(alice, 1e18, address(0));
+    }
+
+    function test_slashUnderwriterStake_zeroRequestedWeight_isNoOp() public {
+        vm.startPrank(alice);
+        vault.depositGoal(100e18);
+        vault.depositCobuild(50e18);
+        vault.optInAsJuror(60e18, 20e18, address(0));
+        vm.stopPrank();
+
+        vault.setUnderwriterSlasher(address(this));
+
+        uint256 goalBefore = vault.stakedGoalOf(alice);
+        uint256 cobuildBefore = vault.stakedCobuildOf(alice);
+        uint256 lockedGoalBefore = vault.jurorLockedGoalOf(alice);
+        uint256 lockedCobuildBefore = vault.jurorLockedCobuildOf(alice);
+        uint256 jurorWeightBefore = vault.jurorWeightOf(alice);
+        uint256 weightBefore = vault.weightOf(alice);
+        uint256 totalWeightBefore = vault.totalWeight();
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vault.slashUnderwriterStake(alice, 0, slashRecipient);
+
+        assertEq(vault.stakedGoalOf(alice), goalBefore);
+        assertEq(vault.stakedCobuildOf(alice), cobuildBefore);
+        assertEq(vault.jurorLockedGoalOf(alice), lockedGoalBefore);
+        assertEq(vault.jurorLockedCobuildOf(alice), lockedCobuildBefore);
+        assertEq(vault.jurorWeightOf(alice), jurorWeightBefore);
+        assertEq(vault.weightOf(alice), weightBefore);
+        assertEq(vault.totalWeight(), totalWeightBefore);
+        assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
+        assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
+    }
+
+    function test_slashUnderwriterStake_zeroCurrentStake_isNoOp() public {
+        vault.setUnderwriterSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
+        assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
+        assertEq(vault.weightOf(alice), 0);
+        assertEq(vault.totalWeight(), 0);
+    }
+
+    function test_slashUnderwriterStake_maxRequestedWeight_clampsToDerivedStakeWeight_andKeepsAggregateInSync() public {
+        vm.startPrank(alice);
+        vault.depositGoal(100e18); // 50e18 goal weight.
+        vault.depositCobuild(40e18); // +40e18 cobuild weight.
+        vault.optInAsJuror(100e18, 40e18, address(0));
+        vm.stopPrank();
+
+        goalToken.mint(bob, 1_000e18);
+        cobuildToken.mint(bob, 1_000e18);
+
+        vm.startPrank(bob);
+        goalToken.approve(address(vault), type(uint256).max);
+        cobuildToken.approve(address(vault), type(uint256).max);
+        vault.depositGoal(20e18); // 10e18 goal weight.
+        vault.depositCobuild(30e18); // +30e18 cobuild weight.
+        vm.stopPrank();
+
+        assertEq(vault.weightOf(alice), 90e18);
+        assertEq(vault.weightOf(bob), 40e18);
+        assertEq(vault.totalWeight(), 130e18);
+
+        vault.setUnderwriterSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vault.slashUnderwriterStake(alice, type(uint256).max, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 100e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 40e18);
+
+        assertEq(vault.stakedGoalOf(alice), 0);
+        assertEq(vault.stakedCobuildOf(alice), 0);
+        assertEq(vault.jurorLockedGoalOf(alice), 0);
+        assertEq(vault.jurorLockedCobuildOf(alice), 0);
+        assertEq(vault.jurorWeightOf(alice), 0);
+        assertEq(vault.weightOf(alice), 0);
+
+        assertEq(vault.totalWeight(), vault.weightOf(alice) + vault.weightOf(bob));
+        assertEq(vault.totalWeight(), 40e18);
+    }
+
+    function test_slashUnderwriterStake_bestEffortGoalFlowSync_callsSyncForUnderwriterWhenFlowPresent() public {
+        VaultRecordingSyncFlow recordingFlow = new VaultRecordingSyncFlow();
+        VaultGoalTreasuryWithFlow treasuryWithFlow = new VaultGoalTreasuryWithFlow(address(recordingFlow));
+        StakeVault syncingVault = new StakeVault(
+            address(treasuryWithFlow),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(syncingVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(syncingVault), type(uint256).max);
+
+        vm.startPrank(alice);
+        syncingVault.depositGoal(100e18);
+        syncingVault.depositCobuild(100e18);
+        syncingVault.optInAsJuror(100e18, 100e18, address(0));
+        vm.stopPrank();
+
+        vm.prank(address(treasuryWithFlow));
+        syncingVault.setUnderwriterSlasher(address(this));
+
+        syncingVault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(recordingFlow.syncCallCount(), 1);
+        assertEq(recordingFlow.lastSyncedAccount(), alice);
+        assertEq(syncingVault.weightOf(alice), 135e18);
+    }
+
+    function test_slashUnderwriterStake_bestEffortGoalFlowSyncDoesNotRevertOnSyncFailure() public {
+        VaultRevertingSyncFlow revertingFlow = new VaultRevertingSyncFlow();
+        VaultGoalTreasuryWithFlow treasuryWithFlow = new VaultGoalTreasuryWithFlow(address(revertingFlow));
+        StakeVault syncingVault = new StakeVault(
+            address(treasuryWithFlow),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(syncingVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(syncingVault), type(uint256).max);
+
+        vm.startPrank(alice);
+        syncingVault.depositGoal(100e18);
+        syncingVault.depositCobuild(100e18);
+        syncingVault.optInAsJuror(100e18, 100e18, address(0));
+        vm.stopPrank();
+
+        vm.prank(address(treasuryWithFlow));
+        syncingVault.setUnderwriterSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "SYNC_FAILURE");
+
+        vm.expectEmit(true, true, true, true, address(syncingVault));
+        emit AllocationSyncFailed(alice, address(revertingFlow), SYNC_ALLOCATION_SELECTOR, expectedReason);
+        syncingVault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
+        assertEq(syncingVault.weightOf(alice), 135e18);
+    }
+
+    function test_slashUnderwriterStake_bestEffortGoalFlowSyncDoesNotRevertWhenFlowLookupReverts() public {
+        VaultGoalTreasuryRevertingFlowLookup treasuryWithRevertingLookup = new VaultGoalTreasuryRevertingFlowLookup();
+        StakeVault syncingVault = new StakeVault(
+            address(treasuryWithRevertingLookup),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(syncingVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(syncingVault), type(uint256).max);
+
+        vm.startPrank(alice);
+        syncingVault.depositGoal(100e18);
+        syncingVault.depositCobuild(100e18);
+        syncingVault.optInAsJuror(100e18, 100e18, address(0));
+        vm.stopPrank();
+
+        vm.prank(address(treasuryWithRevertingLookup));
+        syncingVault.setUnderwriterSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "FLOW_LOOKUP_FAILURE");
+
+        vm.expectEmit(true, true, true, true, address(syncingVault));
+        emit AllocationSyncFailed(alice, address(treasuryWithRevertingLookup), FLOW_LOOKUP_SELECTOR, expectedReason);
+        syncingVault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
+        assertEq(syncingVault.weightOf(alice), 135e18);
+    }
+
+    function test_slashUnderwriterStake_bestEffortGoalFlowSync_doesNotForwardLegacyBudgetTreasuryLookup() public {
+        VaultRecordingSyncFlow recordingFlow = new VaultRecordingSyncFlow();
+        VaultGoalTreasuryWithFlow downstreamTreasury = new VaultGoalTreasuryWithFlow(address(recordingFlow));
+        VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
+        StakeVault syncingVault = new StakeVault(
+            address(legacyForwarder),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(syncingVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(syncingVault), type(uint256).max);
+
+        vm.startPrank(alice);
+        syncingVault.depositGoal(100e18);
+        syncingVault.depositCobuild(100e18);
+        syncingVault.optInAsJuror(100e18, 100e18, address(0));
+        vm.stopPrank();
+
+        vm.prank(address(legacyForwarder));
+        syncingVault.setUnderwriterSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "BUDGET_TREASURY_ONLY");
+
+        vm.expectEmit(true, true, true, true, address(syncingVault));
+        emit AllocationSyncFailed(alice, address(legacyForwarder), FLOW_LOOKUP_SELECTOR, expectedReason);
+        syncingVault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
+        assertEq(recordingFlow.syncCallCount(), 0);
+    }
+
     function test_slashJurorStake_maxRequestedWeight_clampsToDerivedStakeWeight_andKeepsAggregateInSync() public {
         vm.startPrank(alice);
         vault.depositGoal(100e18); // 50e18 goal weight.
@@ -1198,6 +1486,23 @@ contract StakeVaultTest is Test {
         controlledVault.setJurorSlasher(bob);
     }
 
+    function test_setUnderwriterSlasher_revertsWhenUnauthorized() public {
+        VaultAuthorityTreasury controlledTreasury = new VaultAuthorityTreasury(bob);
+
+        StakeVault controlledVault = new StakeVault(
+            address(controlledTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
+        controlledVault.setUnderwriterSlasher(bob);
+    }
+
     function test_setJurorSlasher_doesNotForwardLegacyBudgetTreasuryAuthorityLookup() public {
         VaultAuthorityTreasury downstreamTreasury = new VaultAuthorityTreasury(bob);
         VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
@@ -1213,9 +1518,7 @@ contract StakeVaultTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(legacyForwarder)
-            )
+            abi.encodeWithSelector(IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(legacyForwarder))
         );
         controlledVault.setJurorSlasher(alice);
     }
@@ -1225,6 +1528,18 @@ contract StakeVaultTest is Test {
 
         vm.expectRevert(IStakeVault.JUROR_SLASHER_ALREADY_SET.selector);
         vault.setJurorSlasher(alice);
+    }
+
+    function test_setUnderwriterSlasher_revertsWhenAlreadySet() public {
+        vault.setUnderwriterSlasher(address(this));
+
+        vm.expectRevert(IStakeVault.UNDERWRITER_SLASHER_ALREADY_SET.selector);
+        vault.setUnderwriterSlasher(alice);
+    }
+
+    function test_setUnderwriterSlasher_revertsOnZeroAddress() public {
+        vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
+        vault.setUnderwriterSlasher(address(0));
     }
 
     function test_setJurorSlasher_allowsTreasuryAuthority() public {
@@ -1244,9 +1559,31 @@ contract StakeVaultTest is Test {
         assertEq(ownedVault.jurorSlasher(), address(this));
     }
 
+    function test_setUnderwriterSlasher_allowsTreasuryAuthority() public {
+        VaultAuthorityTreasury ownedTreasury = new VaultAuthorityTreasury(bob);
+
+        StakeVault ownedVault = new StakeVault(
+            address(ownedTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(bob);
+        ownedVault.setUnderwriterSlasher(address(this));
+        assertEq(ownedVault.underwriterSlasher(), address(this));
+    }
+
     function test_setJurorSlasher_revertsWhenSlasherHasNoCode() public {
         vm.expectRevert(IStakeVault.INVALID_JUROR_SLASHER.selector);
         vault.setJurorSlasher(alice);
+    }
+
+    function test_setUnderwriterSlasher_revertsWhenSlasherHasNoCode() public {
+        vm.expectRevert(IStakeVault.INVALID_UNDERWRITER_SLASHER.selector);
+        vault.setUnderwriterSlasher(alice);
     }
 
     function test_setJurorSlasher_revertsWhenTreasuryReportsZeroAuthority() public {
