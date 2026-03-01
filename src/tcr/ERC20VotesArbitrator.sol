@@ -38,7 +38,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     error INVALID_STAKE_VAULT_ADDRESS();
     error INVALID_STAKE_VAULT_GOAL_TREASURY();
     error INVALID_STAKE_VAULT_REWARD_ESCROW();
-    error INVALID_SLASH_RECIPIENT();
     error NON_UPGRADEABLE();
     error UNAUTHORIZED_DELEGATE();
     error STAKE_VAULT_NOT_SET();
@@ -761,7 +760,32 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 disputeId,
         uint256 round,
         address voter
-    ) external nonReentrant validDisputeID(disputeId) {
+    ) external override nonReentrant validDisputeID(disputeId) {
+        _slashVoter(disputeId, round, voter);
+    }
+
+    /**
+     * @notice Permissionless batch slashing hook for solved rounds.
+     * @dev Processes each voter independently. Already-processed voters are skipped.
+     * @param disputeId The dispute ID.
+     * @param round The voting round.
+     * @param voters The jurors to process.
+     */
+    function slashVoters(
+        uint256 disputeId,
+        uint256 round,
+        address[] calldata voters
+    ) external override nonReentrant validDisputeID(disputeId) {
+        uint256 count = voters.length;
+        for (uint256 i = 0; i < count;) {
+            _slashVoter(disputeId, round, voters[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _slashVoter(uint256 disputeId, uint256 round, address voter) internal {
         if (address(_stakeVault) == address(0)) revert STAKE_VAULT_NOT_SET();
         VotingRound storage votingRound = _roundStorage(disputeId, round);
         if (_getVotingRoundState(disputeId, round) != DisputeState.Solved) revert DISPUTE_NOT_SOLVED();
@@ -785,24 +809,27 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             return;
         }
 
-        address rewardEscrow = IGoalTreasury(_stakeVault.goalTreasury()).rewardEscrow();
-        if (rewardEscrow == address(0) || rewardEscrow.code.length == 0) revert INVALID_SLASH_RECIPIENT();
+        address slashRecipient = winningChoice == 0 ? invalidRoundRewardsSink : address(this);
 
         uint256 slashWeight = bps2Uint(wrongOrMissedSlashBps, snapshotVotes);
         if (slashWeight != 0) {
             uint256 callerBountyWeight = bps2Uint(slashCallerBountyBps, slashWeight);
-            uint256 rewardEscrowWeight = slashWeight - callerBountyWeight;
+            uint256 recipientWeight = slashWeight - callerBountyWeight;
 
             if (callerBountyWeight != 0) {
                 _slashJurorStake(voter, callerBountyWeight, msg.sender);
             }
-            if (rewardEscrowWeight != 0) {
-                _slashJurorStake(voter, rewardEscrowWeight, rewardEscrow);
+            if (recipientWeight != 0) {
+                if (slashRecipient == address(this)) {
+                    _slashToWinnerPools(disputeId, round, voter, recipientWeight);
+                } else {
+                    _slashJurorStake(voter, recipientWeight, slashRecipient);
+                }
             }
         }
 
         _voterSlashedOrProcessed[disputeId][round][voter] = true;
-        emit VoterSlashed(disputeId, round, voter, snapshotVotes, slashWeight, missedReveal, rewardEscrow);
+        emit VoterSlashed(disputeId, round, voter, snapshotVotes, slashWeight, missedReveal, slashRecipient);
     }
 
     /**
@@ -858,27 +885,8 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         if (votingRound.rewardsClaimed[voter]) return 0;
 
         uint256 winningChoice = _determineWinningChoice(disputeId, round);
-
-        uint256 amount = 0;
-        uint256 totalRewards = votingRound.cost; // Total amount to distribute among voters
-
-        if (winningChoice == 0) {
-            // Ruling is 0 or Party.None, both sides can withdraw proportional share
-            amount = (receipt.votes * totalRewards) / votingRound.votes;
-        } else {
-            // Ruling is not 0, only winning voters can withdraw
-            if (receipt.choice != winningChoice) {
-                return 0;
-            }
-            uint256 totalWinningVotes = votingRound.choiceVotes[winningChoice];
-
-            if (totalWinningVotes == 0) return 0;
-
-            // Calculate voter's share
-            amount = (receipt.votes * totalRewards) / totalWinningVotes;
-        }
-
-        return amount;
+        if (winningChoice != 0 && receipt.choice != winningChoice) return 0;
+        return _computeArbitrationCostReward(votingRound, receipt.votes, winningChoice);
     }
 
     function _roundStorage(uint256 disputeId, uint256 round) internal view returns (VotingRound storage votingRound) {
@@ -916,7 +924,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
      * @param round The round number.
      * @param voter The address of the voter.
      */
-    function withdrawVoterRewards(uint256 disputeId, uint256 round, address voter) external nonReentrant {
+    function withdrawVoterRewards(uint256 disputeId, uint256 round, address voter) external override nonReentrant {
         Dispute storage dispute = disputes[disputeId];
 
         // Get the voting round
@@ -925,11 +933,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         // Ensure the dispute round is finalized
         if (_getVotingRoundState(disputeId, round) != DisputeState.Solved) {
             revert DISPUTE_NOT_SOLVED();
-        }
-
-        // Check that the voter hasn't already claimed
-        if (votingRound.rewardsClaimed[voter]) {
-            revert REWARD_ALREADY_CLAIMED();
         }
 
         // Get the receipt for the voter
@@ -942,32 +945,51 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         uint256 winningChoice = _determineWinningChoice(disputeId, round);
 
-        uint256 amount = 0;
-        uint256 totalRewards = votingRound.cost; // Total amount to distribute among voters
-
         if (votingRound.votes == 0) revert NO_VOTES();
 
-        if (winningChoice == 0) {
-            // Ruling is 0 or Party.None, both sides can withdraw proportional share
-            amount = (receipt.votes * totalRewards) / votingRound.votes;
-        } else {
-            // Ruling is not 0, only winning voters can withdraw
-            if (receipt.choice != winningChoice) {
-                revert VOTER_ON_LOSING_SIDE();
-            }
-            uint256 totalWinningVotes = votingRound.choiceVotes[winningChoice];
-
-            if (totalWinningVotes == 0) revert NO_WINNING_VOTES();
-
-            // Calculate voter's share
-            amount = (receipt.votes * totalRewards) / totalWinningVotes;
+        if (winningChoice != 0 && receipt.choice != winningChoice) {
+            revert VOTER_ON_LOSING_SIDE();
         }
 
-        // Mark as claimed
-        votingRound.rewardsClaimed[voter] = true;
+        uint256 amount = votingRound.rewardsClaimed[voter]
+            ? 0
+            : _computeArbitrationCostReward(votingRound, receipt.votes, winningChoice);
+        (uint256 goalSlashAmount, uint256 cobuildSlashAmount) = _computeSlashRewardsForRound(
+            disputeId,
+            round,
+            voter,
+            votingRound,
+            receipt,
+            winningChoice
+        );
 
-        // Transfer tokens to voter
-        IERC20(address(_votingToken)).safeTransfer(voter, amount);
+        if (amount == 0 && goalSlashAmount == 0 && cobuildSlashAmount == 0) {
+            if (votingRound.rewardsClaimed[voter]) {
+                revert REWARD_ALREADY_CLAIMED();
+            }
+            votingRound.rewardsClaimed[voter] = true;
+            emit RewardWithdrawn(disputeId, round, voter, 0);
+            return;
+        }
+
+        if (!votingRound.rewardsClaimed[voter]) {
+            votingRound.rewardsClaimed[voter] = true;
+        }
+
+        if (amount != 0) {
+            IERC20(address(_votingToken)).safeTransfer(voter, amount);
+        }
+
+        if (goalSlashAmount != 0) {
+            _voterGoalSlashRewardsClaimed[disputeId][round][voter] += goalSlashAmount;
+        }
+        if (cobuildSlashAmount != 0) {
+            _voterCobuildSlashRewardsClaimed[disputeId][round][voter] += cobuildSlashAmount;
+        }
+        if (goalSlashAmount != 0 || cobuildSlashAmount != 0) {
+            _transferSlashRewards(voter, goalSlashAmount, cobuildSlashAmount);
+            emit SlashRewardsWithdrawn(disputeId, round, voter, goalSlashAmount, cobuildSlashAmount);
+        }
 
         emit RewardWithdrawn(disputeId, round, voter, amount);
     }
@@ -1039,6 +1061,99 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
     function bps2Uint(uint256 bps, uint256 number) internal pure returns (uint256) {
         return (number * bps) / BPS_DENOMINATOR;
+    }
+
+    function _slashToWinnerPools(uint256 disputeId, uint256 round, address juror, uint256 weightAmount) internal {
+        IERC20 goalToken = _stakeVault.goalToken();
+        IERC20 cobuildToken = _stakeVault.cobuildToken();
+
+        uint256 goalBefore = goalToken.balanceOf(address(this));
+        uint256 cobuildBefore;
+        if (address(cobuildToken) != address(0)) {
+            cobuildBefore = cobuildToken.balanceOf(address(this));
+        }
+
+        _slashJurorStake(juror, weightAmount, address(this));
+
+        uint256 goalReceived = goalToken.balanceOf(address(this)) - goalBefore;
+        if (goalReceived != 0) {
+            _roundGoalSlashRewards[disputeId][round] += goalReceived;
+        }
+
+        if (address(cobuildToken) != address(0)) {
+            uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBefore;
+            if (cobuildReceived != 0) {
+                _roundCobuildSlashRewards[disputeId][round] += cobuildReceived;
+            }
+        }
+    }
+
+    function _computeSlashRewardsForRound(
+        uint256 disputeId,
+        uint256 round,
+        address voter,
+        VotingRound storage votingRound,
+        Receipt storage receipt,
+        uint256 winningChoice
+    ) internal view returns (uint256 goalAmount, uint256 cobuildAmount) {
+        if (winningChoice == 0) return (0, 0);
+        if (!receipt.hasRevealed || receipt.choice != winningChoice) return (0, 0);
+
+        uint256 totalWinningVotes = votingRound.choiceVotes[winningChoice];
+        if (totalWinningVotes == 0) return (0, 0);
+
+        goalAmount = _computeUnclaimedProRataReward(
+            receipt.votes,
+            _roundGoalSlashRewards[disputeId][round],
+            totalWinningVotes,
+            _voterGoalSlashRewardsClaimed[disputeId][round][voter]
+        );
+        cobuildAmount = _computeUnclaimedProRataReward(
+            receipt.votes,
+            _roundCobuildSlashRewards[disputeId][round],
+            totalWinningVotes,
+            _voterCobuildSlashRewardsClaimed[disputeId][round][voter]
+        );
+    }
+
+    function _computeArbitrationCostReward(
+        VotingRound storage votingRound,
+        uint256 voterVotes,
+        uint256 winningChoice
+    ) internal view returns (uint256) {
+        if (winningChoice == 0) {
+            return (voterVotes * votingRound.cost) / votingRound.votes;
+        }
+
+        uint256 totalWinningVotes = votingRound.choiceVotes[winningChoice];
+        if (totalWinningVotes == 0) return 0;
+
+        return (voterVotes * votingRound.cost) / totalWinningVotes;
+    }
+
+    function _computeUnclaimedProRataReward(
+        uint256 voterVotes,
+        uint256 totalRewards,
+        uint256 totalWinningVotes,
+        uint256 claimedRewards
+    ) internal pure returns (uint256) {
+        if (totalRewards == 0) return 0;
+
+        uint256 entitledRewards = (voterVotes * totalRewards) / totalWinningVotes;
+        if (entitledRewards <= claimedRewards) return 0;
+
+        return entitledRewards - claimedRewards;
+    }
+
+    function _transferSlashRewards(address voter, uint256 goalAmount, uint256 cobuildAmount) internal {
+        if (address(_stakeVault) == address(0)) revert STAKE_VAULT_NOT_SET();
+
+        if (goalAmount != 0) {
+            IERC20(address(_stakeVault.goalToken())).safeTransfer(voter, goalAmount);
+        }
+        if (cobuildAmount != 0) {
+            IERC20(address(_stakeVault.cobuildToken())).safeTransfer(voter, cobuildAmount);
+        }
     }
 
     function _setStakeVault(address stakeVault_) internal {
@@ -1118,7 +1233,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
             uint256 cappedJurorVotes = Math.min(jurorVotes, allocationWeight);
             uint256 proportionalVotes = Math.mulDiv(cappedJurorVotes, budgetVotes, allocationWeight);
-            return proportionalVotes;
+            return Math.min(Math.min(proportionalVotes, jurorVotes), budgetVotes);
         }
         return _votingToken.getPastVotes(voter, blockNumber);
     }
