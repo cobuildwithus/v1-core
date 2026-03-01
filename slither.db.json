@@ -1,5 +1,31 @@
 [
   {
+    "id": "a3d97feda8cc96ff3be5a8f320153d874d5b07f44fe837e6ed906a52e3f92cf4",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in AllocationMechanismTCR.activateRound(bytes32) (src/tcr/AllocationMechanismTCR.sol#181-238):\n\tExternal calls:\n\t- deployed = roundFactory.createRoundForBudget(itemID,budgetTreasury,RoundFactory.RoundTiming({startAt:listing.startAt,endAt:listing.endAt}),roundDefaults.roundOperator,RoundFactory.SubmissionTcrConfig({arbitratorExtraData:roundDefaults.arbitratorExtraData,registrationMetaEvidence:roundDefaults.registrationMetaEvidence,clearingMetaEvidence:roundDefaults.clearingMetaEvidence,governor:roundDefaults.governor,submissionBaseDeposit:roundDefaults.submissionBaseDeposit,removalBaseDeposit:roundDefaults.removalBaseDeposit,submissionChallengeBaseDeposit:roundDefaults.submissionChallengeBaseDeposit,removalChallengeBaseDeposit:roundDefaults.removalChallengeBaseDeposit,challengePeriodDuration:roundDefaults.challengePeriodDuration}),RoundFactory.ArbitratorConfig({votingPeriod:roundDefaults.votingPeriod,votingDelay:roundDefaults.votingDelay,revealPeriod:roundDefaults.revealPeriod,arbitrationCost:roundDefaults.arbitrationCost,wrongOrMissedSlashBps:roundDefaults.wrongOrMissedSlashBps,slashCallerBountyBps:roundDefaults.slashCallerBountyBps})) (src/tcr/AllocationMechanismTCR.sol#192-216)\n\tState variables written after the call(s):\n\t- _roundDeployment[itemID] = RoundDeployment({prizeVault:deployed.prizeVault,submissionTCR:deployed.submissionTCR,arbitrator:deployed.arbitrator,depositStrategy:deployed.depositStrategy,active:true}) (src/tcr/AllocationMechanismTCR.sol#220-226)\n\tAllocationMechanismTCR._roundDeployment (src/tcr/AllocationMechanismTCR.sol#130) can be used in cross function reentrancies:\n\t- AllocationMechanismTCR.roundDeployment(bytes32) (src/tcr/AllocationMechanismTCR.sol#253-255)\n\t- activationQueued[itemID] = false (src/tcr/AllocationMechanismTCR.sol#218)\n\tAllocationMechanismTCR.activationQueued (src/tcr/AllocationMechanismTCR.sol#128) can be used in cross function reentrancies:\n\t- AllocationMechanismTCR.activationQueued (src/tcr/AllocationMechanismTCR.sol#128)\n",
+    "reviewed_on": "2026-03-01",
+    "triage_note": "Function is nonReentrant; remaining finding is due required factory deployment call before persisting returned round addresses.",
+    "safety_assumptions": [
+      "RoundFactory and budgetFlow are canonical trusted-core deployments",
+      "Activation lifecycle remains gated by queue/deployment invariants and nonReentrant entry"
+    ]
+  },
+  {
+    "id": "482775b56a506fc41e8a3b1b2ef642307c63dcfcccb7c560662405d4ac962c05",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "confidence": "Medium",
+    "description": "Reentrancy in BudgetTreasury.sync() (src/goals/BudgetTreasury.sol#128-149):\n\tExternal calls:\n\t- _activateAndSync() (src/goals/BudgetTreasury.sol#134)\n\t\t- appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow,targetRate) (src/goals/BudgetTreasury.sol#332)\n\t\t- flow.refreshTargetOutflowRate() (src/goals/library/TreasuryFlowRateSync.sol#30-46)\n\t\t- flow.setTargetOutflowRate(targetRate) (src/goals/library/TreasuryFlowRateSync.sol#49-85)\n\t\t- flow.setTargetOutflowRate(fallbackRate) (src/goals/library/TreasuryFlowRateSync.sol#58-67)\n\t\t- flow.setTargetOutflowRate(0) (src/goals/library/TreasuryFlowRateSync.sol#74-84)\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#136)\n\t\t- this.settleResidualToParentForFinalize() (src/goals/BudgetTreasury.sol#376-378)\n\t\t- IPremiumEscrow(escrow).close(finalState,activatedAt,resolvedAt) (src/goals/BudgetTreasury.sol#370-372)\n\t\t- flowContract.setTargetOutflowRate(0) (src/goals/TreasuryBase.sol#58-63)\n\t\t- IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) (src/goals/BudgetTreasury.sol#454)\n\tState variables written after the call(s):\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#136)\n\t\t- _state = newState (src/goals/BudgetTreasury.sol#388)\n\tBudgetTreasury._state (src/goals/BudgetTreasury.sol#25) can be used in cross function reentrancies:\n\t- BudgetTreasury._deriveBudgetDerivedState() (src/goals/BudgetTreasury.sol#399-405)\n\t- BudgetTreasury._tryActivateReassertGrace(bytes32) (src/goals/BudgetTreasury.sol#464-473)\n\t- BudgetTreasury.initialize(address,IBudgetTreasury.BudgetConfig) (src/goals/BudgetTreasury.sol#62-122)\n\t- BudgetTreasury.lifecycleStatus() (src/goals/BudgetTreasury.sol#284-306)\n\t- BudgetTreasury.registerSuccessAssertion(bytes32) (src/goals/BudgetTreasury.sol#214-225)\n\t- BudgetTreasury.resolved() (src/goals/BudgetTreasury.sol#248-250)\n\t- BudgetTreasury.state() (src/goals/BudgetTreasury.sol#252-254)\n\t- BudgetTreasury.targetFlowRate() (src/goals/BudgetTreasury.sol#274-282)\n",
+    "reviewed_on": "2026-03-01",
+    "triage_note": "Drifted fingerprint of previously accepted trusted-core sync callgraph; mutating entrypoints are nonReentrant with role-gated side effects.",
+    "safety_assumptions": [
+      "Flow/superfluid dependencies remain canonical/trusted",
+      "Controller/resolver authorization boundaries remain unchanged"
+    ]
+  },
+  {
     "id": "6ac0637ffb68119abd66d46b45fd49d7bbff163397b4e788c97d5e86d79087f4",
     "check": "arbitrary-send-erc20",
     "impact": "High",

@@ -215,9 +215,6 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             })
         );
 
-        // Add the deployed prize vault as a budget-flow recipient.
-        budgetFlow.addRecipient(itemID, deployed.prizeVault, listing.metadata);
-
         activationQueued[itemID] = false;
 
         _roundDeployment[itemID] = RoundDeployment({
@@ -227,6 +224,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             depositStrategy: deployed.depositStrategy,
             active: true
         });
+
+        // Add the deployed prize vault as a budget-flow recipient.
+        budgetFlow.addRecipient(itemID, deployed.prizeVault, listing.metadata);
 
         emit RoundActivated(
             itemID,
@@ -243,9 +243,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         RoundDeployment storage dep = _roundDeployment[itemID];
         if (!dep.active) revert NOT_ACTIVE();
 
-        budgetFlow.removeRecipient(itemID);
         dep.active = false;
         removalQueued[itemID] = false;
+        budgetFlow.removeRecipient(itemID);
 
         emit RoundRemoved(itemID);
     }

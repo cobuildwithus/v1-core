@@ -10,7 +10,6 @@ import { ArbitrationCostExtraData } from "./utils/ArbitrationCostExtraData.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IJurorSlasher } from "src/interfaces/IJurorSlasher.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
@@ -822,6 +821,8 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         address slashRecipient = winningChoice == 0 ? invalidRoundRewardsSink : address(this);
 
+        _voterSlashedOrProcessed[disputeId][round][voter] = true;
+
         uint256 slashWeight = bps2Uint(wrongOrMissedSlashBps, snapshotVotes);
         if (slashWeight != 0) {
             uint256 callerBountyWeight = bps2Uint(slashCallerBountyBps, slashWeight);
@@ -838,8 +839,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
                 }
             }
         }
-
-        _voterSlashedOrProcessed[disputeId][round][voter] = true;
         emit VoterSlashed(disputeId, round, voter, snapshotVotes, slashWeight, missedReveal, slashRecipient);
     }
 
@@ -1202,13 +1201,15 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         address goalTreasury = IStakeVault(stakeVault_).goalTreasury();
         if (goalTreasury == address(0)) revert INVALID_STAKE_VAULT_GOAL_TREASURY();
-        address rewardEscrow;
-        try IGoalTreasury(goalTreasury).rewardEscrow() returns (address rewardEscrow_) {
-            rewardEscrow = rewardEscrow_;
+        address budgetStakeLedger;
+        try IGoalTreasury(goalTreasury).budgetStakeLedger() returns (address budgetStakeLedger_) {
+            budgetStakeLedger = budgetStakeLedger_;
         } catch {
             revert INVALID_STAKE_VAULT_GOAL_TREASURY();
         }
-        if (rewardEscrow == address(0) || rewardEscrow.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+        if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) {
+            revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+        }
 
         _stakeVault = IStakeVault(stakeVault_);
         emit StakeVaultConfigured(stakeVault_);
@@ -1247,10 +1248,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     }
 
     function _budgetStakeLedger() internal view returns (IBudgetStakeLedger ledger) {
-        address rewardEscrow = IGoalTreasury(_stakeVault.goalTreasury()).rewardEscrow();
-        if (rewardEscrow == address(0) || rewardEscrow.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
-
-        address ledgerAddr = IRewardEscrow(rewardEscrow).budgetStakeLedger();
+        address ledgerAddr = IGoalTreasury(_stakeVault.goalTreasury()).budgetStakeLedger();
         if (ledgerAddr == address(0) || ledgerAddr.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
 
         return IBudgetStakeLedger(ledgerAddr);
