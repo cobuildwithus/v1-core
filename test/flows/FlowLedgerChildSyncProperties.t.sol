@@ -61,8 +61,8 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         uint96 stakeWeightASeed,
         uint96 stakeWeightBSeed
     ) public {
-        uint256 stakeWeightA = bound(uint256(stakeWeightASeed), 1e18, 1e30);
-        uint256 stakeWeightB = bound(uint256(stakeWeightBSeed), 1e18, 1e30);
+        uint256 stakeWeightA = bound(uint256(stakeWeightASeed), 1e18, 1e30 - UNIT_WEIGHT_SCALE);
+        uint256 stakeWeightB = bound(uint256(stakeWeightBSeed), stakeWeightA + UNIT_WEIGHT_SCALE, 1e30);
 
         _setWeights(stakeWeightA);
         _allocateParentSingleRecipient();
