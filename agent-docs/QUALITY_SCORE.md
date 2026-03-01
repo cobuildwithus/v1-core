@@ -1,6 +1,6 @@
 # Quality Score
 
-Snapshot date: 2026-02-26
+Snapshot date: 2026-03-01
 
 Scoring rubric:
 - `5`: strong guardrails + tests/docs + enforced CI checks
@@ -12,7 +12,7 @@ Scoring rubric:
 | Area | Score (1-5) | Evidence | Next follow-up |
 | --- | --- | --- | --- |
 | Flow module architecture clarity | 4 | `Flow.sol` + `library/**` + expanded flow test suites are well segmented. | Keep flow reference maps in sync with strategy/child-sync changes. |
-| Goal/Budget treasury lifecycle quality | 4 | `GoalTreasury`, `BudgetTreasury`, `GoalStakeVault`, `RewardEscrow`, and hook contracts define explicit state paths. | Add explicit lifecycle matrix snapshots per release in docs. |
+| Goal/Budget treasury lifecycle quality | 4 | `GoalTreasury`, `BudgetTreasury`, `StakeVault`, `BudgetStakeLedger`, `PremiumEscrow`, `UnderwriterSlasherRouter`, and hook contracts define explicit state paths. | Add explicit lifecycle matrix snapshots per release in docs. |
 | TCR/arbitrator lifecycle safety | 4 | TCR and arbitrator modules have broad scenario coverage and invariants. | Keep arbitration timeout/economics docs aligned with parameter updates. |
 | Upgrade/storage safety posture | 3 | Upgradeable modules use dedicated storage contracts and upgrade patterns. | Add regular storage-layout diff checks to process docs. |
 | Access control and callback boundaries | 3 | Role modifiers and callback entrypoints are explicit in core modules. | Continue hardening and documenting callback trust assumptions. |
@@ -22,5 +22,5 @@ Scoring rubric:
 ## Top Risk Register
 
 1. Drift between fast-moving protocol code and architecture/reference docs.
-2. Subtle lifecycle regressions across treasury finalization and stake/reward interactions.
+2. Subtle lifecycle regressions across treasury finalization and underwriting/slashing interactions.
 3. Hidden coupling between flow child-sync behavior and allocation update patterns.

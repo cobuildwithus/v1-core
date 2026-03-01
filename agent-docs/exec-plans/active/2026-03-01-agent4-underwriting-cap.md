@@ -43,7 +43,7 @@ Implement Agent 4 vNext underwriting scope: add goal-level underwriting config f
 
 - 2026-03-01: Claimed scope in `COORDINATION_LEDGER` and reviewed required architecture/spec/security/runtime docs.
 - 2026-03-01: Implemented `IGoalTreasury` + `GoalTreasury` underwriting config fields/getters and insured-cap clamp (`totalUnits / coverageLambda`) in target flow-rate sync/read path.
-- 2026-03-01: Added `configureUnderwriterSlasher(address)` treasury surface and `IStakeVaultUnderwriterConfig` typed interface bridge.
+- 2026-03-01: Added `configureUnderwriterSlasher(address)` treasury surface using direct `IStakeVault.setUnderwriterSlasher(...)` wiring.
 - 2026-03-01: Plumbed underwriting config through `GoalFactory` and `GoalFactoryCoreStackDeploy`; updated factory deploy script params/env parsing.
 - 2026-03-01: Updated goal/factory fixture tests and treasury shared mocks; added cap-edge regression coverage.
 - 2026-03-01: Ran completion workflow passes (`simplify` -> `test-coverage-audit` -> `task-finish-review`).

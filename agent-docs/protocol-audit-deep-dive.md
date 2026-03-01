@@ -1,6 +1,6 @@
 # Protocol Deep Dive for Logic Audit
 
-Last verified: 2026-02-27
+Last verified: 2026-03-01
 
 ## Why this document exists
 
@@ -21,15 +21,15 @@ The protocol has three coupled subsystems:
 - Maintains recipient allocations; child allocation sync is pipeline-driven and best-effort.
 - Enforces flow-rate safety caps and bounded child updates.
 
-2. Goal/Budget treasury + staking/rewards (`src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol`)
+2. Goal/Budget treasury + staking/underwriting (`src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol`)
 - Drives goal and budget lifecycle states.
 - Accepts funding (hook + donations), sets flow rates, and finalizes residual balances.
-- Locks stake, computes reward points, and pays out through escrow.
+- Locks stake, tracks budget coverage, accrues premium, and routes failure slashing via underwriter router.
 
 3. TCR/arbitration curation (`src/tcr/**`)
 - Curates budgets via request/challenge/dispute lifecycle.
 - Activates or removes budgets based on TCR outcomes.
-- Handles fee/reward escrow for request rounds and arbitrator rounds.
+- Handles fee/reward accounting for request rounds and arbitrator rounds.
 
 ## Core contracts and what they own
 
@@ -45,10 +45,11 @@ The protocol has three coupled subsystems:
 - `GoalTreasury.sol`: goal state machine and final settlement policy.
 - `BudgetTreasury.sol`: budget state machine, pass-through flow policy, parent residual returns.
 - `TreasuryBase.sol`: shared donation ingress, balance reads, and helper mechanics.
-- `GoalStakeVault.sol`: stake custody, juror lock/exit/slashing.
-- `BudgetStakeLedger.sol`: accounting-only points ledger for budget success weighting.
-- `RewardEscrow.sol`: final reward pools, snapshot finalization, claim and failed-path sweep behavior.
-- `GoalRevnetSplitHook.sol`: funding ingress and success-state settlement split from revnet flow.
+- `StakeVault.sol`: stake custody, juror lock/exit/slashing, underwriter withdrawal preparation.
+- `BudgetStakeLedger.sol`: coverage-only stake accounting per budget with checkpoints for vote snapshots.
+- `PremiumEscrow.sol`: budget premium accrual/checkpointing and terminal slashing dispatch.
+- `UnderwriterSlasherRouter.sol`: slashed-token conversion/upgrade/forwarding to goal funding path.
+- `GoalRevnetSplitHook.sol`: funding ingress and terminal/success settlement routing from revnet flow.
 - `UMATreasurySuccessResolver.sol`: assertion registration/dispute/result callbacks and finalization relay.
 
 ### TCR/arbitration domain
@@ -87,7 +88,7 @@ Current practical transitions:
 
 Important notes:
 
-- Success assertion registration is resolver-only and must occur pre-deadline.
+- Success assertion registration is resolver-only and must occur pre-deadline (except explicit grace-policy handling).
 - If assertion was registered in time, success may still finalize after deadline once UMA resolves.
 - `sync()` is permissionless and the canonical progression path.
 
@@ -115,7 +116,7 @@ Transitions:
 
 - `Active -> Expired`
   - Trigger: `sync()`.
-  - Guard: deadline reached with no pending success assertion.
+  - Guard: deadline reached with no pending success assertion (and post-deadline grace rules exhausted).
 
 Budget removal interaction:
 
@@ -143,7 +144,10 @@ Internal dispute progression:
 - `Pending -> Active -> Reveal -> Solved` (timestamp/window-gated).
 - `executeRuling()` then calls back the arbitrable (TCR) to finalize request outcome.
 
-Stake-vault mode supports permissionless juror slashing transfers to reward escrow when conditions are met.
+Stake-vault mode supports permissionless juror slashing:
+
+- caller bounty routes to slash caller,
+- remaining slash routes to winner pools (or `invalidRoundRewardsSink` on no-winner rounds).
 
 ### Assertion lifecycle (`UMATreasurySuccessResolver`)
 
@@ -163,7 +167,11 @@ For each treasury assertion:
 Path A: Revnet hook funding
 
 - `GoalRevnetSplitHook.processSplitWith` checks allowed caller/token/project/group and treasury state.
-- If treasury can accept funding, hook forwards value into goal `Flow` and records hook funding in treasury telemetry.
+- Treasury `processHookSplit` routes by state:
+  - funding-open -> convert/forward to goal flow + telemetry,
+  - succeeded+minting-open -> success settlement burn,
+  - closed nonterminal -> deferred treasury custody,
+  - terminal -> terminal settlement policy.
 
 Path B: Direct donations
 
@@ -175,71 +183,67 @@ Path B: Direct donations
 Goal treasury flow-rate policy:
 
 - Spend-down target over remaining time.
-- Sync fallback order: target rate -> max-safe capped rate -> zero.
+- Sync fallback order: target rate -> max-safe bounded rate -> zero.
+- Optional coverage-cap clamp (`coverageLambda`) limits outflow by insured capacity.
 
 Budget treasury flow-rate policy:
 
-- Pass-through target based on measured incoming net flow + outgoing flow.
-- Capped by flow safety limits.
+- Pass-through target from trusted parent member flow-rate only.
 
 Flow system behavior:
 
 - `Flow` streams through Superfluid pools and updates recipient/member units from committed allocations.
-- Child allocation sync side effects run through `GoalFlowAllocationLedgerPipeline` and are best-effort with emitted outcomes.
+- Child allocation sync and premium-checkpoint side effects run through `GoalFlowAllocationLedgerPipeline` and are best-effort with emitted outcomes.
 
 ### 3) Terminal settlement
 
 Goal treasury finalization (`_finalize`):
 
-1. Clear pending assertion state.
-2. Set terminal state.
-3. Zero flow rate.
-4. Sweep all remaining SuperToken from flow to treasury.
-5. Settle residual policy:
-- `Succeeded`: split treasury-held residual between reward escrow and burn.
-- `Expired`: burn 100%.
-6. Finalize reward escrow and mark stake vault resolved timestamp.
+1. Clear pending assertion state and set terminal state.
+2. Attempt flow stop (best-effort).
+3. Sweep residual SuperToken from flow to treasury and settle by burning downgraded underlying.
+4. Settle deferred hook funding by the same terminal settlement policy.
+5. Attempt stake-vault resolution mark (`markGoalResolved`) best-effort.
 
 Budget treasury finalization (`_finalize`):
 
 1. Set terminal state and resolved timestamp.
-2. Zero child outflow.
-3. Sweep residual from budget child flow back to parent goal flow.
-4. Mark stake vault resolved timestamp.
+2. Zero child outflow best-effort.
+3. Close premium escrow with terminal metadata best-effort.
+4. Sweep residual from budget child flow back to parent goal flow best-effort.
 
 Late residual handling:
 
 - Goal: `settleLateResidual()` reapplies terminal residual policy for post-finalization inflows.
 - Budget: `settleLateResidualToParent()` re-sweeps late residual back to parent flow.
 
-### 4) Reward escrow payout path
+### 4) Premium accrual and slashing path
 
-On goal success finalization:
+Runtime premium path:
 
-- Escrow finalizes snapshots and stake-ledger final state.
-- Claimants call `claim(to)` for one-time snapshot pro-rata rewards.
+- Budget child flow manager reward stream routes to per-budget `PremiumEscrow`.
+- `PremiumEscrow` uses coverage checkpoints from `BudgetStakeLedger` to index premium entitlement.
+- If total coverage is zero, premium is recycled to goal funding path.
 
-On non-success terminal states:
+Failure slashing path:
 
-- `releaseFailedAssetsToTreasury()` moves escrow-held assets back for terminal no-reward handling.
-- Treasury `sweepFailedAndBurn()` applies burn policy for swept assets.
-
-Succeeded-state edge case:
-
-- `releaseFailedAssetsToTreasury()` is also allowed when goal state is `Succeeded` but the snapshot has zero successful budget points.
+- On terminal failed/post-activation-expired budget, `PremiumEscrow.slash(underwriter)` computes exposure-weighted slash.
+- `StakeVault.slashUnderwriterStake` transfers slashed goal/cobuild tokens to `UnderwriterSlasherRouter`.
+- Router best-effort converts cobuild to goal token, upgrades to SuperToken, and forwards to goal funding target.
+- Conversion/forward failures stay observable and are retryable.
 
 ### 5) Stake lock/unlock
 
-`GoalStakeVault` custody/locking:
+`StakeVault` custody/locking:
 
 - Users deposit goal/cobuild stake.
-- Withdrawals require goal resolved and available unlocked amount.
+- Underwriter withdrawals after goal resolution require caller-scoped preparation over tracked budgets.
 
 Juror locks:
 
 - Juror opt-in locks stake for arbitrator mode.
 - Exit requires `requestJurorExit()` then `finalizeJurorExit()` after cooldown (`max(requestedAt, goalResolvedAt) + 7 days`).
-- Arbitrator slashing can transfer stake directly to reward escrow.
+- Arbitrator slashing can transfer stake via configured slash routes.
 
 ## Unlock matrix (what must be true)
 
@@ -251,29 +255,28 @@ Juror locks:
 | Budget activation | Budget `Funding`; `now <= fundingDeadline`; flow balance `>= activationThreshold`. |
 | Budget success | Budget `Active`; success resolution not disabled; resolver calls with truthful pending assertion. |
 | Budget manual failure | Controller-only; correct state/time gate; no pending success assertion for active failure path. |
-| Stake withdrawal | Goal resolved; amount unlocked and not juror-locked. |
+| Underwriter stake withdrawal | Goal resolved and caller has completed required `prepareUnderwriterWithdrawal` work for current epoch. |
 | Juror final exit | Cooldown elapsed since request and resolution anchor. |
-| Reward claim | Escrow finalized; success state; positive entitlement. |
+| Premium claim | Escrow checkpointed coverage and positive indexed entitlement. |
 
 ## High-value audit targets and invariants
 
 1. Treasury terminalization idempotency and irreversible state transitions.
 2. Flow-rate sync liveness under revert/fallback scenarios.
 3. Hook routing correctness by treasury state and minting window.
-4. Goal success independence from unresolved budgets (by design) and timestamp anchoring effects.
+4. Premium-escrow checkpoint/accrual/slash invariants and idempotence.
 5. Budget removal guarantees: recipient removed + retryable terminalization; success disablement is branch-specific (pre-activation only).
-6. Stake withdrawal accounting (including rounding/dust and repeated withdrawals).
-7. Reward escrow claim math and claim cursor monotonicity.
+6. Underwriter withdrawal preparation accounting and caller isolation.
+7. Arbitrator slash routing, invalid-round sink behavior, and one-shot withdrawal semantics.
 8. Submission deposit strategy behavior in TCR (fail-closed surface).
-9. Arbitration reward routing, invalid-round sink, and one-shot withdrawal semantics.
-10. Child sync best-effort observability and permissionless repair path liveness.
+9. Child sync + premium checkpoint best-effort observability and repair-path liveness.
 
 ## Practical audit sequence
 
 1. Start with treasury state transitions and terminal settlement (`GoalTreasury`, `BudgetTreasury`).
 2. Validate all ingress gates (`GoalRevnetSplitHook`, donations) against lifecycle assumptions.
 3. Confirm rate-sync behavior from treasury -> flow -> child flows (including fallback and reverts).
-4. Trace reward and stake accounting boundaries (`GoalStakeVault`, `BudgetStakeLedger`, `RewardEscrow`).
+4. Trace stake, premium, and slashing boundaries (`StakeVault`, `BudgetStakeLedger`, `PremiumEscrow`, `UnderwriterSlasherRouter`).
 5. Audit TCR and arbitrator economic loops (contributions, dispute fees, refunds/rewards, sink routes).
 6. Cross-check invariants via `test/invariant/**` and targeted unit tests for each module.
 
@@ -284,9 +287,10 @@ Core code anchors:
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
-- `src/goals/GoalStakeVault.sol`
+- `src/goals/StakeVault.sol`
 - `src/goals/BudgetStakeLedger.sol`
-- `src/goals/RewardEscrow.sol`
+- `src/goals/PremiumEscrow.sol`
+- `src/goals/UnderwriterSlasherRouter.sol`
 - `src/Flow.sol`
 - `src/library/FlowRates.sol`
 - `src/tcr/GeneralizedTCR.sol`
@@ -299,14 +303,15 @@ High-signal tests/invariants:
 - `test/goals/GoalTreasury.t.sol`
 - `test/goals/BudgetTreasury.t.sol`
 - `test/goals/GoalRevnetSplitHook.t.sol`
-- `test/goals/RewardEscrow.t.sol`
-- `test/goals/GoalStakeVault.t.sol`
-- `test/goals/BudgetStakeLedgerEconomics.t.sol`
+- `test/goals/PremiumEscrow.t.sol`
+- `test/goals/StakeVault.t.sol`
+- `test/goals/BudgetStakeLedgerCoverageCutover.t.sol`
+- `test/goals/UnderwriterSlasherRouter.t.sol`
+- `test/goals/UnderwritingIntegration.t.sol`
 - `test/BudgetTCR.t.sol`
 - `test/GeneralizedTCR*.t.sol`
 - `test/ERC20VotesArbitrator*.t.sol`
 - `test/invariant/TreasuryTerminalLifecycle.invariant.t.sol`
-- `test/invariant/RewardEscrow.invariant.t.sol`
 - `test/invariant/TCRAndArbitrator.invariant.t.sol`
 - `test/invariant/GoalHookRoutingSplit.invariant.t.sol`
 

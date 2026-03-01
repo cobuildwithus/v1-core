@@ -15,8 +15,10 @@
    - In stake-vault mode, `commitVoteFor` supports delegated commit for authorized juror operators.
 3. Ruling execution feeds back into TCR `rule(...)` resolution path.
 4. Contributors withdraw rewards/refunds via round accounting.
-5. In stake-vault mode, `slashVoter` permissionlessly applies 10 bps slashing for missed reveal or incorrect vote (non-tie), transferring slashed stake to goal reward escrow.
-   - Slash settlement draws from the juror's live stake balances, so post-snapshot juror exits do not zero out slashability.
+5. In stake-vault mode, `slashVoter` permissionlessly applies configured slashing for missed reveal or incorrect vote (non-tie):
+   - caller bounty transfers to the slashing caller,
+   - remaining slash transfers to winner pools when a winner exists, otherwise to `invalidRoundRewardsSink`,
+   - slash settlement draws from the juror's live stake balances, so post-snapshot exits do not zero slashability.
 
 ## Timeout Path
 
@@ -25,15 +27,19 @@
 ## Budget TCR Extension Path
 
 1. Budget listing add/remove lifecycle still runs through `GeneralizedTCR` request/challenge/dispute flow.
-2. On accepted registration, `BudgetTCR` only queues pending activation (`BudgetStackActivationQueued`) so TCR request resolution is not coupled to deployment/flow side effects.
-3. Any caller can run `activateRegisteredBudget(...)` to execute `BudgetTCRDeployer.prepareBudgetStack(...)` and deploy:
-   - `GoalStakeVault`
-   - `BudgetStakeStrategy` (pins `recipientId`, then reads per-budget stake via `BudgetStakeLedger.budgetForRecipient(...)`)
-   - no per-budget temporary-manager/forwarder contract.
-4. `activateRegisteredBudget(...)` (as goal-flow `recipientAdmin`) adds the goal-flow recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`) where `recipientAdmin` is the per-budget `AllocationMechanismTCR` and operator/sweeper remain the cloned budget treasury, then calls `BudgetTCRDeployer.deployBudgetTreasury(...)`.
+2. On accepted registration, `BudgetTCR` queues pending activation (`BudgetStackActivationQueued`) so TCR request resolution is not coupled to deployment/flow side effects.
+3. Any caller can run `activateRegisteredBudget(...)` to execute `BudgetTCRDeployer.prepareBudgetStack(...)` and prepare:
+   - `StakeVault`,
+   - shared `BudgetFlowRouterStrategy` wiring against `BudgetStakeLedger`,
+   - per-budget `PremiumEscrow` clone.
+4. `activateRegisteredBudget(...)` (as goal-flow `recipientAdmin`) adds the goal-flow recipient with explicit child roles:
+   - `recipientAdmin`: per-budget `AllocationMechanismTCR`,
+   - `flowOperator`: cloned budget treasury,
+   - `sweeper`: cloned budget treasury,
+   - child manager-reward pool: per-budget premium escrow at configured `budgetPremiumPpm`.
 5. On accepted removal, `BudgetTCR` clears any pending registration and queues pending removal finalization (`BudgetStackRemovalQueued`) so TCR request resolution remains uncoupled from flow calls.
 6. Any caller can run `finalizeRemovedBudget(...)` to remove parent recipient + stake-ledger mapping, then attempt terminal-only budget resolution (`forceFlowRateToZero`, controller-gated `resolveFailure` via `BudgetTCR`).
-7. If terminalization is not yet allowed by treasury deadlines after removal finalization, anyone can retry the terminal-only path via `retryRemovedBudgetResolution(...)`.
+7. If terminalization is not yet allowed by treasury deadlines after removal finalization, anyone can retry terminal-only paths via `retryRemovedBudgetResolution(...)`.
 8. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, and deployer implementations.
 9. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
 

@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
-import { IStakeVaultUnderwriterConfig } from "../interfaces/IStakeVaultUnderwriterConfig.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
@@ -367,7 +366,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function configureUnderwriterSlasher(address slasher) external override {
         if (msg.sender != _authority) revert ONLY_AUTHORITY();
-        IStakeVaultUnderwriterConfig(address(_stakeVault)).setUnderwriterSlasher(slasher);
+        _stakeVault.setUnderwriterSlasher(slasher);
         emit UnderwriterSlasherConfigured(msg.sender, slasher);
     }
 

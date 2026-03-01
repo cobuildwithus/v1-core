@@ -18,7 +18,7 @@
   - `BudgetTreasury` privileged paths are gated by immutable `controller`, not transferable ownership.
 
 2. Token and funds boundary
-- ERC20/SuperToken transfers, stake deposits/withdrawals, and escrow claims are sensitive operations.
+- ERC20/SuperToken transfers, stake deposits/withdrawals, premium accrual/claiming, and underwriter slashing are sensitive operations.
 
 3. External protocol boundary
 - Superfluid and Bananapus/JBX integrations must preserve expected token and callback semantics.
@@ -33,8 +33,9 @@
 - `src/library/FlowRates.sol`
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
-- `src/goals/GoalStakeVault.sol`
-- `src/goals/RewardEscrow.sol`
+- `src/goals/StakeVault.sol`
+- `src/goals/PremiumEscrow.sol`
+- `src/goals/UnderwriterSlasherRouter.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
 - `src/tcr/GeneralizedTCR.sol`
 - `src/tcr/ERC20VotesArbitrator.sol`

@@ -18,12 +18,14 @@
 - `src/library/FlowPools.sol`
 - `src/library/FlowRecipients.sol`
 
-### Goal/Budget funding and resolution
+### Goal/Budget funding, underwriting, and resolution
 
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
-- `src/goals/GoalStakeVault.sol`
-- `src/goals/RewardEscrow.sol`
+- `src/goals/StakeVault.sol`
+- `src/goals/BudgetStakeLedger.sol`
+- `src/goals/PremiumEscrow.sol`
+- `src/goals/UnderwriterSlasherRouter.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
 
 ### TCR + arbitrator
@@ -46,10 +48,9 @@
 4. Dispute/request timing races
 - TCR challenge and timeout semantics should remain explicit and test-backed.
 
-5. Goal-ledger child sync fail-closed dependency (accepted risk)
-- In goal-ledger mode, downstream child `syncAllocation` failures revert parent allocation/sync operations for affected allocation keys.
-- This is an intentional correctness-over-liveness tradeoff under the current trust model (strict, audited child flows only).
-- Operational response should treat repeated child sync failures as incident conditions and use manager-controlled remediation (for example, temporary budget mapping removal/quarantine) before retrying normal sync.
+5. Child-sync and premium-checkpoint downstream failures
+- Parent allocation commits must remain live when downstream child-sync or premium-checkpoint calls fail.
+- Failures must emit explicit observability events and remain permissionlessly repairable.
 
 ## Verification Matrix
 

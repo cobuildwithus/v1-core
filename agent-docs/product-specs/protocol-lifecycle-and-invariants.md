@@ -10,8 +10,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Flows initialize via `CustomFlow.initialize` -> `Flow.__Flow_init`.
 - Deployment-time flow knobs are init-only:
-  - `flowImpl`, `managerRewardPoolFlowRatePercent`,
-    `managerRewardPool`, and `allocationPipeline`.
+  - `flowImpl`, `managerRewardPoolFlowRatePpm`, `managerRewardPool`, and `allocationPipeline`.
   - Runtime mutator entrypoints for these knobs are removed.
 - Flow authority is split and explicit:
   - `recipientAdmin` governs recipient lifecycle and metadata updates.
@@ -52,8 +51,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - slashing is idempotent per underwriter per escrow.
 - Slashed value recycle path is routed and observable:
   - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,
-  - router executes StakeVault underwriter slashing, attempts cobuild->goal conversion via revnet terminal, upgrades to goal SuperToken,
-  - router forwards SuperToken to goal funding path; conversion failures emit events and retain cobuild for later attempts.
+  - router executes stake-vault underwriter slashing, attempts cobuild->goal conversion via revnet terminal, upgrades to goal SuperToken,
+  - router forwards SuperToken to goal funding path; conversion failures emit events and retain cobuild for later attempts,
 - Manual failure is budget-only and controller-gated (`resolveFailure`), with no goal manual-failure entrypoint.
 - Goal terminal states are `Succeeded` and `Expired`; resolved-false or invalid post-deadline success assertions finalize to `Expired`.
 - Success transitions are assertion-backed:
@@ -70,22 +69,16 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Pending assertions block active-state terminalization races only while unresolved.
 - Accepted budget removals use activation-locked split semantics:
   - pre-activation removal disables budget success resolution and makes the budget success-ineligible,
-  - post-activation removal stops forward spend/funding but keeps reward-history eligibility; such budgets remain
-    success-eligible only if they later resolve terminal `Succeeded`.
+  - post-activation removal stops forward spend/funding while preserving success eligibility if the removed budget later resolves terminal `Succeeded`.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
-  - flow stop, residual settlement, reward-escrow finalize, and stake-vault marking are best-effort during finalize and permissionlessly retryable via `retryTerminalSideEffects`,
-  - stake-vault resolution remains permissionlessly recoverable through `markGoalResolved()` once treasury reports resolved.
-- Goal success state remains immediate, but reward escrow success-finalization is deferred until tracked budgets resolve and is then permissionlessly retryable via terminal-side-effect retries.
-- Budget scoring cutoff is exogenous per tracked budget:
-  - raw matured stake-time accrual runs until
-    `min(goal success timestamp, budget fundingDeadline, budget activation timestamp, budget removal timestamp)`,
-  - budget activation timestamp (`activatedAt`) is written on permissionless `sync()` when funding transitions to active (keeper-timing dependent),
-  - payout points are window-normalized (`raw matured stake-time / scoring-window seconds`), where scoring window starts at budget registration time,
-  - maturation/warmup uses a fixed global period (`6 hours`),
-  - budget `resolvedAt` no longer truncates point accrual.
+  - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.
+- Underwriter withdrawal settlement is caller-scoped (not globally budget-scoped):
+  - after `markGoalResolved`, each underwriter must complete `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over append-only registered budgets,
+  - preparation blocks only that caller when unresolved exposure remains and executes required `PremiumEscrow.slash(caller)` calls for failed/post-activation-expired budgets,
+  - `withdrawGoal`/`withdrawCobuild` require successful caller preparation for the current goal-resolution epoch.
+- Budget stake ledger is coverage-only accounting; no points/maturation/success-snapshot payout subsystem remains in runtime.
 - Terminal residual handling remains callable after finalization (`GoalTreasury.settleLateResidual`, `BudgetTreasury.settleLateResidualToParent`) to absorb late inflows without stranded value.
-- Failed escrow sweep policy is no-reward: goal sweep burns via `goalRevnetId`, cobuild sweep burns via immutable `cobuildRevnetId` (seeded from `goalRevnetId`).
 
 ### TCR/arbitration lifecycle
 
@@ -96,7 +89,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Access-control and governance boundaries are explicit and test-backed.
 - Funds-transfer paths must remain deterministic and fail-safe.
-- Allocation-driven premium accounting fails closed when escrow checkpoints fail; commits must not continue with stale coverage exposure.
+- Allocation-driven premium escrow checkpointing is best-effort and must emit explicit failure observability events while allocation commits continue.
 - External hooks and strategies should not silently invalidate core invariants.
 
 ## Breaking-Change Policy
