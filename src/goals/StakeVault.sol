@@ -253,14 +253,13 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (_underwriterWithdrawalPreparedForResolvedAt[underwriter] != resolvedAt) {
             cursor = 0;
             _underwriterWithdrawalPreparedBudgetCount[underwriter] = 0;
-            _underwriterWithdrawalPreparedForResolvedAt[underwriter] = 0;
+            _underwriterWithdrawalPreparedForResolvedAt[underwriter] = resolvedAt;
         }
 
         budgetCount = budgetStakeLedger.registeredBudgetCount();
         if (cursor > budgetCount) cursor = budgetCount;
 
-        uint256 endExclusive = cursor + maxBudgets;
-        if (endExclusive > budgetCount || endExclusive < cursor) endExclusive = budgetCount;
+        uint256 endExclusive = cursor + Math.min(maxBudgets, budgetCount - cursor);
 
         for (uint256 i = cursor; i < endExclusive; ) {
             address budget = budgetStakeLedger.registeredBudgetAt(i);
@@ -275,7 +274,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         complete = nextBudgetIndex == budgetCount;
         if (complete) {
-            _underwriterWithdrawalPreparedForResolvedAt[underwriter] = resolvedAt;
             _underwriterWithdrawalPreparedBudgetCount[underwriter] = budgetCount;
         }
 
