@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
+import { IStakeVaultUnderwriterConfig } from "../interfaces/IStakeVaultUnderwriterConfig.sol";
 import { IRewardEscrow } from "../interfaces/IRewardEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
@@ -68,6 +69,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     uint64 public override minRaiseDeadline;
     uint64 public override deadline;
     uint256 public override minRaise;
+    uint256 public override coverageLambda;
+    uint32 public override budgetPremiumPpm;
+    uint32 public override budgetSlashPpm;
     address public override successResolver;
     uint64 public override successAssertionLiveness;
     uint256 public override successAssertionBond;
@@ -130,6 +134,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (config.successSettlementRewardEscrowPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_SETTLEMENT_SCALED(config.successSettlementRewardEscrowPpm);
         }
+        if (config.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
+            revert INVALID_BUDGET_PREMIUM_PPM(config.budgetPremiumPpm);
+        }
+        if (config.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
+            revert INVALID_BUDGET_SLASH_PPM(config.budgetSlashPpm);
+        }
         if (config.successSettlementRewardEscrowPpm != 0 && config.rewardEscrow == address(0)) {
             revert REWARD_ESCROW_NOT_CONFIGURED();
         }
@@ -171,6 +181,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         minRaiseDeadline = config.minRaiseDeadline;
         deadline = derivedDeadline;
         minRaise = config.minRaise;
+        coverageLambda = config.coverageLambda;
+        budgetPremiumPpm = config.budgetPremiumPpm;
+        budgetSlashPpm = config.budgetSlashPpm;
         successResolver = config.successResolver;
         successAssertionLiveness = config.successAssertionLiveness;
         successAssertionBond = config.successAssertionBond;
@@ -202,6 +215,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
             config.goalRevnetId == 0 &&
             config.minRaiseDeadline == 0 &&
             config.minRaise == 0 &&
+            config.coverageLambda == 0 &&
+            config.budgetPremiumPpm == 0 &&
+            config.budgetSlashPpm == 0 &&
             config.successSettlementRewardEscrowPpm == 0 &&
             config.successResolver == address(0) &&
             config.successAssertionLiveness == 0 &&
@@ -391,6 +407,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         emit JurorSlasherConfigured(msg.sender, slasher);
     }
 
+    function configureUnderwriterSlasher(address slasher) external override {
+        if (msg.sender != _authority) revert ONLY_AUTHORITY();
+        IStakeVaultUnderwriterConfig(address(_stakeVault)).setUnderwriterSlasher(slasher);
+        emit UnderwriterSlasherConfigured(msg.sender, slasher);
+    }
+
     function authority() external view override returns (address) {
         return _authority;
     }
@@ -431,7 +453,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function targetFlowRate() public view override returns (int96) {
         if (_state != GoalState.Active) return 0;
 
-        return GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, treasuryBalance(), timeRemaining());
+        return _computeClampedTargetFlowRate(treasuryBalance(), timeRemaining());
     }
 
     function lifecycleStatus() external view override returns (GoalLifecycleStatus memory status) {
@@ -468,7 +490,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function _syncFlowRate() internal {
         uint256 balance = treasuryBalance();
         uint256 remaining = timeRemaining();
-        int96 targetRate = GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, balance, remaining);
+        int96 targetRate = _computeClampedTargetFlowRate(balance, remaining);
         int96 appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(
             _flow,
             targetRate,
@@ -477,6 +499,30 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         );
 
         emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
+    }
+
+    function _computeClampedTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
+        int96 targetRate = GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, balance, remaining);
+        return _clampTargetFlowRateToCoverageCap(targetRate);
+    }
+
+    function _coverageCapFlowRate() internal view returns (int96) {
+        uint256 lambda = coverageLambda;
+        if (lambda == 0) return type(int96).max;
+
+        uint256 cappedRate = uint256(_flow.distributionPool().getTotalUnits()) / lambda;
+        uint256 int96Max = uint256(uint96(type(int96).max));
+        if (cappedRate > int96Max) {
+            cappedRate = int96Max;
+        }
+
+        return int96(int256(cappedRate));
+    }
+
+    function _clampTargetFlowRateToCoverageCap(int96 targetRate) internal view returns (int96) {
+        int96 capRate = _coverageCapFlowRate();
+        if (targetRate > capRate) return capRate;
+        return targetRate;
     }
 
     function _minRaiseWindowElapsedWithoutGoal(GoalState currentState) internal view returns (bool) {
