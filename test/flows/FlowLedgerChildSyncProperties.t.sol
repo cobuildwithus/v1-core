@@ -277,6 +277,47 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(secondChildFlow.syncCallCount(), 0);
     }
 
+    function test_allocate_withLedger_multipleChangedBudgets_secondPremiumEscrowLookupRevertIsAtomicBeforeChildSync()
+        public
+    {
+        FlowLedgerPropChildFlow secondChildFlow =
+            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
+        FlowLedgerPropBudgetTreasuryPremiumEscrowReverting revertingBudgetTreasury =
+            new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(address(secondChildFlow));
+        _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(revertingBudgetTreasury));
+
+        childFlow.setCommit(keccak256("child-commit-1"));
+        secondChildFlow.setCommit(keccak256("child-commit-2"));
+
+        _setWeights(25e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+
+        bytes32[] memory recipientIds = new bytes32[](2);
+        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        recipientIds[1] = SECOND_BUDGET_RECIPIENT_ID;
+
+        uint32[] memory scaled = new uint32[](2);
+        scaled[0] = HALF_SCALED;
+        scaled[1] = HALF_SCALED;
+
+        _allocateWithPrevStateForStrategyExpectRevert(
+            allocator,
+            allocationData,
+            address(strategy),
+            address(flow),
+            recipientIds,
+            scaled,
+            abi.encodeWithSelector(
+                FlowLedgerPropBudgetTreasuryPremiumEscrowReverting.PREMIUM_ESCROW_LOOKUP_REVERT.selector
+            )
+        );
+
+        assertEq(ledger.checkpointCallCount(), 0);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(childFlow.syncCallCount(), 0);
+        assertEq(secondChildFlow.syncCallCount(), 0);
+    }
+
     function test_allocate_withLedger_unchangedEffectiveAllocation_skipsPremiumCheckpointAndChildSync() public {
         _setWeights(10e18);
         _allocateParentSingleRecipient();
