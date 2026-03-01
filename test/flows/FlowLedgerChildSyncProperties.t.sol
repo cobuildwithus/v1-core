@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 
@@ -433,8 +434,17 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), initialWeight);
         assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), initialWeight);
+        IBudgetStakeLedger.UserBudgetCheckpointView memory firstUserCheckpoint =
+            realLedger.userBudgetCheckpoint(allocator, address(registrableBudgetTreasury));
+        IBudgetStakeLedger.BudgetCheckpointView memory firstBudgetCheckpoint =
+            realLedger.budgetCheckpoint(address(registrableBudgetTreasury));
+        uint64 firstUserCheckpointAt = firstUserCheckpoint.lastCheckpoint;
+        uint64 firstBudgetCheckpointAt = firstBudgetCheckpoint.lastCheckpoint;
+        assertGt(firstUserCheckpointAt, 0);
+        assertGt(firstBudgetCheckpointAt, 0);
 
         uint256 reducedWeight = 15 * UNIT_WEIGHT_SCALE;
+        vm.warp(block.timestamp + 1);
         realStakeVault.setWeight(allocator, reducedWeight);
         strategy.setWeight(parentKey, reducedWeight);
         _allocateWithPrevStateForStrategy(
@@ -443,6 +453,14 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), reducedWeight);
         assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), reducedWeight);
+        IBudgetStakeLedger.UserBudgetCheckpointView memory secondUserCheckpoint =
+            realLedger.userBudgetCheckpoint(allocator, address(registrableBudgetTreasury));
+        IBudgetStakeLedger.BudgetCheckpointView memory secondBudgetCheckpoint =
+            realLedger.budgetCheckpoint(address(registrableBudgetTreasury));
+        uint64 secondUserCheckpointAt = secondUserCheckpoint.lastCheckpoint;
+        uint64 secondBudgetCheckpointAt = secondBudgetCheckpoint.lastCheckpoint;
+        assertGt(secondUserCheckpointAt, firstUserCheckpointAt);
+        assertGt(secondBudgetCheckpointAt, firstBudgetCheckpointAt);
         assertEq(registrablePremiumEscrow.checkpointCallCount(), 2);
         assertEq(registrablePremiumEscrow.lastCheckpointAccount(), allocator);
     }
