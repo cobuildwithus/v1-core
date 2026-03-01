@@ -178,6 +178,128 @@ contract PremiumEscrowTest is Test {
         escrow.slash(ALICE);
     }
 
+    function test_closeOnlyBudgetTreasury_idempotentForSameArgs_revertsForMismatchedReplay() public {
+        vm.warp(20);
+
+        vm.expectRevert(PremiumEscrow.ONLY_BUDGET_TREASURY.selector);
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        assertTrue(escrow.closed());
+        assertEq(uint256(escrow.finalState()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertEq(escrow.activatedAt(), 10);
+        assertEq(escrow.closedAt(), 20);
+
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        vm.expectRevert(PremiumEscrow.ALREADY_CLOSED.selector);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 21);
+    }
+
+    function test_closeRejectsInvalidStateTimestampAndWindow() public {
+        vm.warp(50);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.INVALID_CLOSE_STATE.selector, IBudgetTreasury.BudgetState.Active)
+        );
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Active, 10, 40);
+
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.INVALID_CLOSE_TIMESTAMP.selector, uint64(0)));
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.INVALID_CLOSE_TIMESTAMP.selector, uint64(51)));
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 51);
+
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.INVALID_CLOSE_WINDOW.selector, uint64(41), uint64(40)));
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 41, 40);
+    }
+
+    function test_closeCheckpointsPendingPremiumBeforeFreeze() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        ledger.setCoverage(BOB, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        escrow.checkpoint(BOB);
+
+        premiumToken.mint(address(escrow), 200e18);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
+        vm.prank(ALICE);
+        uint256 aliceClaim = escrow.claim(ALICE);
+        vm.prank(BOB);
+        uint256 bobClaim = escrow.claim(BOB);
+
+        assertEq(aliceClaim, 100e18);
+        assertEq(bobClaim, 100e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+    }
+
+    function test_claimHandlesEscrowBalanceShortfallWithoutOverpaying() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+
+        premiumToken.mint(address(escrow), 100e18);
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.claimable(ALICE), 100e18);
+
+        deal(address(premiumToken), address(escrow), 40e18);
+
+        vm.prank(ALICE);
+        uint256 firstClaim = escrow.claim(ALICE);
+        assertEq(firstClaim, 40e18);
+        assertEq(escrow.claimable(ALICE), 60e18);
+        assertEq(escrow.accountedBalance(), 0);
+
+        premiumToken.mint(address(escrow), 60e18);
+
+        vm.prank(ALICE);
+        uint256 secondClaim = escrow.claim(ALICE);
+        assertEq(secondClaim, 60e18);
+        assertEq(escrow.claimable(ALICE), 0);
+        assertEq(premiumToken.balanceOf(ALICE), 100e18);
+    }
+
+    function test_slashRevertsWhenNotClosed_orWhenFinalStateNotSlashable() public {
+        vm.expectRevert(PremiumEscrow.NOT_CLOSED.selector);
+        escrow.slash(ALICE);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
+        vm.expectRevert(PremiumEscrow.NOT_SLASHABLE.selector);
+        escrow.slash(ALICE);
+    }
+
+    function test_slashZeroDurationMarksUnderwriterWithoutRouterCall() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(20);
+
+        vm.warp(25);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 20, 20);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 0);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+    }
+
     function test_orphanPremiumIsRecycledWhenCoverageIsZero() public {
         premiumToken.mint(address(escrow), 77e18);
         escrow.checkpoint(ALICE);
