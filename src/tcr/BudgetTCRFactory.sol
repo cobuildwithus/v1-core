@@ -12,6 +12,7 @@ import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrat
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 
 contract BudgetTCRFactory {
@@ -132,7 +133,9 @@ contract BudgetTCRFactory {
         _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
         address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
             deploymentConfig.goalTreasury,
-            deploymentConfig.underwriterSlasherRouter
+            deploymentConfig.underwriterSlasherRouter,
+            stakeVault,
+            budgetTCR
         );
 
         (
@@ -289,15 +292,43 @@ contract BudgetTCRFactory {
 
     function _resolveUnderwriterSlasherRouter(
         IGoalTreasury goalTreasury,
-        address configuredRouter
+        address configuredRouter,
+        address stakeVault,
+        address budgetTCR
     ) internal returns (address router) {
         if (configuredRouter == address(0) || configuredRouter.code.length == 0) {
             revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
         }
         router = configuredRouter;
+        _validateConfiguredUnderwriterSlasher(router, stakeVault, budgetTCR);
 
         if (goalTreasury.authority() == address(this)) {
             goalTreasury.configureUnderwriterSlasher(router);
+        }
+    }
+
+    function _validateConfiguredUnderwriterSlasher(
+        address configuredSlasher,
+        address stakeVault,
+        address budgetTCR
+    ) internal view {
+        IUnderwriterSlasherRouter router = IUnderwriterSlasherRouter(configuredSlasher);
+
+        try router.authority() returns (address authority_) {
+            if (authority_ != budgetTCR) {
+                revert INVALID_UNDERWRITER_SLASHER_AUTHORITY(budgetTCR, authority_);
+            }
+        } catch {
+            revert UNSUPPORTED_UNDERWRITER_SLASHER(configuredSlasher);
+        }
+
+        try router.stakeVault() returns (IStakeVault stakeVault_) {
+            address configuredStakeVault = address(stakeVault_);
+            if (configuredStakeVault != stakeVault) {
+                revert INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(stakeVault, configuredStakeVault);
+            }
+        } catch {
+            revert UNSUPPORTED_UNDERWRITER_SLASHER(configuredSlasher);
         }
     }
 
