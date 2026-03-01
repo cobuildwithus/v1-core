@@ -1837,6 +1837,42 @@ contract BudgetTreasuryTest is Test {
         assertEq(escrow.lastClosedAt(), treasury.resolvedAt());
     }
 
+    function test_finalize_terminalSideEffects_callsControllerPruneHook() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        target.initialize(address(controllerMock), config);
+
+        vm.warp(target.fundingDeadline() + 1);
+        vm.prank(address(controllerMock));
+        target.resolveFailure();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
+    }
+
+    function test_finalize_terminalSideEffects_pruneHookFailure_isBestEffort() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+        controllerMock.setShouldRevertPrune(true);
+
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        target.initialize(address(controllerMock), config);
+
+        vm.warp(target.fundingDeadline() + 1);
+        vm.expectEmit(true, false, false, true, address(target));
+        emit IBudgetTreasury.TerminalSideEffectFailed(4, abi.encodeWithSignature("Error(string)", "PRUNE_FAILED"));
+        vm.prank(address(controllerMock));
+        target.resolveFailure();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
+    }
+
     function test_finalize_withRealPremiumEscrow_closesEscrowWithTreasuryTerminalState() public {
         (BudgetTreasury treasuryWithRealEscrow, PremiumEscrow realEscrow) = _deployTreasuryWithRealPremiumEscrow();
 
@@ -1856,6 +1892,51 @@ contract BudgetTreasuryTest is Test {
         assertEq(realEscrow.activatedAt(), activatedAt);
         assertEq(realEscrow.closedAt(), treasuryWithRealEscrow.resolvedAt());
         assertEq(realEscrow.closedAt(), uint64(block.timestamp));
+    }
+
+    function test_finalize_withRealPremiumEscrow_resolveSuccess_closesEscrowAsSucceeded_andIsNotSlashable() public {
+        (BudgetTreasury treasuryWithRealEscrow, PremiumEscrow realEscrow) = _deployTreasuryWithRealPremiumEscrow();
+
+        superToken.mint(address(flow), 100e18);
+        _setIncomingFlowRate(100);
+        treasuryWithRealEscrow.sync();
+        uint64 activatedAt = treasuryWithRealEscrow.activatedAt();
+        assertGt(activatedAt, 0);
+
+        vm.warp(treasuryWithRealEscrow.fundingDeadline());
+        _registerSuccessAssertion(treasuryWithRealEscrow);
+
+        vm.prank(owner);
+        treasuryWithRealEscrow.resolveSuccess();
+
+        assertEq(uint256(treasuryWithRealEscrow.state()), uint256(IBudgetTreasury.BudgetState.Succeeded));
+        assertTrue(realEscrow.closed());
+        assertEq(uint256(realEscrow.finalState()), uint256(IBudgetTreasury.BudgetState.Succeeded));
+        assertEq(realEscrow.activatedAt(), activatedAt);
+        assertEq(realEscrow.closedAt(), treasuryWithRealEscrow.resolvedAt());
+        assertEq(realEscrow.closedAt(), uint64(block.timestamp));
+        assertFalse(realEscrow.isSlashable());
+
+        vm.expectRevert(PremiumEscrow.NOT_SLASHABLE.selector);
+        realEscrow.slash(address(0xA11CE));
+    }
+
+    function test_finalize_withRealPremiumEscrow_expiredWithoutActivation_closesEscrowButRemainsNotSlashable() public {
+        (BudgetTreasury treasuryWithRealEscrow, PremiumEscrow realEscrow) = _deployTreasuryWithRealPremiumEscrow();
+
+        vm.warp(treasuryWithRealEscrow.fundingDeadline() + 1);
+        treasuryWithRealEscrow.sync();
+
+        assertEq(uint256(treasuryWithRealEscrow.state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertTrue(realEscrow.closed());
+        assertEq(uint256(realEscrow.finalState()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertEq(realEscrow.activatedAt(), 0);
+        assertEq(realEscrow.closedAt(), treasuryWithRealEscrow.resolvedAt());
+        assertEq(realEscrow.closedAt(), uint64(block.timestamp));
+        assertFalse(realEscrow.isSlashable());
+
+        vm.expectRevert(PremiumEscrow.NOT_SLASHABLE.selector);
+        realEscrow.slash(address(0xA11CE));
     }
 
     function test_canAcceptFunding_falseWhenActiveAndRunwayCapReached() public {
@@ -2112,4 +2193,24 @@ contract BudgetTreasuryPremiumEscrowStakeLedgerMock {
 
 contract BudgetTreasuryPremiumEscrowRouterMock {
     function slashUnderwriter(address, uint256) external pure { }
+}
+
+contract BudgetTreasuryMockController {
+    bool public shouldRevertPrune;
+    uint256 public pruneCallCount;
+    address public lastBudgetTreasury;
+
+    function setShouldRevertPrune(bool shouldRevertPrune_) external {
+        shouldRevertPrune = shouldRevertPrune_;
+    }
+
+    function pruneTerminalBudget(address budgetTreasury)
+        external
+        returns (bool removedFromParent, bool goalSynced)
+    {
+        pruneCallCount += 1;
+        lastBudgetTreasury = budgetTreasury;
+        if (shouldRevertPrune) revert("PRUNE_FAILED");
+        return (true, true);
+    }
 }
