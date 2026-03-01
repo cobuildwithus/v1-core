@@ -154,7 +154,24 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(cobuildToken.balanceOf(address(router)), 0);
     }
 
-    function test_slashUnderwriter_emitsConversionFailure_andRetainsCobuildForLaterAttempt() public {
+    function test_slashUnderwriter_queriesGoalTerminalWithCobuildTokenKey() public {
+        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        stakeVault.setNextSlash(0, 5e18);
+
+        vm.expectCall(
+            address(directory),
+            abi.encodeWithSelector(IJBDirectory.primaryTerminalOf.selector, GOAL_REVNET_ID, address(cobuildToken)),
+            uint64(1)
+        );
+
+        vm.prank(address(premiumEscrow));
+        router.slashUnderwriter(underwriter, 25e18);
+
+        assertEq(terminal.payCallCount(), 1);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 5e18);
+    }
+
+    function test_slashUnderwriter_emitsConversionFailure_routesGoalSlash_andRetainsCobuildForLaterAttempt() public {
         router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
         terminal.setShouldRevertPay(true);
         stakeVault.setNextSlash(7e18, 5e18);
@@ -168,7 +185,10 @@ contract UnderwriterSlasherRouterTest is Test {
         router.slashUnderwriter(underwriter, 25e18);
 
         assertEq(goalSuperToken.balanceOf(fundingTarget), 7e18);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalToken.balanceOf(address(router)), 0);
         assertEq(cobuildToken.balanceOf(address(router)), 5e18);
+        assertEq(terminal.payCallCount(), 0);
 
         terminal.setShouldRevertPay(false);
         stakeVault.setNextSlash(0, 0);
