@@ -61,31 +61,22 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_premiumAccrualCoverageIncreaseDecrease_splitsCorrectly() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        ledger.setCoverage(BOB, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(100, 100);
         assertEq(escrow.totalCoverage(), 200);
 
-        premiumToken.mint(address(escrow), 200e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _mintEscrowPremiumAndCheckpointBoth(200e18);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 150);
         escrow.checkpoint(ALICE);
         assertEq(escrow.totalCoverage(), 250);
 
-        premiumToken.mint(address(escrow), 250e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _mintEscrowPremiumAndCheckpointBoth(250e18);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 50);
         escrow.checkpoint(ALICE);
         assertEq(escrow.totalCoverage(), 150);
 
-        premiumToken.mint(address(escrow), 150e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _mintEscrowPremiumAndCheckpointBoth(150e18);
 
         vm.prank(ALICE);
         uint256 aliceClaim = escrow.claim(ALICE);
@@ -100,44 +91,20 @@ contract PremiumEscrowTest is Test {
 
     function test_premiumFairnessUnderChurn_alternatingCoverageMatchesArrivalPeriodShares() public {
         // Period 1: ALICE 100%, BOB 0%.
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        ledger.setCoverage(BOB, address(budgetTreasury), 0);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
-
-        premiumToken.mint(address(escrow), 100e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(100, 0);
+        _mintEscrowPremiumAndCheckpointBoth(100e18);
 
         // Period 2: ALICE 25%, BOB 75%.
-        ledger.setCoverage(ALICE, address(budgetTreasury), 25);
-        ledger.setCoverage(BOB, address(budgetTreasury), 75);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
-
-        premiumToken.mint(address(escrow), 200e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(25, 75);
+        _mintEscrowPremiumAndCheckpointBoth(200e18);
 
         // Period 3: ALICE 80%, BOB 20%.
-        ledger.setCoverage(ALICE, address(budgetTreasury), 80);
-        ledger.setCoverage(BOB, address(budgetTreasury), 20);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
-
-        premiumToken.mint(address(escrow), 300e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(80, 20);
+        _mintEscrowPremiumAndCheckpointBoth(300e18);
 
         // Period 4: ALICE 0%, BOB 100%.
-        ledger.setCoverage(ALICE, address(budgetTreasury), 0);
-        ledger.setCoverage(BOB, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
-
-        premiumToken.mint(address(escrow), 400e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(0, 100);
+        _mintEscrowPremiumAndCheckpointBoth(400e18);
 
         uint256 aliceExpected = 390e18; // 100 + 50 + 240 + 0
         uint256 bobExpected = 610e18; // 0 + 150 + 60 + 400
@@ -157,18 +124,14 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_premiumIndexUsesOldTotalCoverageOnCheckpoint() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        ledger.setCoverage(BOB, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(100, 100);
 
         premiumToken.mint(address(escrow), 200e18);
 
         // Coverage change is already written in ledger before checkpoint.
         ledger.setCoverage(ALICE, address(budgetTreasury), 0);
 
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _checkpointBoth();
 
         assertEq(escrow.claimable(ALICE), 100e18);
         assertEq(escrow.claimable(BOB), 100e18);
@@ -341,10 +304,7 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_closeCheckpointsPendingPremiumBeforeFreeze() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        ledger.setCoverage(BOB, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(100, 100);
 
         premiumToken.mint(address(escrow), 200e18);
 
@@ -363,14 +323,9 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_postClosePremium_characterization_recycledAndDoesNotIncreaseClaimable() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        ledger.setCoverage(BOB, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _setCoverageAndCheckpointBoth(100, 100);
 
-        premiumToken.mint(address(escrow), 200e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _mintEscrowPremiumAndCheckpointBoth(200e18);
         assertEq(escrow.claimable(ALICE), 100e18);
         assertEq(escrow.claimable(BOB), 100e18);
 
@@ -383,9 +338,7 @@ contract PremiumEscrowTest is Test {
         uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
 
         // Strict invariant: premium that arrives after close should not accrue to underwriters.
-        premiumToken.mint(address(escrow), 80e18);
-        escrow.checkpoint(ALICE);
-        escrow.checkpoint(BOB);
+        _mintEscrowPremiumAndCheckpointBoth(80e18);
 
         assertEq(escrow.claimable(ALICE), aliceBefore);
         assertEq(escrow.claimable(BOB), bobBefore);
@@ -455,6 +408,22 @@ contract PremiumEscrowTest is Test {
         assertEq(premiumToken.balanceOf(address(escrow)), 0);
         assertEq(premiumToken.balanceOf(address(goalFlow)), 77e18);
         assertEq(escrow.accountedBalance(), 0);
+    }
+
+    function _checkpointBoth() internal {
+        escrow.checkpoint(ALICE);
+        escrow.checkpoint(BOB);
+    }
+
+    function _setCoverageAndCheckpointBoth(uint256 aliceCoverage, uint256 bobCoverage) internal {
+        ledger.setCoverage(ALICE, address(budgetTreasury), aliceCoverage);
+        ledger.setCoverage(BOB, address(budgetTreasury), bobCoverage);
+        _checkpointBoth();
+    }
+
+    function _mintEscrowPremiumAndCheckpointBoth(uint256 amount) internal {
+        premiumToken.mint(address(escrow), amount);
+        _checkpointBoth();
     }
 }
 

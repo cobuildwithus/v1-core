@@ -97,7 +97,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_setAuthorizedPremiumEscrow_canRevokeAuthorization() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
         assertTrue(router.isAuthorizedPremiumEscrow(address(premiumEscrow)));
 
         vm.expectEmit(true, true, true, true, address(router));
@@ -115,7 +115,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_slashUnderwriter_revertsOnZeroUnderwriter() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
 
         vm.prank(address(premiumEscrow));
         vm.expectRevert(IUnderwriterSlasherRouter.ADDRESS_ZERO.selector);
@@ -123,7 +123,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_slashUnderwriter_routesGoalOnlySlash_withoutCobuildConversionCall() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
         stakeVault.setNextSlash(7e18, 0);
 
         vm.prank(address(premiumEscrow));
@@ -134,7 +134,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_slashUnderwriter_routesSlash_convertsCobuild_andForwardsAsSuperToken() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
         stakeVault.setNextSlash(7e18, 5e18);
 
         vm.expectEmit(true, true, true, true, address(router));
@@ -155,7 +155,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_slashUnderwriter_queriesGoalTerminalWithCobuildTokenKey() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
         stakeVault.setNextSlash(0, 5e18);
 
         vm.expectCall(
@@ -172,7 +172,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_slashUnderwriter_emitsConversionFailure_routesGoalSlash_andRetainsCobuildForLaterAttempt() public {
-        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+        _authorizePremiumEscrow();
         terminal.setShouldRevertPay(true);
         stakeVault.setNextSlash(7e18, 5e18);
 
@@ -297,6 +297,10 @@ contract UnderwriterSlasherRouterTest is Test {
 
         assertEq(goalSuperToken.balanceOf(fundingTarget), 7e18);
         assertEq(cobuildToken.balanceOf(address(routerWithMissingTerminal)), 5e18);
+    }
+
+    function _authorizePremiumEscrow() internal {
+        router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
     }
 }
 
