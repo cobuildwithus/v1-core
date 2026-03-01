@@ -304,7 +304,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         uint256 internal constant PRIVATE_KEY = 0xB0B;
         uint64 internal constant SUCCESS_LIVENESS = 7200;
         uint256 internal constant SUCCESS_BOND = 123e6;
-        uint32 internal constant MANAGER_REWARD_POOL_FLOW_RATE_PPM = 0;
+        uint256 internal constant DEPRECATED_FLOW_MANAGER_REWARD_PPM = 1_000_001;
 
         string internal constant SUCCESS_SPEC = "ipfs://success-spec";
         string internal constant SUCCESS_POLICY = "ipfs://success-policy";
@@ -338,7 +338,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(mockFactory.lastPolicyHash(), keccak256(bytes(SUCCESS_POLICY)));
             assertEq(mockFactory.lastFlowTagline(), FLOW_TAGLINE);
             assertEq(mockFactory.lastFlowUrl(), FLOW_URL);
-            assertEq(mockFactory.lastManagerRewardPoolFlowRatePpm(), MANAGER_REWARD_POOL_FLOW_RATE_PPM);
 
             string memory artifactPath =
                 string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
@@ -367,6 +366,18 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("arbitrator: ", vm.toString(address(0x10)))));
         }
 
+        function test_run_ignoresDeprecatedFlowManagerRewardEnv() public {
+            _setDeployEnv();
+            vm.setEnv(
+                "FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(DEPRECATED_FLOW_MANAGER_REWARD_PPM)
+            );
+
+            deployScript.run();
+
+            assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
+        }
+
         function _setDeployEnv() internal {
             vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
             vm.setEnv("GOAL_FACTORY", vm.toString(address(mockFactory)));
@@ -378,7 +389,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
             vm.setEnv("FLOW_TAGLINE", FLOW_TAGLINE);
             vm.setEnv("FLOW_URL", FLOW_URL);
-            vm.setEnv("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(uint256(MANAGER_REWARD_POOL_FLOW_RATE_PPM)));
         }
     }
 
@@ -389,7 +399,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         address public lastBudgetSuccessResolver;
         uint64 public lastSuccessLiveness;
         uint256 public lastSuccessBond;
-        uint32 public lastManagerRewardPoolFlowRatePpm;
         bytes32 public lastSpecHash;
         bytes32 public lastPolicyHash;
         string public lastFlowTagline;
@@ -403,7 +412,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             lastBudgetSuccessResolver = p.budgetTCR.budgetSuccessResolver;
             lastSuccessLiveness = p.success.successAssertionLiveness;
             lastSuccessBond = p.success.successAssertionBond;
-            lastManagerRewardPoolFlowRatePpm = p.flowConfig.managerRewardPoolFlowRatePpm;
             lastSpecHash = p.success.successOracleSpecHash;
             lastPolicyHash = p.success.successAssertionPolicyHash;
             lastFlowTagline = p.flowMetadata.tagline;
