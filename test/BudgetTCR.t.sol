@@ -16,6 +16,7 @@ import {
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -37,6 +38,7 @@ import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { Vm } from "forge-std/Vm.sol";
+import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 contract BudgetTCRTest is TestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
@@ -74,6 +76,8 @@ contract BudgetTCRTest is TestUtils {
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
     address internal stackDeployer;
+    address internal premiumEscrowImplementation;
+    address internal underwriterSlasherRouter;
 
     address internal owner = makeAddr("owner");
     address internal governor = makeAddr("governor");
@@ -111,13 +115,15 @@ contract BudgetTCRTest is TestUtils {
         goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
         goalTreasury.setFlow(address(goalFlow));
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
+        premiumEscrowImplementation = address(new PremiumEscrow());
+        underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(new BudgetTCRDeployer());
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance);
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = abi.encodeCall(
             ERC20VotesArbitrator.initialize,
@@ -222,6 +228,75 @@ contract BudgetTCRTest is TestUtils {
         deploymentConfig.goalRulesets = IJBRulesets(address(0));
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_premium_escrow_implementation_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.premiumEscrowImplementation = address(0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector, address(0))
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_premium_escrow_implementation_has_no_code() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        address noCodePremiumEscrowImplementation = makeAddr("no-code-premium-escrow-implementation");
+        deploymentConfig.premiumEscrowImplementation = noCodePremiumEscrowImplementation;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector,
+                noCodePremiumEscrowImplementation
+            )
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.underwriterSlasherRouter = address(0);
+
+        vm.expectRevert(IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_underwriter_slasher_router_has_no_code() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.underwriterSlasherRouter = makeAddr("no-code-underwriter-slasher-router");
+
+        vm.expectRevert(IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_premium_ppm_exceeds_scale() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        uint32 invalidBudgetPremiumPpm = 1_000_001;
+        deploymentConfig.budgetPremiumPpm = invalidBudgetPremiumPpm;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_PPM.selector, invalidBudgetPremiumPpm));
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -387,10 +462,15 @@ contract BudgetTCRTest is TestUtils {
 
         address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
         assertTrue(allocationMechanism != address(0));
         assertTrue(budgetTreasury != address(0));
+        assertTrue(premiumEscrow != address(0));
         assertEq(MockBudgetChildFlow(childFlow).flowOperator(), budgetTreasury);
         assertEq(MockBudgetChildFlow(childFlow).sweeper(), budgetTreasury);
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPool(), premiumEscrow);
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 100_000);
+        assertTrue(MockUnderwriterSlasherRouter(underwriterSlasherRouter).isAuthorizedPremiumEscrow(premiumEscrow));
         assertEq(budgetStakeLedger.budgetForRecipient(itemID), budgetTreasury);
         assertEq(budgetStakeLedger.registerCallCount(), 1);
         assertEq(budgetStakeLedger.removeCallCount(), 0);
@@ -408,7 +488,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(depositToken.balanceOf(requester) - requesterBefore, arbitrationCost);
     }
 
-    function test_activateRegisteredBudget_forcesChildManagerRewardRateToZero() public {
+    function test_activateRegisteredBudget_routesChildManagerRewardToPremiumEscrow() public {
         goalFlow.setManagerRewardPoolFlowRatePpm(250_000);
 
         _approveAddCost(requester);
@@ -419,7 +499,37 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.activateRegisteredBudget(itemID);
 
         (address childFlow,) = goalFlow.recipients(itemID);
-        assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 0);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPool(), premiumEscrow);
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 100_000);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_underwriter_router_authorization_fails() public {
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        assertTrue(budgetTcr.isRegistrationPending(itemID));
+
+        bytes memory authorizeReason = abi.encodeWithSignature("Error(string)", "AUTHORIZE_PREMIUM_ESCROW_FAILED");
+        vm.mockCallRevert(
+            underwriterSlasherRouter,
+            abi.encodeWithSelector(MockUnderwriterSlasherRouter.setAuthorizedPremiumEscrow.selector),
+            authorizeReason
+        );
+
+        vm.expectRevert(authorizeReason);
+        budgetTcr.activateRegisteredBudget(itemID);
+
+        assertTrue(budgetTcr.isRegistrationPending(itemID));
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
+        assertEq(budgetStakeLedger.registerCallCount(), 0);
+        (address childFlow, bool removed) = goalFlow.recipients(itemID);
+        assertEq(childFlow, address(0));
+        assertFalse(removed);
     }
 
     function test_activateRegisteredBudget_usesGlobalOracleBoundsForSuccessAssertionConfig() public {
@@ -433,7 +543,7 @@ contract BudgetTCRTest is TestUtils {
         uint256 expectedBond = 77e18;
 
         address freshStackDeployer = address(new BudgetTCRDeployer());
-        BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr));
+        BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation);
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = abi.encodeCall(
             ERC20VotesArbitrator.initialize,
@@ -1177,6 +1287,49 @@ contract BudgetTCRTest is TestUtils {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
     }
 
+    function test_finalizeRemovedBudget_closesPremiumEscrow_onTerminalFailure() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+        address premiumEscrow = treasury.premiumEscrow();
+
+        assertFalse(PremiumEscrow(premiumEscrow).closed());
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertTrue(terminallyResolved);
+        assertTrue(PremiumEscrow(premiumEscrow).closed());
+        assertEq(uint8(PremiumEscrow(premiumEscrow).finalState()), uint8(IBudgetTreasury.BudgetState.Failed));
+        assertEq(PremiumEscrow(premiumEscrow).activatedAt(), treasury.activatedAt());
+        assertEq(PremiumEscrow(premiumEscrow).closedAt(), treasury.resolvedAt());
+    }
+
+    function test_finalizeRemovedBudget_terminalizes_when_premium_escrow_close_reverts() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+        address premiumEscrow = treasury.premiumEscrow();
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        vm.mockCallRevert(
+            premiumEscrow,
+            abi.encodeWithSelector(PremiumEscrow.close.selector),
+            abi.encodeWithSignature("Error(string)", "PREMIUM_ESCROW_CLOSE_FAILED")
+        );
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertTrue(terminallyResolved);
+        assertFalse(budgetTcr.isRemovalPending(itemID));
+        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertFalse(PremiumEscrow(premiumEscrow).closed());
+    }
+
     function test_finalizeRemovedBudget_preservesPendingSuccessAssertion_whenRewardHistoryIsLocked() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
@@ -1597,6 +1750,10 @@ contract BudgetTCRTest is TestUtils {
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: 100_000,
+            budgetSlashPpm: 50_000,
             managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,
