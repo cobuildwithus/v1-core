@@ -43,7 +43,6 @@ library GoalFactoryCoreStackDeploy {
         string flowImage;
         string flowTagline;
         string flowUrl;
-        uint32 managerRewardPoolFlowRatePpm;
         uint64 minRaiseDeadline;
         uint256 minRaise;
         uint256 coverageLambda;
@@ -96,9 +95,6 @@ library GoalFactoryCoreStackDeploy {
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
 
-        IFlow.FlowParams memory flowParams = IFlow.FlowParams({
-            managerRewardPoolFlowRatePpm: request.managerRewardPoolFlowRatePpm
-        });
         FlowTypes.RecipientMetadata memory metadata = FlowTypes.RecipientMetadata({
             title: request.flowTitle,
             description: request.flowDescription,
@@ -116,7 +112,7 @@ library GoalFactoryCoreStackDeploy {
             address(0),
             address(allocationPipeline),
             address(0),
-            flowParams,
+            IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
             metadata,
             allocationStrategies
         );
