@@ -1850,6 +1850,8 @@ contract BudgetTreasuryTest is Test {
 
         assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
     }
 
     function test_finalize_terminalSideEffects_pruneHookFailure_isBestEffort() public {
@@ -1870,6 +1872,26 @@ contract BudgetTreasuryTest is Test {
 
         assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(target.resolved());
+    }
+
+    function test_finalize_terminalSideEffects_pruneHookGoalSyncFalse_emitsFailure() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+        controllerMock.setReturnGoalSynced(false);
+
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        target.initialize(address(controllerMock), config);
+
+        vm.warp(target.fundingDeadline() + 1);
+        vm.expectEmit(true, false, false, true, address(target));
+        emit IBudgetTreasury.TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, abi.encodePacked("GOAL_SYNC_NOT_APPLIED"));
+        vm.prank(address(controllerMock));
+        target.resolveFailure();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
     }
 
     function test_finalize_withRealPremiumEscrow_closesEscrowWithTreasuryTerminalState() public {
@@ -2196,11 +2218,16 @@ contract BudgetTreasuryPremiumEscrowRouterMock {
 
 contract BudgetTreasuryMockController {
     bool public shouldRevertPrune;
+    bool public returnGoalSynced = true;
     uint256 public pruneCallCount;
     address public lastBudgetTreasury;
 
     function setShouldRevertPrune(bool shouldRevertPrune_) external {
         shouldRevertPrune = shouldRevertPrune_;
+    }
+
+    function setReturnGoalSynced(bool returnGoalSynced_) external {
+        returnGoalSynced = returnGoalSynced_;
     }
 
     function pruneTerminalBudget(address budgetTreasury)
@@ -2210,6 +2237,6 @@ contract BudgetTreasuryMockController {
         pruneCallCount += 1;
         lastBudgetTreasury = budgetTreasury;
         if (shouldRevertPrune) revert("PRUNE_FAILED");
-        return (true, true);
+        return (true, returnGoalSynced);
     }
 }

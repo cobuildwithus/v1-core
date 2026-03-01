@@ -878,6 +878,14 @@ contract BudgetTCRTest is TestUtils {
         assertFalse(removed);
     }
 
+    function test_pruneTerminalBudget_revertsWhenBudgetTreasuryUnknown() public {
+        _registerDefaultListing();
+        address unknownBudgetTreasury = makeAddr("unknown-budget-treasury");
+
+        vm.expectRevert(IBudgetTCR.ITEM_NOT_DEPLOYED.selector);
+        budgetTcr.pruneTerminalBudget(unknownBudgetTreasury);
+    }
+
     function test_pruneTerminalBudget_permissionless_removesRecipient_andSyncsGoal() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
@@ -921,6 +929,36 @@ contract BudgetTCRTest is TestUtils {
         assertTrue(removedFromParent);
         assertFalse(goalSynced);
         assertTrue(_hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IGoalTreasury.sync.selector, expectedReason));
+    }
+
+    function test_pruneTerminalBudget_whenRecipientAlreadyPruned_returnsFalseAndStillSyncsGoal() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        _mockBudgetTreasuryResolved(budgetTreasury, true);
+
+        vm.prank(address(budgetTcr));
+        goalFlow.removeRecipient(itemID);
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (bool removedFromParent, bool goalSynced) = budgetTcr.pruneTerminalBudget(budgetTreasury);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertFalse(removedFromParent);
+        assertTrue(goalSynced);
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertTrue(removed);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+
+        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) = _getBudgetTerminalRecipientPruned(
+            logs, itemID, childFlow, budgetTreasury
+        );
+        assertTrue(found);
+        assertEq(emittedRemovedFromParent, removedFromParent);
+        assertEq(emittedGoalSynced, goalSynced);
     }
 
     function test_finalizeRemovedBudget_handlesAlreadyPrunedRecipient() public {

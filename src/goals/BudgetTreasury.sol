@@ -385,7 +385,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         address controller_ = controller;
         if (controller_.code.length == 0) return;
 
-        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) {} catch (bytes memory reason) {
+        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) returns (bool, bool goalSynced) {
+            if (!goalSynced) {
+                emit TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, abi.encodePacked("GOAL_SYNC_NOT_APPLIED"));
+            }
+        } catch (bytes memory reason) {
             emit TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, reason);
         }
     }

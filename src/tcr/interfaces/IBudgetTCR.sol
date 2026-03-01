@@ -102,6 +102,13 @@ interface IBudgetTCR is IGeneralizedTCR {
         address indexed budgetTreasury,
         bool terminallyResolved
     );
+    event BudgetTerminalRecipientPruned(
+        bytes32 indexed itemID,
+        address indexed childFlow,
+        address indexed budgetTreasury,
+        bool removedFromParent,
+        bool goalSynced
+    );
     event BudgetTerminalizationStepFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
@@ -126,6 +133,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     error REMOVAL_NOT_PENDING();
     error STACK_ALREADY_ACTIVE();
     error STACK_STILL_ACTIVE();
+    error ITEM_NOT_TERMINAL();
     error TERMINAL_RESOLUTION_FAILED();
     error BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     error INVALID_PPM(uint32 ppmValue);
@@ -138,5 +146,8 @@ interface IBudgetTCR is IGeneralizedTCR {
     function isRegistrationPending(bytes32 itemId) external view returns (bool pending);
     function isRemovalPending(bytes32 itemId) external view returns (bool pending);
     function retryRemovedBudgetResolution(bytes32 itemID) external returns (bool terminallyResolved);
+    function pruneTerminalBudget(address budgetTreasury)
+        external
+        returns (bool removedFromParent, bool goalSynced);
     function syncBudgetTreasuries(bytes32[] calldata itemIDs) external returns (uint256 attempted, uint256 succeeded);
 }

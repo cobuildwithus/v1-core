@@ -37,6 +37,7 @@ contract BudgetTCRStorageV1 {
     IBudgetTCR.OracleValidationBounds public oracleValidationBounds;
 
     mapping(bytes32 => BudgetDeployment) internal _budgetDeployments;
+    mapping(address => bytes32) internal _itemIdByBudgetTreasury;
     mapping(bytes32 => bool) internal _pendingRegistrationActivations;
     mapping(bytes32 => bool) internal _pendingRemovalFinalizations;
 }
