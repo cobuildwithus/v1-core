@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {IBudgetTreasury} from "./IBudgetTreasury.sol";
-import {IUnderwriterSlasherRouter} from "./IUnderwriterSlasherRouter.sol";
 
 interface IPremiumEscrow {
     function initialize(
