@@ -19,7 +19,6 @@ import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { StakeVault } from "src/goals/StakeVault.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { RewardEscrow } from "src/goals/RewardEscrow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 library GoalFactoryCoreStackDeploy {
@@ -50,7 +49,6 @@ library GoalFactoryCoreStackDeploy {
         uint256 coverageLambda;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
-        uint32 successSettlementRewardEscrowPpm;
         address successResolver;
         uint64 successAssertionLiveness;
         uint256 successAssertionBond;
@@ -65,7 +63,6 @@ library GoalFactoryCoreStackDeploy {
         ISuperToken goalSuperToken;
         StakeVault stakeVault;
         BudgetStakeLedger budgetStakeLedger;
-        RewardEscrow rewardEscrow;
     }
 
     function initializeCoreStack(CoreStackRequest memory request) external returns (CoreStackResult memory out) {
@@ -99,14 +96,6 @@ library GoalFactoryCoreStackDeploy {
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
 
-        out.rewardEscrow = new RewardEscrow(
-            address(out.goalTreasury),
-            goalToken,
-            out.stakeVault,
-            out.goalSuperToken,
-            out.budgetStakeLedger
-        );
-
         IFlow.FlowParams memory flowParams = IFlow.FlowParams({
             managerRewardPoolFlowRatePpm: request.managerRewardPoolFlowRatePpm
         });
@@ -124,7 +113,7 @@ library GoalFactoryCoreStackDeploy {
             request.predictedBudgetTcr,
             address(out.goalTreasury),
             address(out.goalTreasury),
-            address(out.rewardEscrow),
+            address(0),
             address(allocationPipeline),
             address(0),
             flowParams,
@@ -135,7 +124,7 @@ library GoalFactoryCoreStackDeploy {
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({
             flow: address(out.goalFlow),
             stakeVault: address(out.stakeVault),
-            rewardEscrow: address(out.rewardEscrow),
+            budgetStakeLedger: address(out.budgetStakeLedger),
             hook: address(out.splitHook),
             goalRulesets: address(request.rulesets),
             goalRevnetId: request.goalRevnetId,
@@ -144,7 +133,6 @@ library GoalFactoryCoreStackDeploy {
             coverageLambda: request.coverageLambda,
             budgetPremiumPpm: request.budgetPremiumPpm,
             budgetSlashPpm: request.budgetSlashPpm,
-            successSettlementRewardEscrowPpm: request.successSettlementRewardEscrowPpm,
             successResolver: request.successResolver,
             successAssertionLiveness: request.successAssertionLiveness,
             successAssertionBond: request.successAssertionBond,

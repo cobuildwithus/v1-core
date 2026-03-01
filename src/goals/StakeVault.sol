@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
 import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
@@ -145,6 +146,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function withdrawGoal(uint256 amount, address to) external override nonReentrant {
         if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        _requireUnderwriterWithdrawalsUnlocked();
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
@@ -168,6 +170,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function withdrawCobuild(uint256 amount, address to) external override nonReentrant {
         if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        _requireUnderwriterWithdrawalsUnlocked();
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
@@ -650,6 +653,28 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (goalTreasury.code.length == 0) return false;
 
         try IGoalTreasury(goalTreasury).resolved() returns (bool resolved_) {
+            return resolved_;
+        } catch {
+            return false;
+        }
+    }
+
+    function _requireUnderwriterWithdrawalsUnlocked() private view {
+        if (!_underwriterWithdrawalsUnlocked()) revert UNDERWRITER_WITHDRAWAL_LOCKED();
+    }
+
+    function _underwriterWithdrawalsUnlocked() private view returns (bool) {
+        if (goalTreasury.code.length == 0) return false;
+
+        address budgetStakeLedger;
+        try IGoalTreasury(goalTreasury).budgetStakeLedger() returns (address ledger) {
+            budgetStakeLedger = ledger;
+        } catch {
+            return false;
+        }
+        if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) return false;
+
+        try IBudgetStakeLedger(budgetStakeLedger).allTrackedBudgetsResolved() returns (bool resolved_) {
             return resolved_;
         } catch {
             return false;

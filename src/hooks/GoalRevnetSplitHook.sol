@@ -10,12 +10,11 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 // slither-disable-next-line locked-ether
-contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuard, Initializable {
+contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     error ADDRESS_ZERO();
@@ -41,7 +40,6 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuard, Initializable {
         uint256 indexed projectId,
         address indexed sourceToken,
         uint256 sourceAmount,
-        uint256 rewardEscrowAmount,
         uint256 burnAmount
     );
 
@@ -75,6 +73,7 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuard, Initializable {
         IFlow flow_,
         uint256 goalRevnetId_
     ) external initializer {
+        __ReentrancyGuard_init();
         _initialize(directory_, goalTreasury_, flow_, goalRevnetId_);
     }
 
@@ -140,7 +139,6 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuard, Initializable {
         (
             IGoalTreasury.HookSplitAction action,
             uint256 superTokenAmount,
-            uint256 rewardAmount,
             uint256 burnAmount
         ) = goalTreasury.processHookSplit(context.token, receivedAmount);
 
@@ -151,7 +149,6 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuard, Initializable {
                 context.projectId,
                 context.token,
                 context.amount,
-                rewardAmount,
                 burnAmount
             );
         }

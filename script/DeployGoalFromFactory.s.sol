@@ -21,7 +21,6 @@ contract DeployGoalFromFactory is DeployScript {
     address internal goalFlowOut;
     address internal goalStakeVaultOut;
     address internal budgetStakeLedgerOut;
-    address internal rewardEscrowOut;
     address internal splitHookOut;
     address internal budgetTcrOut;
     address internal arbitratorOut;
@@ -50,17 +49,17 @@ contract DeployGoalFromFactory is DeployScript {
         bytes32 specHash = keccak256(bytes(vm.envOr("SUCCESS_SPEC", string("FAKE_SPEC"))));
         bytes32 policyHash = keccak256(bytes(vm.envOr("SUCCESS_POLICY", string("FAKE_POLICY"))));
 
-        uint32 successSettlementRewardEscrowPpm =
-            uint32(vm.envOr("SUCCESS_SETTLEMENT_REWARD_ESCROW_PPM", uint256(1_000_000)));
-
         string memory flowTitle = vm.envOr("FLOW_TITLE", string("Goal"));
         string memory flowDesc = vm.envOr("FLOW_DESC", string("Goal flow"));
         string memory flowImage = vm.envOr("FLOW_IMAGE", string("ipfs://IMAGE"));
         string memory flowTagline = vm.envOr("FLOW_TAGLINE", string(""));
         string memory flowUrl = vm.envOr("FLOW_URL", string(""));
-        uint256 managerRewardPoolFlowRatePpmRaw = vm.envOr("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", uint256(100_000));
+        uint256 managerRewardPoolFlowRatePpmRaw = vm.envOr("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", uint256(0));
         if (managerRewardPoolFlowRatePpmRaw > 1_000_000) {
             revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(managerRewardPoolFlowRatePpmRaw);
+        }
+        if (managerRewardPoolFlowRatePpmRaw != 0) {
+            revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_MUST_BE_ZERO(managerRewardPoolFlowRatePpmRaw);
         }
         uint32 managerRewardPoolFlowRatePpm = uint32(managerRewardPoolFlowRatePpmRaw);
         uint256 coverageLambda = vm.envOr("UNDERWRITING_COVERAGE_LAMBDA", uint256(0));
@@ -134,9 +133,6 @@ contract DeployGoalFromFactory is DeployScript {
                 successOracleSpecHash: specHash,
                 successAssertionPolicyHash: policyHash
             }),
-            settlement: GoalFactory.SettlementParams({
-                successSettlementRewardEscrowPpm: successSettlementRewardEscrowPpm
-            }),
             flowMetadata: GoalFactory.FlowMetadataParams({
                 title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
@@ -178,7 +174,6 @@ contract DeployGoalFromFactory is DeployScript {
         goalFlowOut = out.goalFlow;
         goalStakeVaultOut = out.goalStakeVault;
         budgetStakeLedgerOut = out.budgetStakeLedger;
-        rewardEscrowOut = out.rewardEscrow;
         splitHookOut = out.splitHook;
         budgetTcrOut = out.budgetTCR;
         arbitratorOut = out.arbitrator;
@@ -193,7 +188,6 @@ contract DeployGoalFromFactory is DeployScript {
         console2.log("goalFlow:", goalFlowOut);
         console2.log("goalStakeVault:", goalStakeVaultOut);
         console2.log("budgetStakeLedger:", budgetStakeLedgerOut);
-        console2.log("rewardEscrow:", rewardEscrowOut);
         console2.log("splitHook:", splitHookOut);
         console2.log("budgetTCR:", budgetTcrOut);
         console2.log("arbitrator:", arbitratorOut);
@@ -216,7 +210,6 @@ contract DeployGoalFromFactory is DeployScript {
         _writeAddressLine(filePath, "goalFlow", goalFlowOut);
         _writeAddressLine(filePath, "goalStakeVault", goalStakeVaultOut);
         _writeAddressLine(filePath, "budgetStakeLedger", budgetStakeLedgerOut);
-        _writeAddressLine(filePath, "rewardEscrow", rewardEscrowOut);
         _writeAddressLine(filePath, "splitHook", splitHookOut);
         _writeAddressLine(filePath, "budgetTCR", budgetTcrOut);
         _writeAddressLine(filePath, "arbitrator", arbitratorOut);
@@ -227,6 +220,7 @@ contract DeployGoalFromFactory is DeployScript {
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();
     error BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(uint256 value);
+    error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_MUST_BE_ZERO(uint256 value);
     error BUDGET_PREMIUM_PPM_INVALID(uint256 value);
     error BUDGET_SLASH_PPM_INVALID(uint256 value);
 }

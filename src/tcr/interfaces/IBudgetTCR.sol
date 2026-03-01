@@ -128,7 +128,6 @@ interface IBudgetTCR is IGeneralizedTCR {
     error STACK_ALREADY_ACTIVE();
     error STACK_STILL_ACTIVE();
     error TERMINAL_RESOLUTION_FAILED();
-    error REWARD_ESCROW_NOT_CONFIGURED();
     error BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     error INVALID_PPM(uint32 ppmValue);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);

@@ -14,8 +14,14 @@ import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
-import { _MockImplementation, _MockGoalTreasuryForFactory, _MockStakeVaultForFactory } from "test/BudgetTCRFactory.t.sol";
+import {
+    _MockImplementation,
+    _MockGoalTreasuryForFactory,
+    _MockStakeVaultForFactory,
+    _MockUnderwriterSlasherRouterForFactory
+} from "test/BudgetTCRFactory.t.sol";
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -72,7 +78,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
         IArbitrator.ArbitratorParams memory arbitratorParams = _defaultArbitratorParams();
 
@@ -109,7 +120,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
         );
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
 
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
@@ -127,7 +143,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
         );
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
         deploymentConfig.oracleValidationBounds.liveness = 0;
 
@@ -146,7 +167,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
         );
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
         deploymentConfig.oracleValidationBounds.bondAmount = 0;
 
@@ -167,7 +193,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig =
             _defaultRegistryConfig(IVotes(address(votingToken)), ISubmissionDepositStrategy(address(strategy)));
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
 
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
@@ -196,7 +227,12 @@ contract BudgetTCRFactoryCoverageTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig =
             _defaultRegistryConfig(IVotes(address(votingToken)), ISubmissionDepositStrategy(address(strategy)));
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
-            IGoalTreasury(address(goalTreasury)), IERC20(address(votingToken)), IERC20(address(votingToken))
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
         );
 
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
@@ -264,6 +300,9 @@ contract BudgetTCRFactoryCoverageTest is Test {
     }
 
     function _defaultDeploymentConfig(
+        BudgetTCRFactory factory,
+        address sender,
+        IVotes votingToken,
         IGoalTreasury goalTreasury,
         IERC20 goalToken,
         IERC20 cobuildToken
@@ -271,6 +310,8 @@ contract BudgetTCRFactoryCoverageTest is Test {
         internal
         returns (IBudgetTCR.DeploymentConfig memory deploymentConfig)
     {
+        IStakeVault stakeVault = IStakeVault(goalTreasury.stakeVault());
+
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
@@ -282,7 +323,7 @@ contract BudgetTCRFactoryCoverageTest is Test {
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
             premiumEscrowImplementation: address(new _MockImplementation()),
-            underwriterSlasherRouter: address(new _MockImplementation()),
+            underwriterSlasherRouter: address(0),
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             managerRewardPool: address(0),
@@ -300,6 +341,17 @@ contract BudgetTCRFactoryCoverageTest is Test {
                 bondAmount: 10e18
             })
         });
+
+        address expectedBudgetTCR = factory.predictBudgetTCRAddress(
+            sender,
+            address(deploymentConfig.goalFlow),
+            address(deploymentConfig.goalTreasury),
+            deploymentConfig.goalRevnetId,
+            address(votingToken)
+        );
+        deploymentConfig.underwriterSlasherRouter = address(
+            new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR)
+        );
     }
 }
 

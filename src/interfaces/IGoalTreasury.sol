@@ -31,7 +31,7 @@ interface IGoalTreasury is
     struct GoalConfig {
         address flow;
         address stakeVault;
-        address rewardEscrow;
+        address budgetStakeLedger;
         address hook;
         address goalRulesets;
         uint256 goalRevnetId;
@@ -40,7 +40,6 @@ interface IGoalTreasury is
         uint256 coverageLambda;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
-        uint32 successSettlementRewardEscrowPpm;
         address successResolver;
         uint64 successAssertionLiveness;
         uint256 successAssertionBond;
@@ -75,10 +74,8 @@ interface IGoalTreasury is
     error INVALID_BUDGET_PREMIUM_PPM(uint256 ppm);
     error INVALID_BUDGET_SLASH_PPM(uint256 ppm);
     error STAKE_VAULT_GOAL_MISMATCH(address expected, address actual);
+    error BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address expected, address actual);
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
-    error INVALID_SETTLEMENT_SCALED(uint256 scaled);
-    error REWARD_ESCROW_NOT_CONFIGURED();
-    error REWARD_ESCROW_SUPER_TOKEN_MISMATCH(address expected, address actual);
     error GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address expected, address actual);
     error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address goalToken);
     error GOAL_TOKEN_REVNET_MISMATCH(address goalToken, uint256 expectedRevnetId, uint256 actualRevnetId);
@@ -100,7 +97,7 @@ interface IGoalTreasury is
         address indexed owner,
         address flow,
         address stakeVault,
-        address rewardEscrow,
+        address budgetStakeLedger,
         address hook,
         address goalRulesets,
         uint256 goalRevnetId,
@@ -120,13 +117,11 @@ interface IGoalTreasury is
     event ResidualSettled(
         GoalState indexed finalState,
         uint256 totalSettled,
-        uint256 rewardEscrowAmount,
         uint256 controllerBurnAmount
     );
     event GoalFinalized(GoalState finalState);
     event TerminalSideEffectFailed(uint8 indexed operation, bytes reason);
     event StateTransition(GoalState previousState, GoalState newState);
-    event SuccessRewardsFinalized(uint64 successAt, uint64 finalizedAt);
     event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
     event SuccessAssertionCleared(bytes32 indexed assertionId);
     event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
@@ -139,7 +134,6 @@ interface IGoalTreasury is
     event HookDeferredFundingSettled(
         GoalState indexed finalState,
         uint256 superTokenAmount,
-        uint256 rewardEscrowAmount,
         uint256 controllerBurnAmount
     );
     event JurorSlasherConfigured(address indexed authority, address indexed slasher);
@@ -157,7 +151,7 @@ interface IGoalTreasury is
     function goalRulesets() external view returns (IJBRulesets);
     function goalRevnetId() external view returns (uint256);
     function cobuildRevnetId() external view returns (uint256);
-    function successSettlementRewardEscrowPpm() external view returns (uint32);
+    function budgetStakeLedger() external view returns (address);
 
     function recordHookFunding(uint256 amount) external returns (bool accepted);
     function canAcceptHookFunding() external view returns (bool);
@@ -168,12 +162,11 @@ interface IGoalTreasury is
         uint256 sourceAmount
     )
         external
-        returns (HookSplitAction action, uint256 superTokenAmount, uint256 rewardEscrowAmount, uint256 burnAmount);
+        returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount);
     function sync() external;
     function retryTerminalSideEffects() external;
 
     function settleLateResidual() external;
-    function sweepFailedAndBurn() external returns (uint256 amount);
     function configureJurorSlasher(address slasher) external;
     function configureUnderwriterSlasher(address slasher) external;
 
@@ -181,7 +174,6 @@ interface IGoalTreasury is
     function state() external view returns (GoalState);
     function flow() external view returns (address);
     function stakeVault() external view returns (address);
-    function rewardEscrow() external view returns (address);
     function hook() external view returns (address);
     function superToken() external view returns (ISuperToken);
 

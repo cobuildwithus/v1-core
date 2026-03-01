@@ -67,10 +67,6 @@ contract GoalFactory {
         bytes32 successAssertionPolicyHash;
     }
 
-    struct SettlementParams {
-        uint32 successSettlementRewardEscrowPpm;
-    }
-
     struct FlowMetadataParams {
         string title;
         string description;
@@ -111,7 +107,6 @@ contract GoalFactory {
         RevnetParams revnet;
         GoalTimingParams timing;
         SuccessParams success;
-        SettlementParams settlement;
         FlowMetadataParams flowMetadata;
         FlowConfigParams flowConfig;
         UnderwritingParams underwriting;
@@ -126,7 +121,6 @@ contract GoalFactory {
         address goalFlow;
         address goalStakeVault;
         address budgetStakeLedger;
-        address rewardEscrow;
         address splitHook;
         address budgetTCR;
         address arbitrator;
@@ -141,6 +135,7 @@ contract GoalFactory {
     error INVALID_TAX_RATE();
     error INVALID_ASSERTION_CONFIG();
     error INVALID_SCALE();
+    error MANAGER_REWARD_POOL_FLOW_RATE_MUST_BE_ZERO(uint32 ppm);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
     error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
 
@@ -206,12 +201,11 @@ contract GoalFactory {
             revert INVALID_ASSERTION_CONFIG();
         }
 
-        if (
-            p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6 ||
-            p.flowConfig.managerRewardPoolFlowRatePpm > SCALE_1E6 ||
-            p.underwriting.budgetPremiumPpm > SCALE_1E6 ||
-            p.underwriting.budgetSlashPpm > SCALE_1E6
-        ) {
+        if (p.flowConfig.managerRewardPoolFlowRatePpm != 0) {
+            revert MANAGER_REWARD_POOL_FLOW_RATE_MUST_BE_ZERO(p.flowConfig.managerRewardPoolFlowRatePpm);
+        }
+
+        if (p.underwriting.budgetPremiumPpm > SCALE_1E6 || p.underwriting.budgetSlashPpm > SCALE_1E6) {
             revert INVALID_SCALE();
         }
 
@@ -255,7 +249,6 @@ contract GoalFactory {
             goalFlow: address(core.goalFlow),
             goalStakeVault: address(core.stakeVault),
             budgetStakeLedger: address(core.budgetStakeLedger),
-            rewardEscrow: address(core.rewardEscrow),
             splitHook: address(core.splitHook),
             budgetTCR: tcrStack.budgetTCR,
             arbitrator: tcrStack.arbitrator
@@ -327,7 +320,6 @@ contract GoalFactory {
                     coverageLambda: p.underwriting.coverageLambda,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm,
-                    successSettlementRewardEscrowPpm: p.settlement.successSettlementRewardEscrowPpm,
                     successResolver: p.success.successResolver,
                     successAssertionLiveness: p.success.successAssertionLiveness,
                     successAssertionBond: p.success.successAssertionBond,

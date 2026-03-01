@@ -9,10 +9,9 @@ import { IFlow } from "../interfaces/IFlow.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract PremiumEscrow is IPremiumEscrow, Initializable, ReentrancyGuard {
+contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     uint256 private constant _PPM_SCALE = 1_000_000;
@@ -96,6 +95,8 @@ contract PremiumEscrow is IPremiumEscrow, Initializable, ReentrancyGuard {
         address underwriterSlasherRouter_,
         uint32 budgetSlashPpm_
     ) external override initializer {
+        __ReentrancyGuard_init();
+
         if (budgetTreasury_ == address(0)) revert ADDRESS_ZERO();
         if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (goalFlow_ == address(0)) revert ADDRESS_ZERO();
@@ -193,6 +194,8 @@ contract PremiumEscrow is IPremiumEscrow, Initializable, ReentrancyGuard {
         finalState = state_;
         activatedAt = activatedAt_;
         closedAt = closedAt_;
+        // Freeze coverage to prevent post-close premium accrual; late inflows recycle to goal flow.
+        totalCoverage = 0;
 
         emit Closed(state_, activatedAt_, closedAt_);
     }

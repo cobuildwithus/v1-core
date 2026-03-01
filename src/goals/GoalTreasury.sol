@@ -2,9 +2,9 @@
 pragma solidity ^0.8.34;
 
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IStakeVaultUnderwriterConfig } from "../interfaces/IStakeVaultUnderwriterConfig.sol";
-import { IRewardEscrow } from "../interfaces/IRewardEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
@@ -20,8 +20,6 @@ import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
 import { GoalSpendPatterns } from "./library/GoalSpendPatterns.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
@@ -29,7 +27,7 @@ import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.s
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
-contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
+contract GoalTreasury is IGoalTreasury, TreasuryBase {
     using SafeERC20 for IERC20;
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
@@ -39,13 +37,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     string private constant SUCCESS_SETTLEMENT_BURN_MEMO = "GOAL_SUCCESS_SETTLEMENT_BURN";
     string private constant SUCCESS_RESIDUAL_BURN_MEMO = "GOAL_SUCCESS_RESIDUAL_BURN";
     string private constant TERMINAL_RESIDUAL_BURN_MEMO = "GOAL_TERMINAL_RESIDUAL_BURN";
-    string private constant FAILED_ESCROW_SWEEP_BURN_MEMO = "GOAL_FAILED_ESCROW_SWEEP_BURN";
-    string private constant FAILED_ESCROW_SWEEP_COBUILD_BURN_MEMO = "GOAL_FAILED_ESCROW_SWEEP_COBUILD_BURN";
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
     uint8 private constant TERMINAL_OP_DEFERRED_SETTLE = 3;
-    uint8 private constant TERMINAL_OP_REWARD_ESCROW_FINALIZE = 4;
-    uint8 private constant TERMINAL_OP_STAKE_VAULT_RESOLVE = 5;
+    uint8 private constant TERMINAL_OP_STAKE_VAULT_RESOLVE = 4;
 
     GoalState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -55,14 +50,13 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
     IFlow private _flow;
     IStakeVault private _stakeVault;
-    IRewardEscrow private _rewardEscrow;
+    address private _budgetStakeLedger;
     address private _hook;
     address private _authority;
 
     IJBRulesets public override goalRulesets;
     uint256 public override goalRevnetId;
     uint256 public override cobuildRevnetId;
-    uint32 public override successSettlementRewardEscrowPpm;
 
     ISuperToken public override superToken;
 
@@ -114,6 +108,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     }
 
     function initialize(address initialOwner, GoalConfig calldata config) external initializer {
+        __ReentrancyGuard_init();
         _initialize(initialOwner, config);
     }
 
@@ -121,6 +116,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (initialOwner == address(0)) revert ADDRESS_ZERO();
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
+        if (config.budgetStakeLedger == address(0) || config.budgetStakeLedger.code.length == 0) revert ADDRESS_ZERO();
         if (config.hook == address(0)) revert ADDRESS_ZERO();
         if (config.goalRulesets == address(0)) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
@@ -131,17 +127,11 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
-        if (config.successSettlementRewardEscrowPpm > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_SETTLEMENT_SCALED(config.successSettlementRewardEscrowPpm);
-        }
         if (config.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_BUDGET_PREMIUM_PPM(config.budgetPremiumPpm);
         }
         if (config.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_BUDGET_SLASH_PPM(config.budgetSlashPpm);
-        }
-        if (config.successSettlementRewardEscrowPpm != 0 && config.rewardEscrow == address(0)) {
-            revert REWARD_ESCROW_NOT_CONFIGURED();
         }
 
         uint256 nowTs = block.timestamp;
@@ -149,28 +139,25 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
         _flow = IFlow(config.flow);
         _stakeVault = IStakeVault(config.stakeVault);
-        _rewardEscrow = IRewardEscrow(config.rewardEscrow);
+        _budgetStakeLedger = config.budgetStakeLedger;
         _hook = config.hook;
         _authority = initialOwner;
         goalRulesets = IJBRulesets(config.goalRulesets);
         goalRevnetId = config.goalRevnetId;
         cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, _stakeVault.cobuildToken(), goalRulesets, _hook);
-        successSettlementRewardEscrowPpm = config.successSettlementRewardEscrowPpm;
 
         address configuredGoalTreasury = _stakeVault.goalTreasury();
         if (configuredGoalTreasury != address(this)) {
             revert STAKE_VAULT_GOAL_MISMATCH(address(this), configuredGoalTreasury);
         }
+        address ledgerGoalTreasury = IBudgetStakeLedger(_budgetStakeLedger).goalTreasury();
+        if (ledgerGoalTreasury != address(this)) {
+            revert BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address(this), ledgerGoalTreasury);
+        }
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();
         _requireGoalTokenInvariants(superToken, _stakeVault, goalRulesets, _hook, goalRevnetId);
-        if (config.rewardEscrow != address(0)) {
-            address rewardEscrowSuperToken = address(_rewardEscrow.rewardSuperToken());
-            if (rewardEscrowSuperToken != address(superToken)) {
-                revert REWARD_ESCROW_SUPER_TOKEN_MISMATCH(address(superToken), rewardEscrowSuperToken);
-            }
-        }
         uint64 derivedDeadline = _deriveDeadline();
         address configuredFlowOperator = _flow.flowOperator();
         address configuredSweeper = _flow.sweeper();
@@ -195,7 +182,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
             initialOwner,
             config.flow,
             config.stakeVault,
-            config.rewardEscrow,
+            config.budgetStakeLedger,
             config.hook,
             config.goalRulesets,
             config.goalRevnetId,
@@ -209,7 +196,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         return
             config.flow == address(0) &&
             config.stakeVault == address(0) &&
-            config.rewardEscrow == address(0) &&
+            config.budgetStakeLedger == address(0) &&
             config.hook == address(0) &&
             config.goalRulesets == address(0) &&
             config.goalRevnetId == 0 &&
@@ -218,7 +205,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
             config.coverageLambda == 0 &&
             config.budgetPremiumPpm == 0 &&
             config.budgetSlashPpm == 0 &&
-            config.successSettlementRewardEscrowPpm == 0 &&
             config.successResolver == address(0) &&
             config.successAssertionLiveness == 0 &&
             config.successAssertionBond == 0 &&
@@ -255,35 +241,35 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         external
         override
         nonReentrant
-        returns (HookSplitAction action, uint256 superTokenAmount, uint256 rewardEscrowAmount, uint256 burnAmount)
+        returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
     {
         if (msg.sender != _hook) revert ONLY_HOOK();
         if (!_isHookSourceToken(sourceToken)) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
-        if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0, 0);
+        if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0);
 
         GoalDerivedState memory derivedState = _deriveGoalDerivedState();
         HookSplitPath path = _deriveHookSplitPath(derivedState);
         if (path == HookSplitPath.FundingIngress) {
             superTokenAmount = _processFundingIngress(sourceToken, sourceAmount);
-            return (HookSplitAction.Funded, superTokenAmount, 0, 0);
+            return (HookSplitAction.Funded, superTokenAmount, 0);
         }
 
         if (path == HookSplitPath.SuccessSettlement) {
-            (rewardEscrowAmount, burnAmount) = _processSuccessSettlement(sourceToken, sourceAmount);
-            return (HookSplitAction.SuccessSettled, 0, rewardEscrowAmount, burnAmount);
+            burnAmount = _processSuccessSettlement(sourceToken, sourceAmount);
+            return (HookSplitAction.SuccessSettled, 0, burnAmount);
         }
 
         if (path == HookSplitPath.TerminalSettlement) {
-            (superTokenAmount, rewardEscrowAmount, burnAmount) = _processTerminalSettlement(
+            (superTokenAmount, burnAmount) = _processTerminalSettlement(
                 derivedState.state,
                 sourceToken,
                 sourceAmount
             );
-            return (HookSplitAction.TerminalSettled, superTokenAmount, rewardEscrowAmount, burnAmount);
+            return (HookSplitAction.TerminalSettled, superTokenAmount, burnAmount);
         }
 
         superTokenAmount = _processDeferredIngress(sourceToken, sourceAmount);
-        return (HookSplitAction.Deferred, superTokenAmount, 0, 0);
+        return (HookSplitAction.Deferred, superTokenAmount, 0);
     }
 
     function sync() external override nonReentrant {
@@ -373,34 +359,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         _settleDeferredHookFunding(finalState);
     }
 
-    function sweepFailedAndBurn() external override nonReentrant returns (uint256 amount) {
-        if (!_isTerminalState(_state)) revert INVALID_STATE();
-        IRewardEscrow escrow = _rewardEscrow;
-        if (address(escrow) == address(0)) revert INVALID_STATE();
-        IERC20 goalToken = _stakeVault.goalToken();
-        IERC20 cobuildToken = _stakeVault.cobuildToken();
-        uint256 goalBalanceBefore = goalToken.balanceOf(address(this));
-        uint256 cobuildBalanceBefore;
-        if (address(cobuildToken) != address(0)) {
-            cobuildBalanceBefore = cobuildToken.balanceOf(address(this));
-        }
-
-        amount = escrow.releaseFailedAssetsToTreasury();
-
-        uint256 goalBalanceAfter = goalToken.balanceOf(address(this));
-        uint256 burnAmount = goalBalanceAfter - goalBalanceBefore;
-        if (burnAmount != 0) {
-            _burnViaController(goalRevnetId, burnAmount, FAILED_ESCROW_SWEEP_BURN_MEMO);
-        }
-        if (address(cobuildToken) != address(0)) {
-            uint256 cobuildBalanceAfter = cobuildToken.balanceOf(address(this));
-            uint256 cobuildSweepAmount = cobuildBalanceAfter - cobuildBalanceBefore;
-            if (cobuildSweepAmount != 0) {
-                _burnViaController(cobuildRevnetId, cobuildSweepAmount, FAILED_ESCROW_SWEEP_COBUILD_BURN_MEMO);
-            }
-        }
-    }
-
     function configureJurorSlasher(address slasher) external override {
         if (msg.sender != _authority) revert ONLY_AUTHORITY();
         _stakeVault.setJurorSlasher(slasher);
@@ -433,8 +391,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         return address(_stakeVault);
     }
 
-    function rewardEscrow() external view override returns (address) {
-        return address(_rewardEscrow);
+    function budgetStakeLedger() external view override returns (address) {
+        return _budgetStakeLedger;
     }
 
     function hook() external view override returns (address) {
@@ -607,7 +565,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
 
         _trySettleResidual(finalState);
         _trySettleDeferredHookFunding(finalState);
-        _tryFinalizeRewardEscrow(finalState);
         _tryMarkStakeVaultResolved();
     }
 
@@ -620,43 +577,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function _trySettleDeferredHookFunding(GoalState finalState) internal {
         try this.settleDeferredHookFundingForFinalize(finalState) {} catch (bytes memory reason) {
             emit TerminalSideEffectFailed(TERMINAL_OP_DEFERRED_SETTLE, reason);
-        }
-    }
-
-    function _tryFinalizeRewardEscrow(GoalState finalState) internal {
-        IRewardEscrow escrow = _rewardEscrow;
-        if (address(escrow) == address(0)) return;
-
-        bool escrowFinalized;
-        try escrow.finalized() returns (bool finalized_) {
-            escrowFinalized = finalized_;
-        } catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_REWARD_ESCROW_FINALIZE, reason);
-            return;
-        }
-        if (escrowFinalized) return;
-
-        uint64 rewardEscrowFinalizedAt = resolvedAt;
-        if (finalState == GoalState.Succeeded && successAt != 0) {
-            rewardEscrowFinalizedAt = successAt;
-        }
-
-        try escrow.finalize(uint8(finalState), rewardEscrowFinalizedAt) {
-            if (finalState != GoalState.Succeeded) return;
-
-            bool escrowNowFinalized;
-            try escrow.finalized() returns (bool finalized_) {
-                escrowNowFinalized = finalized_;
-            } catch (bytes memory reason) {
-                emit TerminalSideEffectFailed(TERMINAL_OP_REWARD_ESCROW_FINALIZE, reason);
-                return;
-            }
-
-            if (escrowNowFinalized) {
-                emit SuccessRewardsFinalized(rewardEscrowFinalizedAt, uint64(block.timestamp));
-            }
-        } catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_REWARD_ESCROW_FINALIZE, reason);
         }
     }
 
@@ -760,13 +680,13 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function _settleResidual(GoalState finalState) internal {
         uint256 settled = _flow.sweepSuperToken(address(this), type(uint256).max);
         if (settled == 0) {
-            emit ResidualSettled(finalState, 0, 0, 0);
+            emit ResidualSettled(finalState, 0, 0);
             return;
         }
 
-        (uint256 rewardAmount, uint256 burnAmount) = _settleSuperTokenAmount(finalState, settled);
+        uint256 burnAmount = _settleSuperTokenAmount(finalState, settled);
 
-        emit ResidualSettled(finalState, settled, rewardAmount, burnAmount);
+        emit ResidualSettled(finalState, settled, burnAmount);
     }
 
     function _settleDeferredHookFunding(GoalState finalState) internal {
@@ -774,37 +694,19 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (deferred == 0) return;
 
         deferredHookSuperTokenAmount = 0;
-        (uint256 rewardAmount, uint256 burnAmount) = _settleSuperTokenAmount(finalState, deferred);
-        emit HookDeferredFundingSettled(finalState, deferred, rewardAmount, burnAmount);
+        uint256 burnAmount = _settleSuperTokenAmount(finalState, deferred);
+        emit HookDeferredFundingSettled(finalState, deferred, burnAmount);
     }
 
     function _settleSuperTokenAmount(
         GoalState finalState,
         uint256 settled
-    ) internal returns (uint256 rewardAmount, uint256 burnAmount) {
-        uint256 burnSuperTokenAmount;
-
-        if (finalState == GoalState.Succeeded) {
-            rewardAmount = Math.mulDiv(
-                settled,
-                successSettlementRewardEscrowPpm,
-                FlowProtocolConstants.PPM_SCALE_UINT256
-            );
-            burnSuperTokenAmount = settled - rewardAmount;
-
-            if (rewardAmount != 0) {
-                if (address(_rewardEscrow) == address(0)) revert REWARD_ESCROW_NOT_CONFIGURED();
-                IERC20(address(superToken)).safeTransfer(address(_rewardEscrow), rewardAmount);
-            }
-        } else {
-            burnSuperTokenAmount = settled;
-        }
-
-        if (burnSuperTokenAmount == 0) return (rewardAmount, 0);
+    ) internal returns (uint256 burnAmount) {
+        if (settled == 0) return 0;
 
         IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
         uint256 underlyingBefore = underlyingToken.balanceOf(address(this));
-        superToken.downgrade(burnSuperTokenAmount);
+        superToken.downgrade(settled);
         burnAmount = underlyingToken.balanceOf(address(this)) - underlyingBefore;
         if (burnAmount != 0) {
             _burnViaController(
@@ -818,18 +720,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function _settleSuccessHookSplit(
         address sourceToken,
         uint256 sourceAmount
-    ) internal returns (uint256 rewardAmount, uint256 burnAmount) {
-        rewardAmount = Math.mulDiv(
-            sourceAmount,
-            successSettlementRewardEscrowPpm,
-            FlowProtocolConstants.PPM_SCALE_UINT256
-        );
-        burnAmount = sourceAmount - rewardAmount;
-
-        if (rewardAmount != 0) {
-            if (address(_rewardEscrow) == address(0)) revert REWARD_ESCROW_NOT_CONFIGURED();
-            IERC20(sourceToken).safeTransfer(address(_rewardEscrow), rewardAmount);
-        }
+    ) internal returns (uint256 burnAmount) {
+        burnAmount = sourceAmount;
 
         if (burnAmount != 0) {
             _burnViaController(goalRevnetId, burnAmount, SUCCESS_SETTLEMENT_BURN_MEMO);
@@ -849,17 +741,17 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
     function _processSuccessSettlement(
         address sourceToken,
         uint256 sourceAmount
-    ) internal returns (uint256 rewardEscrowAmount, uint256 burnAmount) {
-        (rewardEscrowAmount, burnAmount) = _settleSuccessHookSplit(sourceToken, sourceAmount);
+    ) internal returns (uint256 burnAmount) {
+        burnAmount = _settleSuccessHookSplit(sourceToken, sourceAmount);
     }
 
     function _processTerminalSettlement(
         GoalState terminalState,
         address sourceToken,
         uint256 sourceAmount
-    ) internal returns (uint256 superTokenAmount, uint256 rewardEscrowAmount, uint256 burnAmount) {
+    ) internal returns (uint256 superTokenAmount, uint256 burnAmount) {
         superTokenAmount = _convertHeldSourceToSuperToken(sourceToken, sourceAmount);
-        (rewardEscrowAmount, burnAmount) = _settleSuperTokenAmount(terminalState, superTokenAmount);
+        burnAmount = _settleSuperTokenAmount(terminalState, superTokenAmount);
     }
 
     function _processDeferredIngress(

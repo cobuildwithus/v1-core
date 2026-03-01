@@ -22,6 +22,7 @@ interface IStakeVault {
     error INVALID_JUROR_LOCK();
     error EXIT_NOT_READY();
     error JUROR_WITHDRAWAL_LOCKED();
+    error UNDERWRITER_WITHDRAWAL_LOCKED();
     error ONLY_JUROR_SLASHER();
     error INVALID_JUROR_SLASHER();
     error JUROR_SLASHER_ALREADY_SET();

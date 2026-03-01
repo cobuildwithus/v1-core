@@ -282,17 +282,30 @@ contract MockGoalFlowForBudgetTCR {
 
 contract MockGoalTreasuryForBudgetTCR {
     uint64 public deadline;
-    address public rewardEscrow;
+    address public budgetStakeLedger;
     address public flow;
     address public stakeVault;
 
     constructor(uint64 deadline_) {
         deadline = deadline_;
-        rewardEscrow = address(new MockRewardEscrowForBudgetTCR(address(0xCAFE)));
+        budgetStakeLedger = address(0xCAFE);
+    }
+
+    function setBudgetStakeLedger(address budgetStakeLedger_) external {
+        budgetStakeLedger = budgetStakeLedger_;
     }
 
     function setRewardEscrow(address rewardEscrow_) external {
-        rewardEscrow = rewardEscrow_;
+        if (rewardEscrow_.code.length == 0) {
+            budgetStakeLedger = rewardEscrow_;
+            return;
+        }
+
+        try MockRewardEscrowForBudgetTCR(rewardEscrow_).budgetStakeLedger() returns (address ledger) {
+            budgetStakeLedger = ledger;
+        } catch {
+            budgetStakeLedger = rewardEscrow_;
+        }
     }
 
     function setFlow(address flow_) external {
@@ -323,35 +336,12 @@ contract MockBudgetStakeLedgerForBudgetTCR {
         registerCallCount += 1;
     }
 
-    function removeBudget(bytes32 recipientId) external returns (bool lockRewardHistory) {
+    function removeBudget(bytes32 recipientId) external {
         address budget = budgetForRecipient[recipientId];
-        if (budget == address(0)) return false;
-
-        lockRewardHistory = _deriveRewardHistoryLock(IBudgetTreasury(budget));
+        if (budget == address(0)) return;
 
         delete budgetForRecipient[recipientId];
         removeCallCount += 1;
-    }
-
-    function _deriveRewardHistoryLock(IBudgetTreasury treasury) private view returns (bool lockRewardHistory) {
-        try treasury.deadline() returns (uint64 deadline_) {
-            if (deadline_ != 0) return true;
-        } catch {}
-
-        bool hasBalance;
-        bool hasThreshold;
-        uint256 treasuryBalance_;
-        uint256 activationThreshold_;
-        try treasury.treasuryBalance() returns (uint256 balance_) {
-            treasuryBalance_ = balance_;
-            hasBalance = true;
-        } catch {}
-        try treasury.activationThreshold() returns (uint256 threshold_) {
-            activationThreshold_ = threshold_;
-            hasThreshold = true;
-        } catch {}
-
-        return hasBalance && hasThreshold && treasuryBalance_ >= activationThreshold_;
     }
 }
 

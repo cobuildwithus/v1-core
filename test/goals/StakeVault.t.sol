@@ -49,6 +49,7 @@ contract StakeVaultTest is Test {
     VaultMockTokens internal controllerTokens;
     VaultMockController internal controller;
     StakeVault internal vault;
+    bool internal _allTrackedBudgetsResolved = true;
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
@@ -80,6 +81,14 @@ contract StakeVaultTest is Test {
         goalToken.approve(address(vault), type(uint256).max);
         vm.prank(alice);
         cobuildToken.approve(address(vault), type(uint256).max);
+    }
+
+    function budgetStakeLedger() external view returns (address) {
+        return address(this);
+    }
+
+    function allTrackedBudgetsResolved() external view returns (bool) {
+        return _allTrackedBudgetsResolved;
     }
 
     function test_constructor_revertsOnZeroAddresses() public {
@@ -542,6 +551,17 @@ contract StakeVaultTest is Test {
         vault.withdrawGoal(1e18, alice);
     }
 
+    function test_withdrawGoal_revertsWhenTrackedBudgetsUnresolved() public {
+        vm.prank(alice);
+        vault.depositGoal(10e18);
+        vault.markGoalResolved();
+        _allTrackedBudgetsResolved = false;
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
+        vault.withdrawGoal(1e18, alice);
+    }
+
     function test_withdrawGoal_revertsOnZeroAmount() public {
         vm.prank(alice);
         vault.depositGoal(10e18);
@@ -611,6 +631,17 @@ contract StakeVaultTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.GOAL_NOT_RESOLVED.selector);
+        vault.withdrawCobuild(1e18, alice);
+    }
+
+    function test_withdrawCobuild_revertsWhenTrackedBudgetsUnresolved() public {
+        vm.prank(alice);
+        vault.depositCobuild(10e18);
+        vault.markGoalResolved();
+        _allTrackedBudgetsResolved = false;
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
         vault.withdrawCobuild(1e18, alice);
     }
 

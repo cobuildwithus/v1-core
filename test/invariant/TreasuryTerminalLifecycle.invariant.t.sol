@@ -312,6 +312,22 @@ contract TreasuryTerminalInvariantPremiumEscrow {
     function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
 }
 
+contract TreasuryTerminalInvariantBudgetStakeLedger {
+    address private _goalTreasury;
+
+    function setGoalTreasury(address goalTreasury_) external {
+        _goalTreasury = goalTreasury_;
+    }
+
+    function goalTreasury() external view returns (address) {
+        return _goalTreasury;
+    }
+
+    function allTrackedBudgetsResolved() external pure returns (bool) {
+        return true;
+    }
+}
+
 contract TreasuryTerminalLifecycleInvariantHandler is Test {
     uint256 internal constant PROJECT_ID = 1;
     uint256 internal constant MAX_AMOUNT = 1e24;
@@ -325,6 +341,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     TreasuryTerminalInvariantTokens public goalTokens;
     TreasuryTerminalInvariantController public goalController;
     TreasuryTerminalInvariantHook public goalHook;
+    TreasuryTerminalInvariantBudgetStakeLedger public goalBudgetStakeLedger;
     GoalTreasury public goalTreasury;
 
     TreasuryTerminalInvariantUnderlying public budgetUnderlying;
@@ -355,8 +372,10 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalTokens.setProjectIdOf(address(goalUnderlying), PROJECT_ID);
 
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
+        goalBudgetStakeLedger = new TreasuryTerminalInvariantBudgetStakeLedger();
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         goalStakeVault.setGoalTreasury(predictedGoalTreasury);
+        goalBudgetStakeLedger.setGoalTreasury(predictedGoalTreasury);
         goalFlow.setFlowOperator(predictedGoalTreasury);
         goalFlow.setSweeper(predictedGoalTreasury);
         goalTreasury = new GoalTreasury(
@@ -364,7 +383,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
             IGoalTreasury.GoalConfig({
                 flow: address(goalFlow),
                 stakeVault: address(goalStakeVault),
-                rewardEscrow: address(0),
+                budgetStakeLedger: address(goalBudgetStakeLedger),
                 hook: address(goalHook),
                 goalRulesets: address(goalRulesets),
                 goalRevnetId: PROJECT_ID,
@@ -373,7 +392,6 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 coverageLambda: 0,
                 budgetPremiumPpm: 0,
                 budgetSlashPpm: 0,
-                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(this),
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,

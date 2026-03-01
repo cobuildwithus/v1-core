@@ -36,7 +36,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
     error INVALID_STAKE_VAULT_ADDRESS();
     error INVALID_STAKE_VAULT_GOAL_TREASURY();
-    error INVALID_STAKE_VAULT_REWARD_ESCROW();
+    error INVALID_STAKE_VAULT_BUDGET_STAKE_LEDGER();
     error NON_UPGRADEABLE();
     error UNAUTHORIZED_DELEGATE();
     error STAKE_VAULT_NOT_SET();
@@ -1208,7 +1208,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
             revert INVALID_STAKE_VAULT_GOAL_TREASURY();
         }
         if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) {
-            revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+            revert INVALID_STAKE_VAULT_BUDGET_STAKE_LEDGER();
         }
 
         _stakeVault = IStakeVault(stakeVault_);
@@ -1249,7 +1249,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
     function _budgetStakeLedger() internal view returns (IBudgetStakeLedger ledger) {
         address ledgerAddr = IGoalTreasury(_stakeVault.goalTreasury()).budgetStakeLedger();
-        if (ledgerAddr == address(0) || ledgerAddr.code.length == 0) revert INVALID_STAKE_VAULT_REWARD_ESCROW();
+        if (ledgerAddr == address(0) || ledgerAddr.code.length == 0) revert INVALID_STAKE_VAULT_BUDGET_STAKE_LEDGER();
 
         return IBudgetStakeLedger(ledgerAddr);
     }

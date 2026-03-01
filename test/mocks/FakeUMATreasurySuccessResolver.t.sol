@@ -304,8 +304,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         uint256 internal constant PRIVATE_KEY = 0xB0B;
         uint64 internal constant SUCCESS_LIVENESS = 7200;
         uint256 internal constant SUCCESS_BOND = 123e6;
-        uint32 internal constant SETTLEMENT_REWARD_ESCROW_PPM = 777_777;
-        uint32 internal constant MANAGER_REWARD_POOL_FLOW_RATE_PPM = 222_222;
+        uint32 internal constant MANAGER_REWARD_POOL_FLOW_RATE_PPM = 0;
 
         string internal constant SUCCESS_SPEC = "ipfs://success-spec";
         string internal constant SUCCESS_POLICY = "ipfs://success-policy";
@@ -335,7 +334,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
             assertEq(mockFactory.lastSuccessLiveness(), SUCCESS_LIVENESS);
             assertEq(mockFactory.lastSuccessBond(), SUCCESS_BOND);
-            assertEq(mockFactory.lastSettlementRewardEscrowPpm(), SETTLEMENT_REWARD_ESCROW_PPM);
             assertEq(mockFactory.lastSpecHash(), keccak256(bytes(SUCCESS_SPEC)));
             assertEq(mockFactory.lastPolicyHash(), keccak256(bytes(SUCCESS_POLICY)));
             assertEq(mockFactory.lastFlowTagline(), FLOW_TAGLINE);
@@ -364,7 +362,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("goalFlow: ", vm.toString(address(0x4)))));
             assertTrue(_stringContains(artifact, string.concat("goalStakeVault: ", vm.toString(address(0x5)))));
             assertTrue(_stringContains(artifact, string.concat("budgetStakeLedger: ", vm.toString(address(0x6)))));
-            assertTrue(_stringContains(artifact, string.concat("rewardEscrow: ", vm.toString(address(0x7)))));
             assertTrue(_stringContains(artifact, string.concat("splitHook: ", vm.toString(address(0x8)))));
             assertTrue(_stringContains(artifact, string.concat("budgetTCR: ", vm.toString(address(0x9)))));
             assertTrue(_stringContains(artifact, string.concat("arbitrator: ", vm.toString(address(0x10)))));
@@ -377,7 +374,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(address(budgetSuccessResolver)));
             vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
             vm.setEnv("SUCCESS_BOND", vm.toString(SUCCESS_BOND));
-            vm.setEnv("SUCCESS_SETTLEMENT_REWARD_ESCROW_PPM", vm.toString(uint256(SETTLEMENT_REWARD_ESCROW_PPM)));
             vm.setEnv("SUCCESS_SPEC", SUCCESS_SPEC);
             vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
             vm.setEnv("FLOW_TAGLINE", FLOW_TAGLINE);
@@ -393,7 +389,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         address public lastBudgetSuccessResolver;
         uint64 public lastSuccessLiveness;
         uint256 public lastSuccessBond;
-        uint32 public lastSettlementRewardEscrowPpm;
         uint32 public lastManagerRewardPoolFlowRatePpm;
         bytes32 public lastSpecHash;
         bytes32 public lastPolicyHash;
@@ -408,7 +403,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             lastBudgetSuccessResolver = p.budgetTCR.budgetSuccessResolver;
             lastSuccessLiveness = p.success.successAssertionLiveness;
             lastSuccessBond = p.success.successAssertionBond;
-            lastSettlementRewardEscrowPpm = p.settlement.successSettlementRewardEscrowPpm;
             lastManagerRewardPoolFlowRatePpm = p.flowConfig.managerRewardPoolFlowRatePpm;
             lastSpecHash = p.success.successOracleSpecHash;
             lastPolicyHash = p.success.successAssertionPolicyHash;
@@ -422,7 +416,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             out.goalFlow = address(0x4);
             out.goalStakeVault = address(0x5);
             out.budgetStakeLedger = address(0x6);
-            out.rewardEscrow = address(0x7);
             out.splitHook = address(0x8);
             out.budgetTCR = address(0x9);
             out.arbitrator = address(0x10);

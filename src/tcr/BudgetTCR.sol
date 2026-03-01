@@ -14,7 +14,6 @@ import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
-import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -52,7 +51,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             revert INVALID_PPM(deploymentConfig.budgetPremiumPpm);
         }
         if (deploymentConfig.budgetSlashPpm > 1_000_000) revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
-        if (deploymentConfig.goalTreasury.rewardEscrow() == address(0)) revert REWARD_ESCROW_NOT_CONFIGURED();
+        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -141,20 +140,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             return true;
         }
 
-        bool lockRewardHistory = IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
+        IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
         goalFlow.removeRecipient(itemID);
 
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            if (lockRewardHistory) {
-                // Post-activation removals stop forward spend without rewriting reward-history success eligibility.
-                treasury.forceFlowRateToZero();
-                terminallyResolved = _resolved(treasury);
-            } else {
-                treasury.disableSuccessResolution();
-                if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
-            }
+            treasury.disableSuccessResolution();
+            if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
         }
 
         deployment.active = false;
@@ -242,7 +235,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function _budgetStakeLedger() internal view returns (address ledger) {
-        ledger = IRewardEscrow(goalTreasury.rewardEscrow()).budgetStakeLedger();
+        ledger = goalTreasury.budgetStakeLedger();
         if (ledger == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     }
 
