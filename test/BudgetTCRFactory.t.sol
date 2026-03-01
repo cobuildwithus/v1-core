@@ -28,13 +28,13 @@ contract _MockImplementation {}
 
 contract _MockGoalTreasuryForFactory {
     address internal _stakeVault;
-    address internal immutable _rewardEscrow;
+    address internal immutable _budgetStakeLedger;
     address internal _authority;
     address public configuredSlasher;
     address public configuredUnderwriterSlasher;
 
-    constructor(address rewardEscrow_) {
-        _rewardEscrow = rewardEscrow_;
+    constructor(address budgetStakeLedger_) {
+        _budgetStakeLedger = budgetStakeLedger_;
     }
 
     function setStakeVault(address stakeVault_) external {
@@ -45,8 +45,8 @@ contract _MockGoalTreasuryForFactory {
         return _stakeVault;
     }
 
-    function rewardEscrow() external view returns (address) {
-        return _rewardEscrow;
+    function budgetStakeLedger() external view returns (address) {
+        return _budgetStakeLedger;
     }
 
     function setAuthority(address authority_) external {
@@ -201,8 +201,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -236,8 +236,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -272,8 +272,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -318,8 +318,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -365,8 +365,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -439,8 +439,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -480,8 +480,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -519,8 +519,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -562,15 +562,15 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
         goalTreasury.setAuthority(address(factory));
 
-        _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory otherStakeVault = new _MockStakeVaultForFactory(address(otherGoalTreasury));
         JurorSlasherRouter mismatchedRouter =
             new JurorSlasherRouter(IStakeVault(address(otherStakeVault)), address(factory));
@@ -606,8 +606,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -646,8 +646,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -694,8 +694,8 @@ contract BudgetTCRFactoryTest is Test {
         ISubmissionDepositStrategy submissionDepositStrategy = ISubmissionDepositStrategy(
             address(new PrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool")))
         );
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -800,8 +800,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -844,8 +844,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -887,8 +887,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
@@ -934,8 +934,8 @@ contract BudgetTCRFactoryTest is Test {
         ISubmissionDepositStrategy submissionDepositStrategy = ISubmissionDepositStrategy(
             address(new PrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool")))
         );
-        address rewardEscrow = address(new _MockImplementation());
-        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(rewardEscrow);
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 

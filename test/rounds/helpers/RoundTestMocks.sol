@@ -178,27 +178,15 @@ contract RoundTestBudgetTreasury {
     }
 }
 
-contract RoundTestRewardEscrow {
-    address public budgetStakeLedger;
-
-    constructor(address budgetStakeLedger_) {
-        budgetStakeLedger = budgetStakeLedger_;
-    }
-
-    function setBudgetStakeLedger(address budgetStakeLedger_) external {
-        budgetStakeLedger = budgetStakeLedger_;
-    }
-}
-
 contract RoundTestGoalTreasury {
     address public flow;
-    address public rewardEscrow;
+    address public budgetStakeLedger;
     address public stakeVault;
     bool public resolved;
 
-    constructor(address flow_, address rewardEscrow_, address stakeVault_) {
+    constructor(address flow_, address budgetStakeLedger_, address stakeVault_) {
         flow = flow_;
-        rewardEscrow = rewardEscrow_;
+        budgetStakeLedger = budgetStakeLedger_;
         stakeVault = stakeVault_;
     }
 
@@ -206,8 +194,8 @@ contract RoundTestGoalTreasury {
         flow = flow_;
     }
 
-    function setRewardEscrow(address rewardEscrow_) external {
-        rewardEscrow = rewardEscrow_;
+    function setBudgetStakeLedger(address budgetStakeLedger_) external {
+        budgetStakeLedger = budgetStakeLedger_;
     }
 
     function setStakeVault(address stakeVault_) external {

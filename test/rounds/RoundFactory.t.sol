@@ -16,7 +16,6 @@ import {
     RoundTestBudgetTreasury,
     RoundTestGoalTreasury,
     RoundTestStakeVault,
-    RoundTestRewardEscrow,
     RoundTestBudgetStakeLedger,
     RoundTestJurorSlasher
 } from "test/rounds/helpers/RoundTestMocks.sol";
@@ -32,7 +31,6 @@ contract RoundFactoryTest is Test {
     RoundTestSuperToken internal superToken;
 
     RoundTestBudgetStakeLedger internal ledger;
-    RoundTestRewardEscrow internal rewardEscrow;
     RoundTestJurorSlasher internal jurorSlasher;
 
     RoundTestManagedFlow internal goalFlow;
@@ -58,13 +56,12 @@ contract RoundFactoryTest is Test {
         superToken = new RoundTestSuperToken("SuperGoal", "sGOAL", underlying);
 
         ledger = new RoundTestBudgetStakeLedger();
-        rewardEscrow = new RoundTestRewardEscrow(address(ledger));
         jurorSlasher = new RoundTestJurorSlasher();
 
         goalFlow = new RoundTestManagedFlow(address(0xDEAD), address(0), address(0), address(0));
 
         stakeVault = new RoundTestStakeVault(underlying, address(0), address(jurorSlasher));
-        goalTreasury = new RoundTestGoalTreasury(address(goalFlow), address(rewardEscrow), address(stakeVault));
+        goalTreasury = new RoundTestGoalTreasury(address(goalFlow), address(ledger), address(stakeVault));
         stakeVault.setGoalTreasury(address(goalTreasury));
         goalFlow.setFlowOperator(address(goalTreasury));
 
