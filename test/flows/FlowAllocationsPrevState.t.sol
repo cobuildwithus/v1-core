@@ -10,6 +10,10 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         0xec99f0a88c8217d873dc1f006d43648a9c64971b5d0403486aac00b6b2bec900;
     uint256 internal constant ALLOC_SNAPSHOT_PACKED_OFFSET = 3;
 
+    function _useHarnessFlowImplementation() internal pure override returns (bool) {
+        return true;
+    }
+
     function test_allocate_firstCommit_succeedsWithoutPrevStatePayload() public {
         bytes32 id1 = bytes32(uint256(1));
         _addRecipient(id1, address(0x111));
@@ -40,19 +44,12 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         strategy.setWeight(key, weightA);
         strategy.setCanAllocate(key, allocator, true);
 
-        bytes[][] memory allocData = _defaultAllocationDataForKey(key);
-        bytes[][] memory emptyPrevStates = _buildEmptyPrevStates(allocData);
-
         vm.prank(allocator);
         flow.allocate(ids, scaled);
         _assertCommitAndCacheWeight(key, weightA, ids, scaled);
 
         strategy.setWeight(key, weightB);
         bytes32 commitBefore = flow.getAllocationCommitment(address(strategy), key);
-
-        bytes[][] memory prevStates = new bytes[][](1);
-        prevStates[0] = new bytes[](1);
-        prevStates[0][0] = abi.encode(ids, scaled);
 
         vm.prank(allocator);
         flow.allocate(ids, scaled);
@@ -335,9 +332,6 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         strategy.setWeight(key, weightA);
         strategy.setCanAllocate(key, allocator, true);
 
-        bytes[][] memory allocData = _defaultAllocationDataForKey(key);
-        bytes[][] memory emptyPrevStates = _buildEmptyPrevStates(allocData);
-
         vm.prank(allocator);
         flow.allocate(ids, scaled);
         _assertCommitAndCacheWeight(key, weightA, ids, scaled);
@@ -346,9 +340,6 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         assertEq(_allocWeightPlusOne(key), 0);
 
         strategy.setWeight(key, weightB);
-        bytes[][] memory prevStates = new bytes[][](1);
-        prevStates[0] = new bytes[](1);
-        prevStates[0][0] = abi.encode(ids, scaled);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(allocator);

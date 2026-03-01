@@ -15,6 +15,10 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         keccak256("AllocationSnapshotUpdated(address,uint256,bytes32,uint256,uint8,bytes)");
     uint8 internal constant SNAPSHOT_VERSION_V1 = 1;
 
+    function _useHarnessFlowImplementation() internal pure override returns (bool) {
+        return true;
+    }
+
     function test_allocate_overflowReverts() public {
         bytes32 id1 = bytes32(uint256(1));
         _addRecipient(id1, address(0x111));

@@ -2,14 +2,15 @@
 pragma solidity ^0.8.34;
 
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 
 import {GeneralizedTCRSubmissionDepositsBase} from "test/GeneralizedTCRSubmissionDeposits.t.sol";
 import {MockGeneralizedTCR} from "test/mocks/MockGeneralizedTCR.sol";
-import {MockSubmissionDepositStrategy} from "test/mocks/MockSubmissionDepositStrategy.sol";
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 
 contract GeneralizedTCRSubmissionDepositsInitValidationTest is GeneralizedTCRSubmissionDepositsBase {
@@ -53,7 +54,7 @@ contract GeneralizedTCRSubmissionDepositsInitValidationTest is GeneralizedTCRSub
 
     function test_init_reverts_when_strategy_token_mismatch() public {
         MockVotesToken otherToken = new MockVotesToken("Other", "OTH");
-        MockSubmissionDepositStrategy strategy = new MockSubmissionDepositStrategy(otherToken);
+        EscrowSubmissionDepositStrategy strategy = new EscrowSubmissionDepositStrategy(IERC20(address(otherToken)));
 
         MockGeneralizedTCR tcrImpl = new MockGeneralizedTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();

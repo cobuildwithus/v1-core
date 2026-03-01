@@ -12,6 +12,10 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         keccak256("FlowDistributionUpdated(address,address,address,address,int96,int96,int96,address,int96,bytes)");
     bytes internal constant STALE_SINGLE_RECIPIENT_SNAPSHOT = hex"000100000000000f4240";
 
+    function _useHarnessFlowImplementation() internal pure override returns (bool) {
+        return true;
+    }
+
     function test_syncAllocation_removedFlowRecipientInCommit_skipsChildFlowSyncLoop() public {
         bytes32 childId = bytes32(uint256(5001));
         IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);

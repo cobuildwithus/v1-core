@@ -24,6 +24,8 @@ import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/super
 abstract contract FlowTestBase is Test, PrevStateCacheHelper {
     using SuperTokenV1Library for ISuperToken;
 
+    error HarnessFlowDisabled();
+
     address internal owner = address(0xA11CE);
     address internal manager = owner;
     address internal managerRewardPool = address(0xCAFE);
@@ -81,7 +83,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
         strategy.setCanAllocate(allocatorKey, allocator, true);
         strategy.setCanAccountAllocate(allocator, true);
 
-        flowImplementation = new TestableCustomFlow();
+        flowImplementation = _useHarnessFlowImplementation() ? CustomFlow(address(new TestableCustomFlow())) : new CustomFlow();
         address flowProxy = address(new ERC1967Proxy(address(flowImplementation), ""));
 
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
@@ -216,7 +218,12 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
     }
 
     function _harnessFlow() internal view returns (TestableCustomFlow) {
+        if (!_useHarnessFlowImplementation()) revert HarnessFlowDisabled();
         return TestableCustomFlow(address(flow));
+    }
+
+    function _useHarnessFlowImplementation() internal pure virtual returns (bool) {
+        return false;
     }
 
     function _assertCallFails(address target, bytes memory callData) internal {

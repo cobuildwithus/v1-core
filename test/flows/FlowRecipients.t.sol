@@ -24,6 +24,10 @@ contract FlowRecipientsTest is FlowTestBase {
         "FlowInitialized(address,address,address,address,address,address,address,address,address,uint32,address)"
     );
 
+    function _useHarnessFlowImplementation() internal pure override returns (bool) {
+        return true;
+    }
+
     function _isChildFlow(address childAddr) internal view returns (bool) {
         address[] memory children = flow.getChildFlows();
         for (uint256 i = 0; i < children.length; ++i) {
@@ -826,5 +830,19 @@ contract FlowRecipientsTest is FlowTestBase {
         bytes memory hostCallData =
             abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, distributeCallData, new bytes(0));
         vm.mockCallRevert(address(sf.host), hostCallData, reason);
+    }
+}
+
+contract FlowTestBaseImplementationSelectionTest is FlowTestBase {
+    function test_setUp_defaultsToProductionFlowImplementation_withoutHarnessOnlySelectors() public {
+        bytes memory harnessOnlyCall = abi.encodeWithSignature("addChildForTest(address)", address(0xBEEF));
+
+        (bool implSuccess, bytes memory implData) = address(flowImplementation).call(harnessOnlyCall);
+        assertFalse(implSuccess);
+        assertEq(implData.length, 0);
+
+        (bool proxySuccess, bytes memory proxyData) = address(flow).call(harnessOnlyCall);
+        assertFalse(proxySuccess);
+        assertEq(proxyData.length, 0);
     }
 }

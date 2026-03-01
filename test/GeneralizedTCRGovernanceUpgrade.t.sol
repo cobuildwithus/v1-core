@@ -38,7 +38,12 @@ contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
     }
 
     function test_initialize_reverts_when_arbitrator_arbitrable_mismatch() public {
-        MockVotesArbitrator mismatched = new MockVotesArbitrator(IVotes(address(token)), address(0xBEEF));
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+        bytes memory arbInit = abi.encodeCall(
+            ERC20VotesArbitrator.initialize,
+            (owner, address(token), address(0xBEEF), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
+        );
+        ERC20VotesArbitrator mismatched = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         MockGeneralizedTCR tcrImpl = new MockGeneralizedTCR();
 
         bytes memory tcrInit = abi.encodeCall(
