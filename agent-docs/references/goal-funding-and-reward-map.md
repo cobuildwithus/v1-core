@@ -44,6 +44,8 @@
 9. Finalization side effects:
    - flow stop, residual settlement, reward-escrow finalize, and stake-vault marking are best-effort and permissionlessly retryable via `retryTerminalSideEffects`.
    - stake-vault unlock remains permissionlessly recoverable through `markGoalResolved()` once treasury is resolved.
+   - post-resolution underwriter withdrawals are caller-prepared, not globally budget-gated:
+     each caller must run `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` to settle required slashable budget exposures before withdrawing stake.
   - for success with escrow configured:
     - reward escrow finalize may defer while tracked budgets remain unresolved, then complete via permissionless `retryTerminalSideEffects`,
     - points accrual snapshots use `successAt` as the goal-level cutoff timestamp,
@@ -92,7 +94,7 @@
 - Stake vault can lock goal/cobuild stake for juror duty with delayed exit and snapshot-able juror voting weight.
 - Arbitrator-driven juror slashing transfers slashed goal/cobuild stake to reward escrow.
 - Slash settlement is taken from live staked balances (with juror-lock accounting clamped afterward), preventing exit-finalization slash evasion.
-- `GoalStakeVault` projects live vault weight into goal-flow allocation permissions via built-in strategy methods.
+- `StakeVault` projects live vault weight into goal-flow allocation permissions via built-in strategy methods.
 - `BudgetFlowRouterStrategy` projects per-budget stake from `BudgetStakeLedger.userAllocatedStakeOnBudget(...)` into budget-flow allocation permissions via registered `childFlow -> recipientId` routing.
 - Reward points use `BudgetStakeLedger` checkpointed effective stake (quantized to Flow unit-weight scale, `1e15`) with maturation/warmup: recent stake increments start unmatured and decay to full point-rate over a fixed global period (`6 hours`).
 - Reward points are fundraising-window scoped per budget and window-normalized: raw matured stake-time accrual stops at the earliest applicable exogenous cutoff (`activatedAt`, `fundingDeadline`, goal success, or removal), then divides by scoring-window seconds.
@@ -110,6 +112,6 @@
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
 - `src/goals/BudgetStakeLedger.sol`
-- `src/goals/GoalStakeVault.sol`
+- `src/goals/StakeVault.sol`
 - `src/goals/RewardEscrow.sol`
 - `src/allocation-strategies/BudgetFlowRouterStrategy.sol`

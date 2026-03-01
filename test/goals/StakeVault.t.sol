@@ -49,7 +49,6 @@ contract StakeVaultTest is Test {
     VaultMockTokens internal controllerTokens;
     VaultMockController internal controller;
     StakeVault internal vault;
-    bool internal _allTrackedBudgetsResolved = true;
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
@@ -87,8 +86,16 @@ contract StakeVaultTest is Test {
         return address(this);
     }
 
-    function allTrackedBudgetsResolved() external view returns (bool) {
-        return _allTrackedBudgetsResolved;
+    function registeredBudgetCount() external pure returns (uint256) {
+        return 0;
+    }
+
+    function registeredBudgetAt(uint256) external pure returns (address) {
+        return address(0);
+    }
+
+    function userAllocatedStakeOnBudget(address, address) external pure returns (uint256) {
+        return 0;
     }
 
     function test_constructor_revertsOnZeroAddresses() public {
@@ -551,14 +558,13 @@ contract StakeVaultTest is Test {
         vault.withdrawGoal(1e18, alice);
     }
 
-    function test_withdrawGoal_revertsWhenTrackedBudgetsUnresolved() public {
+    function test_withdrawGoal_revertsWhenNotPrepared() public {
         vm.prank(alice);
         vault.depositGoal(10e18);
         vault.markGoalResolved();
-        _allTrackedBudgetsResolved = false;
 
         vm.prank(alice);
-        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
         vault.withdrawGoal(1e18, alice);
     }
 
@@ -566,6 +572,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositGoal(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
@@ -576,6 +583,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositGoal(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
@@ -586,6 +594,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositGoal(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
@@ -600,6 +609,7 @@ contract StakeVaultTest is Test {
         assertEq(vault.weightOf(alice), 70e18);
 
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
         vm.prank(alice);
         vault.withdrawGoal(40e18, alice); // remove 40% of goal stake => remove 20e18 goal weight
 
@@ -614,6 +624,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositCobuild(20e18); // +20e18 cobuild-weight.
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vault.withdrawGoal(100e18, alice);
@@ -634,14 +645,13 @@ contract StakeVaultTest is Test {
         vault.withdrawCobuild(1e18, alice);
     }
 
-    function test_withdrawCobuild_revertsWhenTrackedBudgetsUnresolved() public {
+    function test_withdrawCobuild_revertsWhenNotPrepared() public {
         vm.prank(alice);
         vault.depositCobuild(10e18);
         vault.markGoalResolved();
-        _allTrackedBudgetsResolved = false;
 
         vm.prank(alice);
-        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
         vault.withdrawCobuild(1e18, alice);
     }
 
@@ -649,6 +659,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositCobuild(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
@@ -659,6 +670,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositCobuild(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.ADDRESS_ZERO.selector);
@@ -669,6 +681,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositCobuild(10e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.INSUFFICIENT_STAKED_BALANCE.selector);
@@ -679,6 +692,7 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vault.depositCobuild(30e18);
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vault.withdrawCobuild(10e18, alice);
@@ -707,6 +721,7 @@ contract StakeVaultTest is Test {
         selectiveVault.depositGoal(100e18);
 
         selectiveVault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(selectiveVault, alice);
         selective.setFeeFrom(address(selectiveVault));
 
         vm.prank(alice);
@@ -733,6 +748,7 @@ contract StakeVaultTest is Test {
         selectiveVault.depositCobuild(100e18);
 
         selectiveVault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(selectiveVault, alice);
         selective.setFeeFrom(address(selectiveVault));
 
         vm.prank(alice);
@@ -834,6 +850,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.startPrank(alice);
         vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
@@ -906,6 +923,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.startPrank(alice);
         vault.withdrawGoal(vault.stakedGoalOf(alice), alice);
@@ -932,6 +950,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
@@ -951,6 +970,7 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         vault.markGoalResolved();
+        _prepareUnderwriterWithdrawal(vault, alice);
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.JUROR_WITHDRAWAL_LOCKED.selector);
@@ -1699,6 +1719,11 @@ contract StakeVaultTest is Test {
                 ++count;
             }
         }
+    }
+
+    function _prepareUnderwriterWithdrawal(StakeVault targetVault, address underwriter) internal {
+        vm.prank(underwriter);
+        targetVault.prepareUnderwriterWithdrawal(type(uint256).max);
     }
 }
 

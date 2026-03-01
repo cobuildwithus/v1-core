@@ -127,6 +127,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             address(router),
             BUDGET_SLASH_PPM
         );
+        budgetTreasury.setPremiumEscrow(address(escrow));
 
         router.setAuthorizedPremiumEscrow(address(escrow), true);
     }
@@ -242,6 +243,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         vm.warp(budgetClosedAt);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+        delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
 
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
         uint256 slashWeight = delayedEscrow.slash(ALICE);
@@ -251,7 +253,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
     }
 
-    function test_goalResolvedDuringPendingSuccessAssertionDelay_ifWithdrawGateOpens_thenSlashCannotRecoverPrincipal()
+    function test_goalResolvedDuringPendingSuccessAssertionDelay_prepareBlocksWithdrawalUntilBudgetResolves()
         public
     {
         uint256 goalStake = 120e18;
@@ -287,7 +289,24 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         _expectWithdrawLocked(delayedVault);
 
-        delayedBudgetStakeLedger.setAllTrackedBudgetsResolved(true);
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        vm.warp(budgetClosedAt);
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+        delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
+
+        vm.prank(ALICE);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), assertionId);
+        assertLt(delayedVault.stakedGoalOf(ALICE), goalStake);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), cobuildStake);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
 
         vm.startPrank(ALICE);
         delayedVault.withdrawGoal(delayedVault.stakedGoalOf(ALICE), ALICE);
@@ -296,28 +315,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         assertEq(delayedVault.stakedGoalOf(ALICE), 0);
         assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
-        assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), assertionId);
-
-        vm.warp(budgetClosedAt);
-        vm.prank(address(delayedBudgetTreasury));
-        delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
-
-        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
-        uint256 slashWeight = delayedEscrow.slash(ALICE);
-
-        assertEq(slashWeight, 20e18);
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
-        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertLt(goalToken.balanceOf(ALICE), goalStake);
+        assertLt(cobuildToken.balanceOf(ALICE), cobuildStake);
     }
 
-    function test_regression_budgetResolvedBeforeSlash_withdrawThenSlashCannotRecoverPrincipal() public {
+    function test_regression_budgetResolvedBeforeWithdraw_prepareSlashesBeforePrincipalExit() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -347,32 +349,29 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         vm.warp(budgetClosedAt);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+        delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
 
-        delayedBudgetStakeLedger.setAllTrackedBudgetsResolved(true);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
 
-        uint256 goalStakeBeforeWithdraw = delayedVault.stakedGoalOf(ALICE);
-        uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
+        vm.prank(ALICE);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertLt(delayedVault.stakedGoalOf(ALICE), goalStake);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), cobuildStake);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+
         vm.startPrank(ALICE);
-        delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
-        delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
+        delayedVault.withdrawGoal(delayedVault.stakedGoalOf(ALICE), ALICE);
+        delayedVault.withdrawCobuild(delayedVault.stakedCobuildOf(ALICE), ALICE);
         vm.stopPrank();
 
         assertEq(delayedVault.stakedGoalOf(ALICE), 0);
         assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertLt(goalToken.balanceOf(ALICE), goalStake);
+        assertLt(cobuildToken.balanceOf(ALICE), cobuildStake);
 
-        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
         uint256 slashWeight = delayedEscrow.slash(ALICE);
-
-        assertEq(slashWeight, 20e18);
-        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
-        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
-        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
-        assertEq(goalToken.balanceOf(ALICE), goalStake);
-        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertEq(slashWeight, 0);
     }
 
     function test_goalResolvedDuringReassertGraceDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
@@ -430,6 +429,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint64 budgetClosedAt = uint64(block.timestamp);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+        delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
 
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
         uint256 slashWeight = delayedEscrow.slash(ALICE);
@@ -472,6 +472,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         vm.warp(budgetClosedAt);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+        delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
 
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
         uint256 slashWeight = delayedEscrow.slash(ALICE);
@@ -497,7 +498,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         )
     {
         delayedBudgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
-        delayedBudgetStakeLedger.setAllTrackedBudgetsResolved(false);
         delayedGoalTreasury =
             new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(delayedBudgetStakeLedger));
         delayedVault = new StakeVault(
@@ -533,6 +533,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
+        delayedBudgetStakeLedger.registerBudget(address(delayedBudgetTreasury));
 
         PremiumEscrow implementation = new PremiumEscrow();
         delayedEscrow = PremiumEscrow(Clones.clone(address(implementation)));
@@ -543,6 +544,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             address(delayedRouter),
             BUDGET_SLASH_PPM
         );
+        delayedBudgetTreasury.setPremiumEscrow(address(delayedEscrow));
         delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
         delayedBudgetStakeLedger.setCoverage(ALICE, address(delayedBudgetTreasury), budgetCoverage);
     }
@@ -552,9 +554,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
 
         vm.startPrank(ALICE);
-        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
         delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
-        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_LOCKED.selector);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
         delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
         vm.stopPrank();
     }
@@ -785,7 +787,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 contract UnderwritingMockBudgetStakeLedger {
     mapping(address account => mapping(address budgetTreasury => uint256 coverage)) internal _coverage;
     address internal _goalTreasury;
-    bool internal _allTrackedBudgetsResolved = true;
+    address[] internal _registeredBudgets;
+    mapping(address budget => bool exists) internal _isRegisteredBudget;
 
     function setCoverage(address account, address budgetTreasury, uint256 coverage) external {
         _coverage[account][budgetTreasury] = coverage;
@@ -799,12 +802,18 @@ contract UnderwritingMockBudgetStakeLedger {
         return _goalTreasury;
     }
 
-    function setAllTrackedBudgetsResolved(bool resolved_) external {
-        _allTrackedBudgetsResolved = resolved_;
+    function registerBudget(address budget) external {
+        if (_isRegisteredBudget[budget]) return;
+        _isRegisteredBudget[budget] = true;
+        _registeredBudgets.push(budget);
     }
 
-    function allTrackedBudgetsResolved() external view returns (bool) {
-        return _allTrackedBudgetsResolved;
+    function registeredBudgetCount() external view returns (uint256) {
+        return _registeredBudgets.length;
+    }
+
+    function registeredBudgetAt(uint256 index) external view returns (address) {
+        return _registeredBudgets[index];
     }
 
     function userAllocatedStakeOnBudget(address account, address budgetTreasury) external view returns (uint256) {
@@ -814,7 +823,10 @@ contract UnderwritingMockBudgetStakeLedger {
 
 contract UnderwritingMockBudgetTreasury {
     ISuperToken internal immutable _superToken;
+    IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Funding;
+    address public premiumEscrow;
     uint64 public activatedAt;
+    uint64 public resolvedAt;
     bytes32 public pendingSuccessAssertionId;
     uint64 public pendingSuccessAssertionAt;
     uint64 public reassertGraceDeadline;
@@ -828,8 +840,24 @@ contract UnderwritingMockBudgetTreasury {
         return _superToken;
     }
 
+    function setPremiumEscrow(address premiumEscrow_) external {
+        premiumEscrow = premiumEscrow_;
+    }
+
     function setActivatedAt(uint64 activatedAt_) external {
         activatedAt = activatedAt_;
+        if (activatedAt_ != 0 && state == IBudgetTreasury.BudgetState.Funding) {
+            state = IBudgetTreasury.BudgetState.Active;
+        }
+    }
+
+    function setResolvedAt(uint64 resolvedAt_, IBudgetTreasury.BudgetState state_) external {
+        resolvedAt = resolvedAt_;
+        state = state_;
+    }
+
+    function resolved() external view returns (bool) {
+        return resolvedAt != 0;
     }
 
     function registerSuccessAssertion(bytes32 assertionId) external {

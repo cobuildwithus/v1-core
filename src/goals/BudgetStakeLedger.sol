@@ -48,8 +48,10 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     mapping(address => BudgetCheckpoint) private _budgetCheckpoints;
     mapping(address => BudgetInfo) private _budgetInfo;
     mapping(bytes32 => address) private _budgetByRecipientId;
+    mapping(address => uint256) private _registeredBudgetIndexPlusOne;
 
     EnumerableSet.AddressSet private _trackedBudgets;
+    address[] private _registeredBudgets;
     mapping(address => mapping(address => Checkpoints.Trace224)) private _userAllocatedStakeCheckpoints;
     mapping(address => Checkpoints.Trace224) private _userAllocationWeightCheckpoints;
 
@@ -129,10 +131,17 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint64 activatedAt = _validateBudgetForRegistration(budget);
 
         address existing = _budgetByRecipientId[recipientId];
-        if (existing != address(0) && existing != budget) revert BUDGET_ALREADY_REGISTERED();
-        if (existing == budget) return;
+        if (existing != address(0)) {
+            if (existing != budget) revert BUDGET_ALREADY_REGISTERED();
+            return;
+        }
         BudgetInfo storage info = _budgetInfo[budget];
         if (info.isTracked) revert BUDGET_ALREADY_REGISTERED();
+
+        if (_registeredBudgetIndexPlusOne[budget] == 0) {
+            _registeredBudgets.push(budget);
+            _registeredBudgetIndexPlusOne[budget] = _registeredBudgets.length;
+        }
 
         _budgetByRecipientId[recipientId] = budget;
         info.isTracked = true;
@@ -177,6 +186,14 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     function trackedBudgetAt(uint256 index) external view override returns (address) {
         return _trackedBudgets.at(index);
+    }
+
+    function registeredBudgetCount() external view override returns (uint256) {
+        return _registeredBudgets.length;
+    }
+
+    function registeredBudgetAt(uint256 index) external view override returns (address) {
+        return _registeredBudgets[index];
     }
 
     function userAllocatedStakeOnBudget(address account, address budget) external view override returns (uint256) {

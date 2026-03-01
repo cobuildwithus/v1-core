@@ -4,6 +4,8 @@ pragma solidity ^0.8.34;
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
+import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
+import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
 import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
@@ -61,6 +63,9 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     mapping(address => JurorExitRequest) private _jurorExitRequest;
     mapping(address => Checkpoints.Trace224) private _jurorWeightCheckpoints;
     Checkpoints.Trace224 private _totalJurorWeightCheckpoints;
+    mapping(address => uint256) private _underwriterWithdrawalPrepareCursor;
+    mapping(address => uint64) private _underwriterWithdrawalPreparedForResolvedAt;
+    mapping(address => uint256) private _underwriterWithdrawalPreparedBudgetCount;
 
     uint256 public override totalStakedGoal;
     uint256 public override totalStakedCobuild;
@@ -146,7 +151,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function withdrawGoal(uint256 amount, address to) external override nonReentrant {
         if (!goalResolved) revert GOAL_NOT_RESOLVED();
-        _requireUnderwriterWithdrawalsUnlocked();
+        _requireUnderwriterWithdrawalPrepared(msg.sender);
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
@@ -170,7 +175,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function withdrawCobuild(uint256 amount, address to) external override nonReentrant {
         if (!goalResolved) revert GOAL_NOT_RESOLVED();
-        _requireUnderwriterWithdrawalsUnlocked();
+        _requireUnderwriterWithdrawalPrepared(msg.sender);
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
@@ -232,6 +237,49 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         goalResolved = true;
         goalResolvedAt = uint64(block.timestamp);
         emit GoalResolved();
+    }
+
+    function prepareUnderwriterWithdrawal(
+        uint256 maxBudgets
+    ) external override returns (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) {
+        if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        if (maxBudgets == 0) revert INVALID_AMOUNT();
+
+        address underwriter = msg.sender;
+        uint64 resolvedAt = goalResolvedAt;
+        IBudgetStakeLedger budgetStakeLedger = IBudgetStakeLedger(_requireBudgetStakeLedger());
+
+        uint256 cursor = _underwriterWithdrawalPrepareCursor[underwriter];
+        if (_underwriterWithdrawalPreparedForResolvedAt[underwriter] != resolvedAt) {
+            cursor = 0;
+            _underwriterWithdrawalPreparedBudgetCount[underwriter] = 0;
+            _underwriterWithdrawalPreparedForResolvedAt[underwriter] = 0;
+        }
+
+        budgetCount = budgetStakeLedger.registeredBudgetCount();
+        if (cursor > budgetCount) cursor = budgetCount;
+
+        uint256 endExclusive = cursor + maxBudgets;
+        if (endExclusive > budgetCount || endExclusive < cursor) endExclusive = budgetCount;
+
+        for (uint256 i = cursor; i < endExclusive; ) {
+            address budget = budgetStakeLedger.registeredBudgetAt(i);
+            _prepareUnderwriterForBudget(underwriter, budgetStakeLedger, budget);
+            unchecked {
+                ++i;
+            }
+        }
+
+        nextBudgetIndex = endExclusive;
+        _underwriterWithdrawalPrepareCursor[underwriter] = nextBudgetIndex;
+
+        complete = nextBudgetIndex == budgetCount;
+        if (complete) {
+            _underwriterWithdrawalPreparedForResolvedAt[underwriter] = resolvedAt;
+            _underwriterWithdrawalPreparedBudgetCount[underwriter] = budgetCount;
+        }
+
+        emit UnderwriterWithdrawalPrepared(underwriter, nextBudgetIndex, budgetCount, complete);
     }
 
     function optInAsJuror(uint256 goalAmount, uint256 cobuildAmount, address delegate) external override nonReentrant {
@@ -585,6 +633,22 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         return _totalWeight;
     }
 
+    function underwriterWithdrawalPrepareCursor(address underwriter) external view override returns (uint256) {
+        return _underwriterWithdrawalPrepareCursor[underwriter];
+    }
+
+    function underwriterWithdrawalPreparedForResolvedAt(
+        address underwriter
+    ) external view override returns (uint64) {
+        return _underwriterWithdrawalPreparedForResolvedAt[underwriter];
+    }
+
+    function underwriterWithdrawalPreparedBudgetCount(
+        address underwriter
+    ) external view override returns (uint256) {
+        return _underwriterWithdrawalPreparedBudgetCount[underwriter];
+    }
+
     function stakedGoalOf(address user) external view override returns (uint256) {
         return _stakedGoal[user];
     }
@@ -659,25 +723,64 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         }
     }
 
-    function _requireUnderwriterWithdrawalsUnlocked() private view {
-        if (!_underwriterWithdrawalsUnlocked()) revert UNDERWRITER_WITHDRAWAL_LOCKED();
+    function _requireUnderwriterWithdrawalPrepared(address underwriter) private view {
+        if (_underwriterWithdrawalPreparedForResolvedAt[underwriter] != goalResolvedAt) {
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+        }
+
+        IBudgetStakeLedger budgetStakeLedger = IBudgetStakeLedger(_requireBudgetStakeLedger());
+        uint256 budgetCount = budgetStakeLedger.registeredBudgetCount();
+        if (_underwriterWithdrawalPrepareCursor[underwriter] != budgetCount) {
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+        }
+        if (_underwriterWithdrawalPreparedBudgetCount[underwriter] != budgetCount) {
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+        }
     }
 
-    function _underwriterWithdrawalsUnlocked() private view returns (bool) {
-        if (goalTreasury.code.length == 0) return false;
+    function _prepareUnderwriterForBudget(
+        address underwriter,
+        IBudgetStakeLedger budgetStakeLedger,
+        address budget
+    ) private {
+        if (budget == address(0) || budget.code.length == 0) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
 
-        address budgetStakeLedger;
+        IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
+        address premiumEscrowAddress = budgetTreasury.premiumEscrow();
+        if (premiumEscrowAddress == address(0) || premiumEscrowAddress.code.length == 0) {
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+        }
+        IPremiumEscrow premiumEscrow = IPremiumEscrow(premiumEscrowAddress);
+
+        uint256 currentCoverage = budgetStakeLedger.userAllocatedStakeOnBudget(underwriter, budget);
+        bool hasExposure = currentCoverage != 0
+            || premiumEscrow.userCov(underwriter) != 0
+            || premiumEscrow.exposureIntegral(underwriter) != 0;
+
+        if (!budgetTreasury.resolved()) {
+            if (hasExposure) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+            return;
+        }
+
+        IBudgetTreasury.BudgetState state = budgetTreasury.state();
+        bool slashRequired = budgetTreasury.activatedAt() != 0
+            && (state == IBudgetTreasury.BudgetState.Failed || state == IBudgetTreasury.BudgetState.Expired);
+
+        if (!slashRequired || !hasExposure) return;
+
+        premiumEscrow.slash(underwriter);
+    }
+
+    function _requireBudgetStakeLedger() private view returns (address budgetStakeLedger) {
+        if (goalTreasury.code.length == 0) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+
         try IGoalTreasury(goalTreasury).budgetStakeLedger() returns (address ledger) {
             budgetStakeLedger = ledger;
         } catch {
-            return false;
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
         }
-        if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) return false;
-
-        try IBudgetStakeLedger(budgetStakeLedger).allTrackedBudgetsResolved() returns (bool resolved_) {
-            return resolved_;
-        } catch {
-            return false;
+        if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) {
+            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
         }
     }
 
