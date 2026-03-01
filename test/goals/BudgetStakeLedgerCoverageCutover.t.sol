@@ -67,6 +67,33 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(info.resolvedOrRemovedAt, 80);
     }
 
+    function test_registeredBudgetEnumeration_retainsRemovedBudgets() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        vm.prank(MANAGER);
+        ledger.removeBudget(SECOND_RECIPIENT);
+
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertEq(ledger.registeredBudgetCount(), 2);
+        assertEq(ledger.registeredBudgetAt(0), address(budget));
+        assertEq(ledger.registeredBudgetAt(1), address(secondBudget));
+    }
+
+    function test_registeredBudgetEnumeration_duplicateRegistrationDoesNotAppend() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        vm.startPrank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+        vm.stopPrank();
+
+        assertEq(ledger.trackedBudgetCount(), 2);
+        assertEq(ledger.registeredBudgetCount(), 2);
+        assertEq(ledger.registeredBudgetAt(0), address(budget));
+        assertEq(ledger.registeredBudgetAt(1), address(secondBudget));
+    }
+
     function test_allTrackedBudgetsResolved_ignoresRemovedBudgetsAndRequiresActiveTrackedResolved() public {
         BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
         vm.prank(MANAGER);

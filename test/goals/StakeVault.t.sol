@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 
@@ -566,6 +567,117 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
         vault.withdrawGoal(1e18, alice);
+    }
+
+    function test_prepareUnderwriterWithdrawal_partialBatch_keepsWithdrawLockedUntilComplete() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrowA = new VaultPreparePremiumEscrow();
+        VaultPreparePremiumEscrow escrowB = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury budgetA = new VaultPrepareBudgetTreasury(address(escrowA));
+        VaultPrepareBudgetTreasury budgetB = new VaultPrepareBudgetTreasury(address(escrowB));
+        budgetA.setResolved(true);
+        budgetB.setResolved(true);
+        budgetAwareLedger.addBudget(address(budgetA));
+        budgetAwareLedger.addBudget(address(budgetB));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) = budgetAwareVault.prepareUnderwriterWithdrawal(1);
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 2);
+        assertFalse(complete);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 1);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 0);
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+
+        vm.prank(alice);
+        (nextBudgetIndex, budgetCount, complete) = budgetAwareVault.prepareUnderwriterWithdrawal(1);
+        assertEq(nextBudgetIndex, 2);
+        assertEq(budgetCount, 2);
+        assertTrue(complete);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 2);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), budgetAwareVault.goalResolvedAt());
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 2);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
+    function test_prepareUnderwriterWithdrawal_revertsOnZeroMaxBudgets() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury budget = new VaultPrepareBudgetTreasury(address(escrow));
+        budget.setResolved(true);
+        budgetAwareLedger.addBudget(address(budget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.INVALID_AMOUNT.selector);
+        budgetAwareVault.prepareUnderwriterWithdrawal(0);
+    }
+
+    function test_withdrawGoal_relocksWhenRegisteredBudgetCountIncreasesAfterPrepare() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrowA = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury budgetA = new VaultPrepareBudgetTreasury(address(escrowA));
+        budgetA.setResolved(true);
+        budgetAwareLedger.addBudget(address(budgetA));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 1);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 1);
+
+        VaultPreparePremiumEscrow escrowB = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury budgetB = new VaultPrepareBudgetTreasury(address(escrowB));
+        budgetB.setResolved(true);
+        budgetAwareLedger.addBudget(address(budgetB));
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+
+        vm.prank(alice);
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 2);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 2);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
     }
 
     function test_withdrawGoal_revertsOnZeroAmount() public {
@@ -1725,6 +1837,31 @@ contract StakeVaultTest is Test {
         vm.prank(underwriter);
         targetVault.prepareUnderwriterWithdrawal(type(uint256).max);
     }
+
+    function _deployBudgetAwareVault()
+        internal
+        returns (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        )
+    {
+        budgetAwareLedger = new VaultPrepareBudgetStakeLedger();
+        budgetAwareGoalTreasury = new VaultPrepareGoalTreasury(address(budgetAwareLedger));
+        budgetAwareVault = new StakeVault(
+            address(budgetAwareGoalTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(budgetAwareVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(budgetAwareVault), type(uint256).max);
+    }
 }
 
 contract VaultMockRulesets {
@@ -1904,5 +2041,111 @@ contract VaultMockDecimalsToken is ERC20 {
 
     function decimals() public view override returns (uint8) {
         return _tokenDecimals;
+    }
+}
+
+contract VaultPrepareGoalTreasury {
+    address internal immutable _budgetStakeLedger;
+
+    constructor(address budgetStakeLedger_) {
+        _budgetStakeLedger = budgetStakeLedger_;
+    }
+
+    function budgetStakeLedger() external view returns (address) {
+        return _budgetStakeLedger;
+    }
+}
+
+contract VaultPrepareBudgetStakeLedger {
+    address[] internal _registeredBudgets;
+    mapping(address account => mapping(address budget => uint256 coverage)) internal _coverageByUserAndBudget;
+
+    function addBudget(address budget) external {
+        _registeredBudgets.push(budget);
+    }
+
+    function setCoverage(address account, address budget, uint256 coverage) external {
+        _coverageByUserAndBudget[account][budget] = coverage;
+    }
+
+    function registeredBudgetCount() external view returns (uint256) {
+        return _registeredBudgets.length;
+    }
+
+    function registeredBudgetAt(uint256 index) external view returns (address) {
+        return _registeredBudgets[index];
+    }
+
+    function userAllocatedStakeOnBudget(address account, address budget) external view returns (uint256) {
+        return _coverageByUserAndBudget[account][budget];
+    }
+}
+
+contract VaultPrepareBudgetTreasury {
+    address internal _premiumEscrow;
+    bool internal _resolved;
+    uint64 internal _activatedAt;
+    IBudgetTreasury.BudgetState internal _state;
+
+    constructor(address premiumEscrow_) {
+        _premiumEscrow = premiumEscrow_;
+        _state = IBudgetTreasury.BudgetState.Funding;
+    }
+
+    function setResolved(bool resolved_) external {
+        _resolved = resolved_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        _activatedAt = activatedAt_;
+    }
+
+    function setState(IBudgetTreasury.BudgetState state_) external {
+        _state = state_;
+    }
+
+    function setPremiumEscrow(address premiumEscrow_) external {
+        _premiumEscrow = premiumEscrow_;
+    }
+
+    function premiumEscrow() external view returns (address) {
+        return _premiumEscrow;
+    }
+
+    function resolved() external view returns (bool) {
+        return _resolved;
+    }
+
+    function state() external view returns (IBudgetTreasury.BudgetState) {
+        return _state;
+    }
+
+    function activatedAt() external view returns (uint64) {
+        return _activatedAt;
+    }
+}
+
+contract VaultPreparePremiumEscrow {
+    mapping(address account => uint256 cov) internal _userCov;
+    mapping(address account => uint256 integral) internal _exposureIntegral;
+
+    function setUserCov(address account, uint256 cov) external {
+        _userCov[account] = cov;
+    }
+
+    function setExposureIntegral(address account, uint256 integral) external {
+        _exposureIntegral[account] = integral;
+    }
+
+    function userCov(address account) external view returns (uint256) {
+        return _userCov[account];
+    }
+
+    function exposureIntegral(address account) external view returns (uint256) {
+        return _exposureIntegral[account];
+    }
+
+    function slash(address) external pure returns (uint256) {
+        return 0;
     }
 }
