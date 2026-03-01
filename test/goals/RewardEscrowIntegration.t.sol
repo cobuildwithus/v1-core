@@ -175,7 +175,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         assertEq(goalToken.balanceOf(address(rewardEscrow)), 0);
     }
 
-    function test_failedPath_collectsRentOnWithdraw_andSweepsRentToken() public {
+    function test_failedPath_sweepFailedAndBurn_doesNotBurnCobuildWhenVaultWithdrawalsDoNotAccrueRent() public {
         _stakeCobuild(alice, 100e18);
         _activateWithIncomingFlowAndHookFunding(100e18, other, INCOMING_FLOW_RATE);
         vm.warp(block.timestamp + 2 days);
@@ -185,35 +185,12 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         assertEq(rewardEscrow.finalState(), GOAL_EXPIRED);
 
         uint256 escrowCobuildBefore = cobuildToken.balanceOf(address(rewardEscrow));
+        uint256 aliceCobuildBefore = cobuildToken.balanceOf(alice);
         vm.prank(alice);
         vault.withdrawCobuild(100e18, alice);
-        uint256 collectedRent = cobuildToken.balanceOf(address(rewardEscrow)) - escrowCobuildBefore;
-        assertGt(collectedRent, 0);
-
-        vm.prank(alice);
-        (uint256 claimAmount, ) = rewardEscrow.claim(alice);
-        assertEq(claimAmount, 0);
-
-        uint256 treasuryCobuildBefore = cobuildToken.balanceOf(address(treasury));
-        vm.prank(address(treasury));
-        rewardEscrow.releaseFailedAssetsToTreasury();
-        assertEq(cobuildToken.balanceOf(address(treasury)) - treasuryCobuildBefore, collectedRent);
-    }
-
-    function test_failedPath_sweepFailedAndBurn_burnsCobuildOnDerivedCobuildRevnet() public {
-        _stakeCobuild(alice, 100e18);
-        _activateWithIncomingFlowAndHookFunding(100e18, other, INCOMING_FLOW_RATE);
-        vm.warp(block.timestamp + 2 days);
-
-        vm.warp(treasury.deadline());
-        treasury.sync();
-        assertEq(rewardEscrow.finalState(), GOAL_EXPIRED);
-
-        uint256 escrowCobuildBefore = cobuildToken.balanceOf(address(rewardEscrow));
-        vm.prank(alice);
-        vault.withdrawCobuild(100e18, alice);
-        uint256 collectedRent = cobuildToken.balanceOf(address(rewardEscrow)) - escrowCobuildBefore;
-        assertGt(collectedRent, 0);
+        uint256 escrowCobuildDelta = cobuildToken.balanceOf(address(rewardEscrow)) - escrowCobuildBefore;
+        assertEq(escrowCobuildDelta, 0);
+        assertEq(cobuildToken.balanceOf(alice) - aliceCobuildBefore, 100e18);
 
         uint256 derivedCobuildRevnetId = treasury.cobuildRevnetId();
         assertTrue(derivedCobuildRevnetId != 0);
@@ -227,7 +204,7 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         uint256 sweptGoalAmount = treasury.sweepFailedAndBurn();
 
         assertEq(harness.burnedTokenCountOf(goalRevnetId) - goalBurnBefore, sweptGoalAmount);
-        assertEq(harness.burnedTokenCountOf(derivedCobuildRevnetId) - cobuildBurnBefore, collectedRent);
+        assertEq(harness.burnedTokenCountOf(derivedCobuildRevnetId) - cobuildBurnBefore, 0);
     }
 
     function test_success_withNoSuccessfulBudgets_allowsGoalTreasurySweep() public {
@@ -360,128 +337,6 @@ contract RewardEscrowIntegrationTest is GoalRevnetFixtureBase {
         if (expectedBob > remainingAfterAlice) expectedBob = remainingAfterAlice;
         assertEq(bobClaim, expectedBob);
         assertEq(rewardEscrow.totalClaimed(), expectedAlice + expectedBob);
-    }
-
-    function test_success_claimCanBeCalledAgain_toCollectLaterRent() public {
-        _stakeCobuild(alice, 100e18);
-        _stakeCobuild(bob, 100e18);
-        _activateWithIncomingFlowAndHookFunding(100e18, other, INCOMING_FLOW_RATE);
-
-        MockRewardEscrowBudget budget = _addBudgetRecipient(WITHDRAW_BUDGET_RECIPIENT);
-
-        uint256 aliceWeight = vault.weightOf(alice);
-        uint256 bobWeight = vault.weightOf(bob);
-        _allocateToBudget(alice, WITHDRAW_BUDGET_RECIPIENT, aliceWeight);
-        _allocateToBudget(bob, WITHDRAW_BUDGET_RECIPIENT, bobWeight);
-        vm.warp(block.timestamp + 1 days);
-
-        uint64 resolvedAt = uint64(block.timestamp);
-        budget.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budget.setResolvedAt(resolvedAt);
-
-        _resolveGoalSuccessViaAssertion();
-
-        uint256 totalPoints = rewardEscrow.totalPointsSnapshot();
-        uint256 alicePoints = rewardEscrow.userPointsOnBudget(alice, address(budget));
-        uint256 bobPoints = rewardEscrow.userPointsOnBudget(bob, address(budget));
-        assertApproxEqAbs(totalPoints, alicePoints + bobPoints, POINT_ROUNDING_TOLERANCE);
-
-        vm.prank(alice);
-        rewardEscrow.claim(alice);
-
-        uint256 escrowCobuildBeforeWithdraw = cobuildToken.balanceOf(address(rewardEscrow));
-        vm.prank(alice);
-        vault.withdrawCobuild(100e18, alice);
-        uint256 rentInflow = cobuildToken.balanceOf(address(rewardEscrow)) - escrowCobuildBeforeWithdraw;
-        assertGt(rentInflow, 0);
-
-        uint256 expectedAliceRent = (rentInflow * alicePoints) / totalPoints;
-        uint256 expectedBobRent = (rentInflow * bobPoints) / totalPoints;
-
-        uint256 bobCobuildBefore = cobuildToken.balanceOf(bob);
-        vm.prank(bob);
-        rewardEscrow.claim(bob);
-        assertApproxEqAbs(cobuildToken.balanceOf(bob) - bobCobuildBefore, expectedBobRent, 1_000_000);
-
-        uint256 aliceCobuildBefore = cobuildToken.balanceOf(alice);
-        vm.prank(alice);
-        (uint256 secondAliceClaim, ) = rewardEscrow.claim(alice);
-        assertEq(secondAliceClaim, 0);
-        assertApproxEqAbs(cobuildToken.balanceOf(alice) - aliceCobuildBefore, expectedAliceRent, 1_000_000);
-    }
-
-    function test_success_claim_autoUnwrapsLateGoalSuperTokenRent() public {
-        _stakeCobuild(alice, 100e18);
-        _stakeCobuild(bob, 100e18);
-        _activateWithIncomingFlowAndHookFunding(100e18, other, INCOMING_FLOW_RATE);
-
-        MockRewardEscrowBudget budget = _addBudgetRecipient(SUCCESS_BUDGET_RECIPIENT);
-        uint256 aliceWeight = vault.weightOf(alice);
-        uint256 bobWeight = vault.weightOf(bob);
-        _allocateToBudget(alice, SUCCESS_BUDGET_RECIPIENT, aliceWeight);
-        _allocateToBudget(bob, SUCCESS_BUDGET_RECIPIENT, bobWeight);
-        vm.warp(block.timestamp + 1 days);
-
-        budget.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budget.setResolvedAt(uint64(block.timestamp));
-
-        _resolveGoalSuccessViaAssertion();
-
-        vm.prank(alice);
-        rewardEscrow.claim(alice);
-        vm.prank(bob);
-        rewardEscrow.claim(bob);
-
-        _mintAndUpgrade(other, 6e18);
-        vm.prank(other);
-        superToken.transfer(address(rewardEscrow), 6e18);
-        assertEq(superToken.balanceOf(address(rewardEscrow)), 6e18);
-
-        uint256 aliceGoalBefore = goalToken.balanceOf(alice);
-        vm.prank(alice);
-        (uint256 claimAmount, ) = rewardEscrow.claim(alice);
-
-        assertGt(claimAmount, 0);
-        assertEq(goalToken.balanceOf(alice) - aliceGoalBefore, claimAmount);
-        assertEq(superToken.balanceOf(address(rewardEscrow)), 0);
-    }
-
-    function test_success_secondClaimReturnsGoalRent_whenGoalStakeWithdrawn() public {
-        _stakeGoal(alice, 200e18);
-        _stakeGoal(bob, 200e18);
-        _activateWithIncomingFlowAndHookFunding(100e18, other, INCOMING_FLOW_RATE);
-
-        MockRewardEscrowBudget budget = _addBudgetRecipient(SUCCESS_BUDGET_RECIPIENT);
-        uint256 aliceWeight = vault.weightOf(alice);
-        uint256 bobWeight = vault.weightOf(bob);
-        _allocateToBudget(alice, SUCCESS_BUDGET_RECIPIENT, aliceWeight);
-        _allocateToBudget(bob, SUCCESS_BUDGET_RECIPIENT, bobWeight);
-        vm.warp(block.timestamp + 1 days);
-
-        uint64 resolvedAt = uint64(block.timestamp);
-        budget.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budget.setResolvedAt(resolvedAt);
-
-        _resolveGoalSuccessViaAssertion();
-
-        uint256 totalPoints = rewardEscrow.totalPointsSnapshot();
-        uint256 alicePoints = rewardEscrow.userPointsOnBudget(alice, address(budget));
-        uint256 bobPoints = rewardEscrow.userPointsOnBudget(bob, address(budget));
-
-        vm.prank(alice);
-        rewardEscrow.claim(alice);
-
-        uint256 escrowGoalBeforeWithdraw = goalToken.balanceOf(address(rewardEscrow));
-        vm.prank(alice);
-        vault.withdrawGoal(100e18, alice);
-        uint256 goalRentInflow = goalToken.balanceOf(address(rewardEscrow)) - escrowGoalBeforeWithdraw;
-        assertGt(goalRentInflow, 0);
-
-        uint256 expectedAliceGoalRent = (goalRentInflow * alicePoints) / totalPoints;
-
-        vm.prank(alice);
-        (uint256 secondClaim, ) = rewardEscrow.claim(alice);
-        assertApproxEqAbs(secondClaim, expectedAliceGoalRent, 1_000_000);
     }
 
     function test_slash_autoSyncCheckpointsBudgetStake() public {

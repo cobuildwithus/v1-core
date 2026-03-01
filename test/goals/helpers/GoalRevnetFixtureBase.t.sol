@@ -31,7 +31,6 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
 
 abstract contract GoalRevnetFixtureBase is FlowTestBase {
-    uint256 internal constant GOAL_RENT_RATE_WAD_PER_SECOND = 1e10;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
 
     struct GoalIntegrationConfig {
@@ -128,22 +127,13 @@ abstract contract GoalRevnetFixtureBase is FlowTestBase {
         treasury = GoalTreasury(payable(Clones.clone(address(treasuryImplementation))));
         hook = GoalRevnetSplitHook(payable(Clones.clone(address(hookImplementation))));
 
-        address predictedEscrow = address(0);
-        if (config.withRewardEscrow) {
-            uint64 nonce = vm.getNonce(address(this));
-            uint64 escrowNonceOffset = 2;
-            predictedEscrow = vm.computeCreateAddress(address(this), nonce + escrowNonceOffset);
-        }
-
         vault = new StakeVault(
             address(treasury),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
             IJBRulesets(address(revnets.rulesets())),
             goalRevnetId,
-            18,
-            predictedEscrow,
-            config.withRewardEscrow ? GOAL_RENT_RATE_WAD_PER_SECOND : 0
+            18
         );
         strategy.setStakeVault(address(vault));
 

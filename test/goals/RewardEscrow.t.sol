@@ -30,7 +30,7 @@ contract RewardEscrowTest is Test {
     bytes32 internal constant RECIPIENT_UNKNOWN = bytes32(uint256(99));
     bytes32 internal constant RECIPIENT_WARMUP = bytes32(uint256(100));
     bytes32 internal constant CLAIMED_EVENT_TOPIC =
-        keccak256("Claimed(address,address,uint256,uint256,uint256,uint256)");
+        keccak256("Claimed(address,address,uint256,uint256)");
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
@@ -186,8 +186,6 @@ contract RewardEscrowTest is Test {
         IRewardEscrow.ClaimPreview memory preview = escrow.previewClaim(alice);
         assertEq(preview.snapshotGoalAmount, 0);
         assertEq(preview.snapshotCobuildAmount, 0);
-        assertEq(preview.goalRentAmount, 0);
-        assertEq(preview.cobuildRentAmount, 0);
         assertEq(preview.totalGoalAmount, 0);
         assertEq(preview.totalCobuildAmount, 0);
         assertEq(preview.userPoints, 0);
@@ -220,13 +218,6 @@ contract RewardEscrowTest is Test {
         IRewardEscrow.ClaimPreview memory beforePreview = escrow.previewClaim(alice);
         assertFalse(beforePreview.snapshotClaimed);
         assertGt(beforePreview.snapshotGoalAmount, 0);
-        assertGt(beforePreview.goalRentAmount, 0);
-        assertGt(beforePreview.cobuildRentAmount, 0);
-        assertEq(beforePreview.totalGoalAmount, beforePreview.snapshotGoalAmount + beforePreview.goalRentAmount);
-        assertEq(
-            beforePreview.totalCobuildAmount,
-            beforePreview.snapshotCobuildAmount + beforePreview.cobuildRentAmount
-        );
 
         vm.prank(alice);
         (uint256 goalClaimed, uint256 cobuildClaimed) = escrow.claim(alice);
@@ -238,15 +229,11 @@ contract RewardEscrowTest is Test {
         assertTrue(afterCursor.snapshotClaimed);
         assertTrue(afterCursor.successfulPointsCached);
         assertGt(afterCursor.cachedSuccessfulPoints, 0);
-        assertEq(afterCursor.goalRentPerPointPaid, escrow.goalRentPerPointStored());
-        assertEq(afterCursor.cobuildRentPerPointPaid, escrow.cobuildRentPerPointStored());
 
         IRewardEscrow.ClaimPreview memory afterPreview = escrow.previewClaim(alice);
         assertTrue(afterPreview.snapshotClaimed);
         assertEq(afterPreview.snapshotGoalAmount, 0);
         assertEq(afterPreview.snapshotCobuildAmount, 0);
-        assertEq(afterPreview.goalRentAmount, 0);
-        assertEq(afterPreview.cobuildRentAmount, 0);
         assertEq(afterPreview.totalGoalAmount, 0);
         assertEq(afterPreview.totalCobuildAmount, 0);
     }
@@ -906,157 +893,6 @@ contract RewardEscrowTest is Test {
         assertEq(cobuildToken.balanceOf(address(escrow)), 0);
     }
 
-    function test_successZeroSnapshotPoints_lateRentInflows_claimPathDoesNotRevertAndSweepStillWorks() public {
-        bytes32[] memory ids = _ids1(RECIPIENT_B);
-        uint32[] memory scaled = _scaled1(1_000_000);
-
-        vm.warp(100);
-        _checkpointInitial(alice, 100, ids, scaled);
-
-        budgetB.setState(IBudgetTreasury.BudgetState.Failed);
-        budgetB.setResolvedAt(200);
-        budgetC.setState(IBudgetTreasury.BudgetState.Failed);
-        budgetC.setResolvedAt(200);
-
-        rewardToken.mint(address(escrow), 500e18);
-
-        vm.warp(240);
-        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
-
-        assertEq(escrow.totalPointsSnapshot(), 0);
-        assertEq(escrow.goalRentPerPointStored(), 0);
-        assertEq(escrow.totalGoalRentClaimed(), 0);
-
-        // Force cumulative > indexedTotal while snapshotPoints stays zero.
-        rewardToken.mint(address(escrow), 25e18);
-        cobuildToken.mint(address(escrow), 10e18);
-
-        IRewardEscrow.ClaimPreview memory preview = escrow.previewClaim(alice);
-        assertEq(preview.goalRentAmount, 0);
-        assertEq(preview.cobuildRentAmount, 0);
-        assertEq(preview.totalGoalAmount, 0);
-        assertEq(preview.totalCobuildAmount, 0);
-
-        vm.prank(alice);
-        (uint256 claimAmount, uint256 claimCobuildAmount) = escrow.claim(alice);
-        assertEq(claimAmount, 0);
-        assertEq(claimCobuildAmount, 0);
-        assertEq(escrow.goalRentPerPointStored(), 0);
-        assertEq(escrow.totalGoalRentClaimed(), 0);
-        assertEq(escrow.totalCobuildRentClaimed(), 0);
-
-        vm.prank(address(goalTreasury));
-        uint256 swept = escrow.releaseFailedAssetsToTreasury();
-
-        assertEq(swept, 525e18);
-        assertEq(rewardToken.balanceOf(address(goalTreasury)), 525e18);
-        assertEq(cobuildToken.balanceOf(address(goalTreasury)), 10e18);
-    }
-
-    function test_claim_revertsOnZeroRecipient_andSecondClaimReturnsZeroWithoutNewRent() public {
-        bytes32[] memory ids = _ids1(RECIPIENT_A);
-        uint32[] memory scaled = _scaled1(1_000_000);
-
-        vm.warp(100);
-        _checkpointInitial(alice, 10, ids, scaled);
-
-        budgetA.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budgetA.setResolvedAt(150);
-
-        rewardToken.mint(address(escrow), 100e18);
-
-        vm.warp(200);
-        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
-
-        vm.expectRevert(IRewardEscrow.ADDRESS_ZERO.selector);
-        vm.prank(alice);
-        escrow.claim(address(0));
-
-        vm.prank(alice);
-        (uint256 firstClaim, ) = escrow.claim(alice);
-        assertEq(firstClaim, 100e18);
-
-        vm.prank(alice);
-        (uint256 secondClaim, ) = escrow.claim(alice);
-        assertEq(secondClaim, 0);
-    }
-
-    function test_claim_secondClaimCollectsLateGoalRentProRata() public {
-        bytes32[] memory ids = _ids1(RECIPIENT_A);
-        uint32[] memory scaled = _scaled1(1_000_000);
-
-        vm.warp(100);
-        _checkpointInitial(alice, 60, ids, scaled);
-        _checkpointInitial(bob, 40, ids, scaled);
-
-        budgetA.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budgetA.setResolvedAt(200);
-
-        rewardToken.mint(address(escrow), 1_000e18);
-
-        vm.warp(200);
-        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
-
-        vm.prank(alice);
-        (uint256 aliceFirst, ) = escrow.claim(alice);
-        vm.prank(bob);
-        (uint256 bobFirst, ) = escrow.claim(bob);
-        assertApproxEqAbs(aliceFirst, 600e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(bobFirst, 400e18, RENT_ROUNDING_TOLERANCE);
-
-        rewardToken.mint(address(escrow), 100e18);
-
-        vm.prank(bob);
-        (uint256 bobSecond, ) = escrow.claim(bob);
-        vm.prank(alice);
-        (uint256 aliceSecond, ) = escrow.claim(alice);
-
-        assertApproxEqAbs(bobSecond, 40e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(aliceSecond, 60e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(rewardToken.balanceOf(alice), 660e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(rewardToken.balanceOf(bob), 440e18, RENT_ROUNDING_TOLERANCE);
-    }
-
-    function test_claim_secondClaimCollectsLateCobuildRentProRata() public {
-        bytes32[] memory ids = _ids1(RECIPIENT_A);
-        uint32[] memory scaled = _scaled1(1_000_000);
-
-        vm.warp(100);
-        _checkpointInitial(alice, 70, ids, scaled);
-        _checkpointInitial(bob, 30, ids, scaled);
-
-        budgetA.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budgetA.setResolvedAt(200);
-
-        rewardToken.mint(address(escrow), 1_000e18);
-
-        vm.warp(200);
-        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
-
-        vm.prank(alice);
-        (uint256 aliceFirstGoal, uint256 aliceFirstCobuild) = escrow.claim(alice);
-        vm.prank(bob);
-        (uint256 bobFirstGoal, uint256 bobFirstCobuild) = escrow.claim(bob);
-        assertApproxEqAbs(aliceFirstGoal, 700e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(bobFirstGoal, 300e18, RENT_ROUNDING_TOLERANCE);
-        assertEq(aliceFirstCobuild, 0);
-        assertEq(bobFirstCobuild, 0);
-
-        cobuildToken.mint(address(escrow), 100e18);
-
-        vm.prank(alice);
-        (uint256 aliceSecondGoal, uint256 aliceSecondCobuild) = escrow.claim(alice);
-        vm.prank(bob);
-        (uint256 bobSecondGoal, uint256 bobSecondCobuild) = escrow.claim(bob);
-
-        assertEq(aliceSecondGoal, 0);
-        assertEq(bobSecondGoal, 0);
-        assertApproxEqAbs(aliceSecondCobuild, 70e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(bobSecondCobuild, 30e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(cobuildToken.balanceOf(alice), 70e18, RENT_ROUNDING_TOLERANCE);
-        assertApproxEqAbs(cobuildToken.balanceOf(bob), 30e18, RENT_ROUNDING_TOLERANCE);
-    }
-
     function test_claim_emitsSingleConsolidatedEventWithAllAmounts() public {
         bytes32[] memory ids = _ids1(RECIPIENT_A);
         uint32[] memory scaled = _scaled1(1_000_000);
@@ -1080,8 +916,8 @@ contract RewardEscrowTest is Test {
         vm.prank(alice);
         (uint256 goalAmount, uint256 cobuildAmount) = escrow.claim(alice);
 
-        assertApproxEqAbs(goalAmount, 110e18, 1);
-        assertApproxEqAbs(cobuildAmount, 30e18, 1);
+        assertApproxEqAbs(goalAmount, 100e18, 1);
+        assertApproxEqAbs(cobuildAmount, 25e18, 1);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 claimLogCount;
@@ -1098,66 +934,10 @@ contract RewardEscrowTest is Test {
         assertEq(claimLog.topics[1], bytes32(uint256(uint160(alice))));
         assertEq(claimLog.topics[2], bytes32(uint256(uint160(alice))));
 
-        (uint256 rewardAmount, uint256 baseCobuildAmount, uint256 goalRentAmount, uint256 cobuildRentAmount) =
-            abi.decode(claimLog.data, (uint256, uint256, uint256, uint256));
+        (uint256 rewardAmount, uint256 baseCobuildAmount) = abi.decode(claimLog.data, (uint256, uint256));
         assertEq(rewardAmount, 100e18);
         assertEq(baseCobuildAmount, 25e18);
-        assertApproxEqAbs(goalRentAmount, 10e18, 1);
-        assertApproxEqAbs(cobuildRentAmount, 5e18, 1);
     }
-
-    function test_claim_secondClaimRentOnly_emitsSingleConsolidatedEvent() public {
-        bytes32[] memory ids = _ids1(RECIPIENT_A);
-        uint32[] memory scaled = _scaled1(1_000_000);
-
-        vm.warp(100);
-        _checkpointInitial(alice, 10, ids, scaled);
-
-        budgetA.setState(IBudgetTreasury.BudgetState.Succeeded);
-        budgetA.setResolvedAt(150);
-
-        rewardToken.mint(address(escrow), 100e18);
-        cobuildToken.mint(address(escrow), 25e18);
-
-        vm.warp(200);
-        _finalizeAsGoalTreasury(GOAL_SUCCEEDED);
-
-        vm.prank(alice);
-        escrow.claim(alice);
-
-        rewardToken.mint(address(escrow), 10e18);
-        cobuildToken.mint(address(escrow), 5e18);
-
-        vm.recordLogs();
-        vm.prank(alice);
-        (uint256 goalAmount, uint256 cobuildAmount) = escrow.claim(alice);
-
-        assertApproxEqAbs(goalAmount, 10e18, 1);
-        assertApproxEqAbs(cobuildAmount, 5e18, 1);
-
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        uint256 claimLogCount;
-        Vm.Log memory claimLog;
-        for (uint256 i = 0; i < logs.length; ++i) {
-            if (logs[i].topics.length > 0 && logs[i].topics[0] == CLAIMED_EVENT_TOPIC) {
-                ++claimLogCount;
-                claimLog = logs[i];
-            }
-        }
-
-        assertEq(claimLogCount, 1);
-        assertEq(claimLog.topics.length, 3);
-        assertEq(claimLog.topics[1], bytes32(uint256(uint160(alice))));
-        assertEq(claimLog.topics[2], bytes32(uint256(uint160(alice))));
-
-        (uint256 rewardAmount, uint256 baseCobuildAmount, uint256 goalRentAmount, uint256 cobuildRentAmount) =
-            abi.decode(claimLog.data, (uint256, uint256, uint256, uint256));
-        assertEq(rewardAmount, 0);
-        assertEq(baseCobuildAmount, 0);
-        assertApproxEqAbs(goalRentAmount, 10e18, 1);
-        assertApproxEqAbs(cobuildRentAmount, 5e18, 1);
-    }
-
     function test_claim_zeroPath_emitsSingleConsolidatedZeroEvent() public {
         rewardToken.mint(address(escrow), 100e18);
 
@@ -1185,12 +965,9 @@ contract RewardEscrowTest is Test {
         assertEq(claimLog.topics[1], bytes32(uint256(uint160(alice))));
         assertEq(claimLog.topics[2], bytes32(uint256(uint160(alice))));
 
-        (uint256 rewardAmount, uint256 baseCobuildAmount, uint256 goalRentAmount, uint256 cobuildRentAmount) =
-            abi.decode(claimLog.data, (uint256, uint256, uint256, uint256));
+        (uint256 rewardAmount, uint256 baseCobuildAmount) = abi.decode(claimLog.data, (uint256, uint256));
         assertEq(rewardAmount, 0);
         assertEq(baseCobuildAmount, 0);
-        assertEq(goalRentAmount, 0);
-        assertEq(cobuildRentAmount, 0);
     }
 
     function test_sweepFailed_revertsWhenNotFinalized() public {
@@ -1253,15 +1030,13 @@ contract RewardEscrowTest is Test {
 
         _finalizeAsGoalTreasury(GOAL_EXPIRED);
 
-        // Model rent arriving after finalization.
+        // Model late inflows arriving after finalization.
         rewardToken.mint(address(escrow), 25e18);
         cobuildToken.mint(address(escrow), 10e18);
 
         vm.prank(alice);
         (uint256 claimAmount, ) = escrow.claim(alice);
         assertEq(claimAmount, 0);
-        assertEq(escrow.totalGoalRentClaimed(), 0);
-        assertEq(escrow.totalCobuildRentClaimed(), 0);
 
         vm.prank(address(goalTreasury));
         uint256 swept = escrow.releaseFailedAssetsToTreasury();

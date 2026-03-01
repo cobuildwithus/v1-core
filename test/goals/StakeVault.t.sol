@@ -22,9 +22,7 @@ import { MockFeeOnTransferVotesToken } from "test/mocks/MockFeeOnTransferVotesTo
 import { MockSelectiveFeeVotesToken } from "test/mocks/MockSelectiveFeeVotesToken.sol";
 
 contract StakeVaultTest is Test {
-    uint256 internal constant GOAL_PROJECT_ID = 111;
-    uint256 internal constant RENT_RATE_WAD_PER_SECOND = 1e10;
-    bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
+    uint256 internal constant GOAL_PROJECT_ID = 111;    bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
     bytes4 internal constant SYNC_ALLOCATION_SELECTOR = ICustomFlow.syncAllocationForAccount.selector;
     bytes32 internal constant JUROR_OPTED_IN_EVENT_TOPIC =
         keccak256("JurorOptedIn(address,uint256,uint256,uint256,address)");
@@ -33,7 +31,7 @@ contract StakeVaultTest is Test {
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
-    address internal rentCollector = address(0xBEEF);
+    address internal slashRecipient = address(0xBEEF);
 
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
@@ -63,9 +61,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         goalToken.mint(alice, 1_000e18);
@@ -85,9 +81,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -158,9 +152,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -172,9 +164,7 @@ contract StakeVaultTest is Test {
             IERC20(address(0)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -186,9 +176,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(0)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -203,9 +191,7 @@ contract StakeVaultTest is Test {
             IERC20(address(token18)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -217,9 +203,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            78,
-            address(0),
-            0
+            78
         );
     }
 
@@ -231,38 +215,9 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            6,
-            address(0),
-            0
+            6
         );
     }
-
-    function test_constructor_revertsOnInvalidRentConfig() public {
-        vm.expectRevert(IStakeVault.INVALID_RENT_CONFIG.selector);
-        new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            address(0),
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.expectRevert(IStakeVault.INVALID_RENT_CONFIG.selector);
-        new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            0
-        );
-    }
-
     function test_constructor_revertsWhenGoalProjectControllerMissing() public {
         directory.setController(GOAL_PROJECT_ID, address(0));
 
@@ -273,9 +228,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -291,9 +244,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -315,9 +266,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
     }
 
@@ -404,9 +353,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         feeGoal.mint(alice, 100e18);
@@ -428,9 +375,7 @@ contract StakeVaultTest is Test {
             IERC20(address(feeCobuild)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         feeCobuild.mint(alice, 100e18);
@@ -467,9 +412,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken6)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            6,
-            address(0),
-            0
+            6
         );
 
         (uint256 out, uint112 goalWeight, uint256 weightRatio) = sixDecimalVault.quoteGoalToCobuildWeightRatio(10e6);
@@ -499,9 +442,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -518,9 +459,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         signal.setResolved(true);
@@ -540,9 +479,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -559,9 +496,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -576,9 +511,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -716,326 +649,6 @@ contract StakeVaultTest is Test {
         assertEq(vault.weightOf(alice), 20e18);
         assertEq(vault.totalWeight(), 20e18);
     }
-
-    function test_withdrawGoal_withholdsRent_andCapsAtGoalResolvedAt() public {
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        goalToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositGoal(100e18);
-
-        vm.warp(block.timestamp + 2 days);
-        rentVault.markGoalResolved();
-        vm.warp(block.timestamp + 3 days);
-
-        uint256 expectedRent = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
-        uint256 expectedNet = 10e18 - expectedRent;
-
-        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
-        uint256 aliceBefore = goalToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawGoal(10e18, alice);
-
-        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
-        assertEq(goalToken.balanceOf(alice) - aliceBefore, expectedNet);
-        assertEq(rentVault.pendingGoalRentOf(alice), 0);
-    }
-
-    function test_withdrawGoal_withDeadlineAfterResolution_stillCapsAtGoalResolvedAt() public {
-        uint64 deadlineTs = uint64(block.timestamp + 5 days);
-        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
-        StakeVault rentVault = new StakeVault(
-            address(deadlineTreasury),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        goalToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositGoal(100e18);
-
-        vm.warp(block.timestamp + 2 days);
-        vm.prank(address(deadlineTreasury));
-        rentVault.markGoalResolved();
-
-        vm.warp(block.timestamp + 3 days);
-
-        uint256 expectedRent = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
-        uint256 expectedNet = 10e18 - expectedRent;
-
-        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
-        uint256 aliceBefore = goalToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawGoal(10e18, alice);
-
-        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
-        assertEq(goalToken.balanceOf(alice) - aliceBefore, expectedNet);
-        assertEq(rentVault.pendingGoalRentOf(alice), 0);
-    }
-
-    function test_withdrawGoal_withholdsRent_andCapsAtGoalDeadlineWhenResolutionIsLate() public {
-        uint64 deadlineTs = uint64(block.timestamp + 2 days);
-        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
-        StakeVault rentVault = new StakeVault(
-            address(deadlineTreasury),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        goalToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositGoal(100e18);
-
-        vm.warp(block.timestamp + 3 days);
-        vm.prank(address(deadlineTreasury));
-        rentVault.markGoalResolved();
-
-        vm.warp(block.timestamp + 2 days);
-
-        uint256 expectedRent = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
-        uint256 expectedNet = 10e18 - expectedRent;
-
-        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
-        uint256 aliceBefore = goalToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawGoal(10e18, alice);
-
-        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
-        assertEq(goalToken.balanceOf(alice) - aliceBefore, expectedNet);
-        assertEq(rentVault.pendingGoalRentOf(alice), 0);
-    }
-
-    function test_withdrawCobuild_whenRentExceedsWithdrawal_withholdsFullAmount() public {
-        uint256 aggressiveRate = 1e14;
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            aggressiveRate
-        );
-
-        vm.prank(alice);
-        cobuildToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositCobuild(5e18);
-
-        vm.warp(block.timestamp + 1 days);
-        rentVault.markGoalResolved();
-
-        uint256 collectorBefore = cobuildToken.balanceOf(rentCollector);
-        uint256 aliceBefore = cobuildToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawCobuild(1e18, alice);
-
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorBefore, 1e18);
-        assertEq(cobuildToken.balanceOf(alice) - aliceBefore, 0);
-        assertGt(rentVault.pendingCobuildRentOf(alice), 0);
-        assertEq(rentVault.stakedCobuildOf(alice), 4e18);
-    }
-
-    function test_withdrawCobuild_partialWithdrawals_carryAndSettleRentDebt() public {
-        uint256 moderateRate = 4e12;
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            moderateRate
-        );
-
-        vm.prank(alice);
-        cobuildToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositCobuild(5e18);
-
-        skip(1 days);
-        rentVault.markGoalResolved();
-
-        uint256 expectedRent = Math.mulDiv(5e18, Math.mulDiv(moderateRate, 1 days, 1), 1e18);
-
-        uint256 collectorBefore = cobuildToken.balanceOf(rentCollector);
-        uint256 aliceBefore = cobuildToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawCobuild(1e18, alice);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorBefore, 1e18);
-        assertEq(cobuildToken.balanceOf(alice) - aliceBefore, 0);
-        assertEq(rentVault.stakedCobuildOf(alice), 4e18);
-
-        vm.prank(alice);
-        rentVault.withdrawCobuild(4e18, alice);
-
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
-        assertEq(cobuildToken.balanceOf(alice) - aliceBefore, 5e18 - expectedRent);
-        assertEq(rentVault.pendingCobuildRentOf(alice), 0);
-        assertEq(rentVault.stakedCobuildOf(alice), 0);
-    }
-
-    function test_withdrawCobuild_fullExit_clearsUncollectableRentDebt() public {
-        uint256 aggressiveRate = 2e14;
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            aggressiveRate
-        );
-
-        vm.prank(alice);
-        cobuildToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositCobuild(5e18);
-
-        skip(7 days);
-        rentVault.markGoalResolved();
-
-        vm.prank(alice);
-        rentVault.withdrawCobuild(5e18, alice);
-
-        assertEq(rentVault.stakedCobuildOf(alice), 0);
-        assertEq(rentVault.pendingCobuildRentOf(alice), 0);
-    }
-
-    function test_pendingRentViews_includeLiveAccrual_andFreezeAfterResolution() public {
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        cobuildToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositCobuild(50e18);
-
-        vm.warp(block.timestamp + 2 days);
-        uint256 expectedAtDay2 = Math.mulDiv(50e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
-        assertEq(rentVault.pendingCobuildRentOf(alice), expectedAtDay2);
-
-        rentVault.markGoalResolved();
-        uint256 pendingAtResolve = rentVault.pendingCobuildRentOf(alice);
-
-        vm.warp(block.timestamp + 3 days);
-        assertEq(rentVault.pendingCobuildRentOf(alice), pendingAtResolve);
-    }
-
-    function test_pendingRentViews_capAtGoalDeadlineWhileUnresolved() public {
-        uint64 deadlineTs = uint64(block.timestamp + 2 days);
-        VaultGoalTreasuryWithDeadline deadlineTreasury = new VaultGoalTreasuryWithDeadline(deadlineTs);
-        StakeVault rentVault = new StakeVault(
-            address(deadlineTreasury),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        cobuildToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositCobuild(50e18);
-
-        vm.warp(deadlineTs + 1 days);
-        uint256 expectedAtDeadline = Math.mulDiv(50e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 2 days, 1), 1e18);
-        uint256 pendingAfterDeadline = rentVault.pendingCobuildRentOf(alice);
-        assertEq(pendingAfterDeadline, expectedAtDeadline);
-
-        vm.warp(deadlineTs + 3 days);
-        assertEq(rentVault.pendingCobuildRentOf(alice), pendingAfterDeadline);
-    }
-
-    function test_secondDeposit_accruesPriorStakeRentBeforeIncreasingPrincipal() public {
-        StakeVault rentVault = new StakeVault(
-            address(this),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18,
-            rentCollector,
-            RENT_RATE_WAD_PER_SECOND
-        );
-
-        vm.prank(alice);
-        goalToken.approve(address(rentVault), type(uint256).max);
-
-        vm.prank(alice);
-        rentVault.depositGoal(100e18);
-
-        skip(1 days);
-        vm.prank(alice);
-        rentVault.depositGoal(100e18);
-
-        skip(1 days);
-        rentVault.markGoalResolved();
-
-        uint256 expectedRentFirstInterval = Math.mulDiv(100e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 1 days, 1), 1e18);
-        uint256 expectedRentSecondInterval = Math.mulDiv(200e18, Math.mulDiv(RENT_RATE_WAD_PER_SECOND, 1 days, 1), 1e18);
-        uint256 expectedRent = expectedRentFirstInterval + expectedRentSecondInterval;
-
-        uint256 collectorBefore = goalToken.balanceOf(rentCollector);
-        uint256 aliceBefore = goalToken.balanceOf(alice);
-
-        vm.prank(alice);
-        rentVault.withdrawGoal(200e18, alice);
-
-        assertEq(goalToken.balanceOf(rentCollector) - collectorBefore, expectedRent);
-        assertEq(goalToken.balanceOf(alice) - aliceBefore, 200e18 - expectedRent);
-        assertEq(rentVault.pendingGoalRentOf(alice), 0);
-    }
-
     function test_withdrawGoal_revertsOnFeeDuringVaultTransfer() public {
         MockSelectiveFeeVotesToken selective = new MockSelectiveFeeVotesToken("Goal", "GOAL", 100, address(0xFEE));
 
@@ -1045,9 +658,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         selective.mint(alice, 100e18);
@@ -1073,9 +684,7 @@ contract StakeVaultTest is Test {
             IERC20(address(selective)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         selective.mint(alice, 100e18);
@@ -1232,13 +841,13 @@ contract StakeVaultTest is Test {
         assertEq(vault.jurorWeightOf(alice), 0);
         assertEq(vault.totalJurorWeight(), 0);
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, snapshotWeight / 2, rentCollector);
+        vault.slashJurorStake(alice, snapshotWeight / 2, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 40e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 40e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 40e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 40e18);
 
         assertEq(vault.stakedGoalOf(alice), 60e18);
         assertEq(vault.stakedCobuildOf(alice), 60e18);
@@ -1268,13 +877,13 @@ contract StakeVaultTest is Test {
 
         vault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, 60e18, rentCollector);
+        vault.slashJurorStake(alice, 60e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector), collectorGoalBefore);
-        assertEq(cobuildToken.balanceOf(rentCollector), collectorCobuildBefore);
+        assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
+        assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
     }
 
     function test_withdrawGoal_revertsWhenTryingToWithdrawLockedJurorStake() public {
@@ -1326,15 +935,15 @@ contract StakeVaultTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(IStakeVault.ONLY_JUROR_SLASHER.selector);
-        vault.slashJurorStake(alice, 15e18, rentCollector);
+        vault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, 15e18, rentCollector);
+        vault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 10e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
 
         assertEq(vault.stakedGoalOf(alice), 90e18);
         assertEq(vault.stakedCobuildOf(alice), 90e18);
@@ -1368,13 +977,13 @@ contract StakeVaultTest is Test {
 
         vault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, type(uint256).max, rentCollector);
+        vault.slashJurorStake(alice, type(uint256).max, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 100e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 40e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 100e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 40e18);
 
         assertEq(vault.stakedGoalOf(alice), 0);
         assertEq(vault.stakedCobuildOf(alice), 0);
@@ -1396,9 +1005,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1415,7 +1022,7 @@ contract StakeVaultTest is Test {
         vm.prank(address(treasuryWithFlow));
         syncingVault.setJurorSlasher(address(this));
 
-        syncingVault.slashJurorStake(alice, 15e18, rentCollector);
+        syncingVault.slashJurorStake(alice, 15e18, slashRecipient);
 
         assertEq(recordingFlow.syncCallCount(), 1);
         assertEq(recordingFlow.lastSyncedAccount(), alice);
@@ -1430,9 +1037,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1449,13 +1054,13 @@ contract StakeVaultTest is Test {
         vm.prank(address(treasuryWithFlow));
         syncingVault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        syncingVault.slashJurorStake(alice, 15e18, rentCollector);
+        syncingVault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 10e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
         assertEq(syncingVault.weightOf(alice), 135e18);
     }
 
@@ -1468,9 +1073,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1487,16 +1090,16 @@ contract StakeVaultTest is Test {
         vm.prank(address(treasuryWithFlow));
         syncingVault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "SYNC_FAILURE");
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(revertingFlow), SYNC_ALLOCATION_SELECTOR, expectedReason);
-        syncingVault.slashJurorStake(alice, 15e18, rentCollector);
+        syncingVault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 10e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
         assertEq(syncingVault.weightOf(alice), 135e18);
     }
 
@@ -1508,9 +1111,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1527,16 +1128,16 @@ contract StakeVaultTest is Test {
         vm.prank(address(treasuryWithRevertingLookup));
         syncingVault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "FLOW_LOOKUP_FAILURE");
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(treasuryWithRevertingLookup), FLOW_LOOKUP_SELECTOR, expectedReason);
-        syncingVault.slashJurorStake(alice, 15e18, rentCollector);
+        syncingVault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 10e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
         assertEq(syncingVault.weightOf(alice), 135e18);
     }
 
@@ -1550,9 +1151,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1569,16 +1168,16 @@ contract StakeVaultTest is Test {
         vm.prank(address(legacyForwarder));
         syncingVault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "BUDGET_TREASURY_ONLY");
 
         vm.expectEmit(true, true, true, true, address(syncingVault));
         emit AllocationSyncFailed(alice, address(legacyForwarder), FLOW_LOOKUP_SELECTOR, expectedReason);
-        syncingVault.slashJurorStake(alice, 15e18, rentCollector);
+        syncingVault.slashJurorStake(alice, 15e18, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 10e18);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 10e18);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 10e18);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 10e18);
         assertEq(recordingFlow.syncCallCount(), 0);
     }
 
@@ -1591,9 +1190,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1611,9 +1208,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -1641,9 +1236,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(bob);
@@ -1665,9 +1258,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1684,9 +1275,7 @@ contract StakeVaultTest is Test {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         vm.prank(alice);
@@ -1709,13 +1298,13 @@ contract StakeVaultTest is Test {
 
         vault.setJurorSlasher(address(this));
 
-        uint256 collectorGoalBefore = goalToken.balanceOf(rentCollector);
-        uint256 collectorCobuildBefore = cobuildToken.balanceOf(rentCollector);
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, 1e15, rentCollector);
+        vault.slashJurorStake(alice, 1e15, slashRecipient);
 
-        assertEq(goalToken.balanceOf(rentCollector) - collectorGoalBefore, 0);
-        assertEq(cobuildToken.balanceOf(rentCollector) - collectorCobuildBefore, 1e15);
+        assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 0);
+        assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 1e15);
 
         assertEq(vault.stakedGoalOf(alice), 1);
         assertEq(vault.jurorLockedGoalOf(alice), 1);

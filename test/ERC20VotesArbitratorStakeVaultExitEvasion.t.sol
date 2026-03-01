@@ -135,9 +135,7 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
             IERC20(address(cobuildToken)),
             IJBRulesets(address(rulesets)),
             GOAL_PROJECT_ID,
-            18,
-            address(0),
-            0
+            18
         );
 
         _seedJurorStake(juror1);

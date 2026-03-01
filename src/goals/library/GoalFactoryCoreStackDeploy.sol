@@ -45,9 +45,6 @@ library GoalFactoryCoreStackDeploy {
         string flowTagline;
         string flowUrl;
         uint32 managerRewardPoolFlowRatePpm;
-        address rentRecipient;
-        uint256 rentWadPerSecond;
-        address burnAddress;
         uint64 minRaiseDeadline;
         uint256 minRaise;
         uint32 successSettlementRewardEscrowPpm;
@@ -88,9 +85,7 @@ library GoalFactoryCoreStackDeploy {
             cobuildToken,
             request.rulesets,
             request.goalRevnetId,
-            request.cobuildDecimals,
-            request.rentRecipient == address(0) ? request.burnAddress : request.rentRecipient,
-            request.rentWadPerSecond
+            request.cobuildDecimals
         );
 
         out.budgetStakeLedger = new BudgetStakeLedger(address(out.goalTreasury));

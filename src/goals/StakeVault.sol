@@ -20,7 +20,6 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { StakeVaultRentMath } from "./library/StakeVaultRentMath.sol";
 import { StakeVaultJurorMath } from "./library/StakeVaultJurorMath.sol";
 import { StakeVaultSlashMath } from "./library/StakeVaultSlashMath.sol";
 
@@ -35,8 +34,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     IERC20 public immutable override cobuildToken;
     address public immutable override goalTreasury;
     uint8 public immutable override paymentTokenDecimals;
-    address public immutable override rentRecipient;
-    uint256 public immutable override rentWadPerSecond;
 
     IJBRulesets public immutable goalRulesets;
     uint256 public immutable goalRevnetId;
@@ -48,9 +45,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     mapping(address => uint256) private _stakedGoal;
     mapping(address => uint256) private _stakedCobuild;
     mapping(address => uint256) private _goalWeight;
-    mapping(address => uint64) private _rentLastCheckpoint;
-    mapping(address => uint256) private _pendingGoalRent;
-    mapping(address => uint256) private _pendingCobuildRent;
     mapping(address => uint256) private _jurorLockedGoal;
     mapping(address => uint256) private _jurorLockedCobuild;
     mapping(address => uint256) private _jurorLockedGoalWeight;
@@ -80,15 +74,12 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         IERC20 cobuildToken_,
         IJBRulesets goalRulesets_,
         uint256 goalRevnetId_,
-        uint8 paymentTokenDecimals_,
-        address rentRecipient_,
-        uint256 rentWadPerSecond_
+        uint8 paymentTokenDecimals_
     ) {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
         if (address(goalToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(cobuildToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(goalRulesets_) == address(0)) revert ADDRESS_ZERO();
-        if ((rentRecipient_ == address(0)) != (rentWadPerSecond_ == 0)) revert INVALID_RENT_CONFIG();
         if (address(goalRulesets_).code.length != 0) {
             _requireGoalTokenRevnetLink(goalToken_, goalRulesets_, goalRevnetId_);
         }
@@ -108,15 +99,11 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         goalRevnetId = goalRevnetId_;
         paymentTokenDecimals = paymentTokenDecimals_;
         _goalWeightRatio = 10 ** paymentTokenDecimals_;
-        rentRecipient = rentRecipient_;
-        rentWadPerSecond = rentWadPerSecond_;
     }
 
     function depositGoal(uint256 amount) external override nonReentrant {
         if (goalResolved) revert GOAL_ALREADY_RESOLVED();
         if (amount == 0) revert INVALID_AMOUNT();
-
-        _accrueRent(msg.sender, uint64(block.timestamp));
 
         uint256 balanceBefore = goalToken.balanceOf(address(this));
         goalToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -142,8 +129,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount == 0) revert INVALID_AMOUNT();
         _requireStakingOpen();
 
-        _accrueRent(msg.sender, uint64(block.timestamp));
-
         uint256 balanceBefore = cobuildToken.balanceOf(address(this));
         cobuildToken.safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = cobuildToken.balanceOf(address(this)) - balanceBefore;
@@ -162,13 +147,9 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
-        _accrueRent(msg.sender, uint64(block.timestamp));
-
         uint256 staked = _stakedGoal[msg.sender];
         if (amount > staked) revert INSUFFICIENT_STAKED_BALANCE();
         if (amount > staked - _jurorLockedGoal[msg.sender]) revert JUROR_WITHDRAWAL_LOCKED();
-
-        (uint256 rentPaid, uint256 netAmount) = _applyRentPayment(_pendingGoalRent, msg.sender, staked, amount);
 
         uint256 goalWeightForUser = _goalWeight[msg.sender];
         uint256 weightReduction = amount == staked ? goalWeightForUser : Math.mulDiv(goalWeightForUser, amount, staked);
@@ -180,17 +161,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         _clampJurorGoalWeight(msg.sender);
         _setJurorWeight(msg.sender, _jurorLockedGoalWeight[msg.sender] + _jurorLockedCobuild[msg.sender]);
-
-        if (rentPaid != 0) {
-            _safeTransferExact(goalToken, rentRecipient, rentPaid);
-            emit RentPaid(msg.sender, address(goalToken), rentPaid);
-        }
-
-        if (netAmount != 0) {
-            _safeTransferExact(goalToken, to, netAmount);
-        }
-
-        emit GoalWithdrawn(msg.sender, to, netAmount);
+        _safeTransferExact(goalToken, to, amount);
+        emit GoalWithdrawn(msg.sender, to, amount);
     }
 
     function withdrawCobuild(uint256 amount, address to) external override nonReentrant {
@@ -198,28 +170,15 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
 
-        _accrueRent(msg.sender, uint64(block.timestamp));
-
         uint256 staked = _stakedCobuild[msg.sender];
         if (amount > staked) revert INSUFFICIENT_STAKED_BALANCE();
         if (amount > staked - _jurorLockedCobuild[msg.sender]) revert JUROR_WITHDRAWAL_LOCKED();
 
-        (uint256 rentPaid, uint256 netAmount) = _applyRentPayment(_pendingCobuildRent, msg.sender, staked, amount);
-
         _stakedCobuild[msg.sender] = staked - amount;
         totalStakedCobuild -= amount;
         _totalWeight -= amount;
-
-        if (rentPaid != 0) {
-            _safeTransferExact(cobuildToken, rentRecipient, rentPaid);
-            emit RentPaid(msg.sender, address(cobuildToken), rentPaid);
-        }
-
-        if (netAmount != 0) {
-            _safeTransferExact(cobuildToken, to, netAmount);
-        }
-
-        emit CobuildWithdrawn(msg.sender, to, netAmount);
+        _safeTransferExact(cobuildToken, to, amount);
+        emit CobuildWithdrawn(msg.sender, to, amount);
     }
 
     function _requireGoalTokenRevnetLink(
@@ -275,8 +234,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (goalResolved) revert GOAL_ALREADY_RESOLVED();
         if (goalAmount == 0 && cobuildAmount == 0) revert INVALID_JUROR_LOCK();
 
-        _accrueRent(msg.sender, uint64(block.timestamp));
-
         uint256 stakedGoal = _stakedGoal[msg.sender];
         uint256 stakedCobuild = _stakedCobuild[msg.sender];
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
@@ -318,8 +275,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     function requestJurorExit(uint256 goalAmount, uint256 cobuildAmount) external override nonReentrant {
         if (goalAmount == 0 && cobuildAmount == 0) revert INVALID_JUROR_LOCK();
 
-        _accrueRent(msg.sender, uint64(block.timestamp));
-
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
         uint256 lockedCobuild = _jurorLockedCobuild[msg.sender];
         if (goalAmount > lockedGoal) revert INSUFFICIENT_STAKED_BALANCE();
@@ -345,8 +300,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             exitDelayStart = resolvedAt;
         }
         if (block.timestamp < uint256(exitDelayStart) + JUROR_EXIT_DELAY) revert EXIT_NOT_READY();
-
-        _accrueRent(msg.sender, uint64(block.timestamp));
 
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
         uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
@@ -403,8 +356,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (msg.sender != jurorSlasher) revert ONLY_JUROR_SLASHER();
         if (recipient == address(0)) revert ADDRESS_ZERO();
         if (weightAmount == 0) return;
-
-        _accrueRent(juror, uint64(block.timestamp));
 
         uint256 currentStakeWeight = _stakeWeightOf(juror);
         if (currentStakeWeight == 0) return;
@@ -578,24 +529,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         return _totalJurorWeightCheckpoints.upperLookupRecent(SafeCast.toUint32(blockNumber));
     }
 
-    function pendingGoalRentOf(address user) external view override returns (uint256) {
-        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return _pendingGoalRent[user];
-        uint64 cutoff = _rentAccrualCutoff(uint64(block.timestamp));
-        return
-            _pendingGoalRent[user] +
-            StakeVaultRentMath.previewAdditionalRent(_rentLastCheckpoint[user], cutoff, _stakedGoal[user], rentWadPerSecond);
-    }
-
-    function pendingCobuildRentOf(address user) external view override returns (uint256) {
-        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return _pendingCobuildRent[user];
-        uint64 cutoff = _rentAccrualCutoff(uint64(block.timestamp));
-        return
-            _pendingCobuildRent[user] +
-            StakeVaultRentMath.previewAdditionalRent(
-                _rentLastCheckpoint[user], cutoff, _stakedCobuild[user], rentWadPerSecond
-            );
-    }
-
     function quoteGoalToCobuildWeightRatio(
         uint256 goalAmount
     ) public view override returns (uint256 weightOut, uint112 goalWeight, uint256 weightRatio) {
@@ -679,56 +612,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         request.goalAmount = StakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
         request.cobuildAmount = StakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
-    }
-
-    function _accrueRent(address account, uint64 nowTs) internal {
-        if (rentWadPerSecond == 0 || rentRecipient == address(0)) return;
-
-        (_rentLastCheckpoint[account], _pendingGoalRent[account], _pendingCobuildRent[account]) = StakeVaultRentMath
-            .accrueRent(
-                _rentLastCheckpoint[account],
-                _rentAccrualCutoff(nowTs),
-                _stakedGoal[account],
-                _stakedCobuild[account],
-                _pendingGoalRent[account],
-                _pendingCobuildRent[account],
-                rentWadPerSecond
-            );
-    }
-
-    function _applyRentPayment(
-        mapping(address => uint256) storage pendingRent,
-        address user,
-        uint256 staked,
-        uint256 amount
-    ) internal returns (uint256 rentPaid, uint256 netAmount) {
-        uint256 rentDue = pendingRent[user];
-        rentPaid = rentDue > amount ? amount : rentDue;
-        if (amount == staked) {
-            pendingRent[user] = 0;
-        } else if (rentPaid != 0) {
-            pendingRent[user] = rentDue - rentPaid;
-        }
-        netAmount = amount - rentPaid;
-    }
-
-    function _rentAccrualCutoff(uint64 nowTs) internal view returns (uint64 cutoff) {
-        cutoff = StakeVaultRentMath.accrualCutoff(nowTs, goalResolvedAt);
-
-        uint64 deadlineTs = _goalTreasuryDeadline();
-        if (deadlineTs != 0 && deadlineTs < cutoff) {
-            cutoff = deadlineTs;
-        }
-    }
-
-    function _goalTreasuryDeadline() internal view returns (uint64 deadlineTs) {
-        if (goalTreasury.code.length == 0) return 0;
-
-        try IGoalTreasury(goalTreasury).deadline() returns (uint64 resolvedDeadline) {
-            return resolvedDeadline;
-        } catch {
-            return 0;
-        }
     }
 
     function _stakeWeightOf(address user) internal view returns (uint256) {
