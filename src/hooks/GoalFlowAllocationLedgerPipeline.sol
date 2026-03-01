@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccountResolver.sol";
-import { IAllocationPipeline } from "../interfaces/IAllocationPipeline.sol";
-import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
-import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
-import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
-import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
-import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
+import {IAllocationKeyAccountResolver} from "../interfaces/IAllocationKeyAccountResolver.sol";
+import {IAllocationPipeline} from "../interfaces/IAllocationPipeline.sol";
+import {IAllocationStrategy} from "../interfaces/IAllocationStrategy.sol";
+import {IBudgetStakeLedger} from "../interfaces/IBudgetStakeLedger.sol";
+import {IBudgetTreasuryPremiumEscrow} from "../interfaces/IBudgetTreasuryPremiumEscrow.sol";
+import {ICustomFlow, IFlow} from "../interfaces/IFlow.sol";
+import {IPremiumEscrow} from "../interfaces/IPremiumEscrow.sol";
+import {FlowProtocolConstants} from "../library/FlowProtocolConstants.sol";
+import {GoalFlowLedgerMode} from "../library/GoalFlowLedgerMode.sol";
 
 /**
  * @notice Allocation pipeline that checkpoints to BudgetStakeLedger and optionally executes child syncs.
@@ -19,6 +21,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
     mapping(address flow => GoalFlowLedgerMode.ValidationCache cache) private _validationCacheByFlow;
 
     error INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(address strategy, uint256 allocationKey);
+    error INVALID_BUDGET_PREMIUM_ESCROW(address budgetTreasury, address premiumEscrow);
 
     event ChildAllocationSyncAttempted(
         address indexed budgetTreasury,
@@ -63,13 +66,8 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address ledger = allocationLedger;
         if (ledger == address(0)) return;
 
-        (address account, uint256 resolvedWeight, bool shouldCheckpoint) = _prepareCommittedCheckpoint(
-            flow,
-            ledger,
-            strategy,
-            allocationKey,
-            newWeight
-        );
+        (address account, uint256 resolvedWeight, bool shouldCheckpoint) =
+            _prepareCommittedCheckpoint(flow, ledger, strategy, allocationKey, newWeight);
         if (!shouldCheckpoint) return;
 
         address[] memory changedBudgetTreasuries = _checkpointAndDetectBudgetDeltas(
@@ -84,6 +82,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         );
         if (changedBudgetTreasuries.length == 0) return;
 
+        _checkpointPremiumEscrows(account, changedBudgetTreasuries);
         _executeAndEmitChildSync(account, changedBudgetTreasuries, flow, strategy, allocationKey);
     }
 
@@ -94,18 +93,12 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 allocationKey,
         uint256 committedWeight
     ) private returns (address account, uint256 resolvedWeight, bool shouldCheckpoint) {
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
+        (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies) =
+            _cacheWithStrategies(flow, ledger);
 
         account = _accountForAllocationKey(strategy, allocationKey);
         (resolvedWeight, shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextFromCommittedWeight(
-            strategies,
-            cache,
-            ledger,
-            committedWeight,
-            flow
+            strategies, cache, ledger, committedWeight, flow
         );
     }
 
@@ -119,20 +112,9 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationsScaled
     ) private returns (address[] memory changedBudgetTreasuries) {
-        IBudgetStakeLedger(ledger).checkpointAllocation(
-            account,
-            prevWeight,
-            prevRecipientIds,
-            prevAllocationsScaled,
-            resolvedWeight,
-            newRecipientIds,
-            newAllocationsScaled
-        );
-
-        return
-            GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-                FlowProtocolConstants.PPM_SCALE_UINT256,
-                ledger,
+        IBudgetStakeLedger(ledger)
+            .checkpointAllocation(
+                account,
                 prevWeight,
                 prevRecipientIds,
                 prevAllocationsScaled,
@@ -140,6 +122,17 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                 newRecipientIds,
                 newAllocationsScaled
             );
+
+        return GoalFlowLedgerMode.detectBudgetDeltasCalldata(
+            FlowProtocolConstants.PPM_SCALE_UINT256,
+            ledger,
+            prevWeight,
+            prevRecipientIds,
+            prevAllocationsScaled,
+            resolvedWeight,
+            newRecipientIds,
+            newAllocationsScaled
+        );
     }
 
     function _executeAndEmitChildSync(
@@ -149,15 +142,27 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address parentStrategy,
         uint256 parentAllocationKey
     ) private {
-        GoalFlowLedgerMode.ChildSyncAction[] memory actions = GoalFlowLedgerMode.buildChildSyncActions(
-            account,
-            changedBudgetTreasuries
-        );
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions =
+            GoalFlowLedgerMode.buildChildSyncActions(account, changedBudgetTreasuries);
 
-        GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions = GoalFlowLedgerMode.executeChildSyncBestEffort(
-            actions
-        );
+        GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions =
+            GoalFlowLedgerMode.executeChildSyncBestEffort(actions);
         _emitChildSyncExecutions(ledgerExecutions, parentFlow, parentStrategy, parentAllocationKey);
+    }
+
+    function _checkpointPremiumEscrows(address account, address[] memory changedBudgetTreasuries) private {
+        uint256 budgetCount = changedBudgetTreasuries.length;
+        for (uint256 i = 0; i < budgetCount;) {
+            address budgetTreasury = changedBudgetTreasuries[i];
+            address premiumEscrow = IBudgetTreasuryPremiumEscrow(budgetTreasury).premiumEscrow();
+            if (premiumEscrow == address(0) || premiumEscrow.code.length == 0) {
+                revert INVALID_BUDGET_PREMIUM_ESCROW(budgetTreasury, premiumEscrow);
+            }
+            IPremiumEscrow(premiumEscrow).checkpoint(account);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function previewChildSyncRequirements(
@@ -174,19 +179,12 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address ledger = allocationLedger;
         if (ledger == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
 
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
+        (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies) =
+            _cacheWithStrategies(flow, ledger);
 
         address account = _accountForAllocationKey(strategy, allocationKey);
-        (uint256 resolvedWeight, bool shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextView(
-            strategies,
-            cache,
-            ledger,
-            account,
-            flow
-        );
+        (uint256 resolvedWeight, bool shouldCheckpoint) =
+            GoalFlowLedgerMode.prepareCheckpointContextView(strategies, cache, ledger, account, flow);
         if (!shouldCheckpoint) return new ICustomFlow.ChildSyncRequirement[](0);
 
         address[] memory changedBudgetTreasuries = GoalFlowLedgerMode.detectBudgetDeltasCalldata(
@@ -207,17 +205,16 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address ledger = allocationLedger;
         if (ledger == address(0)) return;
 
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
+        (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies) =
+            _cacheWithStrategies(flow, ledger);
         GoalFlowLedgerMode.validateForInitializeOrRevertView(strategies, cache, ledger, flow);
     }
 
-    function _cacheWithStrategies(
-        address flow,
-        address ledger
-    ) private view returns (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies) {
+    function _cacheWithStrategies(address flow, address ledger)
+        private
+        view
+        returns (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies)
+    {
         cache = _validationCacheByFlow[flow];
         strategies = new IAllocationStrategy[](0);
         if (cache.validatedLedger != ledger) {
@@ -240,7 +237,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
     ) private {
         uint256 executionCount = ledgerExecutions.length;
 
-        for (uint256 i = 0; i < executionCount; ) {
+        for (uint256 i = 0; i < executionCount;) {
             GoalFlowLedgerMode.ChildSyncExecution memory execution = ledgerExecutions[i];
             if (execution.skipReason != bytes32(0)) {
                 emit ChildAllocationSyncSkipped(

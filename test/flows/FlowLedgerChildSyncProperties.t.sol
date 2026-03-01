@@ -130,6 +130,35 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(premiumEscrow.checkpointCallCount(), 0);
     }
 
+    function test_allocate_withLedger_revertsWhenBudgetPremiumEscrowHasNoCode() public {
+        address invalidPremiumEscrow = address(0xBEEF);
+        FlowLedgerPropBudgetTreasury invalidBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(childFlow), invalidPremiumEscrow);
+        ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(invalidBudgetTreasury));
+
+        _setWeights(50e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        _allocateWithPrevStateForStrategyExpectRevert(
+            allocator,
+            allocationData,
+            address(strategy),
+            address(flow),
+            recipientIds,
+            scaled,
+            abi.encodeWithSelector(
+                GoalFlowAllocationLedgerPipeline.INVALID_BUDGET_PREMIUM_ESCROW.selector,
+                address(invalidBudgetTreasury),
+                invalidPremiumEscrow
+            )
+        );
+
+        assertEq(ledger.checkpointCallCount(), 0);
+        assertEq(childFlow.syncCallCount(), 0);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+    }
+
     function test_allocate_withLedger_multipleChangedBudgets_revertIsAtomicBeforeChildSync() public {
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
         FlowLedgerPropChildFlow secondChildFlow =
