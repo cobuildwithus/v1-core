@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { Test } from "forge-std/Test.sol";
 
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
@@ -27,6 +28,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 
 contract BudgetTreasuryTest is Test {
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
+    uint32 internal constant REAL_ESCROW_BUDGET_SLASH_PPM = 200_000;
     event FlowRateSyncManualInterventionRequired(
         address indexed flow, int96 targetRate, int96 fallbackRate, int96 currentRate
     );
@@ -1835,6 +1837,27 @@ contract BudgetTreasuryTest is Test {
         assertEq(escrow.lastClosedAt(), treasury.resolvedAt());
     }
 
+    function test_finalize_withRealPremiumEscrow_closesEscrowWithTreasuryTerminalState() public {
+        (BudgetTreasury treasuryWithRealEscrow, PremiumEscrow realEscrow) = _deployTreasuryWithRealPremiumEscrow();
+
+        superToken.mint(address(flow), 100e18);
+        _setIncomingFlowRate(100);
+        treasuryWithRealEscrow.sync();
+        uint64 activatedAt = treasuryWithRealEscrow.activatedAt();
+        assertGt(activatedAt, 0);
+
+        vm.warp(treasuryWithRealEscrow.deadline());
+        vm.prank(owner);
+        treasuryWithRealEscrow.resolveFailure();
+
+        assertEq(uint256(treasuryWithRealEscrow.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(realEscrow.closed());
+        assertEq(uint256(realEscrow.finalState()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertEq(realEscrow.activatedAt(), activatedAt);
+        assertEq(realEscrow.closedAt(), treasuryWithRealEscrow.resolvedAt());
+        assertEq(realEscrow.closedAt(), uint64(block.timestamp));
+    }
+
     function test_canAcceptFunding_falseWhenActiveAndRunwayCapReached() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
@@ -1892,6 +1915,29 @@ contract BudgetTreasuryTest is Test {
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
                 successAssertionPolicyHash: keccak256("budget-assertion-policy")
             })
+        );
+    }
+
+    function _deployTreasuryWithRealPremiumEscrow()
+        internal
+        returns (BudgetTreasury deployedTreasury, PremiumEscrow deployedEscrow)
+    {
+        PremiumEscrow escrowImplementation = new PremiumEscrow();
+        deployedEscrow = PremiumEscrow(Clones.clone(address(escrowImplementation)));
+
+        deployedTreasury = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.premiumEscrow = address(deployedEscrow);
+        deployedTreasury.initialize(owner, config);
+
+        BudgetTreasuryPremiumEscrowStakeLedgerMock stakeLedgerMock = new BudgetTreasuryPremiumEscrowStakeLedgerMock();
+        BudgetTreasuryPremiumEscrowRouterMock slasherRouterMock = new BudgetTreasuryPremiumEscrowRouterMock();
+        deployedEscrow.initialize(
+            address(deployedTreasury),
+            address(stakeLedgerMock),
+            address(flow),
+            address(slasherRouterMock),
+            REAL_ESCROW_BUDGET_SLASH_PPM
         );
     }
 
@@ -2056,4 +2102,14 @@ contract BudgetTreasuryMockPremiumEscrow {
         lastActivatedAt = activatedAt_;
         lastClosedAt = closedAt_;
     }
+}
+
+contract BudgetTreasuryPremiumEscrowStakeLedgerMock {
+    function userAllocatedStakeOnBudget(address, address) external pure returns (uint256) {
+        return 0;
+    }
+}
+
+contract BudgetTreasuryPremiumEscrowRouterMock {
+    function slashUnderwriter(address, uint256) external pure { }
 }
