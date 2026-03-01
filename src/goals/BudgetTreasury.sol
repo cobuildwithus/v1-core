@@ -343,7 +343,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
 
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
-        _tryClosePremiumEscrow(finalState);
 
         _runTerminalSideEffects();
 
@@ -351,6 +350,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     }
 
     function _runTerminalSideEffects() internal {
+        BudgetState terminalState = _state;
+        if (_isTerminalState(terminalState)) {
+            _tryClosePremiumEscrow(terminalState);
+        }
+
         (bool flowStopped, bytes memory flowStopReason) = _tryForceFlowRateToZero();
         if (!flowStopped) {
             emit TerminalSideEffectFailed(TERMINAL_OP_FLOW_STOP, flowStopReason);

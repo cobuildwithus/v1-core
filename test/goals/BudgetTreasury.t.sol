@@ -43,6 +43,7 @@ contract BudgetTreasuryTest is Test {
     TreasuryMockUmaResolverConfig internal successResolverConfig;
     BudgetTreasury internal treasury;
     BudgetTreasury internal budgetTreasuryImplementation;
+    address internal premiumEscrow;
 
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
@@ -65,6 +66,7 @@ contract BudgetTreasuryTest is Test {
         flow.setParent(address(parentFlow));
         flow.setMaxSafeFlowRate(type(int96).max);
         budgetTreasuryImplementation = new BudgetTreasury();
+        premiumEscrow = address(new BudgetTreasuryMockPremiumEscrow());
 
         treasury = _deploy(
             uint64(block.timestamp + 3 days),
@@ -266,6 +268,7 @@ contract BudgetTreasuryTest is Test {
             owner,
             IBudgetTreasury.BudgetConfig({
                 flow: address(reentrantFlow),
+                premiumEscrow: premiumEscrow,
                 fundingDeadline: uint64(block.timestamp + 3 days),
                 executionDuration: uint64(30 days),
                 activationThreshold: 100e18,
@@ -1808,6 +1811,30 @@ contract BudgetTreasuryTest is Test {
         assertEq(superToken.balanceOf(address(flow)), 0);
     }
 
+    function test_finalize_keepsTerminalStateWhenPremiumEscrowCloseFails_andRetryClosesEscrow() public {
+        BudgetTreasuryMockPremiumEscrow escrow = BudgetTreasuryMockPremiumEscrow(premiumEscrow);
+        escrow.setShouldRevertClose(true);
+        superToken.mint(address(flow), 100e18);
+        treasury.sync();
+
+        vm.warp(treasury.deadline());
+        vm.prank(owner);
+        treasury.resolveFailure();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertFalse(escrow.closed());
+
+        escrow.setShouldRevertClose(false);
+        vm.prank(outsider);
+        treasury.retryTerminalSideEffects();
+
+        assertTrue(escrow.closed());
+        assertEq(uint256(escrow.lastState()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertEq(escrow.lastActivatedAt(), treasury.activatedAt());
+        assertEq(escrow.lastClosedAt(), treasury.resolvedAt());
+    }
+
     function test_canAcceptFunding_falseWhenActiveAndRunwayCapReached() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
@@ -1854,6 +1881,7 @@ contract BudgetTreasuryTest is Test {
             owner,
             IBudgetTreasury.BudgetConfig({
                 flow: address(flow),
+                premiumEscrow: premiumEscrow,
                 fundingDeadline: fundingDeadline,
                 executionDuration: executionDuration,
                 activationThreshold: activationThreshold,
@@ -1870,6 +1898,7 @@ contract BudgetTreasuryTest is Test {
     function _defaultBudgetConfig() internal view returns (IBudgetTreasury.BudgetConfig memory config) {
         config = IBudgetTreasury.BudgetConfig({
             flow: address(flow),
+            premiumEscrow: premiumEscrow,
             fundingDeadline: uint64(block.timestamp + 1 days),
             executionDuration: uint64(30 days),
             activationThreshold: 1,
@@ -2006,5 +2035,25 @@ contract BudgetReentrantUnderlying is SharedMockUnderlying {
         }
 
         super._update(from, to, value);
+    }
+}
+
+contract BudgetTreasuryMockPremiumEscrow {
+    bool public shouldRevertClose;
+    bool public closed;
+    IBudgetTreasury.BudgetState public lastState;
+    uint64 public lastActivatedAt;
+    uint64 public lastClosedAt;
+
+    function setShouldRevertClose(bool shouldRevertClose_) external {
+        shouldRevertClose = shouldRevertClose_;
+    }
+
+    function close(IBudgetTreasury.BudgetState state_, uint64 activatedAt_, uint64 closedAt_) external {
+        if (shouldRevertClose) revert("PREMIUM_ESCROW_CLOSE_FAILED");
+        closed = true;
+        lastState = state_;
+        lastActivatedAt = activatedAt_;
+        lastClosedAt = closedAt_;
     }
 }
