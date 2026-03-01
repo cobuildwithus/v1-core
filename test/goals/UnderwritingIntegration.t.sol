@@ -204,10 +204,196 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(goalToken.balanceOf(address(router)), 0);
         assertGt(cobuildToken.balanceOf(address(router)), 0);
     }
+
+    function test_goalResolvedBeforeBudgetClose_withdrawThenSlash_allowsUnderwriterPrincipalEscape() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        uint64 budgetActivatedAt = 10;
+        uint64 budgetClosedAt = 30;
+
+        UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury =
+            new UnderwritingMockGoalTreasuryResolutionReporter(address(this));
+        StakeVault delayedVault = new StakeVault(
+            address(delayedGoalTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(rulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+
+        goalToken.mint(ALICE, goalStake);
+        cobuildToken.mint(ALICE, cobuildStake);
+
+        vm.startPrank(ALICE);
+        goalToken.approve(address(delayedVault), type(uint256).max);
+        cobuildToken.approve(address(delayedVault), type(uint256).max);
+        delayedVault.depositGoal(goalStake);
+        delayedVault.depositCobuild(cobuildStake);
+        vm.stopPrank();
+
+        UnderwriterSlasherRouter delayedRouter = new UnderwriterSlasherRouter(
+            IStakeVault(address(delayedVault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            GOAL_FUNDING_TARGET
+        );
+        delayedVault.setUnderwriterSlasher(address(delayedRouter));
+
+        UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
+        UnderwritingMockBudgetTreasury delayedBudgetTreasury =
+            new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
+        UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
+
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow delayedEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+        delayedEscrow.initialize(
+            address(delayedBudgetTreasury),
+            address(delayedBudgetStakeLedger),
+            address(delayedGoalFlow),
+            address(delayedRouter),
+            BUDGET_SLASH_PPM
+        );
+        delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
+
+        delayedBudgetStakeLedger.setCoverage(ALICE, address(delayedBudgetTreasury), budgetCoverage);
+
+        vm.warp(budgetActivatedAt);
+        delayedBudgetTreasury.setActivatedAt(budgetActivatedAt);
+        delayedEscrow.checkpoint(ALICE);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        uint256 goalStakeBeforeWithdraw = delayedVault.stakedGoalOf(ALICE);
+        uint256 cobuildStakeBeforeWithdraw = delayedVault.stakedCobuildOf(ALICE);
+        vm.startPrank(ALICE);
+        delayedVault.withdrawGoal(goalStakeBeforeWithdraw, ALICE);
+        delayedVault.withdrawCobuild(cobuildStakeBeforeWithdraw, ALICE);
+        vm.stopPrank();
+
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+
+        vm.warp(budgetClosedAt);
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+        uint256 slashWeight = delayedEscrow.slash(ALICE);
+
+        assertEq(slashWeight, 20e18);
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+    }
+
+    function test_goalResolvedBeforeBudgetClose_withoutWithdraw_slashStillCutsPrincipal() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        uint64 budgetActivatedAt = 10;
+        uint64 budgetClosedAt = 30;
+
+        UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury =
+            new UnderwritingMockGoalTreasuryResolutionReporter(address(this));
+        StakeVault delayedVault = new StakeVault(
+            address(delayedGoalTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(rulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+
+        goalToken.mint(ALICE, goalStake);
+        cobuildToken.mint(ALICE, cobuildStake);
+
+        vm.startPrank(ALICE);
+        goalToken.approve(address(delayedVault), type(uint256).max);
+        cobuildToken.approve(address(delayedVault), type(uint256).max);
+        delayedVault.depositGoal(goalStake);
+        delayedVault.depositCobuild(cobuildStake);
+        vm.stopPrank();
+
+        UnderwriterSlasherRouter delayedRouter = new UnderwriterSlasherRouter(
+            IStakeVault(address(delayedVault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            GOAL_FUNDING_TARGET
+        );
+        delayedVault.setUnderwriterSlasher(address(delayedRouter));
+
+        UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
+        UnderwritingMockBudgetTreasury delayedBudgetTreasury =
+            new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
+        UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
+
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow delayedEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+        delayedEscrow.initialize(
+            address(delayedBudgetTreasury),
+            address(delayedBudgetStakeLedger),
+            address(delayedGoalFlow),
+            address(delayedRouter),
+            BUDGET_SLASH_PPM
+        );
+        delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
+
+        delayedBudgetStakeLedger.setCoverage(ALICE, address(delayedBudgetTreasury), budgetCoverage);
+
+        vm.warp(budgetActivatedAt);
+        delayedBudgetTreasury.setActivatedAt(budgetActivatedAt);
+        delayedEscrow.checkpoint(ALICE);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        uint256 stakedGoalBeforeSlash = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforeSlash = delayedVault.stakedCobuildOf(ALICE);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
+
+        vm.warp(budgetClosedAt);
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+        uint256 slashWeight = delayedEscrow.slash(ALICE);
+
+        assertEq(slashWeight, 20e18);
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforeSlash);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforeSlash);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
+    }
 }
 
 contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 9001;
+    bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
 
     SharedMockUnderlying internal underlyingToken;
     SharedMockSuperToken internal superToken;
@@ -220,6 +406,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     UnderwritingMockTokens internal tokens;
     UnderwritingMockController internal controller;
     UnderwritingMockHook internal hook;
+    UnderwritingMockBudgetStakeLedger internal budgetStakeLedger;
 
     GoalTreasury internal treasury;
 
@@ -245,6 +432,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         tokens = new UnderwritingMockTokens();
         controller = new UnderwritingMockController(tokens);
         hook = new UnderwritingMockHook(directory);
+        budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
@@ -263,7 +451,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             IGoalTreasury.GoalConfig({
                 flow: address(flow),
                 stakeVault: address(stakeVault),
-                rewardEscrow: address(0),
+                budgetStakeLedger: address(budgetStakeLedger),
                 hook: address(hook),
                 goalRulesets: address(rulesets),
                 goalRevnetId: GOAL_REVNET_ID,
@@ -272,7 +460,6 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 coverageLambda: 10,
                 budgetPremiumPpm: 0,
                 budgetSlashPpm: 0,
-                successSettlementRewardEscrowPpm: 0,
                 successResolver: address(this),
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
@@ -298,6 +485,49 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         assertEq(treasury.targetFlowRate(), 4);
         assertEq(flow.targetOutflowRate(), 4);
+    }
+
+    function test_processHookSplit_afterTerminalization_burnsEntireAmount() public {
+        vm.warp(block.timestamp + 4 days);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+
+        uint256 sourceAmount = 15e18;
+        underlyingToken.mint(address(treasury), sourceAmount);
+
+        vm.prank(address(hook));
+        (
+            IGoalTreasury.HookSplitAction action,
+            uint256 superTokenAmount,
+            uint256 burnAmount
+        ) = treasury.processHookSplit(address(underlyingToken), sourceAmount);
+
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.TerminalSettled));
+        assertEq(superTokenAmount, sourceAmount);
+        assertEq(burnAmount, sourceAmount);
+        assertEq(controller.burnCallCount(), 1);
+        assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
+        assertEq(controller.lastBurnAmount(), sourceAmount);
+        assertEq(controller.lastBurnMemoHash(), TERMINAL_BURN_MEMO_HASH);
+    }
+
+    function test_settleLateResidual_burnsSweptFlowBalance() public {
+        vm.warp(block.timestamp + 4 days);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        treasury.settleLateResidual();
+
+        assertEq(superToken.balanceOf(address(flow)), 0);
+        assertEq(controller.burnCallCount(), 1);
+        assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
+        assertEq(controller.lastBurnAmount(), residual);
+        assertEq(controller.lastBurnMemoHash(), TERMINAL_BURN_MEMO_HASH);
     }
 }
 
@@ -339,6 +569,19 @@ contract UnderwritingMockGoalFlow {
 
     function superToken() external view returns (ISuperToken) {
         return _superToken;
+    }
+}
+
+contract UnderwritingMockGoalTreasuryResolutionReporter {
+    bool public resolved;
+    address public immutable authority;
+
+    constructor(address authority_) {
+        authority = authority_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 }
 
@@ -447,6 +690,10 @@ contract UnderwritingMockTokens {
 
 contract UnderwritingMockController {
     UnderwritingMockTokens internal _tokens;
+    uint256 internal _burnCallCount;
+    uint256 internal _lastBurnProjectId;
+    uint256 internal _lastBurnAmount;
+    bytes32 internal _lastBurnMemoHash;
 
     constructor(UnderwritingMockTokens tokens_) {
         _tokens = tokens_;
@@ -454,6 +701,29 @@ contract UnderwritingMockController {
 
     function TOKENS() external view returns (UnderwritingMockTokens) {
         return _tokens;
+    }
+
+    function burnTokensOf(address, uint256 projectId, uint256 tokenCount, string calldata memo) external {
+        _burnCallCount += 1;
+        _lastBurnProjectId = projectId;
+        _lastBurnAmount = tokenCount;
+        _lastBurnMemoHash = keccak256(bytes(memo));
+    }
+
+    function burnCallCount() external view returns (uint256) {
+        return _burnCallCount;
+    }
+
+    function lastBurnProjectId() external view returns (uint256) {
+        return _lastBurnProjectId;
+    }
+
+    function lastBurnAmount() external view returns (uint256) {
+        return _lastBurnAmount;
+    }
+
+    function lastBurnMemoHash() external view returns (bytes32) {
+        return _lastBurnMemoHash;
     }
 }
 
