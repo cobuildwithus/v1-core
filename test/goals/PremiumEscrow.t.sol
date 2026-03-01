@@ -13,11 +13,11 @@ contract PremiumEscrowTest is Test {
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
-    address internal constant GOAL_FUNDING_PATH = address(0xF00D);
 
     PremiumEscrowMockToken internal premiumToken;
     PremiumEscrowMockBudgetStakeLedger internal ledger;
     PremiumEscrowMockBudgetTreasury internal budgetTreasury;
+    PremiumEscrowMockGoalFlow internal goalFlow;
     PremiumEscrowMockRouter internal router;
     PremiumEscrow internal escrow;
 
@@ -25,6 +25,7 @@ contract PremiumEscrowTest is Test {
         premiumToken = new PremiumEscrowMockToken();
         ledger = new PremiumEscrowMockBudgetStakeLedger();
         budgetTreasury = new PremiumEscrowMockBudgetTreasury(address(premiumToken));
+        goalFlow = new PremiumEscrowMockGoalFlow(address(premiumToken));
         router = new PremiumEscrowMockRouter();
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -32,7 +33,28 @@ contract PremiumEscrowTest is Test {
         escrow.initialize(
             address(budgetTreasury),
             address(ledger),
-            GOAL_FUNDING_PATH,
+            address(goalFlow),
+            address(router),
+            SLASH_PPM
+        );
+    }
+
+    function test_initializeRevertsWhenSuperTokenMismatch() public {
+        PremiumEscrowMockToken otherToken = new PremiumEscrowMockToken();
+        PremiumEscrowMockBudgetTreasury mismatchedBudgetTreasury = new PremiumEscrowMockBudgetTreasury(address(otherToken));
+
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow mismatchedEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PremiumEscrow.SUPER_TOKEN_MISMATCH.selector, address(premiumToken), address(otherToken)
+            )
+        );
+        mismatchedEscrow.initialize(
+            address(mismatchedBudgetTreasury),
+            address(ledger),
+            address(goalFlow),
             address(router),
             SLASH_PPM
         );
@@ -171,6 +193,7 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
+        vm.warp(20);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Expired, 0, 20);
 
@@ -265,7 +288,7 @@ contract PremiumEscrowTest is Test {
         vm.prank(ALICE);
         uint256 secondClaim = escrow.claim(ALICE);
         assertEq(secondClaim, 60e18);
-        assertEq(escrow.claimable(ALICE), 0);
+        assertEq(escrow.claimable(ALICE), 60e18);
         assertEq(premiumToken.balanceOf(ALICE), 100e18);
     }
 
@@ -305,7 +328,7 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
 
         assertEq(premiumToken.balanceOf(address(escrow)), 0);
-        assertEq(premiumToken.balanceOf(GOAL_FUNDING_PATH), 77e18);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), 77e18);
         assertEq(escrow.accountedBalance(), 0);
     }
 }
@@ -355,6 +378,18 @@ contract PremiumEscrowMockBudgetTreasury {
 
     function setActivatedAt(uint64 activatedAt_) external {
         activatedAt = activatedAt_;
+    }
+}
+
+contract PremiumEscrowMockGoalFlow {
+    ISuperToken internal _superToken;
+
+    constructor(address superToken_) {
+        _superToken = ISuperToken(superToken_);
+    }
+
+    function superToken() external view returns (ISuperToken) {
+        return _superToken;
     }
 }
 

@@ -518,6 +518,7 @@ contract MockRewardEscrowBudgetFlow {
 
 contract MockRewardEscrowBudget {
     address public flow;
+    address public premiumEscrow;
     IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Funding;
     uint64 public resolvedAt;
     uint64 public activatedAt;
@@ -526,6 +527,7 @@ contract MockRewardEscrowBudget {
 
     constructor(address flow_) {
         flow = flow_;
+        premiumEscrow = address(new MockRewardEscrowPremiumEscrow());
     }
 
     function setState(IBudgetTreasury.BudgetState state_) external {
@@ -543,4 +545,8 @@ contract MockRewardEscrowBudget {
     function setFundingDeadline(uint64 fundingDeadline_) external {
         fundingDeadline = fundingDeadline_;
     }
+}
+
+contract MockRewardEscrowPremiumEscrow {
+    function checkpoint(address) external { }
 }
