@@ -5,7 +5,7 @@ import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccou
 import { IAllocationPipeline } from "../interfaces/IAllocationPipeline.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
-import { IBudgetTreasuryPremiumEscrow } from "../interfaces/IBudgetTreasuryPremiumEscrow.sol";
+import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
@@ -168,7 +168,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 budgetCount = changedBudgetTreasuries.length;
         for (uint256 i = 0; i < budgetCount; ) {
             address budgetTreasury = changedBudgetTreasuries[i];
-            address premiumEscrow = IBudgetTreasuryPremiumEscrow(budgetTreasury).premiumEscrow();
+            address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
             if (premiumEscrow == address(0) || premiumEscrow.code.length == 0) {
                 revert INVALID_BUDGET_PREMIUM_ESCROW(budgetTreasury, premiumEscrow);
             }
