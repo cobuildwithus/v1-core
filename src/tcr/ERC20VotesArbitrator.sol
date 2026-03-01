@@ -488,6 +488,17 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         status.rewardsClaimed = votingRound.rewardsClaimed[voter];
         status.slashedOrProcessed = _voterSlashedOrProcessed[disputeId][round][voter];
         status.claimableReward = _computeRewardsForRound(disputeId, round, voter);
+        if (_getVotingRoundState(disputeId, round) == DisputeState.Solved) {
+            uint256 winningChoice = _determineWinningChoice(disputeId, round);
+            (status.claimableGoalSlashReward, status.claimableCobuildSlashReward) = _computeSlashRewardsForRound(
+                disputeId,
+                round,
+                voter,
+                votingRound,
+                receipt,
+                winningChoice
+            );
+        }
     }
 
     function isVoterSlashedOrProcessed(
@@ -868,6 +879,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         return _computeRewardsForRound(disputeId, round, voter);
     }
 
+    function getSlashRewardsForRound(
+        uint256 disputeId,
+        uint256 round,
+        address voter
+    ) external view override validDisputeID(disputeId) returns (uint256 goalAmount, uint256 cobuildAmount) {
+        VotingRound storage votingRound = _roundStorage(disputeId, round);
+        Receipt storage receipt = votingRound.receipts[voter];
+
+        if (_getVotingRoundState(disputeId, round) != DisputeState.Solved) return (0, 0);
+
+        uint256 winningChoice = _determineWinningChoice(disputeId, round);
+        return _computeSlashRewardsForRound(disputeId, round, voter, votingRound, receipt, winningChoice);
+    }
+
     function _computeRewardsForRound(uint256 disputeId, uint256 round, address voter) internal view returns (uint256) {
         VotingRound storage votingRound = _roundStorage(disputeId, round);
         Receipt storage receipt = votingRound.receipts[voter];
@@ -1066,10 +1091,11 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     function _slashToWinnerPools(uint256 disputeId, uint256 round, address juror, uint256 weightAmount) internal {
         IERC20 goalToken = _stakeVault.goalToken();
         IERC20 cobuildToken = _stakeVault.cobuildToken();
+        bool sameStakeToken = address(goalToken) == address(cobuildToken);
 
         uint256 goalBefore = goalToken.balanceOf(address(this));
         uint256 cobuildBefore;
-        if (address(cobuildToken) != address(0)) {
+        if (!sameStakeToken && address(cobuildToken) != address(0)) {
             cobuildBefore = cobuildToken.balanceOf(address(this));
         }
 
@@ -1078,6 +1104,10 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 goalReceived = goalToken.balanceOf(address(this)) - goalBefore;
         if (goalReceived != 0) {
             _roundGoalSlashRewards[disputeId][round] += goalReceived;
+        }
+
+        if (sameStakeToken) {
+            return;
         }
 
         if (address(cobuildToken) != address(0)) {
@@ -1147,12 +1177,22 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
     function _transferSlashRewards(address voter, uint256 goalAmount, uint256 cobuildAmount) internal {
         if (address(_stakeVault) == address(0)) revert STAKE_VAULT_NOT_SET();
+        IERC20 goalToken = _stakeVault.goalToken();
+        IERC20 cobuildToken = _stakeVault.cobuildToken();
+
+        if (address(goalToken) == address(cobuildToken)) {
+            uint256 totalAmount = goalAmount + cobuildAmount;
+            if (totalAmount != 0) {
+                IERC20(address(goalToken)).safeTransfer(voter, totalAmount);
+            }
+            return;
+        }
 
         if (goalAmount != 0) {
-            IERC20(address(_stakeVault.goalToken())).safeTransfer(voter, goalAmount);
+            IERC20(address(goalToken)).safeTransfer(voter, goalAmount);
         }
         if (cobuildAmount != 0) {
-            IERC20(address(_stakeVault.cobuildToken())).safeTransfer(voter, cobuildAmount);
+            IERC20(address(cobuildToken)).safeTransfer(voter, cobuildAmount);
         }
     }
 

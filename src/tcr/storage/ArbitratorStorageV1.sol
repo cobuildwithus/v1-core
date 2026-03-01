@@ -240,4 +240,20 @@ contract ArbitratorStorageV1 {
      * disputeId => round => voter => processed
      */
     mapping(uint256 => mapping(uint256 => mapping(address => bool))) internal _voterSlashedOrProcessed;
+
+    /**
+     * @notice Round-level slash reward pools routed to winner claims.
+     * @dev Amounts are denominated in the stake-vault goal/cobuild tokens.
+     * disputeId => round => pooled amount
+     */
+    mapping(uint256 => mapping(uint256 => uint256)) internal _roundGoalSlashRewards;
+    mapping(uint256 => mapping(uint256 => uint256)) internal _roundCobuildSlashRewards;
+
+    /**
+     * @notice Cumulative slash rewards already claimed by voter.
+     * @dev Stored per-round to support incremental claiming as additional losers are slashed over time.
+     * disputeId => round => voter => claimed amount
+     */
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) internal _voterGoalSlashRewardsClaimed;
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) internal _voterCobuildSlashRewardsClaimed;
 }

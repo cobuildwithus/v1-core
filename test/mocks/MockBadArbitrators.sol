@@ -137,9 +137,19 @@ contract MockMismatchedVotesArbitrator is IERC20VotesArbitrator {
         status.hasCommitted = false;
     }
 
+    function getSlashRewardsForRound(uint256, uint256, address) external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+
     function isVoterSlashedOrProcessed(uint256, uint256, address) external pure returns (bool) {
         return false;
     }
+
+    function slashVoter(uint256, uint256, address) external pure {}
+
+    function slashVoters(uint256, uint256, address[] calldata) external pure {}
+
+    function withdrawVoterRewards(uint256, uint256, address) external pure {}
 
     function computeCommitHash(
         uint256,
@@ -268,9 +278,19 @@ contract MockInvalidRulingVotesArbitrator is IERC20VotesArbitrator {
         status.hasCommitted = false;
     }
 
+    function getSlashRewardsForRound(uint256, uint256, address) external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+
     function isVoterSlashedOrProcessed(uint256, uint256, address) external pure returns (bool) {
         return false;
     }
+
+    function slashVoter(uint256, uint256, address) external pure {}
+
+    function slashVoters(uint256, uint256, address[] calldata) external pure {}
+
+    function withdrawVoterRewards(uint256, uint256, address) external pure {}
 
     function computeCommitHash(
         uint256,

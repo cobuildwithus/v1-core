@@ -51,3 +51,8 @@ Implement the agreed arbitration-economic cutover in stake-vault mode:
 
 - 2026-03-01: Claimed scope in `COORDINATION_LEDGER` and mapped arbitrator/vault/treasury/TCR + test call paths.
 - 2026-03-01: Simplify pass: de-duplicated arbitration/slash reward math helpers, tightened `slashVoters` loop control flow, and aligned stale stake-vault recipient assertions with current slash routing; focused arbitrator/evidence-timeout test suites pass.
+- 2026-03-01: Test-coverage audit pass added multi-winner pro-rata slash-pool distribution coverage with incremental post-claim deltas and `SlashRewardsWithdrawn` event assertion under stake-vault mode.
+- 2026-03-01: Completion-audit findings fixed by exposing slash claimability surfaces (`VoterRoundStatus` slash fields + `getSlashRewardsForRound`) and hardening same-token stake-token accounting in winner-pool accrual/transfer paths.
+- 2026-03-01: Added focused regressions for incremental slash-claim status reporting and same-token stake-vault slash-pool collapse behavior.
+- 2026-03-01: Updated `StakeVaultExitEvasion` regression to assert new winner-pool routing semantics (arbitrator accrual + winner slash claimability) instead of legacy reward-escrow recipient balances.
+- 2026-03-01: Re-ran required gate; remaining failures are confined to `test/goals/RewardEscrowIntegration.t.sol` (pre-existing broader-stream breakage outside this task scope).

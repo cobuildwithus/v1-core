@@ -47,15 +47,19 @@ contract MockStakeVaultForArbitrator {
 
     SlashCall[] internal _slashCalls;
 
-    constructor(address goalTreasury_) {
+    constructor(address goalTreasury_, bool sharedStakeToken_) {
         goalTreasury = goalTreasury_;
 
         MockVotesToken goalToken_ = new MockVotesToken("MockGoalStake", "MGS");
-        MockVotesToken cobuildToken_ = new MockVotesToken("MockCobuildStake", "MCS");
         goalToken_.mint(address(this), 1_000_000e18);
-        cobuildToken_.mint(address(this), 1_000_000e18);
         goalToken = IERC20(address(goalToken_));
-        cobuildToken = IERC20(address(cobuildToken_));
+        if (sharedStakeToken_) {
+            cobuildToken = IERC20(address(goalToken_));
+        } else {
+            MockVotesToken cobuildToken_ = new MockVotesToken("MockCobuildStake", "MCS");
+            cobuildToken_.mint(address(this), 1_000_000e18);
+            cobuildToken = IERC20(address(cobuildToken_));
+        }
     }
 
     function setJurorVotes(address juror, uint256 votes) external {
@@ -246,7 +250,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         arbitrable = new MockArbitrable(IERC20(address(token)));
         rewardEscrow = address(new MockRewardEscrowRecipient());
         goalTreasury = new MockGoalTreasuryForArbitratorSlash(rewardEscrow);
-        stakeVault = new MockStakeVaultForArbitrator(address(goalTreasury));
+        stakeVault = new MockStakeVaultForArbitrator(address(goalTreasury), false);
 
         stakeVault.setJurorVotes(voter1, 100e18);
         stakeVault.setJurorVotes(voter2, 200e18);
@@ -584,6 +588,223 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         arb.withdrawVoterRewards(disputeId, 0, voter2);
     }
 
+    function test_getVoterRoundStatus_reportsIncrementalSlashClaimability() public {
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDispute();
+        _warpRoll(startTime + 1);
+
+        bytes32 salt1 = bytes32("status-slasher-1");
+        bytes32 salt2 = bytes32("status-slasher-2");
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", salt1));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 2, "", salt2));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", salt1);
+        vm.prank(voter2);
+        arb.revealVote(disputeId, voter2, 2, "", salt2);
+        _warpRoll(revealEndTime + 1);
+
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+
+        IERC20VotesArbitrator.VoterRoundStatus memory status = arb.getVoterRoundStatus(disputeId, 0, voter2);
+        assertEq(status.claimableReward, 0);
+        assertEq(status.claimableGoalSlashReward, 0);
+        assertEq(status.claimableCobuildSlashReward, 0);
+
+        uint256 slashWeight = (100e18 * arb.wrongOrMissedSlashBps()) / 10_000;
+        uint256 callerBounty = (slashWeight * arb.slashCallerBountyBps()) / 10_000;
+        uint256 expectedSlashReward = slashWeight - callerBounty;
+
+        arb.slashVoter(disputeId, 0, voter1);
+        status = arb.getVoterRoundStatus(disputeId, 0, voter2);
+        assertEq(status.claimableReward, 0);
+        assertEq(status.claimableGoalSlashReward, expectedSlashReward);
+        assertEq(status.claimableCobuildSlashReward, expectedSlashReward);
+
+        (uint256 goalClaimable, uint256 cobuildClaimable) = arb.getSlashRewardsForRound(disputeId, 0, voter2);
+        assertEq(goalClaimable, expectedSlashReward);
+        assertEq(cobuildClaimable, expectedSlashReward);
+
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+        status = arb.getVoterRoundStatus(disputeId, 0, voter2);
+        assertEq(status.claimableGoalSlashReward, 0);
+        assertEq(status.claimableCobuildSlashReward, 0);
+    }
+
+    function test_withdrawVoterRewards_sameStakeToken_collapsesIntoSingleSlashPool() public {
+        MockArbitrable scopedArbitrable = new MockArbitrable(IERC20(address(token)));
+        MockGoalTreasuryForArbitratorSlash scopedGoalTreasury = new MockGoalTreasuryForArbitratorSlash(rewardEscrow);
+        MockStakeVaultForArbitrator sharedTokenStakeVault =
+            new MockStakeVaultForArbitrator(address(scopedGoalTreasury), true);
+        sharedTokenStakeVault.setJurorVotes(voter1, 100e18);
+        sharedTokenStakeVault.setJurorVotes(voter2, 200e18);
+
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        bytes memory initData = abi.encodeCall(
+            ERC20VotesArbitrator.initializeWithStakeVault,
+            (
+                owner,
+                address(token),
+                address(scopedArbitrable),
+                votingPeriod,
+                votingDelay,
+                revealPeriod,
+                arbitrationCost,
+                address(sharedTokenStakeVault)
+            )
+        );
+        ERC20VotesArbitrator scopedArb = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
+        sharedTokenStakeVault.setJurorSlasher(address(new MockForwardingJurorSlasherForArbitrator(sharedTokenStakeVault)));
+
+        scopedArbitrable.setArbitrator(scopedArb);
+        token.mint(address(scopedArbitrable), 1_000_000e18);
+        scopedArbitrable.approveArbitrator(arbitrationCost * 10);
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDisputeWith(scopedArbitrable);
+        _warpRoll(startTime + 1);
+
+        bytes32 loserSalt = bytes32("same-token-loser");
+        bytes32 winnerSalt = bytes32("same-token-winner");
+        vm.prank(voter1);
+        scopedArb.commitVote(disputeId, _voteHash(scopedArb, disputeId, 0, voter1, 1, "", loserSalt));
+        vm.prank(voter2);
+        scopedArb.commitVote(disputeId, _voteHash(scopedArb, disputeId, 0, voter2, 2, "", winnerSalt));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        scopedArb.revealVote(disputeId, voter1, 1, "", loserSalt);
+        vm.prank(voter2);
+        scopedArb.revealVote(disputeId, voter2, 2, "", winnerSalt);
+        _warpRoll(revealEndTime + 1);
+
+        scopedArb.withdrawVoterRewards(disputeId, 0, voter2);
+
+        uint256 slashWeight = (100e18 * scopedArb.wrongOrMissedSlashBps()) / 10_000;
+        uint256 callerBounty = (slashWeight * scopedArb.slashCallerBountyBps()) / 10_000;
+        uint256 pooledPerToken = slashWeight - callerBounty;
+        uint256 expectedSingleTokenSlashReward = pooledPerToken * 2;
+
+        scopedArb.slashVoter(disputeId, 0, voter1);
+        (uint256 goalClaimable, uint256 cobuildClaimable) = scopedArb.getSlashRewardsForRound(disputeId, 0, voter2);
+        assertEq(goalClaimable, expectedSingleTokenSlashReward);
+        assertEq(cobuildClaimable, 0);
+
+        IERC20 sharedToken = sharedTokenStakeVault.goalToken();
+        uint256 sharedTokenBefore = sharedToken.balanceOf(voter2);
+        scopedArb.withdrawVoterRewards(disputeId, 0, voter2);
+        assertEq(sharedToken.balanceOf(voter2) - sharedTokenBefore, expectedSingleTokenSlashReward);
+    }
+
+    function test_withdrawVoterRewards_distributesSlashPoolsProRataAcrossWinners_andTracksIncrementalClaims() public {
+        address loser1 = makeAddr("loser1");
+        address loser2 = makeAddr("loser2");
+        uint256 loserVotes = 100e18;
+
+        stakeVault.setJurorVotes(voter1, 100e18);
+        stakeVault.setJurorVotes(voter2, 300e18);
+        stakeVault.setJurorVotes(loser1, loserVotes);
+        stakeVault.setJurorVotes(loser2, loserVotes);
+
+        (uint256 disputeId, uint256 startTime, uint256 endTime, uint256 revealEndTime,) = _createDispute();
+        _warpRoll(startTime + 1);
+
+        bytes32 winner1Salt = bytes32("pro-rata-winner-1");
+        bytes32 winner2Salt = bytes32("pro-rata-winner-2");
+        bytes32 loser1Salt = bytes32("pro-rata-loser-1");
+        bytes32 loser2Salt = bytes32("pro-rata-loser-2");
+
+        vm.prank(voter1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter1, 1, "", winner1Salt));
+        vm.prank(voter2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, voter2, 1, "", winner2Salt));
+        vm.prank(loser1);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, loser1, 2, "", loser1Salt));
+        vm.prank(loser2);
+        arb.commitVote(disputeId, _voteHash(arb, disputeId, 0, loser2, 2, "", loser2Salt));
+
+        _warpRoll(endTime + 1);
+        vm.prank(voter1);
+        arb.revealVote(disputeId, voter1, 1, "", winner1Salt);
+        vm.prank(voter2);
+        arb.revealVote(disputeId, voter2, 1, "", winner2Salt);
+        vm.prank(loser1);
+        arb.revealVote(disputeId, loser1, 2, "", loser1Salt);
+        vm.prank(loser2);
+        arb.revealVote(disputeId, loser2, 2, "", loser2Salt);
+
+        _warpRoll(revealEndTime + 1);
+
+        // Claim arbitration-cost rewards first, then claim slash rewards as losers are processed.
+        uint256 winnerVotes1 = 100e18;
+        uint256 winnerVotes2 = 300e18;
+        uint256 totalWinningVotes = winnerVotes1 + winnerVotes2;
+
+        uint256 expectedArbReward1 = (winnerVotes1 * arbitrationCost) / totalWinningVotes;
+        uint256 expectedArbReward2 = (winnerVotes2 * arbitrationCost) / totalWinningVotes;
+
+        uint256 votingBeforeWinner1 = token.balanceOf(voter1);
+        uint256 votingBeforeWinner2 = token.balanceOf(voter2);
+        arb.withdrawVoterRewards(disputeId, 0, voter1);
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+        assertEq(token.balanceOf(voter1) - votingBeforeWinner1, expectedArbReward1);
+        assertEq(token.balanceOf(voter2) - votingBeforeWinner2, expectedArbReward2);
+
+        uint256 slashWeight = (loserVotes * arb.wrongOrMissedSlashBps()) / 10_000;
+        uint256 callerBounty = (slashWeight * arb.slashCallerBountyBps()) / 10_000;
+        uint256 pooledPerLoser = slashWeight - callerBounty;
+
+        uint256 expectedSlashReward1PerLoser = (winnerVotes1 * pooledPerLoser) / totalWinningVotes;
+        uint256 expectedSlashReward2PerLoser = (winnerVotes2 * pooledPerLoser) / totalWinningVotes;
+
+        IERC20 goalStakeToken = stakeVault.goalToken();
+        IERC20 cobuildStakeToken = stakeVault.cobuildToken();
+
+        // First loser slash -> first slash claim delta for both winners.
+        arb.slashVoter(disputeId, 0, loser1);
+
+        uint256 goalBeforeWinner1 = goalStakeToken.balanceOf(voter1);
+        uint256 cobuildBeforeWinner1 = cobuildStakeToken.balanceOf(voter1);
+        uint256 votingBeforeWinner1SlashClaim = token.balanceOf(voter1);
+        vm.expectEmit(true, true, true, true, address(arb));
+        emit IERC20VotesArbitrator.SlashRewardsWithdrawn(
+            disputeId, 0, voter1, expectedSlashReward1PerLoser, expectedSlashReward1PerLoser
+        );
+        arb.withdrawVoterRewards(disputeId, 0, voter1);
+        assertEq(token.balanceOf(voter1) - votingBeforeWinner1SlashClaim, 0);
+        assertEq(goalStakeToken.balanceOf(voter1) - goalBeforeWinner1, expectedSlashReward1PerLoser);
+        assertEq(cobuildStakeToken.balanceOf(voter1) - cobuildBeforeWinner1, expectedSlashReward1PerLoser);
+
+        uint256 goalBeforeWinner2 = goalStakeToken.balanceOf(voter2);
+        uint256 cobuildBeforeWinner2 = cobuildStakeToken.balanceOf(voter2);
+        uint256 votingBeforeWinner2SlashClaim = token.balanceOf(voter2);
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+        assertEq(token.balanceOf(voter2) - votingBeforeWinner2SlashClaim, 0);
+        assertEq(goalStakeToken.balanceOf(voter2) - goalBeforeWinner2, expectedSlashReward2PerLoser);
+        assertEq(cobuildStakeToken.balanceOf(voter2) - cobuildBeforeWinner2, expectedSlashReward2PerLoser);
+
+        // Second loser slash -> only incremental deltas should be claimable.
+        arb.slashVoter(disputeId, 0, loser2);
+
+        goalBeforeWinner1 = goalStakeToken.balanceOf(voter1);
+        cobuildBeforeWinner1 = cobuildStakeToken.balanceOf(voter1);
+        arb.withdrawVoterRewards(disputeId, 0, voter1);
+        assertEq(goalStakeToken.balanceOf(voter1) - goalBeforeWinner1, expectedSlashReward1PerLoser);
+        assertEq(cobuildStakeToken.balanceOf(voter1) - cobuildBeforeWinner1, expectedSlashReward1PerLoser);
+
+        goalBeforeWinner2 = goalStakeToken.balanceOf(voter2);
+        cobuildBeforeWinner2 = cobuildStakeToken.balanceOf(voter2);
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+        assertEq(goalStakeToken.balanceOf(voter2) - goalBeforeWinner2, expectedSlashReward2PerLoser);
+        assertEq(cobuildStakeToken.balanceOf(voter2) - cobuildBeforeWinner2, expectedSlashReward2PerLoser);
+
+        vm.expectRevert(IERC20VotesArbitrator.REWARD_ALREADY_CLAIMED.selector);
+        arb.withdrawVoterRewards(disputeId, 0, voter1);
+        vm.expectRevert(IERC20VotesArbitrator.REWARD_ALREADY_CLAIMED.selector);
+        arb.withdrawVoterRewards(disputeId, 0, voter2);
+    }
+
     function test_createDispute_budgetScope_succeeds_whenBudgetLedgerReadReverts() public {
         MockRewardEscrowBudgetStakeLedgerReadReverts rewardEscrowWithRevertingLedger =
             new MockRewardEscrowBudgetStakeLedgerReadReverts();
@@ -593,7 +814,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
         scopedStakeVault.setJurorVotes(voter1, 100e18);
         scopedStakeVault.setJurorVotes(voter2, 200e18);
 
@@ -621,7 +842,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
         scopedStakeVault.setJurorVotes(voter1, 100e18);
         scopedStakeVault.setJurorVotes(voter2, 200e18);
 
@@ -697,7 +918,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
 
         scopedStakeVault.setJurorVotes(voter1, 7e18);
         scopedStakeVault.setJurorVotes(voter2, 100e18);
@@ -738,7 +959,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
         scopedStakeVault.setJurorVotes(voter1, 100e18);
 
         // Initial snapshot data prior to dispute creation.
@@ -775,7 +996,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
         scopedStakeVault.setJurorVotes(voter1, 100e18);
 
         budgetStakeLedger.setPastUserAllocatedStakeOnBudget(voter1, address(budgetTreasury), 40e18);
@@ -806,7 +1027,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         MockFlowForArbitratorBudgetScope budgetFlow = new MockFlowForArbitratorBudgetScope(address(goalFlow));
         MockBudgetTreasuryForArbitratorBudgetScope budgetTreasury =
             new MockBudgetTreasuryForArbitratorBudgetScope(address(budgetFlow));
-        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury));
+        MockStakeVaultForArbitrator scopedStakeVault = new MockStakeVaultForArbitrator(address(scopedGoalTreasury), false);
         scopedStakeVault.setJurorVotes(voter1, 100e18);
         scopedStakeVault.setJurorVotes(voter2, 200e18);
 
@@ -1058,7 +1279,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
             )
         );
 
-        MockStakeVaultForArbitrator badVault = new MockStakeVaultForArbitrator(address(0));
+        MockStakeVaultForArbitrator badVault = new MockStakeVaultForArbitrator(address(0), false);
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_GOAL_TREASURY.selector);
         _deployProxy(
             address(impl),
@@ -1078,7 +1299,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         );
 
         MockGoalTreasuryRewardEscrowReverts revertingEscrowTreasury = new MockGoalTreasuryRewardEscrowReverts();
-        MockStakeVaultForArbitrator revertingEscrowVault = new MockStakeVaultForArbitrator(address(revertingEscrowTreasury));
+        MockStakeVaultForArbitrator revertingEscrowVault = new MockStakeVaultForArbitrator(address(revertingEscrowTreasury), false);
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_GOAL_TREASURY.selector);
         _deployProxy(
             address(impl),
@@ -1099,7 +1320,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
 
         MockGoalTreasuryForArbitratorSlash eoaEscrowTreasury =
             new MockGoalTreasuryForArbitratorSlash(makeAddr("eoaRewardEscrow"));
-        MockStakeVaultForArbitrator eoaEscrowVault = new MockStakeVaultForArbitrator(address(eoaEscrowTreasury));
+        MockStakeVaultForArbitrator eoaEscrowVault = new MockStakeVaultForArbitrator(address(eoaEscrowTreasury), false);
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_REWARD_ESCROW.selector);
         _deployProxy(
             address(impl),
@@ -1119,7 +1340,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         );
 
         MockGoalTreasuryForArbitratorSlash emptyEscrowTreasury = new MockGoalTreasuryForArbitratorSlash(address(0));
-        MockStakeVaultForArbitrator noEscrowVault = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury));
+        MockStakeVaultForArbitrator noEscrowVault = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury), false);
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_REWARD_ESCROW.selector);
         _deployProxy(
             address(impl),
@@ -1172,26 +1393,26 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_ADDRESS.selector);
         arb2.configureStakeVault(address(0));
 
-        MockStakeVaultForArbitrator badVault = new MockStakeVaultForArbitrator(address(0));
+        MockStakeVaultForArbitrator badVault = new MockStakeVaultForArbitrator(address(0), false);
         vm.prank(address(arbitrable2));
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_GOAL_TREASURY.selector);
         arb2.configureStakeVault(address(badVault));
 
         MockGoalTreasuryRewardEscrowReverts revertingEscrowTreasury = new MockGoalTreasuryRewardEscrowReverts();
-        MockStakeVaultForArbitrator revertingEscrowVault = new MockStakeVaultForArbitrator(address(revertingEscrowTreasury));
+        MockStakeVaultForArbitrator revertingEscrowVault = new MockStakeVaultForArbitrator(address(revertingEscrowTreasury), false);
         vm.prank(address(arbitrable2));
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_GOAL_TREASURY.selector);
         arb2.configureStakeVault(address(revertingEscrowVault));
 
         MockGoalTreasuryForArbitratorSlash eoaEscrowTreasury =
             new MockGoalTreasuryForArbitratorSlash(makeAddr("eoaRewardEscrow"));
-        MockStakeVaultForArbitrator eoaEscrowVault = new MockStakeVaultForArbitrator(address(eoaEscrowTreasury));
+        MockStakeVaultForArbitrator eoaEscrowVault = new MockStakeVaultForArbitrator(address(eoaEscrowTreasury), false);
         vm.prank(address(arbitrable2));
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_REWARD_ESCROW.selector);
         arb2.configureStakeVault(address(eoaEscrowVault));
 
         MockGoalTreasuryForArbitratorSlash emptyEscrowTreasury = new MockGoalTreasuryForArbitratorSlash(address(0));
-        MockStakeVaultForArbitrator noEscrowVault = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury));
+        MockStakeVaultForArbitrator noEscrowVault = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury), false);
         vm.prank(address(arbitrable2));
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_REWARD_ESCROW.selector);
         arb2.configureStakeVault(address(noEscrowVault));
@@ -1217,7 +1438,7 @@ contract ERC20VotesArbitratorStakeVaultModeTest is TestUtils {
 
     function test_initializeWithStakeVault_reverts_whenRewardEscrowMissing() public {
         MockGoalTreasuryForArbitratorSlash emptyEscrowTreasury = new MockGoalTreasuryForArbitratorSlash(address(0));
-        MockStakeVaultForArbitrator stakeVault2 = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury));
+        MockStakeVaultForArbitrator stakeVault2 = new MockStakeVaultForArbitrator(address(emptyEscrowTreasury), false);
         stakeVault2.setJurorVotes(voter1, 100e18);
         stakeVault2.setJurorVotes(voter2, 200e18);
 

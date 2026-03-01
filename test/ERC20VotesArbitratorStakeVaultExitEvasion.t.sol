@@ -193,14 +193,17 @@ contract ERC20VotesArbitratorStakeVaultExitEvasionTest is TestUtils {
         vm.prank(juror1);
         vault.finalizeJurorExit();
         assertEq(vault.jurorWeightOf(juror1), 0);
-        uint256 rewardGoalBefore = goalToken.balanceOf(_rewardEscrow);
-        uint256 rewardCobuildBefore = cobuildToken.balanceOf(_rewardEscrow);
+        uint256 arbGoalBefore = goalToken.balanceOf(address(arb));
+        uint256 arbCobuildBefore = cobuildToken.balanceOf(address(arb));
 
         arb.slashVoter(disputeId, 0, juror1);
 
-        uint256 rewardGoalDelta = goalToken.balanceOf(_rewardEscrow) - rewardGoalBefore;
-        uint256 rewardCobuildDelta = cobuildToken.balanceOf(_rewardEscrow) - rewardCobuildBefore;
-        assertGt(rewardGoalDelta + rewardCobuildDelta, 0);
+        uint256 arbGoalDelta = goalToken.balanceOf(address(arb)) - arbGoalBefore;
+        uint256 arbCobuildDelta = cobuildToken.balanceOf(address(arb)) - arbCobuildBefore;
+        assertGt(arbGoalDelta + arbCobuildDelta, 0);
+
+        (uint256 claimableGoal, uint256 claimableCobuild) = arb.getSlashRewardsForRound(disputeId, 0, juror2);
+        assertGt(claimableGoal + claimableCobuild, 0);
     }
 
     function _seedJurorStake(address juror) internal {

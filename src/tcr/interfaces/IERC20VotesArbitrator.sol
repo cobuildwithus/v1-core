@@ -28,6 +28,8 @@ interface IERC20VotesArbitrator is IArbitrator {
         bool rewardsClaimed;
         bool slashedOrProcessed;
         uint256 claimableReward;
+        uint256 claimableGoalSlashReward;
+        uint256 claimableCobuildSlashReward;
     }
 
     /// @notice Error thrown when the voting token address is invalid (zero address)
@@ -171,6 +173,13 @@ interface IERC20VotesArbitrator is IArbitrator {
     event ArbitrationCostSet(uint256 oldArbitrationCost, uint256 newArbitrationCost);
     event WrongOrMissedSlashBpsSet(uint256 oldWrongOrMissedSlashBps, uint256 newWrongOrMissedSlashBps);
     event SlashCallerBountyBpsSet(uint256 oldSlashCallerBountyBps, uint256 newSlashCallerBountyBps);
+    event SlashRewardsWithdrawn(
+        uint256 indexed disputeId,
+        uint256 indexed round,
+        address indexed voter,
+        uint256 goalAmount,
+        uint256 cobuildAmount
+    );
 
     /**
      * @notice Emitted when a vote has been cast on a dispute
@@ -237,7 +246,15 @@ interface IERC20VotesArbitrator is IArbitrator {
         uint256 round,
         address voter
     ) external view returns (VoterRoundStatus memory status);
+    function getSlashRewardsForRound(
+        uint256 disputeId,
+        uint256 round,
+        address voter
+    ) external view returns (uint256 goalAmount, uint256 cobuildAmount);
     function isVoterSlashedOrProcessed(uint256 disputeId, uint256 round, address voter) external view returns (bool);
+    function slashVoter(uint256 disputeId, uint256 round, address voter) external;
+    function slashVoters(uint256 disputeId, uint256 round, address[] calldata voters) external;
+    function withdrawVoterRewards(uint256 disputeId, uint256 round, address voter) external;
     function computeCommitHash(
         uint256 disputeId,
         uint256 round,
