@@ -47,6 +47,9 @@ library GoalFactoryCoreStackDeploy {
         uint32 managerRewardPoolFlowRatePpm;
         uint64 minRaiseDeadline;
         uint256 minRaise;
+        uint256 coverageLambda;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
         uint32 successSettlementRewardEscrowPpm;
         address successResolver;
         uint64 successAssertionLiveness;
@@ -136,6 +139,9 @@ library GoalFactoryCoreStackDeploy {
             goalRevnetId: request.goalRevnetId,
             minRaiseDeadline: request.minRaiseDeadline,
             minRaise: request.minRaise,
+            coverageLambda: request.coverageLambda,
+            budgetPremiumPpm: request.budgetPremiumPpm,
+            budgetSlashPpm: request.budgetSlashPpm,
             successSettlementRewardEscrowPpm: request.successSettlementRewardEscrowPpm,
             successResolver: request.successResolver,
             successAssertionLiveness: request.successAssertionLiveness,

@@ -2,7 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperfluidPool, ISuperToken } from
+    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -128,6 +129,8 @@ contract SharedMockFlow {
     address private _recipientAdmin;
     address private _flowOperator;
     address private _sweeper;
+    ISuperfluidPool private _distributionPool;
+    mapping(address => int96) private _memberFlowRates;
 
     uint256 public setFlowRateCallCount;
     uint256 public sweepCallCount;
@@ -168,6 +171,10 @@ contract SharedMockFlow {
         return -_totalFlowRate;
     }
 
+    function getMemberFlowRate(address memberAddr) external view returns (int96 flowRate) {
+        flowRate = _memberFlowRates[memberAddr];
+    }
+
     function setMaxSafeFlowRate(int96 rate) external {
         _maxSafeFlowRate = rate;
     }
@@ -204,6 +211,18 @@ contract SharedMockFlow {
 
     function setParent(address parent_) external {
         _parent = parent_;
+    }
+
+    function distributionPool() external view returns (ISuperfluidPool) {
+        return _distributionPool;
+    }
+
+    function setDistributionPool(ISuperfluidPool distributionPool_) external {
+        _distributionPool = distributionPool_;
+    }
+
+    function setMemberFlowRate(address memberAddr, int96 flowRate) external {
+        _memberFlowRates[memberAddr] = flowRate;
     }
 
     function parent() external view returns (address) {
@@ -276,11 +295,24 @@ contract SharedMockFlow {
     }
 }
 
+contract SharedMockSuperfluidPool {
+    uint128 private _totalUnits;
+
+    function setTotalUnits(uint128 totalUnits_) external {
+        _totalUnits = totalUnits_;
+    }
+
+    function getTotalUnits() external view returns (uint128) {
+        return _totalUnits;
+    }
+}
+
 contract SharedMockStakeVault {
     error MARK_REVERT();
 
     address public goalTreasury;
     address public jurorSlasher;
+    address public underwriterSlasher;
     bool public goalResolved;
     bool private _shouldRevertMark;
     uint256 public markCallCount;
@@ -331,5 +363,9 @@ contract SharedMockStakeVault {
 
     function setJurorSlasher(address slasher) external {
         jurorSlasher = slasher;
+    }
+
+    function setUnderwriterSlasher(address slasher) external {
+        underwriterSlasher = slasher;
     }
 }

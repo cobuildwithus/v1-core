@@ -9,6 +9,8 @@ import { ISuperfluid } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 
@@ -18,6 +20,7 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 contract GoalFactory {
     IREVDeployer public immutable REV_DEPLOYER;
@@ -80,6 +83,12 @@ contract GoalFactory {
         uint32 managerRewardPoolFlowRatePpm;
     }
 
+    struct UnderwritingParams {
+        uint256 coverageLambda;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
+    }
+
     struct BudgetTCRParams {
         address governor;
         address invalidRoundRewardsSink;
@@ -105,9 +114,8 @@ contract GoalFactory {
         SettlementParams settlement;
         FlowMetadataParams flowMetadata;
         FlowConfigParams flowConfig;
+        UnderwritingParams underwriting;
         BudgetTCRParams budgetTCR;
-        address rentRecipient;
-        uint256 rentWadPerSecond;
     }
 
     struct DeployedGoalStack {
@@ -200,6 +208,8 @@ contract GoalFactory {
         if (
             p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6
                 || p.flowConfig.managerRewardPoolFlowRatePpm > SCALE_1E6
+                || p.underwriting.budgetPremiumPpm > SCALE_1E6
+                || p.underwriting.budgetSlashPpm > SCALE_1E6
         ) {
             revert INVALID_SCALE();
         }
@@ -224,7 +234,7 @@ contract GoalFactory {
         GoalFactoryCoreStackDeploy.CoreStackResult memory core =
             _initializeCoreStack(p, goalTreasury, splitHook, goalFlow, revnet, predictedBudgetTCR, minRaiseDeadline);
 
-        BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(p, core, revnet);
+        BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(p, core, revnet, predictedBudgetTCR);
         if (tcrStack.budgetTCR != predictedBudgetTCR) {
             revert BUDGET_TCR_ADDRESS_MISMATCH(predictedBudgetTCR, tcrStack.budgetTCR);
         }
@@ -299,11 +309,11 @@ contract GoalFactory {
             flowTagline: p.flowMetadata.tagline,
             flowUrl: p.flowMetadata.url,
             managerRewardPoolFlowRatePpm: p.flowConfig.managerRewardPoolFlowRatePpm,
-            rentRecipient: p.rentRecipient,
-            rentWadPerSecond: p.rentWadPerSecond,
-            burnAddress: BURN_ADDRESS,
             minRaiseDeadline: minRaiseDeadline,
             minRaise: p.timing.minRaise,
+            coverageLambda: p.underwriting.coverageLambda,
+            budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
+            budgetSlashPpm: p.underwriting.budgetSlashPpm,
             successSettlementRewardEscrowPpm: p.settlement.successSettlementRewardEscrowPpm,
             successResolver: p.success.successResolver,
             successAssertionLiveness: p.success.successAssertionLiveness,
@@ -316,8 +326,23 @@ contract GoalFactory {
     function _deployBudgetTcr(
         DeployParams calldata p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
-        GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet
+        GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
+        address predictedBudgetTCR
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
+        address premiumEscrowImplementation = address(new PremiumEscrow());
+        address underwriterSlasherRouter = address(
+            new UnderwriterSlasherRouter(
+                IStakeVault(address(core.stakeVault)),
+                predictedBudgetTCR,
+                revnet.directory,
+                revnet.goalRevnetId,
+                IERC20Metadata(revnet.goalToken),
+                IERC20Metadata(COBUILD_TOKEN),
+                core.goalSuperToken,
+                address(core.goalFlow)
+            )
+        );
+
         return GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
             budgetTcrFactory: BUDGET_TCR_FACTORY,
             registryConfig: GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
@@ -346,7 +371,11 @@ contract GoalFactory {
             goalTreasury: core.goalTreasury,
             goalToken: revnet.goalToken,
             goalRulesets: revnet.rulesets,
-            goalRevnetId: revnet.goalRevnetId
+            goalRevnetId: revnet.goalRevnetId,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
+            budgetSlashPpm: p.underwriting.budgetSlashPpm
         }));
     }
 

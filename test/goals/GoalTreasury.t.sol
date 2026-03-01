@@ -892,13 +892,65 @@ contract GoalTreasuryTest is Test {
     }
 
     function test_constructor_revertsWhenBudgetPremiumPpmExceedsScale() public {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        flow.setFlowOperator(predicted);
+        flow.setSweeper(predicted);
+
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_BUDGET_PREMIUM_PPM.selector, uint256(1_000_001)));
-        _deployWithUnderwritingConfig(uint64(block.timestamp + 3 days), 1, 0, 1_000_001, 0);
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: hook,
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 1,
+                coverageLambda: 0,
+                budgetPremiumPpm: 1_000_001,
+                budgetSlashPpm: 0,
+                successSettlementRewardEscrowPpm: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
     }
 
     function test_constructor_revertsWhenBudgetSlashPpmExceedsScale() public {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predicted);
+        flow.setFlowOperator(predicted);
+        flow.setSweeper(predicted);
+
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_BUDGET_SLASH_PPM.selector, uint256(1_000_001)));
-        _deployWithUnderwritingConfig(uint64(block.timestamp + 3 days), 1, 0, 0, 1_000_001);
+        new GoalTreasury(
+            owner,
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                rewardEscrow: address(0),
+                hook: hook,
+                goalRulesets: address(rulesets),
+                goalRevnetId: PROJECT_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 1,
+                coverageLambda: 0,
+                budgetPremiumPpm: 0,
+                budgetSlashPpm: 1_000_001,
+                successSettlementRewardEscrowPpm: 0,
+                successResolver: owner,
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
     }
 
     function test_constructor_revertsOnStakeVaultGoalMismatch() public {
@@ -2473,6 +2525,26 @@ contract GoalTreasuryTest is Test {
         assertEq(flow.targetOutflowRate(), 4);
     }
 
+    function test_sync_clampsTargetFlowRateToZeroWhenCoverageCapRoundsDown() public {
+        GoalTreasury cappedTreasury = _deployWithUnderwritingConfig(
+            uint64(block.timestamp + 3 days),
+            100e18,
+            10,
+            0,
+            0
+        );
+
+        distributionPool.setTotalUnits(9);
+
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(cappedTreasury.recordHookFunding(100e18));
+        cappedTreasury.sync();
+
+        assertEq(cappedTreasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
     function test_sync_allowsHigherRateWhenCoverageIncreases() public {
         GoalTreasury cappedTreasury = _deployWithUnderwritingConfig(
             uint64(block.timestamp + 3 days),
@@ -2496,6 +2568,31 @@ contract GoalTreasuryTest is Test {
 
         assertEq(cappedTreasury.targetFlowRate(), 50);
         assertEq(flow.targetOutflowRate(), 50);
+    }
+
+    function test_sync_reducesTargetFlowRateWhenCoverageDecreases() public {
+        GoalTreasury cappedTreasury = _deployWithUnderwritingConfig(
+            uint64(block.timestamp + 3 days),
+            100e18,
+            10,
+            0,
+            0
+        );
+
+        distributionPool.setTotalUnits(500);
+        superToken.mint(address(flow), 100e18);
+        vm.prank(hook);
+        assertTrue(cappedTreasury.recordHookFunding(100e18));
+        cappedTreasury.sync();
+
+        assertEq(cappedTreasury.targetFlowRate(), 50);
+        assertEq(flow.targetOutflowRate(), 50);
+
+        distributionPool.setTotalUnits(30);
+        cappedTreasury.sync();
+
+        assertEq(cappedTreasury.targetFlowRate(), 3);
+        assertEq(flow.targetOutflowRate(), 3);
     }
 
     function test_retryTerminalSideEffects_revertsWhenNotTerminal() public {

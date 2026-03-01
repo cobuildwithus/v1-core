@@ -37,6 +37,9 @@ interface IGoalTreasury is
         uint256 goalRevnetId;
         uint64 minRaiseDeadline;
         uint256 minRaise;
+        uint256 coverageLambda;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
         uint32 successSettlementRewardEscrowPpm;
         address successResolver;
         uint64 successAssertionLiveness;
@@ -69,6 +72,8 @@ interface IGoalTreasury is
     error GOAL_DEADLINE_PASSED();
     error MIN_RAISE_NOT_REACHED(uint256 raised, uint256 minRaise);
     error DEADLINE_NOT_DERIVABLE();
+    error INVALID_BUDGET_PREMIUM_PPM(uint256 ppm);
+    error INVALID_BUDGET_SLASH_PPM(uint256 ppm);
     error STAKE_VAULT_GOAL_MISMATCH(address expected, address actual);
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
     error INVALID_SETTLEMENT_SCALED(uint256 scaled);
@@ -138,12 +143,16 @@ interface IGoalTreasury is
         uint256 controllerBurnAmount
     );
     event JurorSlasherConfigured(address indexed authority, address indexed slasher);
+    event UnderwriterSlasherConfigured(address indexed authority, address indexed slasher);
 
     function minRaiseDeadline() external view returns (uint64);
     function deadline() external view returns (uint64);
     function successAt() external view returns (uint64);
     function resolvedAt() external view returns (uint64);
     function minRaise() external view returns (uint256);
+    function coverageLambda() external view returns (uint256);
+    function budgetPremiumPpm() external view returns (uint32);
+    function budgetSlashPpm() external view returns (uint32);
     function totalRaised() external view returns (uint256);
     function goalRulesets() external view returns (IJBRulesets);
     function goalRevnetId() external view returns (uint256);
@@ -166,6 +175,7 @@ interface IGoalTreasury is
     function settleLateResidual() external;
     function sweepFailedAndBurn() external returns (uint256 amount);
     function configureJurorSlasher(address slasher) external;
+    function configureUnderwriterSlasher(address slasher) external;
 
     function resolved() external view returns (bool);
     function state() external view returns (GoalState);

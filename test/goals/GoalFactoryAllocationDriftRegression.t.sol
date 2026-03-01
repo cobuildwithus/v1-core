@@ -81,6 +81,9 @@ contract GoalFactoryAllocationDriftRegressionTest is Test {
                 goalRevnetId: 0,
                 minRaiseDeadline: 0,
                 minRaise: 0,
+                coverageLambda: 0,
+                budgetPremiumPpm: 0,
+                budgetSlashPpm: 0,
                 successSettlementRewardEscrowPpm: 0,
                 successResolver: address(0),
                 successAssertionLiveness: 0,
@@ -250,6 +253,11 @@ contract GoalFactoryAllocationDriftRegressionTest is Test {
         });
 
         p.flowConfig = GoalFactory.FlowConfigParams({ managerRewardPoolFlowRatePpm: 100_000 });
+        p.underwriting = GoalFactory.UnderwritingParams({
+            coverageLambda: 0,
+            budgetPremiumPpm: 0,
+            budgetSlashPpm: 0
+        });
 
         p.budgetTCR = GoalFactory.BudgetTCRParams({
             governor: address(0),
@@ -283,9 +291,6 @@ contract GoalFactoryAllocationDriftRegressionTest is Test {
                 slashCallerBountyBps: 100
             })
         });
-
-        p.rentRecipient = address(0x000000000000000000000000000000000000dEaD);
-        p.rentWadPerSecond = 1;
     }
 }
 

@@ -394,6 +394,24 @@ contract GoalFactoryTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_revertsWhenBudgetPremiumPpmExceedsOneE6() public {
+        GoalFactoryHarness factory = _deployFactory();
+        GoalFactory.DeployParams memory p = _defaultDeployParams();
+        p.underwriting.budgetPremiumPpm = SCALE_1E6 + 1;
+
+        vm.expectRevert(GoalFactory.INVALID_SCALE.selector);
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenBudgetSlashPpmExceedsOneE6() public {
+        GoalFactoryHarness factory = _deployFactory();
+        GoalFactory.DeployParams memory p = _defaultDeployParams();
+        p.underwriting.budgetSlashPpm = SCALE_1E6 + 1;
+
+        vm.expectRevert(GoalFactory.INVALID_SCALE.selector);
+        factory.deployGoal(p);
+    }
+
     function test_deployGoal_revertsWhenCobuildPrimaryTerminalUnset() public {
         GoalFactoryDirectoryProbe directory =
             new GoalFactoryDirectoryProbe(COBUILD_REVNET_ID, address(cobuildToken), address(0));
@@ -624,11 +642,11 @@ contract GoalFactoryTest is Test {
             flowTagline: "Goal tagline",
             flowUrl: "https://goal.example",
             managerRewardPoolFlowRatePpm: 222_222,
-            rentRecipient: makeAddr("rentRecipient"),
-            rentWadPerSecond: 1,
-            burnAddress: address(0x000000000000000000000000000000000000dEaD),
             minRaiseDeadline: uint64(block.timestamp + 1 days),
             minRaise: 1e18,
+            coverageLambda: 777,
+            budgetPremiumPpm: 111_111,
+            budgetSlashPpm: 222_222,
             successSettlementRewardEscrowPpm: 777_777,
             successResolver: SUCCESS_RESOLVER,
             successAssertionLiveness: 7200,
@@ -658,6 +676,9 @@ contract GoalFactoryTest is Test {
         assertEq(goalTreasuryProbe.lastConfigRewardEscrow(), address(out.rewardEscrow));
         assertEq(goalTreasuryProbe.lastConfigStakeVault(), address(out.stakeVault));
         assertEq(goalTreasuryProbe.lastConfigMinRaise(), request.minRaise);
+        assertEq(goalTreasuryProbe.lastConfigCoverageLambda(), request.coverageLambda);
+        assertEq(goalTreasuryProbe.lastConfigBudgetPremiumPpm(), request.budgetPremiumPpm);
+        assertEq(goalTreasuryProbe.lastConfigBudgetSlashPpm(), request.budgetSlashPpm);
         assertEq(
             goalTreasuryProbe.lastConfigSuccessSettlementRewardEscrowPpm(),
             request.successSettlementRewardEscrowPpm
@@ -797,9 +818,12 @@ contract GoalFactoryTest is Test {
             url: "https://goal.example"
         });
         p.flowConfig = GoalFactory.FlowConfigParams({ managerRewardPoolFlowRatePpm: 100_000 });
+        p.underwriting = GoalFactory.UnderwritingParams({
+            coverageLambda: 1000,
+            budgetPremiumPpm: 50_000,
+            budgetSlashPpm: 100_000
+        });
         p.budgetTCR = _defaultBudgetTCRParams();
-        p.rentRecipient = RENT_RECIPIENT;
-        p.rentWadPerSecond = 1;
     }
 }
 
@@ -1143,6 +1167,9 @@ contract GoalFactoryMockGoalTreasury {
     address public lastConfigStakeVault;
     address public lastConfigRewardEscrow;
     uint256 public lastConfigMinRaise;
+    uint256 public lastConfigCoverageLambda;
+    uint32 public lastConfigBudgetPremiumPpm;
+    uint32 public lastConfigBudgetSlashPpm;
     uint32 public lastConfigSuccessSettlementRewardEscrowPpm;
 
     function initialize(address initialOwner, IGoalTreasury.GoalConfig calldata config) external {
@@ -1151,6 +1178,9 @@ contract GoalFactoryMockGoalTreasury {
         lastConfigStakeVault = config.stakeVault;
         lastConfigRewardEscrow = config.rewardEscrow;
         lastConfigMinRaise = config.minRaise;
+        lastConfigCoverageLambda = config.coverageLambda;
+        lastConfigBudgetPremiumPpm = config.budgetPremiumPpm;
+        lastConfigBudgetSlashPpm = config.budgetSlashPpm;
         lastConfigSuccessSettlementRewardEscrowPpm = config.successSettlementRewardEscrowPpm;
     }
 }

@@ -63,6 +63,17 @@ contract DeployGoalFromFactory is DeployScript {
             revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(managerRewardPoolFlowRatePpmRaw);
         }
         uint32 managerRewardPoolFlowRatePpm = uint32(managerRewardPoolFlowRatePpmRaw);
+        uint256 coverageLambda = vm.envOr("UNDERWRITING_COVERAGE_LAMBDA", uint256(0));
+        uint256 budgetPremiumPpmRaw = vm.envOr("BUDGET_PREMIUM_PPM", uint256(0));
+        if (budgetPremiumPpmRaw > 1_000_000) {
+            revert BUDGET_PREMIUM_PPM_INVALID(budgetPremiumPpmRaw);
+        }
+        uint32 budgetPremiumPpm = uint32(budgetPremiumPpmRaw);
+        uint256 budgetSlashPpmRaw = vm.envOr("BUDGET_SLASH_PPM", uint256(0));
+        if (budgetSlashPpmRaw > 1_000_000) {
+            revert BUDGET_SLASH_PPM_INVALID(budgetSlashPpmRaw);
+        }
+        uint32 budgetSlashPpm = uint32(budgetSlashPpmRaw);
 
         address budgetSuccessResolver = vm.envOr("BUDGET_SUCCESS_RESOLVER", successResolver);
         if (successResolver == BURN) revert SUCCESS_RESOLVER_REQUIRED();
@@ -130,6 +141,11 @@ contract DeployGoalFromFactory is DeployScript {
                 title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
             flowConfig: GoalFactory.FlowConfigParams({managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm}),
+            underwriting: GoalFactory.UnderwritingParams({
+                coverageLambda: coverageLambda,
+                budgetPremiumPpm: budgetPremiumPpm,
+                budgetSlashPpm: budgetSlashPpm
+            }),
             budgetTCR: GoalFactory.BudgetTCRParams({
                 governor: address(0),
                 invalidRoundRewardsSink: BURN,
@@ -146,9 +162,7 @@ contract DeployGoalFromFactory is DeployScript {
                 oracleBounds: oracleBounds,
                 budgetSuccessResolver: budgetSuccessResolver,
                 arbitratorParams: arbParams
-            }),
-            rentRecipient: vm.envOr("GOAL_RENT_RECIPIENT", BURN),
-            rentWadPerSecond: vm.envOr("GOAL_RENT_WAD_PER_SECOND", uint256(0))
+            })
         });
 
         GoalFactory.DeployedGoalStack memory out = factory.deployGoal(params);
@@ -213,4 +227,6 @@ contract DeployGoalFromFactory is DeployScript {
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();
     error BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(uint256 value);
+    error BUDGET_PREMIUM_PPM_INVALID(uint256 value);
+    error BUDGET_SLASH_PPM_INVALID(uint256 value);
 }
