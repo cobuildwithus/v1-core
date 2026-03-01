@@ -17,6 +17,9 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     uint32 internal constant FULL_SCALED = 1_000_000;
     uint32 internal constant HALF_SCALED = FULL_SCALED / 2;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
+    bytes32 internal constant PREMIUM_ESCROW_REASON_LOOKUP_REVERTED = keccak256("PREMIUM_ESCROW_LOOKUP_REVERTED");
+    bytes32 internal constant PREMIUM_ESCROW_REASON_TARGET_INVALID = keccak256("PREMIUM_ESCROW_TARGET_INVALID");
+    bytes32 internal constant PREMIUM_ESCROW_REASON_CHECKPOINT_REVERTED = keccak256("PREMIUM_ESCROW_CHECKPOINT_REVERTED");
 
     uint256 internal parentKey;
 
@@ -33,7 +36,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         address indexed budgetTreasury,
         address indexed premiumEscrow,
         address indexed account,
-        bytes reason
+        bytes32 reason
     );
 
     function setUp() public override {
@@ -129,7 +132,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             address(budgetTreasury),
             address(premiumEscrow),
             allocator,
-            abi.encodeWithSelector(FlowLedgerPropPremiumEscrow.CHECKPOINT_REVERT.selector)
+            PREMIUM_ESCROW_REASON_CHECKPOINT_REVERTED
         );
 
         _allocateWithPrevStateForStrategy(
@@ -161,11 +164,38 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             address(invalidBudgetTreasury),
             invalidPremiumEscrow,
             allocator,
-            abi.encodeWithSelector(
-                GoalFlowAllocationLedgerPipeline.INVALID_BUDGET_PREMIUM_ESCROW.selector,
-                address(invalidBudgetTreasury),
-                invalidPremiumEscrow
-            )
+            PREMIUM_ESCROW_REASON_TARGET_INVALID
+        );
+
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(childFlow.syncCallCount(), 1);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(50e18, FULL_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
+    }
+
+    function test_allocate_withLedger_revertingPremiumEscrowLookup_isBestEffort() public {
+        FlowLedgerPropBudgetTreasuryPremiumEscrowReverting revertingBudgetTreasury =
+            new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(address(childFlow));
+        ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(revertingBudgetTreasury));
+        childFlow.setCommit(keccak256("child-commit"));
+
+        _setWeights(50e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
+        emit PremiumEscrowCheckpointFailed(
+            address(revertingBudgetTreasury),
+            address(0),
+            allocator,
+            PREMIUM_ESCROW_REASON_LOOKUP_REVERTED
         );
 
         _allocateWithPrevStateForStrategy(
@@ -209,7 +239,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             address(secondBudgetTreasury),
             address(secondPremiumEscrow),
             allocator,
-            abi.encodeWithSelector(FlowLedgerPropPremiumEscrow.CHECKPOINT_REVERT.selector)
+            PREMIUM_ESCROW_REASON_CHECKPOINT_REVERTED
         );
 
         _allocateWithPrevStateForStrategy(
@@ -260,11 +290,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             address(invalidBudgetTreasury),
             invalidPremiumEscrow,
             allocator,
-            abi.encodeWithSelector(
-                GoalFlowAllocationLedgerPipeline.INVALID_BUDGET_PREMIUM_ESCROW.selector,
-                address(invalidBudgetTreasury),
-                invalidPremiumEscrow
-            )
+            PREMIUM_ESCROW_REASON_TARGET_INVALID
         );
 
         _allocateWithPrevStateForStrategy(
@@ -600,6 +626,20 @@ contract FlowLedgerPropBudgetTreasury {
     constructor(address flow_, address premiumEscrow_) {
         flow = flow_;
         premiumEscrow = premiumEscrow_;
+    }
+}
+
+contract FlowLedgerPropBudgetTreasuryPremiumEscrowReverting {
+    error PREMIUM_ESCROW_LOOKUP_REVERT();
+
+    address public flow;
+
+    constructor(address flow_) {
+        flow = flow_;
+    }
+
+    function premiumEscrow() external pure returns (address) {
+        revert PREMIUM_ESCROW_LOOKUP_REVERT();
     }
 }
 
