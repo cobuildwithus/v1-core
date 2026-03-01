@@ -4,11 +4,17 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
+import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBToken} from "@bananapus/core-v5/interfaces/IJBToken.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {IJBTokens} from "@bananapus/core-v5/interfaces/IJBTokens.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -152,6 +158,73 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(goalSuperToken.balanceOf(fundingTarget), 12e18);
         assertEq(goalToken.balanceOf(address(router)), 0);
         assertEq(cobuildToken.balanceOf(address(router)), 0);
+    }
+
+    function test_slashUnderwriter_smokeRealStakeVault_routesAndForwardsConvertedGoal() public {
+        RouterMockStakeVaultLinkTokens stakeVaultTokens = new RouterMockStakeVaultLinkTokens();
+        stakeVaultTokens.setProjectIdFor(address(goalToken), GOAL_REVNET_ID);
+
+        RouterMockStakeVaultLinkController stakeVaultController =
+            new RouterMockStakeVaultLinkController(IJBTokens(address(stakeVaultTokens)));
+        RouterMockStakeVaultLinkDirectory stakeVaultDirectory = new RouterMockStakeVaultLinkDirectory();
+        stakeVaultDirectory.setController(GOAL_REVNET_ID, IJBController(address(stakeVaultController)));
+
+        RouterMockStakeVaultRulesets stakeVaultRulesets =
+            new RouterMockStakeVaultRulesets(IJBDirectory(address(stakeVaultDirectory)), 1e18);
+
+        StakeVault realStakeVault = new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(stakeVaultRulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+
+        RouterMockDirectory realDirectory = new RouterMockDirectory();
+        RouterMockTerminal realTerminal = new RouterMockTerminal(cobuildToken, goalToken);
+        realDirectory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(realTerminal)));
+        goalToken.mint(address(realTerminal), 1_000_000e18);
+
+        UnderwriterSlasherRouter realRouter = new UnderwriterSlasherRouter(
+            IStakeVault(address(realStakeVault)),
+            address(this),
+            IJBDirectory(address(realDirectory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        realStakeVault.setUnderwriterSlasher(address(realRouter));
+        realRouter.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
+
+        uint256 goalStakeAmount = 70e18;
+        uint256 cobuildStakeAmount = 50e18;
+        goalToken.mint(underwriter, goalStakeAmount);
+        cobuildToken.mint(underwriter, cobuildStakeAmount);
+
+        vm.startPrank(underwriter);
+        goalToken.approve(address(realStakeVault), goalStakeAmount);
+        cobuildToken.approve(address(realStakeVault), cobuildStakeAmount);
+        realStakeVault.depositGoal(goalStakeAmount);
+        realStakeVault.depositCobuild(cobuildStakeAmount);
+        vm.stopPrank();
+
+        vm.expectEmit(true, true, true, true, address(realRouter));
+        emit UnderwriterSlashRouted(address(premiumEscrow), underwriter, 60e18, 35e18, 25e18, 25e18, 60e18);
+
+        vm.prank(address(premiumEscrow));
+        realRouter.slashUnderwriter(underwriter, 60e18);
+
+        assertEq(realTerminal.payCallCount(), 1);
+        assertEq(realTerminal.lastPayAmount(), 25e18);
+        assertEq(realStakeVault.stakedGoalOf(underwriter), 35e18);
+        assertEq(realStakeVault.stakedCobuildOf(underwriter), 25e18);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 60e18);
+        assertEq(goalToken.balanceOf(address(realRouter)), 0);
+        assertEq(cobuildToken.balanceOf(address(realRouter)), 0);
     }
 
     function test_slashUnderwriter_queriesGoalTerminalWithCobuildTokenKey() public {
@@ -431,3 +504,57 @@ contract RouterMockTerminal {
 }
 
 contract RouterMockPremiumEscrow {}
+
+contract RouterMockStakeVaultRulesets {
+    IJBDirectory private immutable _directory;
+    uint112 private immutable _weight;
+
+    constructor(IJBDirectory directory_, uint112 weight_) {
+        _directory = directory_;
+        _weight = weight_;
+    }
+
+    function DIRECTORY() external view returns (IJBDirectory) {
+        return _directory;
+    }
+
+    function currentOf(uint256) external view returns (JBRuleset memory ruleset) {
+        ruleset.weight = _weight;
+    }
+}
+
+contract RouterMockStakeVaultLinkDirectory {
+    mapping(uint256 => IJBController) private _controllerOf;
+
+    function setController(uint256 projectId, IJBController controller) external {
+        _controllerOf[projectId] = controller;
+    }
+
+    function controllerOf(uint256 projectId) external view returns (IJBController) {
+        return _controllerOf[projectId];
+    }
+}
+
+contract RouterMockStakeVaultLinkController {
+    IJBTokens private immutable _tokens;
+
+    constructor(IJBTokens tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (IJBTokens) {
+        return _tokens;
+    }
+}
+
+contract RouterMockStakeVaultLinkTokens {
+    mapping(address => uint256) private _projectIdOf;
+
+    function setProjectIdFor(address token, uint256 projectId) external {
+        _projectIdOf[token] = projectId;
+    }
+
+    function projectIdOf(IJBToken token) external view returns (uint256) {
+        return _projectIdOf[address(token)];
+    }
+}
