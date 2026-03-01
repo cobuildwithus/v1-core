@@ -12,6 +12,7 @@ interface IUnderwriterSlasherRouter {
     error INVALID_COBUILD_TOKEN(address expected, address actual);
     error GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address expected, address actual);
     error INVALID_GOAL_TERMINAL(address terminal);
+    error SUPER_TOKEN_TRANSFER_RETURNED_FALSE(address target, uint256 amount);
 
     event PremiumEscrowAuthorizationSet(address indexed premiumEscrow, bool authorized);
     event CobuildConversionFailed(
@@ -29,6 +30,18 @@ interface IUnderwriterSlasherRouter {
         uint256 convertedGoalAmount,
         uint256 forwardedSuperTokenAmount
     );
+    event GoalSuperTokenUpgradeFailed(
+        address indexed premiumEscrow, address indexed underwriter, uint256 goalAmount, bytes reason
+    );
+    event GoalSuperTokenForwardingFailed(
+        address indexed premiumEscrow, address indexed underwriter, uint256 superTokenAmount, bytes reason
+    );
+    event GoalSuperTokenForwardingRetried(
+        address indexed caller,
+        uint256 goalBalanceBefore,
+        uint256 superTokenBalanceBefore,
+        uint256 forwardedSuperTokenAmount
+    );
 
     function authority() external view returns (address);
     function stakeVault() external view returns (IStakeVault);
@@ -36,4 +49,5 @@ interface IUnderwriterSlasherRouter {
 
     function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external;
     function slashUnderwriter(address underwriter, uint256 weight) external;
+    function retryForwarding() external returns (uint256 forwardedSuperTokenAmount);
 }

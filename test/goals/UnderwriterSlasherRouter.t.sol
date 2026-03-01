@@ -37,6 +37,18 @@ contract UnderwriterSlasherRouterTest is Test {
         uint256 convertedGoalAmount,
         uint256 forwardedSuperTokenAmount
     );
+    event GoalSuperTokenUpgradeFailed(
+        address indexed premiumEscrow, address indexed underwriter, uint256 goalAmount, bytes reason
+    );
+    event GoalSuperTokenForwardingFailed(
+        address indexed premiumEscrow, address indexed underwriter, uint256 superTokenAmount, bytes reason
+    );
+    event GoalSuperTokenForwardingRetried(
+        address indexed caller,
+        uint256 goalBalanceBefore,
+        uint256 superTokenBalanceBefore,
+        uint256 forwardedSuperTokenAmount
+    );
 
     address internal underwriter = address(0xA11CE);
     address internal fundingTarget = address(0xF00D);
@@ -137,6 +149,70 @@ contract UnderwriterSlasherRouterTest is Test {
 
         assertEq(terminal.payCallCount(), 0);
         assertEq(goalSuperToken.balanceOf(fundingTarget), 7e18);
+    }
+
+    function test_slashUnderwriter_upgradeFailure_doesNotRevert_andRetainsGoal() public {
+        _authorizePremiumEscrow();
+        stakeVault.setNextSlash(7e18, 0);
+
+        bytes memory reason = bytes("UPGRADE_FAIL");
+        vm.mockCallRevert(address(goalSuperToken), abi.encodeWithSelector(ISuperToken.upgrade.selector, 7e18), reason);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenUpgradeFailed(address(premiumEscrow), underwriter, 7e18, reason);
+
+        vm.prank(address(premiumEscrow));
+        router.slashUnderwriter(underwriter, 25e18);
+
+        assertEq(stakeVault.lastUnderwriter(), underwriter);
+        assertEq(goalToken.balanceOf(address(router)), 7e18);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 0);
+    }
+
+    function test_slashUnderwriter_superTokenForwardRevert_doesNotRevert_andRetainsSuperToken() public {
+        _authorizePremiumEscrow();
+        stakeVault.setNextSlash(7e18, 0);
+
+        bytes memory reason = bytes("FORWARD_FAIL");
+        vm.mockCallRevert(
+            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, 7e18), reason
+        );
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingFailed(address(premiumEscrow), underwriter, 7e18, reason);
+
+        vm.prank(address(premiumEscrow));
+        router.slashUnderwriter(underwriter, 25e18);
+
+        assertEq(stakeVault.lastUnderwriter(), underwriter);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), 7e18);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 0);
+    }
+
+    function test_slashUnderwriter_superTokenForwardReturnsFalse_retainsSuperToken() public {
+        _authorizePremiumEscrow();
+        stakeVault.setNextSlash(7e18, 0);
+
+        vm.mockCall(
+            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, 7e18), abi.encode(false)
+        );
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingFailed(
+            address(premiumEscrow),
+            underwriter,
+            7e18,
+            abi.encodeWithSelector(IUnderwriterSlasherRouter.SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector, fundingTarget, 7e18)
+        );
+
+        vm.prank(address(premiumEscrow));
+        router.slashUnderwriter(underwriter, 25e18);
+
+        assertEq(stakeVault.lastUnderwriter(), underwriter);
+        assertEq(goalSuperToken.balanceOf(address(router)), 7e18);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 0);
     }
 
     function test_slashUnderwriter_routesSlash_convertsCobuild_andForwardsAsSuperToken() public {
@@ -272,6 +348,65 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(goalSuperToken.balanceOf(fundingTarget), 12e18);
         assertEq(cobuildToken.balanceOf(address(router)), 0);
         assertEq(terminal.payCallCount(), 1);
+    }
+
+    function test_retryForwarding_forwardsHeldGoalAndSuperToken() public {
+        uint256 heldGoal = 5e18;
+        uint256 heldSuper = 3e18;
+        goalToken.mint(address(router), heldGoal);
+        goalSuperToken.mint(address(router), heldSuper);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingRetried(address(this), heldGoal, heldSuper, heldGoal + heldSuper);
+        uint256 forwarded = router.retryForwarding();
+
+        assertEq(forwarded, heldGoal + heldSuper);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), heldGoal + heldSuper);
+    }
+
+    function test_retryForwarding_permissionlessCaller_forwardsToFixedFundingTarget() public {
+        uint256 heldGoal = 5e18;
+        address randomCaller = address(0xBEEF);
+        goalToken.mint(address(router), heldGoal);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingRetried(randomCaller, heldGoal, 0, heldGoal);
+
+        vm.prank(randomCaller);
+        uint256 forwarded = router.retryForwarding();
+
+        assertEq(forwarded, heldGoal);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), heldGoal);
+        assertEq(goalSuperToken.balanceOf(randomCaller), 0);
+    }
+
+    function test_retryForwarding_forwardRevert_doesNotRevert_andRetainsSuperToken() public {
+        uint256 heldSuper = 3e18;
+        address randomCaller = address(0xBEEF);
+        bytes memory reason = bytes("RETRY_FORWARD_FAIL");
+        goalSuperToken.mint(address(router), heldSuper);
+
+        vm.mockCallRevert(
+            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, heldSuper), reason
+        );
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingFailed(address(0), address(0), heldSuper, reason);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingRetried(randomCaller, 0, heldSuper, 0);
+
+        vm.prank(randomCaller);
+        uint256 forwarded = router.retryForwarding();
+
+        assertEq(forwarded, 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), heldSuper);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 0);
+        assertEq(goalSuperToken.balanceOf(randomCaller), 0);
     }
 
     function test_constructor_revertsWhenSuperTokenUnderlyingMismatch() public {
