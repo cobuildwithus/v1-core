@@ -11,9 +11,8 @@ import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
+contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
@@ -60,6 +59,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
     }
 
     function initialize(address initialController, BudgetConfig calldata config) external initializer {
+        __ReentrancyGuard_init();
         controller = _requireNonZeroController(initialController);
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         address premiumEscrow_ = config.premiumEscrow;

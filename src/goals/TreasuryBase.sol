@@ -4,10 +4,10 @@ pragma solidity ^0.8.34;
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ITreasuryDonations } from "../interfaces/ITreasuryDonations.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import { TreasuryDonations } from "./library/TreasuryDonations.sol";
 
-abstract contract TreasuryBase is ReentrancyGuard, ITreasuryDonations {
+abstract contract TreasuryBase is ReentrancyGuardUpgradeable, ITreasuryDonations {
     event FlowRateZeroingFailed(address indexed flow, bytes reason);
 
     function donateUnderlyingAndUpgrade(
