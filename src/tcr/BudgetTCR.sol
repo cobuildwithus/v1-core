@@ -13,6 +13,7 @@ import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
@@ -140,7 +141,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         }
 
         IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
-        goalFlow.removeRecipient(itemID);
+        bool removedFromParent = _removeRecipientFromGoalFlowIfPresent(itemID, childFlow);
 
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
@@ -151,7 +152,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         deployment.active = false;
         _pendingRemovalFinalizations[itemID] = false;
-        emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, true, terminallyResolved);
+        emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, removedFromParent, terminallyResolved);
     }
 
     // slither-disable-next-line reentrancy-no-eth
@@ -199,6 +200,25 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             terminallyResolved = _tryResolveBudgetTerminalState(itemID, treasury);
         }
         emit BudgetStackTerminalizationRetried(itemID, budgetTreasury, terminallyResolved);
+    }
+
+    function pruneTerminalBudget(
+        address budgetTreasury
+    ) external override nonReentrant returns (bool removedFromParent, bool goalSynced) {
+        bytes32 itemID = _itemIdByBudgetTreasury[budgetTreasury];
+        if (itemID == bytes32(0)) revert ITEM_NOT_DEPLOYED();
+
+        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        if (deployment.budgetTreasury != budgetTreasury) revert ITEM_NOT_DEPLOYED();
+
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+        if (!_resolved(treasury)) revert ITEM_NOT_TERMINAL();
+
+        address childFlow = deployment.childFlow;
+        removedFromParent = _removeRecipientFromGoalFlowIfPresent(itemID, childFlow);
+        goalSynced = _trySyncGoalTreasury(itemID, budgetTreasury);
+
+        emit BudgetTerminalRecipientPruned(itemID, childFlow, budgetTreasury, removedFromParent, goalSynced);
     }
 
     function syncBudgetTreasuries(
@@ -294,6 +314,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (deployedBudgetTreasury != budgetTreasury) {
             revert BUDGET_TREASURY_MISMATCH();
         }
+        _itemIdByBudgetTreasury[budgetTreasury] = itemID;
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
         IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
         address allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
@@ -420,5 +441,24 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function _resolved(IBudgetTreasury treasury) internal view returns (bool resolved_) {
         return treasury.resolved();
+    }
+
+    function _removeRecipientFromGoalFlowIfPresent(
+        bytes32 itemID,
+        address childFlow
+    ) internal returns (bool) {
+        if (childFlow == address(0) || !goalFlow.recipientExists(childFlow)) return false;
+
+        goalFlow.removeRecipient(itemID);
+        return true;
+    }
+
+    function _trySyncGoalTreasury(bytes32 itemID, address budgetTreasury) internal returns (bool) {
+        try goalTreasury.sync() {
+            return true;
+        } catch (bytes memory reason) {
+            emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IGoalTreasury.sync.selector, reason);
+            return false;
+        }
     }
 }

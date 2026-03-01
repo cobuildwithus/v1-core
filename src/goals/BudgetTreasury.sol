@@ -6,6 +6,7 @@ import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
+import { IBudgetTCR } from "../tcr/interfaces/IBudgetTCR.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
@@ -20,6 +21,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
     uint8 private constant TERMINAL_OP_PREMIUM_ESCROW_CLOSE = 3;
+    uint8 private constant TERMINAL_OP_PARENT_PRUNE = 4;
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -360,6 +362,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             emit TerminalSideEffectFailed(TERMINAL_OP_FLOW_STOP, flowStopReason);
         }
 
+        _tryPruneTerminalRecipientFromParent();
         _trySettleResidualToParent();
     }
 
@@ -375,6 +378,15 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function _trySettleResidualToParent() internal {
         try this.settleResidualToParentForFinalize() {} catch (bytes memory reason) {
             emit TerminalSideEffectFailed(TERMINAL_OP_RESIDUAL_SETTLE, reason);
+        }
+    }
+
+    function _tryPruneTerminalRecipientFromParent() internal {
+        address controller_ = controller;
+        if (controller_.code.length == 0) return;
+
+        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) {} catch (bytes memory reason) {
+            emit TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, reason);
         }
     }
 

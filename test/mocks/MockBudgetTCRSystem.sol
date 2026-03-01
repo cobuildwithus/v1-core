@@ -159,6 +159,7 @@ contract MockGoalFlowForBudgetTCR {
     ISuperToken private immutable _superToken;
 
     mapping(bytes32 => RecipientInfo) public recipients;
+    mapping(address => uint256) private _activeRecipientRefs;
     mapping(address => int96) private _memberFlowRates;
 
     constructor(address owner_, address recipientAdmin_, address managerRewardPool_, ISuperToken superToken_) {
@@ -205,13 +206,7 @@ contract MockGoalFlowForBudgetTCR {
     }
 
     function recipientExists(address recipient) external view returns (bool exists) {
-        // O(n) scan is acceptable for test-only mocks.
-        for (uint256 i = 0; i < 16; i++) {
-            bytes32 itemID = bytes32(i + 1);
-            RecipientInfo memory info = recipients[itemID];
-            if (!info.isRemoved && info.recipient == recipient) return true;
-        }
-        return false;
+        return _activeRecipientRefs[recipient] != 0;
     }
 
     function setRecipientAdmin(address newRecipientAdmin) external {
@@ -239,7 +234,7 @@ contract MockGoalFlowForBudgetTCR {
         returns (bytes32 recipientId, address recipientAddress)
     {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
-        recipients[newRecipientId] = RecipientInfo({recipient: recipient, isRemoved: false});
+        _replaceRecipient(newRecipientId, recipient);
         return (newRecipientId, recipient);
     }
 
@@ -267,7 +262,7 @@ contract MockGoalFlowForBudgetTCR {
             strategy,
             childManagerRewardPoolFlowRatePpm
         );
-        recipients[newRecipientId] = RecipientInfo({recipient: address(child), isRemoved: false});
+        _replaceRecipient(newRecipientId, address(child));
         return (newRecipientId, address(child));
     }
 
@@ -276,7 +271,18 @@ contract MockGoalFlowForBudgetTCR {
 
         RecipientInfo storage info = recipients[recipientId];
         if (info.recipient == address(0) || info.isRemoved) revert RECIPIENT_NOT_FOUND();
+        _activeRecipientRefs[info.recipient] -= 1;
         info.isRemoved = true;
+    }
+
+    function _replaceRecipient(bytes32 recipientId, address recipient) internal {
+        RecipientInfo storage previous = recipients[recipientId];
+        if (previous.recipient != address(0) && !previous.isRemoved) {
+            _activeRecipientRefs[previous.recipient] -= 1;
+        }
+
+        recipients[recipientId] = RecipientInfo({recipient: recipient, isRemoved: false});
+        _activeRecipientRefs[recipient] += 1;
     }
 }
 
@@ -285,6 +291,8 @@ contract MockGoalTreasuryForBudgetTCR {
     address public budgetStakeLedger;
     address public flow;
     address public stakeVault;
+    bool public shouldRevertSync;
+    uint256 public syncCallCount;
 
     constructor(uint64 deadline_) {
         deadline = deadline_;
@@ -314,6 +322,15 @@ contract MockGoalTreasuryForBudgetTCR {
 
     function setStakeVault(address stakeVault_) external {
         stakeVault = stakeVault_;
+    }
+
+    function setShouldRevertSync(bool shouldRevertSync_) external {
+        shouldRevertSync = shouldRevertSync_;
+    }
+
+    function sync() external {
+        if (shouldRevertSync) revert("GOAL_SYNC_FAILED");
+        syncCallCount += 1;
     }
 }
 

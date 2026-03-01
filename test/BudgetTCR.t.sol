@@ -51,6 +51,8 @@ contract BudgetTCRTest is TestUtils {
         keccak256("BudgetStackRemovalHandled(bytes32,address,address,bool,bool)");
     bytes32 internal constant BUDGET_STACK_TERMINALIZATION_RETRIED_SIG =
         keccak256("BudgetStackTerminalizationRetried(bytes32,address,bool)");
+    bytes32 internal constant BUDGET_TERMINAL_RECIPIENT_PRUNED_SIG =
+        keccak256("BudgetTerminalRecipientPruned(bytes32,address,address,bool,bool)");
     bytes32 internal constant BUDGET_TERMINALIZATION_STEP_FAILED_SIG =
         keccak256("BudgetTerminalizationStepFailed(bytes32,address,bytes4,bytes)");
     bytes32 internal constant BUDGET_CONFIGURED_SIG =
@@ -865,6 +867,91 @@ contract BudgetTCRTest is TestUtils {
         assertEq(emittedTerminallyResolved, terminallyResolved);
     }
 
+    function test_pruneTerminalBudget_revertsWhenBudgetNotTerminal() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        vm.expectRevert(IBudgetTCR.ITEM_NOT_TERMINAL.selector);
+        budgetTcr.pruneTerminalBudget(budgetTreasury);
+
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertFalse(removed);
+    }
+
+    function test_pruneTerminalBudget_permissionless_removesRecipient_andSyncsGoal() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        _mockBudgetTreasuryResolved(budgetTreasury, true);
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (bool removedFromParent, bool goalSynced) = budgetTcr.pruneTerminalBudget(budgetTreasury);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertTrue(removedFromParent);
+        assertTrue(goalSynced);
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertTrue(removed);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+
+        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) = _getBudgetTerminalRecipientPruned(
+            logs, itemID, childFlow, budgetTreasury
+        );
+        assertTrue(found);
+        assertEq(emittedRemovedFromParent, removedFromParent);
+        assertEq(emittedGoalSynced, goalSynced);
+    }
+
+    function test_pruneTerminalBudget_goalSyncFailure_isReported_andReturnsFalse() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "GOAL_SYNC_FAILED");
+
+        _mockBudgetTreasuryResolved(budgetTreasury, true);
+        goalTreasury.setShouldRevertSync(true);
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (bool removedFromParent, bool goalSynced) = budgetTcr.pruneTerminalBudget(budgetTreasury);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertTrue(removedFromParent);
+        assertFalse(goalSynced);
+        assertTrue(_hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IGoalTreasury.sync.selector, expectedReason));
+    }
+
+    function test_finalizeRemovedBudget_handlesAlreadyPrunedRecipient() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        vm.prank(address(budgetTcr));
+        goalFlow.removeRecipient(itemID);
+
+        vm.recordLogs();
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertTrue(terminallyResolved);
+        assertFalse(budgetTcr.isRemovalPending(itemID));
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertTrue(removed);
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
+
+        (bool found, bool removedFromParent, bool emittedTerminallyResolved) = _getBudgetStackRemovalHandled(
+            logs, itemID, childFlow, budgetTreasury
+        );
+        assertTrue(found);
+        assertFalse(removedFromParent);
+        assertEq(emittedTerminallyResolved, terminallyResolved);
+    }
+
     function test_finalizeRemovedBudget_clears_only_target_pending_removal() public {
         bytes32 itemA = _registerDefaultListing();
         bytes32 itemB = _registerDefaultListing();
@@ -1020,7 +1107,7 @@ contract BudgetTCRTest is TestUtils {
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
 
-        vm.mockCall(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(false));
+        _mockBudgetTreasuryResolved(budgetTreasury, false);
         bytes memory resolveFailureReason = abi.encodeWithSignature("Error(string)", "RESOLVE_FAILURE_FAILED");
         vm.mockCallRevert(
             budgetTreasury,
@@ -1039,7 +1126,7 @@ contract BudgetTCRTest is TestUtils {
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
 
-        vm.mockCall(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(false));
+        _mockBudgetTreasuryResolved(budgetTreasury, false);
 
         vm.expectRevert(IBudgetTCR.TERMINAL_RESOLUTION_FAILED.selector);
         budgetTcr.finalizeRemovedBudget(itemID);
@@ -1269,7 +1356,7 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.executeRequest(itemID);
         budgetTcr.finalizeRemovedBudget(itemID);
 
-        vm.mockCall(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(false));
+        _mockBudgetTreasuryResolved(budgetTreasury, false);
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "RESOLVE_FAILURE_RETRY_FAILED");
         vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolveFailure.selector), expectedReason);
 
@@ -1504,6 +1591,12 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.activateRegisteredBudget(itemID);
     }
 
+    function _mockBudgetTreasuryResolved(address budgetTreasury, bool isResolved) internal {
+        vm.mockCall(
+            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(isResolved)
+        );
+    }
+
     function _hasBudgetEventForItem(
         Vm.Log[] memory logs,
         bytes32 eventSignature,
@@ -1557,6 +1650,28 @@ contract BudgetTCRTest is TestUtils {
 
             terminallyResolved = abi.decode(logs[i].data, (bool));
             return (true, terminallyResolved);
+        }
+    }
+
+    function _getBudgetTerminalRecipientPruned(
+        Vm.Log[] memory logs,
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury
+    ) internal view returns (bool found, bool removedFromParent, bool goalSynced) {
+        address emitter = address(budgetTcr);
+        bytes32 childFlowTopic = _addressToTopic(childFlow);
+        bytes32 treasuryTopic = _addressToTopic(budgetTreasury);
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != emitter) continue;
+            if (logs[i].topics.length < 4) continue;
+            if (logs[i].topics[0] != BUDGET_TERMINAL_RECIPIENT_PRUNED_SIG) continue;
+            if (logs[i].topics[1] != itemID) continue;
+            if (logs[i].topics[2] != childFlowTopic) continue;
+            if (logs[i].topics[3] != treasuryTopic) continue;
+
+            (removedFromParent, goalSynced) = abi.decode(logs[i].data, (bool, bool));
+            return (true, removedFromParent, goalSynced);
         }
     }
 

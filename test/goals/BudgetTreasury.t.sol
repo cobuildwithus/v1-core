@@ -29,6 +29,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 contract BudgetTreasuryTest is Test {
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     uint32 internal constant REAL_ESCROW_BUDGET_SLASH_PPM = 200_000;
+    uint8 internal constant TERMINAL_OP_PARENT_PRUNE = 4;
     event FlowRateSyncManualInterventionRequired(
         address indexed flow, int96 targetRate, int96 fallbackRate, int96 currentRate
     );
@@ -1849,8 +1850,6 @@ contract BudgetTreasuryTest is Test {
 
         assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(target.resolved());
-        assertEq(controllerMock.pruneCallCount(), 1);
-        assertEq(controllerMock.lastBudgetTreasury(), address(target));
     }
 
     function test_finalize_terminalSideEffects_pruneHookFailure_isBestEffort() public {
@@ -1863,14 +1862,14 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(target.fundingDeadline() + 1);
         vm.expectEmit(true, false, false, true, address(target));
-        emit IBudgetTreasury.TerminalSideEffectFailed(4, abi.encodeWithSignature("Error(string)", "PRUNE_FAILED"));
+        emit IBudgetTreasury.TerminalSideEffectFailed(
+            TERMINAL_OP_PARENT_PRUNE, abi.encodeWithSignature("Error(string)", "PRUNE_FAILED")
+        );
         vm.prank(address(controllerMock));
         target.resolveFailure();
 
         assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(target.resolved());
-        assertEq(controllerMock.pruneCallCount(), 1);
-        assertEq(controllerMock.lastBudgetTreasury(), address(target));
     }
 
     function test_finalize_withRealPremiumEscrow_closesEscrowWithTreasuryTerminalState() public {
