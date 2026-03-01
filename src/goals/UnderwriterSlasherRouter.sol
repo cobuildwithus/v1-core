@@ -11,7 +11,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Routes underwriter slashing from premium escrows into stake vault and goal funding.
-/// @dev Cobuild conversion failures are best-effort and observable; cobuild stays in this contract on failure.
+/// @dev Forwarding side effects are best-effort and observable; held balances stay in this contract on failure.
 contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -94,7 +94,7 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         uint256 cobuildSlashedAmount = cobuildToken.balanceOf(address(this)) - cobuildBefore;
 
         uint256 convertedGoalAmount = _tryConvertHeldCobuild(premiumEscrow, underwriter);
-        uint256 forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance();
+        uint256 forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance(premiumEscrow, underwriter);
 
         emit UnderwriterSlashRouted(
             premiumEscrow,
@@ -107,6 +107,17 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         );
     }
 
+    function retryForwarding() external override nonReentrant returns (uint256 forwardedSuperTokenAmount) {
+        uint256 goalBalanceBefore = goalToken.balanceOf(address(this));
+        uint256 superTokenBalanceBefore = IERC20(address(goalSuperToken)).balanceOf(address(this));
+
+        forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance(address(0), address(0));
+
+        emit GoalSuperTokenForwardingRetried(
+            msg.sender, goalBalanceBefore, superTokenBalanceBefore, forwardedSuperTokenAmount
+        );
+    }
+
     function _tryConvertHeldCobuild(
         address premiumEscrow,
         address underwriter
@@ -114,19 +125,20 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         uint256 cobuildAmount = cobuildToken.balanceOf(address(this));
         if (cobuildAmount == 0) return 0;
         IJBTerminal goalTerminal = _resolveGoalTerminal();
-        if (address(goalTerminal) == address(0) || address(goalTerminal).code.length == 0) {
+        address goalTerminalAddress = address(goalTerminal);
+        if (goalTerminalAddress.code.length == 0) {
             emit CobuildConversionFailed(
                 premiumEscrow,
                 underwriter,
                 cobuildAmount,
-                abi.encodeWithSelector(INVALID_GOAL_TERMINAL.selector, address(goalTerminal))
+                abi.encodeWithSelector(INVALID_GOAL_TERMINAL.selector, goalTerminalAddress)
             );
             return 0;
         }
 
         uint256 goalBefore = goalToken.balanceOf(address(this));
-        cobuildToken.forceApprove(address(goalTerminal), 0);
-        cobuildToken.forceApprove(address(goalTerminal), cobuildAmount);
+        cobuildToken.forceApprove(goalTerminalAddress, 0);
+        cobuildToken.forceApprove(goalTerminalAddress, cobuildAmount);
 
         try
             goalTerminal.pay(
@@ -144,23 +156,41 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
             emit CobuildConversionFailed(premiumEscrow, underwriter, cobuildAmount, reason);
         }
 
-        cobuildToken.forceApprove(address(goalTerminal), 0);
+        cobuildToken.forceApprove(goalTerminalAddress, 0);
     }
 
-    function _upgradeAndForwardGoalBalance() internal returns (uint256 forwardedSuperTokenAmount) {
-        IERC20 goalSuperTokenErc20 = IERC20(address(goalSuperToken));
-
+    function _upgradeAndForwardGoalBalance(
+        address premiumEscrow,
+        address underwriter
+    ) internal returns (uint256 forwardedSuperTokenAmount) {
         uint256 goalBalance = goalToken.balanceOf(address(this));
         if (goalBalance != 0) {
             goalToken.forceApprove(address(goalSuperToken), 0);
             goalToken.forceApprove(address(goalSuperToken), goalBalance);
-            goalSuperToken.upgrade(goalBalance);
+            try goalSuperToken.upgrade(goalBalance) { } catch (bytes memory reason) {
+                emit GoalSuperTokenUpgradeFailed(premiumEscrow, underwriter, goalBalance, reason);
+            }
             goalToken.forceApprove(address(goalSuperToken), 0);
         }
 
-        forwardedSuperTokenAmount = goalSuperTokenErc20.balanceOf(address(this));
+        forwardedSuperTokenAmount = IERC20(address(goalSuperToken)).balanceOf(address(this));
         if (forwardedSuperTokenAmount != 0) {
-            goalSuperTokenErc20.safeTransfer(goalFundingTarget, forwardedSuperTokenAmount);
+            try goalSuperToken.transfer(goalFundingTarget, forwardedSuperTokenAmount) returns (bool success) {
+                if (!success) {
+                    emit GoalSuperTokenForwardingFailed(
+                        premiumEscrow,
+                        underwriter,
+                        forwardedSuperTokenAmount,
+                        abi.encodeWithSelector(
+                            SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector, goalFundingTarget, forwardedSuperTokenAmount
+                        )
+                    );
+                    return 0;
+                }
+            } catch (bytes memory reason) {
+                emit GoalSuperTokenForwardingFailed(premiumEscrow, underwriter, forwardedSuperTokenAmount, reason);
+                return 0;
+            }
         }
     }
 

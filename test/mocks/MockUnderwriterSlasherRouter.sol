@@ -5,17 +5,17 @@ import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 
 contract MockUnderwriterSlasherRouter is IUnderwriterSlasherRouter {
-    address public override authority;
-    address private _stakeVault;
+    address public immutable override authority;
+    IStakeVault private immutable _stakeVault;
     mapping(address => bool) public override isAuthorizedPremiumEscrow;
 
     constructor(address authority_, address stakeVault_) {
         authority = authority_;
-        _stakeVault = stakeVault_;
+        _stakeVault = IStakeVault(stakeVault_);
     }
 
     function stakeVault() external view override returns (IStakeVault) {
-        return IStakeVault(_stakeVault);
+        return _stakeVault;
     }
 
     function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external override {
@@ -23,4 +23,8 @@ contract MockUnderwriterSlasherRouter is IUnderwriterSlasherRouter {
     }
 
     function slashUnderwriter(address, uint256) external override { }
+
+    function retryForwarding() external pure override returns (uint256 forwardedSuperTokenAmount) {
+        return 0;
+    }
 }
