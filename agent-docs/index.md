@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-02-27
+Last verified: 2026-03-01
 
 ## Purpose
 
@@ -14,8 +14,8 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/design-docs/core-beliefs.md` | Core agent-first repo principles. | Team architecture and process decisions | Protocol Maintainers | Quarterly | Medium | 2026-02-18 |
 | `agent-docs/product-specs/index.md` | Index for protocol behavior contracts. | `agent-docs/product-specs/**` | Protocol + Product Maintainers | Monthly | High | 2026-02-18 |
 | `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per behavior-change PR | High | 2026-02-27 |
-| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-02-27 |
-| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-02-27 |
+| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
+| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
 | `agent-docs/protocol-audit-deep-dive.md` | Auditor guide to lifecycle states, fund routes, unlock gates, and review anchors. | `src/goals/**`, `src/hooks/**`, `src/Flow.sol`, `src/tcr/**`, `test/**` | Protocol Maintainers | Per protocol behavior PR | High | 2026-02-23 |
 | `agent-docs/references/known-design-intent-edge-cases.md` | Consolidated high-sensitivity design-intent edge cases and accepted-risk semantics for audit-facing context. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per security-risk PR | High | 2026-02-27 |
 | `agent-docs/PLANS.md` | Execution plan workflow and quality bar. | `agent-docs/exec-plans/**` | Protocol Maintainers | Per process change | Medium | 2026-02-18 |
@@ -42,7 +42,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/references/superfluid-llms.txt` | External Superfluid reference pack. | Superfluid docs | Protocol Maintainers | Quarterly | Low | 2026-02-18 |
 | `agent-docs/references/bananapus-llms.txt` | External Bananapus/JBX reference pack. | Bananapus docs + source | Protocol Maintainers | Quarterly | Low | 2026-02-18 |
 | `agent-docs/generated/README.md` | Generated documentation artifacts. | `agent-docs/generated/**` | Protocol Maintainers | Per script change | Medium | 2026-02-18 |
-| `agent-docs/exec-plans/` | Active/completed execution plans. | PR-linked plan docs | Protocol Maintainers | Per multi-file/high-risk PR | High | 2026-02-24 |
+| `agent-docs/exec-plans/` | Active/completed/archive execution plans. | PR-linked plan docs | Protocol Maintainers | Per multi-file/high-risk PR | High | 2026-03-01 |
 | `agent-docs/exec-plans/tech-debt-tracker.md` | Rolling debt register with owner/priority/status. | Audits, incidents, reviews | Protocol Maintainers | Bi-weekly | Medium | 2026-02-18 |
 
 ## Conventions

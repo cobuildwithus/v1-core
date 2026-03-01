@@ -41,11 +41,10 @@ cobuild-protocol/
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`.
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
 - Goal stake vault: `src/goals/StakeVault.sol`.
-- Goal/escrow/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/reward math modules).
+- Goal/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/slash math modules).
 - Allocation strategies:
   - `src/goals/StakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
-  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution; reward points are computed as window-normalized matured support on the same effective stake basis, with warmup using a fixed global maturation window).
-- Reward escrow for finalized goal distribution: `src/goals/RewardEscrow.sol`.
+  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution).
 - Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
@@ -99,24 +98,17 @@ cobuild-protocol/
   - router upgrades goal token to goal SuperToken and forwards to goal funding path (goal flow/treasury target).
 - `GoalRevnetSplitHook` is controller-gated and treasury-state derived:
   - If `goalTreasury.canAcceptHookFunding()`, reserved inflow funds the goal flow.
-  - If treasury state is `Succeeded` and minting is still open, reserved inflow uses success-settlement split (reward escrow + burn) with immutable `successSettlementRewardEscrowPpm`.
+  - If treasury state is `Succeeded` and minting is still open, reserved inflow is processed by the success-settlement burn path.
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
-  - `Succeeded`: split by treasury-configured `successSettlementRewardEscrowPpm` into reward escrow + controller burn.
+  - `Succeeded`: burn 100% via controller.
   - `Expired`: burn 100% via controller.
 - Goal and budget terminal side effects are permissionlessly retryable via `retryTerminalSideEffects()`.
 - Goal terminal-state residual policy is reusable post-finalize via `settleLateResidual` to process late budget/stream inflows.
 - Budget terminal-state residual sweep is reusable post-finalize via `settleLateResidualToParent` to process late child-flow inflows.
-- Failed escrow sweeps now apply terminal no-reward policy for both assets:
-  - swept goal-token rewards burn via controller,
-  - swept cobuild rewards also burn via controller using immutable `cobuildRevnetId` (seeded from `goalRevnetId`).
-- Goal success no longer blocks on unresolved tracked budgets for treasury-state progression:
-  - treasury success resolution can complete immediately,
-  - reward escrow success-finalization is deferred until tracked budgets are resolved and then retried permissionlessly,
-  - points accrual snapshots remain anchored to the recorded success timestamp, with per-budget raw accrual clamped by earliest exogenous cutoff (`activatedAt`, `fundingDeadline`, or removal),
-  - budget success eligibility is evaluated at reward-finalization using terminal budget outcome (not `resolvedAt <= successAt`).
+- Goal success resolution is assertion-backed and does not depend on legacy reward-snapshot finalization paths.
 - Permissionless `sync()` is the canonical lifecycle progression path:
   - `Funding`: activate when threshold is met, otherwise expire once funding/deadline windows elapse.
   - `Active`: sync flow-rate while time remains; at/after deadline:
@@ -139,10 +131,9 @@ cobuild-protocol/
   - budget success assertions are pre-deadline by default, with a one-time post-deadline registration exception during active reassert grace,
   - once registered, success can finalize after deadline,
   - pending success assertions block terminalization only while unresolved.
-- Removed budgets use activation-locked split semantics:
-  - pre-activation removals disable budget success resolution and remain success-ineligible,
-  - post-activation removals stop forward spend/funding but preserve reward-history eligibility;
-    those budgets remain success-eligible only if they later resolve terminal `Succeeded`.
+- Removed budgets are terminalized via `BudgetTCR` removal flows:
+  - removal unregisters the budget from `BudgetStakeLedger` and removes the parent goal-flow recipient,
+  - removal disables budget success resolution and requires terminal treasury resolution through finalize/retry paths.
 
 3. Allocation determinism
 - Allocation inputs and witness/commit semantics must remain deterministic and auditable.
@@ -178,7 +169,7 @@ cobuild-protocol/
   - `flowOperator`/`parent`: flow-rate mutation (`setTargetOutflowRate`, `refreshTargetOutflowRate`).
   - `sweeper`: held SuperToken sweep authority (`sweepSuperToken`).
 - Deployment-time flow config knobs are init-only:
-  - `flowImpl`, `managerRewardPoolFlowRatePercent`,
+  - `flowImpl`, `managerRewardPoolFlowRatePpm`,
     `managerRewardPool`, and `allocationPipeline` are set during initialization.
   - Runtime setter entrypoints for those fields are intentionally removed from the flow surface.
 - Child-sync and treasury-sync recovery are permissionless and observable:
