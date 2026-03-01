@@ -596,7 +596,7 @@ contract StakeVaultTest is Test {
         assertEq(budgetCount, 2);
         assertFalse(complete);
         assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 1);
-        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), budgetAwareVault.goalResolvedAt());
         assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 0);
 
         vm.prank(alice);
@@ -611,6 +611,104 @@ contract StakeVaultTest is Test {
         assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 2);
         assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), budgetAwareVault.goalResolvedAt());
         assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 2);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
+    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithZeroExposure_canCompleteAndWithdraw() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 1);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), budgetAwareVault.goalResolvedAt());
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 1);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
+    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithExposure_revertsAndKeepsWithdrawLocked() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 0);
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+    }
+
+    function test_prepareUnderwriterWithdrawal_failedBudgetWithExposure_callsSlashAndAllowsWithdraw() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        VaultPrepareBudgetTreasury failedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        failedBudget.setResolved(true);
+        failedBudget.setActivatedAt(1);
+        failedBudget.setState(IBudgetTreasury.BudgetState.Failed);
+        budgetAwareLedger.addBudget(address(failedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertEq(escrow.slashCallCount(), 1);
+        assertEq(escrow.slashCallCountFor(alice), 1);
+        assertEq(escrow.lastSlashedUnderwriter(), alice);
 
         vm.prank(alice);
         budgetAwareVault.withdrawGoal(1e18, alice);
@@ -2128,6 +2226,9 @@ contract VaultPrepareBudgetTreasury {
 contract VaultPreparePremiumEscrow {
     mapping(address account => uint256 cov) internal _userCov;
     mapping(address account => uint256 integral) internal _exposureIntegral;
+    uint256 internal _slashCallCount;
+    mapping(address account => uint256 count) internal _slashCallCountFor;
+    address internal _lastSlashedUnderwriter;
 
     function setUserCov(address account, uint256 cov) external {
         _userCov[account] = cov;
@@ -2145,7 +2246,22 @@ contract VaultPreparePremiumEscrow {
         return _exposureIntegral[account];
     }
 
-    function slash(address) external pure returns (uint256) {
+    function slashCallCount() external view returns (uint256) {
+        return _slashCallCount;
+    }
+
+    function slashCallCountFor(address account) external view returns (uint256) {
+        return _slashCallCountFor[account];
+    }
+
+    function lastSlashedUnderwriter() external view returns (address) {
+        return _lastSlashedUnderwriter;
+    }
+
+    function slash(address underwriter) external returns (uint256) {
+        _slashCallCount += 1;
+        _slashCallCountFor[underwriter] += 1;
+        _lastSlashedUnderwriter = underwriter;
         return 0;
     }
 }
