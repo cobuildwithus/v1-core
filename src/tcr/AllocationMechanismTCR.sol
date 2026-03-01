@@ -228,7 +228,13 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             active: true
         });
 
-        emit RoundActivated(itemID, deployed.prizeVault, deployed.submissionTCR, deployed.arbitrator, deployed.depositStrategy);
+        emit RoundActivated(
+            itemID,
+            deployed.prizeVault,
+            deployed.submissionTCR,
+            deployed.arbitrator,
+            deployed.depositStrategy
+        );
     }
 
     function finalizeRemovedRound(bytes32 itemID) external nonReentrant {

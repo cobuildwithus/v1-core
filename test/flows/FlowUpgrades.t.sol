@@ -13,13 +13,13 @@ contract FlowUpgradesTest is FlowTestBase {
 
         vm.prank(manager);
         (, childAddr) =
-            flow.addFlowRecipient(id, recipientMetadata, manager, manager, manager, managerRewardPool, strategies);
+            flow.addFlowRecipient(id, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            strategies);
     }
 
     function test_upgrade_entrypoint_selector_notExposedOnParentFlow() public {
         _assertCallFails(
-            address(flow),
-            abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(0xBEEF), bytes(""))
+            address(flow), abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(0xBEEF), bytes(""))
         );
         _assertCallFails(address(flow), abi.encodeWithSignature("upgradeAllChildFlows()"));
     }

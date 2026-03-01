@@ -199,17 +199,18 @@ contract GoalFactory {
 
         if (p.success.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
-            p.success.successAssertionLiveness == 0 || p.success.successOracleSpecHash == bytes32(0)
-                || p.success.successAssertionPolicyHash == bytes32(0)
+            p.success.successAssertionLiveness == 0 ||
+            p.success.successOracleSpecHash == bytes32(0) ||
+            p.success.successAssertionPolicyHash == bytes32(0)
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
 
         if (
-            p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6
-                || p.flowConfig.managerRewardPoolFlowRatePpm > SCALE_1E6
-                || p.underwriting.budgetPremiumPpm > SCALE_1E6
-                || p.underwriting.budgetSlashPpm > SCALE_1E6
+            p.settlement.successSettlementRewardEscrowPpm > SCALE_1E6 ||
+            p.flowConfig.managerRewardPoolFlowRatePpm > SCALE_1E6 ||
+            p.underwriting.budgetPremiumPpm > SCALE_1E6 ||
+            p.underwriting.budgetSlashPpm > SCALE_1E6
         ) {
             revert INVALID_SCALE();
         }
@@ -231,8 +232,15 @@ contract GoalFactory {
         uint32 minRaiseWindow = _resolveMinRaiseWindow(p.revnet.durationSeconds, p.timing.minRaiseDurationSeconds);
         uint64 minRaiseDeadline = uint64(block.timestamp + minRaiseWindow);
 
-        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
-            _initializeCoreStack(p, goalTreasury, splitHook, goalFlow, revnet, predictedBudgetTCR, minRaiseDeadline);
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core = _initializeCoreStack(
+            p,
+            goalTreasury,
+            splitHook,
+            goalFlow,
+            revnet,
+            predictedBudgetTCR,
+            minRaiseDeadline
+        );
 
         BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(p, core, revnet, predictedBudgetTCR);
         if (tcrStack.budgetTCR != predictedBudgetTCR) {
@@ -260,22 +268,25 @@ contract GoalFactory {
         DeployParams calldata p,
         GoalRevnetSplitHook splitHook
     ) private returns (GoalFactoryRevnetDeploy.RevnetDeploymentResult memory) {
-        return GoalFactoryRevnetDeploy.deployRevnet(GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
-            revDeployer: REV_DEPLOYER,
-            cobuildToken: COBUILD_TOKEN,
-            cobuildDecimals: COBUILD_DECIMALS,
-            cobuildRevnetId: COBUILD_REVNET_ID,
-            splitHook: address(splitHook),
-            owner: p.revnet.owner,
-            name: p.revnet.name,
-            ticker: p.revnet.ticker,
-            uri: p.revnet.uri,
-            initialIssuance: p.revnet.initialIssuance,
-            cashOutTaxRate: p.revnet.cashOutTaxRate,
-            reservedPercent: p.revnet.reservedPercent,
-            durationSeconds: p.revnet.durationSeconds,
-            burnAddress: BURN_ADDRESS
-        }));
+        return
+            GoalFactoryRevnetDeploy.deployRevnet(
+                GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+                    revDeployer: REV_DEPLOYER,
+                    cobuildToken: COBUILD_TOKEN,
+                    cobuildDecimals: COBUILD_DECIMALS,
+                    cobuildRevnetId: COBUILD_REVNET_ID,
+                    splitHook: address(splitHook),
+                    owner: p.revnet.owner,
+                    name: p.revnet.name,
+                    ticker: p.revnet.ticker,
+                    uri: p.revnet.uri,
+                    initialIssuance: p.revnet.initialIssuance,
+                    cashOutTaxRate: p.revnet.cashOutTaxRate,
+                    reservedPercent: p.revnet.reservedPercent,
+                    durationSeconds: p.revnet.durationSeconds,
+                    burnAddress: BURN_ADDRESS
+                })
+            );
     }
 
     function _initializeCoreStack(
@@ -287,40 +298,43 @@ contract GoalFactory {
         address predictedBudgetTCR,
         uint64 minRaiseDeadline
     ) private returns (GoalFactoryCoreStackDeploy.CoreStackResult memory) {
-        return GoalFactoryCoreStackDeploy.initializeCoreStack(GoalFactoryCoreStackDeploy.CoreStackRequest({
-            goalTreasury: goalTreasury,
-            splitHook: splitHook,
-            goalFlow: goalFlow,
-            flowImpl: FLOW_IMPL,
-            superfluidHost: SUPERFLUID_HOST,
-            budgetTcrFactory: address(BUDGET_TCR_FACTORY),
-            cobuildToken: COBUILD_TOKEN,
-            cobuildDecimals: COBUILD_DECIMALS,
-            goalRevnetId: revnet.goalRevnetId,
-            goalToken: revnet.goalToken,
-            predictedBudgetTcr: predictedBudgetTCR,
-            rulesets: revnet.rulesets,
-            directory: revnet.directory,
-            revnetName: p.revnet.name,
-            revnetTicker: p.revnet.ticker,
-            flowTitle: p.flowMetadata.title,
-            flowDescription: p.flowMetadata.description,
-            flowImage: p.flowMetadata.image,
-            flowTagline: p.flowMetadata.tagline,
-            flowUrl: p.flowMetadata.url,
-            managerRewardPoolFlowRatePpm: p.flowConfig.managerRewardPoolFlowRatePpm,
-            minRaiseDeadline: minRaiseDeadline,
-            minRaise: p.timing.minRaise,
-            coverageLambda: p.underwriting.coverageLambda,
-            budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
-            budgetSlashPpm: p.underwriting.budgetSlashPpm,
-            successSettlementRewardEscrowPpm: p.settlement.successSettlementRewardEscrowPpm,
-            successResolver: p.success.successResolver,
-            successAssertionLiveness: p.success.successAssertionLiveness,
-            successAssertionBond: p.success.successAssertionBond,
-            successOracleSpecHash: p.success.successOracleSpecHash,
-            successAssertionPolicyHash: p.success.successAssertionPolicyHash
-        }));
+        return
+            GoalFactoryCoreStackDeploy.initializeCoreStack(
+                GoalFactoryCoreStackDeploy.CoreStackRequest({
+                    goalTreasury: goalTreasury,
+                    splitHook: splitHook,
+                    goalFlow: goalFlow,
+                    flowImpl: FLOW_IMPL,
+                    superfluidHost: SUPERFLUID_HOST,
+                    budgetTcrFactory: address(BUDGET_TCR_FACTORY),
+                    cobuildToken: COBUILD_TOKEN,
+                    cobuildDecimals: COBUILD_DECIMALS,
+                    goalRevnetId: revnet.goalRevnetId,
+                    goalToken: revnet.goalToken,
+                    predictedBudgetTcr: predictedBudgetTCR,
+                    rulesets: revnet.rulesets,
+                    directory: revnet.directory,
+                    revnetName: p.revnet.name,
+                    revnetTicker: p.revnet.ticker,
+                    flowTitle: p.flowMetadata.title,
+                    flowDescription: p.flowMetadata.description,
+                    flowImage: p.flowMetadata.image,
+                    flowTagline: p.flowMetadata.tagline,
+                    flowUrl: p.flowMetadata.url,
+                    managerRewardPoolFlowRatePpm: p.flowConfig.managerRewardPoolFlowRatePpm,
+                    minRaiseDeadline: minRaiseDeadline,
+                    minRaise: p.timing.minRaise,
+                    coverageLambda: p.underwriting.coverageLambda,
+                    budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
+                    budgetSlashPpm: p.underwriting.budgetSlashPpm,
+                    successSettlementRewardEscrowPpm: p.settlement.successSettlementRewardEscrowPpm,
+                    successResolver: p.success.successResolver,
+                    successAssertionLiveness: p.success.successAssertionLiveness,
+                    successAssertionBond: p.success.successAssertionBond,
+                    successOracleSpecHash: p.success.successOracleSpecHash,
+                    successAssertionPolicyHash: p.success.successAssertionPolicyHash
+                })
+            );
     }
 
     function _deployBudgetTcr(
@@ -343,64 +357,68 @@ contract GoalFactory {
             )
         );
 
-        return GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
-            budgetTcrFactory: BUDGET_TCR_FACTORY,
-            registryConfig: GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
-                governor: p.budgetTCR.governor,
-                invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
-                submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
-                submissionBaseDeposit: p.budgetTCR.submissionBaseDeposit,
-                removalBaseDeposit: p.budgetTCR.removalBaseDeposit,
-                submissionChallengeBaseDeposit: p.budgetTCR.submissionChallengeBaseDeposit,
-                removalChallengeBaseDeposit: p.budgetTCR.removalChallengeBaseDeposit,
-                registrationMetaEvidence: p.budgetTCR.registrationMetaEvidence,
-                clearingMetaEvidence: p.budgetTCR.clearingMetaEvidence,
-                challengePeriodDuration: p.budgetTCR.challengePeriodDuration,
-                arbitratorExtraData: p.budgetTCR.arbitratorExtraData
-            }),
-            defaultGovernor: DEFAULT_BUDGET_TCR_GOVERNOR,
-            defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
-            defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-            cobuildToken: COBUILD_TOKEN,
-            cobuildDecimals: COBUILD_DECIMALS,
-            budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
-            budgetBounds: p.budgetTCR.budgetBounds,
-            oracleBounds: p.budgetTCR.oracleBounds,
-            arbitratorParams: p.budgetTCR.arbitratorParams,
-            goalFlow: core.goalFlow,
-            goalTreasury: core.goalTreasury,
-            goalToken: revnet.goalToken,
-            goalRulesets: revnet.rulesets,
-            goalRevnetId: revnet.goalRevnetId,
-            premiumEscrowImplementation: premiumEscrowImplementation,
-            underwriterSlasherRouter: underwriterSlasherRouter,
-            budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
-            budgetSlashPpm: p.underwriting.budgetSlashPpm
-        }));
+        return
+            GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
+                GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
+                    budgetTcrFactory: BUDGET_TCR_FACTORY,
+                    registryConfig: GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
+                        governor: p.budgetTCR.governor,
+                        invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
+                        submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
+                        submissionBaseDeposit: p.budgetTCR.submissionBaseDeposit,
+                        removalBaseDeposit: p.budgetTCR.removalBaseDeposit,
+                        submissionChallengeBaseDeposit: p.budgetTCR.submissionChallengeBaseDeposit,
+                        removalChallengeBaseDeposit: p.budgetTCR.removalChallengeBaseDeposit,
+                        registrationMetaEvidence: p.budgetTCR.registrationMetaEvidence,
+                        clearingMetaEvidence: p.budgetTCR.clearingMetaEvidence,
+                        challengePeriodDuration: p.budgetTCR.challengePeriodDuration,
+                        arbitratorExtraData: p.budgetTCR.arbitratorExtraData
+                    }),
+                    defaultGovernor: DEFAULT_BUDGET_TCR_GOVERNOR,
+                    defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
+                    defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
+                    cobuildToken: COBUILD_TOKEN,
+                    cobuildDecimals: COBUILD_DECIMALS,
+                    budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
+                    budgetBounds: p.budgetTCR.budgetBounds,
+                    oracleBounds: p.budgetTCR.oracleBounds,
+                    arbitratorParams: p.budgetTCR.arbitratorParams,
+                    goalFlow: core.goalFlow,
+                    goalTreasury: core.goalTreasury,
+                    goalToken: revnet.goalToken,
+                    goalRulesets: revnet.rulesets,
+                    goalRevnetId: revnet.goalRevnetId,
+                    premiumEscrowImplementation: premiumEscrowImplementation,
+                    underwriterSlasherRouter: underwriterSlasherRouter,
+                    budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
+                    budgetSlashPpm: p.underwriting.budgetSlashPpm
+                })
+            );
     }
 
     function _resolveRegistryConfig(
         BudgetTCRParams calldata p
     ) internal view returns (BudgetTCRFactory.RegistryConfigInput memory) {
-        return GoalFactoryBudgetTcrDeploy.resolveRegistryConfig(
-            GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
-                governor: p.governor,
-                invalidRoundRewardsSink: p.invalidRoundRewardsSink,
-                submissionDepositStrategy: p.submissionDepositStrategy,
-                submissionBaseDeposit: p.submissionBaseDeposit,
-                removalBaseDeposit: p.removalBaseDeposit,
-                submissionChallengeBaseDeposit: p.submissionChallengeBaseDeposit,
-                removalChallengeBaseDeposit: p.removalChallengeBaseDeposit,
-                registrationMetaEvidence: p.registrationMetaEvidence,
-                clearingMetaEvidence: p.clearingMetaEvidence,
-                challengePeriodDuration: p.challengePeriodDuration,
-                arbitratorExtraData: p.arbitratorExtraData
-            }),
-            DEFAULT_BUDGET_TCR_GOVERNOR,
-            DEFAULT_INVALID_ROUND_REWARDS_SINK,
-            DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-            COBUILD_TOKEN
-        );
+        return
+            GoalFactoryBudgetTcrDeploy.resolveRegistryConfig(
+                GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
+                    governor: p.governor,
+                    invalidRoundRewardsSink: p.invalidRoundRewardsSink,
+                    submissionDepositStrategy: p.submissionDepositStrategy,
+                    submissionBaseDeposit: p.submissionBaseDeposit,
+                    removalBaseDeposit: p.removalBaseDeposit,
+                    submissionChallengeBaseDeposit: p.submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: p.removalChallengeBaseDeposit,
+                    registrationMetaEvidence: p.registrationMetaEvidence,
+                    clearingMetaEvidence: p.clearingMetaEvidence,
+                    challengePeriodDuration: p.challengePeriodDuration,
+                    arbitratorExtraData: p.arbitratorExtraData
+                }),
+                DEFAULT_BUDGET_TCR_GOVERNOR,
+                DEFAULT_INVALID_ROUND_REWARDS_SINK,
+                DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
+                COBUILD_TOKEN
+            );
     }
 
     function _resolveMinRaiseWindow(

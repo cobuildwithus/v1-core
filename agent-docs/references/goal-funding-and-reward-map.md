@@ -89,7 +89,6 @@
 ## Stake and Reward Path
 
 - Stake vault tracks goal-token + cobuild-token stake weight.
-- Stake vault can charge always-on rent on both stake assets (accrued lazily, collected from withdraw principal, and forwarded to reward escrow).
 - Stake vault can lock goal/cobuild stake for juror duty with delayed exit and snapshot-able juror voting weight.
 - Arbitrator-driven juror slashing transfers slashed goal/cobuild stake to reward escrow.
 - Slash settlement is taken from live staked balances (with juror-lock accounting clamped afterward), preventing exit-finalization slash evasion.
@@ -103,7 +102,7 @@
   - direct budget-treasury recipient, or
   - child-flow recipient whose `recipientAdmin` is the budget treasury.
 - If configured with a goal SuperToken stream, reward escrow permissionlessly unwraps SuperToken -> goal token and finalization snapshots the normalized goal-token pool.
-- Claims are success-gated at the goal level and pay pro-rata against successful-budget normalized matured-support points, plus indexed rent inflows distributed by the same points.
+- Claims are success-gated at the goal level and pay pro-rata against successful-budget normalized matured-support points.
 
 ## Key Files
 

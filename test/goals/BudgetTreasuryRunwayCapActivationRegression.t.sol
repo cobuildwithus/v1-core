@@ -27,6 +27,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
     SharedMockStakeVault internal stakeVault;
     BudgetTreasury internal budgetTreasuryImplementation;
     BudgetTreasury internal treasury;
+    address internal premiumEscrow;
 
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
@@ -46,6 +47,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
         stakeVault = new SharedMockStakeVault();
         budgetTreasuryImplementation = new BudgetTreasury();
         treasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
+        premiumEscrow = address(new BudgetTreasuryRunwayMockPremiumEscrow());
 
         flow.setFlowOperator(address(treasury));
         flow.setSweeper(address(treasury));
@@ -55,7 +57,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
             controller,
             IBudgetTreasury.BudgetConfig({
                 flow: address(flow),
-                stakeVault: address(stakeVault),
+                premiumEscrow: premiumEscrow,
                 fundingDeadline: uint64(block.timestamp + 3 days),
                 executionDuration: uint64(30 days),
                 activationThreshold: 100e18,
@@ -79,4 +81,8 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
         assertEq(treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration())));
         assertGt(flow.targetOutflowRate(), 0);
     }
+}
+
+contract BudgetTreasuryRunwayMockPremiumEscrow {
+    function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
 }

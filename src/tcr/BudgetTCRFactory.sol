@@ -130,8 +130,10 @@ contract BudgetTCRFactory {
             arbitratorParams.slashCallerBountyBps
         );
         _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
-        address underwriterSlasherRouter =
-            _resolveUnderwriterSlasherRouter(deploymentConfig.goalTreasury, deploymentConfig.underwriterSlasherRouter);
+        address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
+            deploymentConfig.goalTreasury,
+            deploymentConfig.underwriterSlasherRouter
+        );
 
         (
             uint256 submissionBaseDeposit,
@@ -285,10 +287,10 @@ contract BudgetTCRFactory {
         });
     }
 
-    function _resolveUnderwriterSlasherRouter(IGoalTreasury goalTreasury, address configuredRouter)
-        internal
-        returns (address router)
-    {
+    function _resolveUnderwriterSlasherRouter(
+        IGoalTreasury goalTreasury,
+        address configuredRouter
+    ) internal returns (address router) {
         if (configuredRouter == address(0) || configuredRouter.code.length == 0) {
             revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
         }

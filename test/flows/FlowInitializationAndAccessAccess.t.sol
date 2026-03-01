@@ -20,12 +20,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         IAllocationStrategy[] memory strategies = _oneStrategy();
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
         flow.addFlowRecipient(
-            bytes32(uint256(2)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(2)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
 
@@ -51,10 +46,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         metas[0] = recipientMetadata;
 
         bytes memory legacyCallData = abi.encodeWithSignature(
-            "bulkAddRecipients(bytes32[],address[],(string,string,string,string,string)[])",
-            ids,
-            addrs,
-            metas
+            "bulkAddRecipients(bytes32[],address[],(string,string,string,string,string)[])", ids, addrs, metas
         );
 
         vm.prank(other);
@@ -96,8 +88,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
 
     function test_removedChildSyncModeSetter_selector_notExposed() public {
         _assertCallFails(
-            address(flow),
-            abi.encodeWithSignature("setChildFlowSyncMode(address,uint8)", address(0x1234), uint8(0))
+            address(flow), abi.encodeWithSignature("setChildFlowSyncMode(address,uint8)", address(0x1234), uint8(0))
         );
     }
 
@@ -137,14 +128,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
-            owner,
-            manager,
-            operator,
-            sweeper,
-            managerRewardPool,
-            address(0),
-            parentFlow,
-            strategies
+            owner, manager, operator, sweeper, managerRewardPool, address(0), parentFlow, strategies
         );
 
         vm.prank(manager);
@@ -172,14 +156,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
-            owner,
-            manager,
-            operator,
-            sweeper,
-            managerRewardPool,
-            address(0),
-            parentFlow,
-            strategies
+            owner, manager, operator, sweeper, managerRewardPool, address(0), parentFlow, strategies
         );
 
         bytes memory legacyIncreaseCallData = abi.encodeWithSignature("increaseFlowRate(int96)", int96(1));
@@ -207,14 +184,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
-            owner,
-            manager,
-            operator,
-            sweeper,
-            managerRewardPool,
-            address(0),
-            parentFlow,
-            strategies
+            owner, manager, operator, sweeper, managerRewardPool, address(0), parentFlow, strategies
         );
 
         vm.prank(parentFlow);
@@ -227,14 +197,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
-            owner,
-            manager,
-            operator,
-            sweeper,
-            managerRewardPool,
-            address(0),
-            address(0),
-            strategies
+            owner, manager, operator, sweeper, managerRewardPool, address(0), address(0), strategies
         );
 
         uint256 amount = 1234;

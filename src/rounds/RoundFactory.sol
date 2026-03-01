@@ -142,11 +142,18 @@ contract RoundFactory {
         address submissionTcr = roundSubmissionTcrImplementation.clone();
 
         // 2) Deploy prize vault (receives deposits + super token streams; pays underlying).
-        RoundPrizeVault prizeVault = new RoundPrizeVault(underlying, superTok, RoundSubmissionTCR(submissionTcr), roundOperator);
+        RoundPrizeVault prizeVault = new RoundPrizeVault(
+            underlying,
+            superTok,
+            RoundSubmissionTCR(submissionTcr),
+            roundOperator
+        );
 
         // 3) Deploy deposit strategy that routes accepted submission deposits into the prize vault.
-        PrizePoolSubmissionDepositStrategy depositStrategy =
-            new PrizePoolSubmissionDepositStrategy(underlying, address(prizeVault));
+        PrizePoolSubmissionDepositStrategy depositStrategy = new PrizePoolSubmissionDepositStrategy(
+            underlying,
+            address(prizeVault)
+        );
 
         // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
         address arbitrator = arbitratorImplementation.clone();

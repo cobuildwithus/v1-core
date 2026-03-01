@@ -421,6 +421,28 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(child.managerRewardPoolFlowRatePpm(), childRewardPpm);
     }
 
+    function test_addFlowRecipient_nonZeroManagerRewardPoolFlowRatePpm_appliesToChildRewardStream() public {
+        bytes32 rid = bytes32(uint256(215));
+        uint32 childRewardPpm = 250_000;
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        vm.prank(manager);
+        (, address childAddr) = flow.addFlowRecipient(
+            rid, recipientMetadata, manager, manager, manager, managerRewardPool, childRewardPpm, strategies
+        );
+
+        vm.prank(owner);
+        superToken.transfer(childAddr, 1_000e18);
+
+        CustomFlow child = CustomFlow(childAddr);
+        vm.prank(manager);
+        child.setTargetOutflowRate(1_000);
+
+        (, int96 managerFlowRate,,) = sf.cfa.getFlow(ISuperToken(address(superToken)), childAddr, managerRewardPool);
+        assertEq(managerFlowRate, 250);
+    }
+
     function test_addFlowRecipient_emitsRecipientCreatedBeforeFlowRecipientCreated() public {
         bytes32 rid = bytes32(uint256(211));
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
@@ -698,6 +720,18 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         flow.addFlowRecipient(
             bytes32(uint256(35)), recipientMetadata, manager, manager, manager, address(0), 0, strategies
+        );
+
+        vm.prank(manager);
+        vm.expectRevert(IFlow.ADDRESS_ZERO.selector);
+        flow.addFlowRecipient(
+            bytes32(uint256(36)), recipientMetadata, manager, manager, manager, address(0), 1, strategies
+        );
+
+        vm.prank(manager);
+        vm.expectRevert(IFlow.INVALID_RATE_PPM.selector);
+        flow.addFlowRecipient(
+            bytes32(uint256(37)), recipientMetadata, manager, manager, manager, managerRewardPool, 1_000_001, strategies
         );
 
         IAllocationStrategy[] memory emptyStrategies = new IAllocationStrategy[](0);

@@ -92,7 +92,7 @@ contract RoundPrizeVault is ReentrancyGuard {
     function setEntitlements(bytes32[] calldata submissionIds, uint256[] calldata entitlements) external onlyOperator {
         uint256 length = submissionIds.length;
         if (length != entitlements.length) revert LENGTH_MISMATCH();
-        for (uint256 i = 0; i < length;) {
+        for (uint256 i = 0; i < length; ) {
             _setEntitlement(submissionIds[i], entitlements[i]);
             unchecked {
                 ++i;

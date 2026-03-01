@@ -126,6 +126,9 @@ is_excluded_audit_path() {
     *CobuildSwap*|*cobuildswap*)
       return 0
       ;;
+    src/interfaces/ICobuildSwap.sol|src/interfaces/external/uniswap/IUniversalRouter.sol|src/interfaces/external/uniswap/permit2/IAllowanceTransfer.sol)
+      return 0
+      ;;
     *)
       return 1
       ;;

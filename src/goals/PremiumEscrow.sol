@@ -47,7 +47,10 @@ contract PremiumEscrow is IPremiumEscrow, Initializable, ReentrancyGuard {
     event Claimed(address indexed account, address indexed to, uint256 amount);
     event Closed(IBudgetTreasury.BudgetState indexed finalState, uint64 activatedAt, uint64 closedAt);
     event UnderwriterSlashed(
-        address indexed underwriter, uint256 exposureIntegral, uint256 slashWeight, uint256 duration
+        address indexed underwriter,
+        uint256 exposureIntegral,
+        uint256 slashWeight,
+        uint256 duration
     );
 
     struct AccountState {
@@ -231,7 +234,10 @@ contract PremiumEscrow is IPremiumEscrow, Initializable, ReentrancyGuard {
         _accrueExposure(accountState);
 
         if (syncCoverage) {
-            uint256 currentCoverage = IBudgetStakeLedger(budgetStakeLedger).userAllocatedStakeOnBudget(account, budgetTreasury);
+            uint256 currentCoverage = IBudgetStakeLedger(budgetStakeLedger).userAllocatedStakeOnBudget(
+                account,
+                budgetTreasury
+            );
             if (currentCoverage != previousCoverage) {
                 if (currentCoverage > previousCoverage) {
                     totalCoverage += currentCoverage - previousCoverage;

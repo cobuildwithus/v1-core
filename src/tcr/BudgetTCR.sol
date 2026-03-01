@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import {GeneralizedTCR} from "./GeneralizedTCR.sol";
-import {IBudgetTCR} from "./interfaces/IBudgetTCR.sol";
-import {IBudgetTCRStackDeployer} from "./interfaces/IBudgetTCRStackDeployer.sol";
-import {IArbitrator} from "./interfaces/IArbitrator.sol";
-import {IERC20VotesArbitrator} from "./interfaces/IERC20VotesArbitrator.sol";
-import {AllocationMechanismTCR} from "./AllocationMechanismTCR.sol";
-import {BudgetTCRStorageV1} from "./storage/BudgetTCRStorageV1.sol";
-import {BudgetTCRItems} from "./library/BudgetTCRItems.sol";
-import {BudgetTCRValidationLib} from "./library/BudgetTCRValidationLib.sol";
-import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
-import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
-import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
-import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
-import {IRewardEscrow} from "src/interfaces/IRewardEscrow.sol";
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { GeneralizedTCR } from "./GeneralizedTCR.sol";
+import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
+import { IBudgetTCRStackDeployer } from "./interfaces/IBudgetTCRStackDeployer.sol";
+import { IArbitrator } from "./interfaces/IArbitrator.sol";
+import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
+import { AllocationMechanismTCR } from "./AllocationMechanismTCR.sol";
+import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
+import { BudgetTCRItems } from "./library/BudgetTCRItems.sol";
+import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
+import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import { IRewardEscrow } from "src/interfaces/IRewardEscrow.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
@@ -27,10 +27,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         _disableInitializers();
     }
 
-    function initialize(RegistryConfig calldata registryConfig, DeploymentConfig calldata deploymentConfig)
-        external
-        initializer
-    {
+    function initialize(
+        RegistryConfig calldata registryConfig,
+        DeploymentConfig calldata deploymentConfig
+    ) external initializer {
         if (deploymentConfig.stackDeployer == address(0)) revert ADDRESS_ZERO();
         if (deploymentConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalFlow) == address(0)) revert ADDRESS_ZERO();
@@ -183,12 +183,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         emit BudgetStackRemovalQueued(itemID);
     }
 
-    function retryRemovedBudgetResolution(bytes32 itemID)
-        external
-        override
-        nonReentrant
-        returns (bool terminallyResolved)
-    {
+    function retryRemovedBudgetResolution(
+        bytes32 itemID
+    ) external override nonReentrant returns (bool terminallyResolved) {
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address budgetTreasury = deployment.budgetTreasury;
         if (budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
@@ -199,10 +196,12 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             treasury.forceFlowRateToZero();
             terminallyResolved = _resolved(treasury);
         } else {
-            try treasury.disableSuccessResolution() {}
-            catch (bytes memory reason) {
+            try treasury.disableSuccessResolution() {} catch (bytes memory reason) {
                 emit BudgetTerminalizationStepFailed(
-                    itemID, budgetTreasury, IBudgetTreasury.disableSuccessResolution.selector, reason
+                    itemID,
+                    budgetTreasury,
+                    IBudgetTreasury.disableSuccessResolution.selector,
+                    reason
                 );
             }
             terminallyResolved = _tryResolveBudgetTerminalState(itemID, treasury);
@@ -210,12 +209,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         emit BudgetStackTerminalizationRetried(itemID, budgetTreasury, terminallyResolved);
     }
 
-    function syncBudgetTreasuries(bytes32[] calldata itemIDs)
-        external
-        override
-        nonReentrant
-        returns (uint256 attempted, uint256 succeeded)
-    {
+    function syncBudgetTreasuries(
+        bytes32[] calldata itemIDs
+    ) external override nonReentrant returns (uint256 attempted, uint256 succeeded) {
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; i++) {
             bytes32 itemID = itemIDs[i];
@@ -308,10 +304,16 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         }
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
         IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
-        address allocationMechanismArbitrator =
-            _initializeBudgetAllocationMechanism(deployer, allocationMechanism, budgetTreasury);
+        address allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
+            deployer,
+            allocationMechanism,
+            budgetTreasury
+        );
         emit BudgetAllocationMechanismDeployed(
-            itemID, allocationMechanism, allocationMechanismArbitrator, deployer.roundFactory()
+            itemID,
+            allocationMechanism,
+            allocationMechanismArbitrator,
+            deployer.roundFactory()
         );
 
         _budgetDeployments[itemID] = BudgetDeployment({
@@ -331,35 +333,31 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         IArbitrator.ArbitratorParams memory arbParams = arbitrator.getArbitratorParamsForFactory();
         mechanismArbitrator = Clones.clone(deployer.allocationMechanismArbitratorImplementation());
 
-        IERC20VotesArbitrator(mechanismArbitrator)
-            .initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
-                IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
-                address(erc20),
-                allocationMechanism,
-                arbParams.votingPeriod,
-                arbParams.votingDelay,
-                arbParams.revealPeriod,
-                arbParams.arbitrationCost,
-                goalTreasury.stakeVault(),
-                budgetTreasury,
-                arbParams.wrongOrMissedSlashBps,
-                arbParams.slashCallerBountyBps
-            );
+        IERC20VotesArbitrator(mechanismArbitrator).initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
+            IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
+            address(erc20),
+            allocationMechanism,
+            arbParams.votingPeriod,
+            arbParams.votingDelay,
+            arbParams.revealPeriod,
+            arbParams.arbitrationCost,
+            goalTreasury.stakeVault(),
+            budgetTreasury,
+            arbParams.wrongOrMissedSlashBps,
+            arbParams.slashCallerBountyBps
+        );
 
-        AllocationMechanismTCR(allocationMechanism)
-            .initialize(
-                budgetTreasury,
-                deployer.roundFactory(),
-                _mechanismRoundDefaults(arbParams),
-                _mechanismRegistryConfig(mechanismArbitrator)
-            );
+        AllocationMechanismTCR(allocationMechanism).initialize(
+            budgetTreasury,
+            deployer.roundFactory(),
+            _mechanismRoundDefaults(arbParams),
+            _mechanismRegistryConfig(mechanismArbitrator)
+        );
     }
 
-    function _mechanismRoundDefaults(IArbitrator.ArbitratorParams memory arbParams)
-        internal
-        view
-        returns (AllocationMechanismTCR.RoundDefaults memory defaults)
-    {
+    function _mechanismRoundDefaults(
+        IArbitrator.ArbitratorParams memory arbParams
+    ) internal view returns (AllocationMechanismTCR.RoundDefaults memory defaults) {
         defaults = AllocationMechanismTCR.RoundDefaults({
             arbitratorExtraData: arbitratorExtraData,
             registrationMetaEvidence: registrationMetaEvidence,
@@ -380,11 +378,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         });
     }
 
-    function _mechanismRegistryConfig(address mechanismArbitrator)
-        internal
-        view
-        returns (AllocationMechanismTCR.RegistryConfig memory cfg)
-    {
+    function _mechanismRegistryConfig(
+        address mechanismArbitrator
+    ) internal view returns (AllocationMechanismTCR.RegistryConfig memory cfg) {
         cfg = AllocationMechanismTCR.RegistryConfig({
             arbitrator: IArbitrator(mechanismArbitrator),
             arbitratorExtraData: arbitratorExtraData,
@@ -408,10 +404,12 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         treasury.forceFlowRateToZero();
         if (_resolved(treasury)) return true;
 
-        try treasury.resolveFailure() {}
-        catch (bytes memory reason) {
+        try treasury.resolveFailure() {} catch (bytes memory reason) {
             emit BudgetTerminalizationStepFailed(
-                itemID, address(treasury), IBudgetTreasury.resolveFailure.selector, reason
+                itemID,
+                address(treasury),
+                IBudgetTreasury.resolveFailure.selector,
+                reason
             );
         }
         return _resolved(treasury);

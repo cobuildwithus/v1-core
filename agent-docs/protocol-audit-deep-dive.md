@@ -45,7 +45,7 @@ The protocol has three coupled subsystems:
 - `GoalTreasury.sol`: goal state machine and final settlement policy.
 - `BudgetTreasury.sol`: budget state machine, pass-through flow policy, parent residual returns.
 - `TreasuryBase.sol`: shared donation ingress, balance reads, and helper mechanics.
-- `GoalStakeVault.sol`: stake custody, rent accrual/withholding, juror lock/exit/slashing.
+- `GoalStakeVault.sol`: stake custody, juror lock/exit/slashing.
 - `BudgetStakeLedger.sol`: accounting-only points ledger for budget success weighting.
 - `RewardEscrow.sol`: final reward pools, snapshot finalization, claim and failed-path sweep behavior.
 - `GoalRevnetSplitHook.sol`: funding ingress and success-state settlement split from revnet flow.
@@ -217,7 +217,7 @@ Late residual handling:
 On goal success finalization:
 
 - Escrow finalizes snapshots and stake-ledger final state.
-- Claimants call `claim(to)` for a one-time snapshot pro-rata component plus an incremental rent-indexed component (when applicable).
+- Claimants call `claim(to)` for one-time snapshot pro-rata rewards.
 
 On non-success terminal states:
 
@@ -228,13 +228,12 @@ Succeeded-state edge case:
 
 - `releaseFailedAssetsToTreasury()` is also allowed when goal state is `Succeeded` but the snapshot has zero successful budget points.
 
-### 5) Stake lock/unlock and rent
+### 5) Stake lock/unlock
 
 `GoalStakeVault` custody/locking:
 
 - Users deposit goal/cobuild stake.
 - Withdrawals require goal resolved and available unlocked amount.
-- Rent debt is computed and withheld on withdrawal, then routed to configured recipient.
 
 Juror locks:
 
@@ -252,7 +251,7 @@ Juror locks:
 | Budget activation | Budget `Funding`; `now <= fundingDeadline`; flow balance `>= activationThreshold`. |
 | Budget success | Budget `Active`; success resolution not disabled; resolver calls with truthful pending assertion. |
 | Budget manual failure | Controller-only; correct state/time gate; no pending success assertion for active failure path. |
-| Stake withdrawal | Goal resolved; amount unlocked and not juror-locked; rent withheld on exit. |
+| Stake withdrawal | Goal resolved; amount unlocked and not juror-locked. |
 | Juror final exit | Cooldown elapsed since request and resolution anchor. |
 | Reward claim | Escrow finalized; success state; positive entitlement. |
 
@@ -263,7 +262,7 @@ Juror locks:
 3. Hook routing correctness by treasury state and minting window.
 4. Goal success independence from unresolved budgets (by design) and timestamp anchoring effects.
 5. Budget removal guarantees: recipient removed + retryable terminalization; success disablement is branch-specific (pre-activation only).
-6. Stake rent math and withdrawal accounting (including rounding/dust and repeated withdrawals).
+6. Stake withdrawal accounting (including rounding/dust and repeated withdrawals).
 7. Reward escrow claim math and claim cursor monotonicity.
 8. Submission deposit strategy behavior in TCR (fail-closed surface).
 9. Arbitration reward routing, invalid-round sink, and one-shot withdrawal semantics.

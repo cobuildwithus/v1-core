@@ -32,6 +32,29 @@ Build examples (`review:gpt:nozip`):
 - `pnpm -s review:gpt:nozip -- --profile comprehensive-b-flow-tcr-logic --target-bytes 248000 --out audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-logic-final.md`
 - `--out` sets the exact output file path instead of using a timestamped default.
 
+Shortcut commands (`review:gpt:direct`):
+
+- `pnpm -s review:gpt:direct -- goals`
+- `pnpm -s review:gpt:direct -- flows`
+- `pnpm -s review:gpt:direct -- all`
+- `pnpm -s review:gpt:direct:goals`
+- `pnpm -s review:gpt:direct:flows`
+- `pnpm -s review:gpt:direct:all`
+
+Use a second positional arg to tune payload size, if needed:
+
+- `pnpm -s review:gpt:direct -- goals 240000`
+- `pnpm -s review:gpt:direct -- flows 240000 --preset custom`
+
+By default, these commands still use:
+
+- `--preset security`
+
+Override default preset at the command tail:
+
+- `pnpm -s review:gpt:direct -- goals --preset coverage`
+- `pnpm -s review:gpt:direct:all -- --preset compliance`
+
 Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
 - `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md --preset security`

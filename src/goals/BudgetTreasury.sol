@@ -94,7 +94,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         }
         address parentFlow = _flow.parent();
         if (parentFlow == address(0) || parentFlow.code.length == 0) revert PARENT_FLOW_NOT_CONFIGURED();
-        try IFlow(parentFlow).getMemberFlowRate(address(_flow)) returns (int96) { } catch {
+        try IFlow(parentFlow).getMemberFlowRate(address(_flow)) returns (int96) {} catch {
             revert PARENT_FLOW_NOT_CONFIGURED();
         }
 
@@ -367,7 +367,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         address escrow = premiumEscrow;
         if (escrow == address(0)) return;
 
-        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) { } catch (bytes memory reason) {
+        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) {} catch (bytes memory reason) {
             emit TerminalSideEffectFailed(TERMINAL_OP_PREMIUM_ESCROW_CLOSE, reason);
         }
     }
@@ -451,7 +451,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase, Initializable {
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) { } catch { }
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch {}
             }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;

@@ -27,6 +27,10 @@ contract BudgetTCRStorageV1 {
     uint8 public paymentTokenDecimals;
 
     address public stackDeployer;
+    address public premiumEscrowImplementation;
+    address public underwriterSlasherRouter;
+    uint32 public budgetPremiumPpm;
+    uint32 public budgetSlashPpm;
     // Deprecated: validation now runs via BudgetTCRValidationLib.
     address public itemValidator;
     address public budgetSuccessResolver;

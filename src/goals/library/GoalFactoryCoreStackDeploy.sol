@@ -68,15 +68,16 @@ library GoalFactoryCoreStackDeploy {
         RewardEscrow rewardEscrow;
     }
 
-    function initializeCoreStack(
-        CoreStackRequest memory request
-    ) external returns (CoreStackResult memory out) {
+    function initializeCoreStack(CoreStackRequest memory request) external returns (CoreStackResult memory out) {
         out.goalTreasury = request.goalTreasury;
         out.splitHook = request.splitHook;
         out.goalFlow = request.goalFlow;
 
         out.goalSuperToken = _createGoalSuperToken(
-            request.superfluidHost, request.goalToken, request.revnetName, request.revnetTicker
+            request.superfluidHost,
+            request.goalToken,
+            request.revnetName,
+            request.revnetTicker
         );
 
         IERC20 goalToken = IERC20(request.goalToken);
@@ -92,8 +93,9 @@ library GoalFactoryCoreStackDeploy {
         );
 
         out.budgetStakeLedger = new BudgetStakeLedger(address(out.goalTreasury));
-        GoalFlowAllocationLedgerPipeline allocationPipeline =
-            new GoalFlowAllocationLedgerPipeline(address(out.budgetStakeLedger));
+        GoalFlowAllocationLedgerPipeline allocationPipeline = new GoalFlowAllocationLedgerPipeline(
+            address(out.budgetStakeLedger)
+        );
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
 

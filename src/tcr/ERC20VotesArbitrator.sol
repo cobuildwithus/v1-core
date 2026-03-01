@@ -788,7 +788,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         address[] calldata voters
     ) external override nonReentrant validDisputeID(disputeId) {
         uint256 count = voters.length;
-        for (uint256 i = 0; i < count;) {
+        for (uint256 i = 0; i < count; ) {
             _slashVoter(disputeId, round, voters[i]);
             unchecked {
                 ++i;

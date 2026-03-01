@@ -7,5 +7,5 @@ interface IBudgetTCRDeployer is IBudgetTCRStackDeployer {
     error ALREADY_INITIALIZED();
 
     function budgetTCR() external view returns (address);
-    function initialize(address budgetTCR_) external;
+    function initialize(address budgetTCR_, address premiumEscrowImplementation_) external;
 }

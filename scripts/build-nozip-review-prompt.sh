@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-profile="single-balanced-250"
+profile="comprehensive-a-goals-logic"
 target_bytes=250000
 out_path=""
 list_profiles_only=0
@@ -15,7 +15,7 @@ Build a no-zip markdown payload for manual GPT review paste/upload.
 The script strips Solidity comments/blank lines and enforces a hard byte cap.
 
 Options:
-  --profile <name>        Profile to build (default: single-balanced-250)
+  --profile <name>        Profile to build (default: comprehensive-a-goals-logic)
   --target-bytes <n>      Max output bytes (default: 250000)
   --out <path>            Output path (default: audit-packages/review-gpt-nozip-<profile>-<utc>.md)
   --list-profiles         Print available profile names and exit
@@ -33,7 +33,6 @@ EOF
 
 list_profiles() {
   cat <<'EOF'
-single-balanced-250
 comprehensive-a-goals-logic
 comprehensive-b-flow-tcr-logic
 comprehensive-ab-flow-tcr-goals-combined
@@ -48,43 +47,6 @@ strip_solidity() {
 emit_profile_files() {
   local selected="$1"
   case "$selected" in
-    single-balanced-250)
-      cat <<'EOF'
-src/goals/GoalTreasury.sol
-src/goals/BudgetTreasury.sol
-src/goals/StakeVault.sol
-src/goals/RewardEscrow.sol
-src/hooks/GoalRevnetSplitHook.sol
-src/goals/TreasuryBase.sol
-src/goals/library/TreasurySuccessAssertions.sol
-src/goals/library/TreasuryFlowRateSync.sol
-src/goals/library/RewardEscrowMath.sol
-src/goals/library/StakeVaultRentMath.sol
-src/goals/library/StakeVaultJurorMath.sol
-src/goals/library/StakeVaultSlashMath.sol
-src/goals/library/TreasuryDonations.sol
-src/goals/library/GoalSpendPatterns.sol
-src/tcr/GeneralizedTCR.sol
-src/tcr/ERC20VotesArbitrator.sol
-src/tcr/BudgetTCR.sol
-src/tcr/storage/GeneralizedTCRStorageV1.sol
-src/tcr/storage/ArbitratorStorageV1.sol
-src/tcr/storage/BudgetTCRStorageV1.sol
-src/tcr/library/TCRRounds.sol
-src/tcr/utils/VotingTokenCompatibility.sol
-src/tcr/utils/ArbitrationCostExtraData.sol
-src/tcr/utils/CappedMath.sol
-src/Flow.sol
-src/flows/CustomFlow.sol
-src/storage/FlowStorage.sol
-src/library/FlowAllocations.sol
-src/library/FlowRates.sol
-src/library/FlowRecipients.sol
-src/library/FlowInitialization.sol
-src/library/FlowPools.sol
-src/library/AllocationSnapshot.sol
-EOF
-      ;;
     comprehensive-a-goals-logic)
       cat <<'EOF'
 src/goals/GoalTreasury.sol

@@ -29,6 +29,7 @@ interface IManagedFlow {
      * @param flowOperator The flow-rate operations authority for the new contract
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
+     * @param managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
      * @param strategies The strategies for the new contract
      * @return recipientId The ID of the recipient
      * @return recipientAddress The address of the newly created flow contract
@@ -40,6 +41,7 @@ interface IManagedFlow {
         address flowOperator,
         address sweeper,
         address managerRewardPool,
+        uint32 managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata strategies
     ) external returns (bytes32 recipientId, address recipientAddress);
 

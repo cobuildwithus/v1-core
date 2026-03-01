@@ -16,6 +16,7 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -29,11 +30,13 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
     address internal immutable strategy;
+    address internal immutable premiumEscrow;
     address internal immutable _roundFactory;
     address internal immutable _mechanismTcrImplementation;
     address internal immutable _mechanismArbitratorImplementation;
@@ -42,6 +45,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
         strategy = address(0x2222222222222222222222222222222222222222);
+        premiumEscrow = address(0x3333333333333333333333333333333333333333);
         _roundFactory = address(new RoundFactory());
         _mechanismTcrImplementation = address(new AllocationMechanismTCR());
         _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
@@ -54,14 +58,23 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         uint256,
         uint8,
         address,
+        address,
+        address,
+        uint32,
         bytes32
     ) external returns (PreparationResult memory result) {
-        result = PreparationResult({ strategy: strategy, budgetTreasury: preparedBudgetTreasury });
+        result =
+            PreparationResult({ strategy: strategy, budgetTreasury: preparedBudgetTreasury, premiumEscrow: premiumEscrow });
     }
 
     function deployBudgetTreasury(
         address,
         address,
+        address,
+        address,
+        address,
+        address,
+        uint32,
         IBudgetTCR.BudgetListing calldata,
         address,
         uint64,
@@ -98,6 +111,8 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
     address internal stackDeployer;
+    address internal premiumEscrowImplementation;
+    address internal underwriterSlasherRouter;
 
     address internal owner = makeAddr("owner");
     address internal governor = makeAddr("governor");
@@ -135,6 +150,8 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
         goalTreasury.setFlow(address(goalFlow));
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
+        premiumEscrowImplementation = address(new PremiumEscrow());
+        underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -212,6 +229,10 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: 100_000,
+            budgetSlashPpm: 50_000,
             managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,

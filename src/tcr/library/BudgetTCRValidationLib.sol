@@ -20,8 +20,8 @@ library BudgetTCRValidationLib {
         if (listing.fundingDeadline <= currentTimestamp) return false;
         if (listing.fundingDeadline < currentTimestamp + budgetBounds.minFundingLeadTime) return false;
         if (
-            budgetBounds.maxFundingHorizon != 0
-                && listing.fundingDeadline > currentTimestamp + budgetBounds.maxFundingHorizon
+            budgetBounds.maxFundingHorizon != 0 &&
+            listing.fundingDeadline > currentTimestamp + budgetBounds.maxFundingHorizon
         ) {
             return false;
         }

@@ -42,9 +42,7 @@ library GoalFactoryRevnetDeploy {
         address goalToken;
     }
 
-    function deployRevnet(
-        RevnetDeploymentRequest memory request
-    ) external returns (RevnetDeploymentResult memory) {
+    function deployRevnet(RevnetDeploymentRequest memory request) external returns (RevnetDeploymentResult memory) {
         uint32 cobuildCurrency = uint32(uint160(request.cobuildToken));
         uint48 start = uint48(block.timestamp);
 
@@ -94,8 +92,7 @@ library GoalFactoryRevnetDeploy {
         if (address(goalTerminal) == address(0)) revert ADDRESS_ZERO();
 
         JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](1);
-        terminalConfigs[0] =
-            JBTerminalConfig({ terminal: goalTerminal, accountingContextsToAccept: contexts });
+        terminalConfigs[0] = JBTerminalConfig({ terminal: goalTerminal, accountingContextsToAccept: contexts });
 
         uint256 goalRevnetId = request.revDeployer.deployFor(
             0,
@@ -129,12 +126,13 @@ library GoalFactoryRevnetDeploy {
         address goalToken = address(tokens.tokenOf(goalRevnetId));
         if (goalToken == address(0)) revert ADDRESS_ZERO();
 
-        return RevnetDeploymentResult({
-            directory: directory,
-            controller: controller,
-            rulesets: controller.RULESETS(),
-            goalRevnetId: goalRevnetId,
-            goalToken: goalToken
-        });
+        return
+            RevnetDeploymentResult({
+                directory: directory,
+                controller: controller,
+                rulesets: controller.RULESETS(),
+                goalRevnetId: goalRevnetId,
+                goalToken: goalToken
+            });
     }
 }

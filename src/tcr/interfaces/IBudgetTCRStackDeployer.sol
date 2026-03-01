@@ -9,6 +9,7 @@ interface IBudgetTCRStackDeployer {
     struct PreparationResult {
         address strategy;
         address budgetTreasury;
+        address premiumEscrow;
     }
 
     error ADDRESS_ZERO();
@@ -21,12 +22,20 @@ interface IBudgetTCRStackDeployer {
         uint256 goalRevnetId,
         uint8 paymentTokenDecimals,
         address budgetStakeLedger,
+        address goalFlow,
+        address underwriterSlasherRouter,
+        uint32 budgetSlashPpm,
         bytes32 recipientId
     ) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(
         address budgetTreasury,
+        address premiumEscrow,
         address childFlow,
+        address budgetStakeLedger,
+        address goalFlow,
+        address underwriterSlasherRouter,
+        uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
         uint64 successAssertionLiveness,

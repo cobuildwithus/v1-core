@@ -260,6 +260,13 @@ interface IFlow is IFlowEvents, IManagedFlow {
     function getNetFlowRate() external view returns (int96);
 
     /**
+     * @notice Gets the configured distribution-pool flow rate for a specific member.
+     * @param memberAddr The address of the distribution-pool member.
+     * @return The member flow rate.
+     */
+    function getMemberFlowRate(address memberAddr) external view returns (int96);
+
+    /**
      * @notice Reads the current allocation commitment for a strategy/allocationKey pair.
      * @param strategy The allocation strategy address.
      * @param allocationKey The allocation key for the strategy.

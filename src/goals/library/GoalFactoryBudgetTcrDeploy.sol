@@ -45,6 +45,10 @@ library GoalFactoryBudgetTcrDeploy {
         address goalToken;
         IJBRulesets goalRulesets;
         uint256 goalRevnetId;
+        address premiumEscrowImplementation;
+        address underwriterSlasherRouter;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
     }
 
     function resolveRegistryConfig(
@@ -89,21 +93,26 @@ library GoalFactoryBudgetTcrDeploy {
             goalRulesets: request.goalRulesets,
             goalRevnetId: request.goalRevnetId,
             paymentTokenDecimals: request.cobuildDecimals,
+            premiumEscrowImplementation: request.premiumEscrowImplementation,
+            underwriterSlasherRouter: request.underwriterSlasherRouter,
+            budgetPremiumPpm: request.budgetPremiumPpm,
+            budgetSlashPpm: request.budgetSlashPpm,
             managerRewardPool: address(0),
             budgetValidationBounds: request.budgetBounds,
             oracleValidationBounds: request.oracleBounds
         });
 
-        return request.budgetTcrFactory.deployBudgetTCRStackForGoal(
-            resolveRegistryConfig(
-                request.registryConfig,
-                request.defaultGovernor,
-                request.defaultInvalidRoundRewardsSink,
-                request.defaultSubmissionDepositStrategy,
-                request.cobuildToken
-            ),
-            tcrDeployCfg,
-            request.arbitratorParams
-        );
+        return
+            request.budgetTcrFactory.deployBudgetTCRStackForGoal(
+                resolveRegistryConfig(
+                    request.registryConfig,
+                    request.defaultGovernor,
+                    request.defaultInvalidRoundRewardsSink,
+                    request.defaultSubmissionDepositStrategy,
+                    request.cobuildToken
+                ),
+                tcrDeployCfg,
+                request.arbitratorParams
+            );
     }
 }

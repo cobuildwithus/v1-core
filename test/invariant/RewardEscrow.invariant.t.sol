@@ -182,19 +182,15 @@ contract RewardEscrowInvariantTest is StdInvariant, Test {
         assertLe(escrow.totalCobuildClaimed(), escrow.cobuildPoolSnapshot());
     }
 
-    function invariant_preFinalizeClaimAndRentCountersAreZero() public view {
+    function invariant_preFinalizeClaimCountersAreZero() public view {
         if (escrow.finalized()) return;
 
         assertEq(escrow.totalClaimed(), 0);
         assertEq(escrow.totalCobuildClaimed(), 0);
-        assertEq(escrow.totalGoalRentClaimed(), 0);
-        assertEq(escrow.totalCobuildRentClaimed(), 0);
-        assertEq(escrow.goalRentPerPointStored(), 0);
-        assertEq(escrow.cobuildRentPerPointStored(), 0);
     }
 
     function invariant_goalTokenAccountingConservesMass() public view {
-        uint256 tracked = rewardToken.balanceOf(address(escrow)) + escrow.totalClaimed() + escrow.totalGoalRentClaimed();
+        uint256 tracked = rewardToken.balanceOf(address(escrow)) + escrow.totalClaimed();
         assertLe(tracked, handler.totalGoalMintedToEscrow());
 
         if (escrow.finalized() && escrow.finalState() == GOAL_SUCCEEDED && escrow.totalPointsSnapshot() != 0) {
@@ -203,8 +199,7 @@ contract RewardEscrowInvariantTest is StdInvariant, Test {
     }
 
     function invariant_cobuildTokenAccountingConservesMass() public view {
-        uint256 tracked =
-            cobuildToken.balanceOf(address(escrow)) + escrow.totalCobuildClaimed() + escrow.totalCobuildRentClaimed();
+        uint256 tracked = cobuildToken.balanceOf(address(escrow)) + escrow.totalCobuildClaimed();
         assertLe(tracked, handler.totalCobuildMintedToEscrow());
 
         if (escrow.finalized() && escrow.finalState() == GOAL_SUCCEEDED && escrow.totalPointsSnapshot() != 0) {
@@ -212,16 +207,12 @@ contract RewardEscrowInvariantTest is StdInvariant, Test {
         }
     }
 
-    function invariant_nonSuccessCannotClaimRewardsOrRent() public view {
+    function invariant_nonSuccessCannotClaimRewards() public view {
         if (!escrow.finalized()) return;
         if (escrow.finalState() == GOAL_SUCCEEDED) return;
 
         assertEq(escrow.totalClaimed(), 0);
         assertEq(escrow.totalCobuildClaimed(), 0);
-        assertEq(escrow.totalGoalRentClaimed(), 0);
-        assertEq(escrow.totalCobuildRentClaimed(), 0);
-        assertEq(escrow.goalRentPerPointStored(), 0);
-        assertEq(escrow.cobuildRentPerPointStored(), 0);
     }
 
     function invariant_actorBalancesBoundedByEscrowInflows() public view {
@@ -333,6 +324,7 @@ contract RewardEscrowInvariantBudget {
     IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Succeeded;
     uint64 public fundingDeadline = 1;
     uint64 public executionDuration = 10;
+    uint64 public activatedAt = 1;
 
     constructor(address flow_) {
         flow = flow_;

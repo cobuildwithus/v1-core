@@ -57,6 +57,7 @@ contract TreasuryTerminalInvariantFlow {
     int96 private _totalFlowRate;
     int96 private _netFlowRateOverride;
     bool private _hasNetFlowRateOverride;
+    mapping(address => int96) private _memberFlowRates;
 
     uint256 public totalSwept;
     uint256 public setFlowRateCallCount;
@@ -94,6 +95,10 @@ contract TreasuryTerminalInvariantFlow {
         return -_totalFlowRate;
     }
 
+    function getMemberFlowRate(address memberAddr) external view returns (int96 flowRate) {
+        flowRate = _memberFlowRates[memberAddr];
+    }
+
     function setMaxSafeFlowRate(int96 flowRate) external {
         _maxSafeFlowRate = flowRate;
     }
@@ -105,6 +110,10 @@ contract TreasuryTerminalInvariantFlow {
 
     function clearNetFlowRateOverride() external {
         _hasNetFlowRateOverride = false;
+    }
+
+    function setMemberFlowRate(address memberAddr, int96 flowRate) external {
+        _memberFlowRates[memberAddr] = flowRate;
     }
 
     function flowOperator() external view returns (address) {
@@ -299,6 +308,10 @@ contract TreasuryTerminalInvariantHook {
     }
 }
 
+contract TreasuryTerminalInvariantPremiumEscrow {
+    function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
+}
+
 contract TreasuryTerminalLifecycleInvariantHandler is Test {
     uint256 internal constant PROJECT_ID = 1;
     uint256 internal constant MAX_AMOUNT = 1e24;
@@ -319,6 +332,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     TreasuryTerminalInvariantFlow public budgetFlow;
     TreasuryTerminalInvariantStakeVault public budgetStakeVault;
     BudgetTreasury public budgetTreasury;
+    TreasuryTerminalInvariantPremiumEscrow public premiumEscrow;
 
     uint256 public totalGoalFlowMinted;
     uint256 public totalBudgetFlowMinted;
@@ -356,6 +370,9 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
+                coverageLambda: 0,
+                budgetPremiumPpm: 0,
+                budgetSlashPpm: 0,
                 successSettlementRewardEscrowPpm: 0,
                 successResolver: address(this),
                 successAssertionLiveness: uint64(1 days),
@@ -370,9 +387,10 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         budgetSuperToken = new TreasuryTerminalInvariantSuperToken(
             address(budgetUnderlying), "Invariant Budget Super", "iBSUP"
         );
-        budgetFlow = new TreasuryTerminalInvariantFlow(ISuperToken(address(budgetSuperToken)), address(0xBEEF));
+        budgetFlow = new TreasuryTerminalInvariantFlow(ISuperToken(address(budgetSuperToken)), address(goalFlow));
         budgetStakeVault =
             new TreasuryTerminalInvariantStakeVault(IERC20(address(budgetUnderlying)), IERC20(address(0)));
+        premiumEscrow = new TreasuryTerminalInvariantPremiumEscrow();
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         budgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         budgetStakeVault.setGoalTreasury(address(budgetTreasury));
@@ -382,7 +400,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
             address(this),
             IBudgetTreasury.BudgetConfig({
                 flow: address(budgetFlow),
-                stakeVault: address(budgetStakeVault),
+                premiumEscrow: address(premiumEscrow),
                 fundingDeadline: uint64(block.timestamp + 3 days),
                 executionDuration: uint64(7 days),
                 activationThreshold: 50e18,
@@ -535,7 +553,6 @@ contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {
         );
         assertFalse(budgetTreasury.canAcceptFunding());
         assertEq(budgetFlow.targetOutflowRate(), 0);
-        assertTrue(budgetStakeVault.goalResolved());
         assertGt(budgetTreasury.resolvedAt(), 0);
         assertEq(budgetSuperToken.balanceOf(address(budgetFlow)), 0);
     }

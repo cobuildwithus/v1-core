@@ -110,6 +110,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param _flowOperator The flow-rate operations authority for the new contract
      * @param _sweeper The sweep authority for the new contract
      * @param _managerRewardPool The address of the manager reward pool for the new contract
+     * @param _managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
      * @param _strategies The allocation strategies to use.
      * @return bytes32 The recipientId of the newly created Flow contract
      * @return address The address of the newly created Flow contract
@@ -124,6 +125,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _flowOperator,
         address _sweeper,
         address _managerRewardPool,
+        uint32 _managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata _strategies
     ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
         Config storage cfg = _cfgStorage();
@@ -139,6 +141,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             _flowOperator,
             _sweeper,
             _managerRewardPool,
+            _managerRewardPoolFlowRatePpm,
             _strategies
         );
 
@@ -168,6 +171,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param _flowOperator The flow-rate operations authority for the new contract
      * @param _sweeper The sweep authority for the new contract
      * @param _managerRewardPool The address of the manager reward pool for the new contract
+     * @param _managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
      * @param _strategies The allocation strategies to use.
      * @return address The address of the newly created Flow contract
      */
@@ -178,6 +182,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _flowOperator,
         address _sweeper,
         address _managerRewardPool,
+        uint32 _managerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata _strategies
     ) internal virtual returns (address);
 
@@ -555,5 +560,4 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     function strategies() external view returns (IAllocationStrategy[] memory) {
         return _allocStorage().strategies;
     }
-
 }

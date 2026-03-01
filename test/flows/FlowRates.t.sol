@@ -34,8 +34,7 @@ contract FlowRatesTest is FlowTestBase {
     bytes4 internal constant ONLY_SELF_OUTFLOW_REFRESH_SELECTOR = bytes4(keccak256("ONLY_SELF_OUTFLOW_REFRESH()"));
     bytes32 internal constant TARGET_OUTFLOW_RATE_UPDATED_SIG =
         keccak256("TargetOutflowRateUpdated(address,int96,int96)");
-    bytes32 internal constant TARGET_OUTFLOW_REFRESH_FAILED_SIG =
-        keccak256("TargetOutflowRefreshFailed(int96,bytes)");
+    bytes32 internal constant TARGET_OUTFLOW_REFRESH_FAILED_SIG = keccak256("TargetOutflowRefreshFailed(int96,bytes)");
 
     function _deployAndFundFlowWithRewardPpm(uint32 rewardPpm) internal returns (CustomFlow deployed) {
         deployed = _deployAndFundFlowWithRewardPpmAndParent(rewardPpm, address(0));
@@ -57,19 +56,20 @@ contract FlowRatesTest is FlowTestBase {
         IFlow.FlowParams memory params = IFlow.FlowParams({managerRewardPoolFlowRatePpm: rewardPpm});
 
         vm.prank(owner);
-        ICustomFlow(proxy).initialize(
-            address(superToken),
-            address(flowImplementation),
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
-            address(0),
-            parent,
-            params,
-            flowMetadata,
-            strategies
-        );
+        ICustomFlow(proxy)
+            .initialize(
+                address(superToken),
+                address(flowImplementation),
+                manager,
+                manager,
+                manager,
+                managerRewardPool,
+                address(0),
+                parent,
+                params,
+                flowMetadata,
+                strategies
+            );
         deployed = CustomFlow(proxy);
 
         vm.prank(owner);
@@ -84,7 +84,9 @@ contract FlowRatesTest is FlowTestBase {
         flow.setTargetOutflowRate(total);
 
         assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         CustomFlow flow25 = _deployAndFundFlowWithRewardPpm(250_000);
         _bootstrapRecipientOnFlow(flow25, bytes32(uint256(2)), address(0x1002));
@@ -92,7 +94,9 @@ contract FlowRatesTest is FlowTestBase {
         flow25.setTargetOutflowRate(total);
 
         assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow25), managerRewardPool), 250);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow25), flow25.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow25), flow25.distributionPool()), 0
+        );
 
         CustomFlow flow100 = _deployAndFundFlowWithRewardPpm(1_000_000);
         _bootstrapRecipientOnFlow(flow100, bytes32(uint256(3)), address(0x1003));
@@ -100,7 +104,10 @@ contract FlowRatesTest is FlowTestBase {
         flow100.setTargetOutflowRate(total);
 
         assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow100), managerRewardPool), 1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow100), flow100.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow100), flow100.distributionPool()),
+            0
+        );
     }
 
     function test_calculateFlowRates_libraryStrictRevertsOnNegativeRate() public {
@@ -179,7 +186,9 @@ contract FlowRatesTest is FlowTestBase {
         flow.setTargetOutflowRate(1_009);
 
         assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_setTargetOutflowRate_noopWhenUnchanged_skipsDistributionHostCall() public {
@@ -206,7 +215,9 @@ contract FlowRatesTest is FlowTestBase {
 
         assertEq(flow.targetOutflowRate(), 1_000);
         assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_setTargetOutflowRate_noopWhenUnchanged_skipsManagerRewardLookupPath() public {
@@ -242,10 +253,8 @@ contract FlowRatesTest is FlowTestBase {
         flow333.setTargetOutflowRate(total);
 
         int96 managerRate = ISuperToken(address(superToken)).getFlowRate(address(flow333), managerRewardPool);
-        int96 distributionRate = ISuperToken(address(superToken)).getFlowDistributionFlowRate(
-            address(flow333),
-            flow333.distributionPool()
-        );
+        int96 distributionRate =
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow333), flow333.distributionPool());
 
         assertEq(managerRate, 2);
         assertEq(distributionRate, 0);
@@ -255,10 +264,8 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow857.setTargetOutflowRate(total);
 
-        distributionRate = ISuperToken(address(superToken)).getFlowDistributionFlowRate(
-            address(flow857),
-            flow857.distributionPool()
-        );
+        distributionRate =
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow857), flow857.distributionPool());
         managerRate = ISuperToken(address(superToken)).getFlowRate(address(flow857), managerRewardPool);
 
         assertEq(managerRate, 6);
@@ -268,19 +275,21 @@ contract FlowRatesTest is FlowTestBase {
     function test_addRecipient_withoutAllocations_keepsDistributionZero() public {
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.prank(manager);
         flow.addRecipient(bytes32(uint256(101)), address(0x1101), recipientMetadata);
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_addRecipient_withZeroCachedTarget_skipsRefreshAttempt() public {
         vm.mockCallRevert(
-            address(sf.host),
-            abi.encodeWithSelector(sf.host.callAgreement.selector),
-            bytes("refresh-should-not-run")
+            address(sf.host), abi.encodeWithSelector(sf.host.callAgreement.selector), bytes("refresh-should-not-run")
         );
 
         vm.recordLogs();
@@ -289,7 +298,9 @@ contract FlowRatesTest is FlowTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_addRecipient_nonBootstrapTransition_skipsRefreshAttempt() public {
@@ -297,12 +308,12 @@ contract FlowRatesTest is FlowTestBase {
         flow.setTargetOutflowRate(1_000);
         vm.prank(manager);
         flow.addRecipient(bytes32(uint256(1002)), address(0x1A02), recipientMetadata);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.mockCallRevert(
-            address(sf.host),
-            abi.encodeWithSelector(sf.host.callAgreement.selector),
-            bytes("refresh-should-not-run")
+            address(sf.host), abi.encodeWithSelector(sf.host.callAgreement.selector), bytes("refresh-should-not-run")
         );
 
         vm.recordLogs();
@@ -311,7 +322,9 @@ contract FlowRatesTest is FlowTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_addFlowRecipient_withoutAllocations_keepsDistributionZero() public {
@@ -320,20 +333,19 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
-            bytes32(uint256(102)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(102)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
         assertEq(flow.getMemberFlowRate(childAddr), 0);
     }
 
@@ -353,6 +365,7 @@ contract FlowRatesTest is FlowTestBase {
             childFlowOperator,
             childSweeper,
             managerRewardPool,
+            0,
             strategies
         );
 
@@ -385,18 +398,15 @@ contract FlowRatesTest is FlowTestBase {
         vm.recordLogs();
         vm.prank(manager);
         flow.addFlowRecipient(
-            bytes32(uint256(1207)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(1207)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_addFlowRecipient_nonBootstrapTransition_skipsRefreshAttempt() public {
@@ -408,33 +418,27 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(manager);
         flow.addFlowRecipient(
-            bytes32(uint256(1208)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(1208)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         _mockDistributionRefreshFailure(flow, 0, bytes("refresh-should-not-run"));
 
         vm.recordLogs();
         vm.prank(manager);
         flow.addFlowRecipient(
-            bytes32(uint256(1209)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(1209)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_addRecipient_doesNotAttemptOutflowRefresh() public {
@@ -442,12 +446,12 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.mockCallRevert(
-            address(sf.host),
-            abi.encodeWithSelector(sf.host.callAgreement.selector),
-            bytes("refresh-failed")
+            address(sf.host), abi.encodeWithSelector(sf.host.callAgreement.selector), bytes("refresh-failed")
         );
 
         vm.recordLogs();
@@ -456,7 +460,9 @@ contract FlowRatesTest is FlowTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.getMemberUnits(recipient), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
     }
 
@@ -470,7 +476,9 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.prank(manager);
         flow.addRecipient(recipientId, recipient, recipientMetadata);
@@ -483,7 +491,9 @@ contract FlowRatesTest is FlowTestBase {
         flow.allocate(recipientIds, scaled);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
         _assertSingleRefreshFailure(logs, address(flow), 1_000, bytes("refresh-failed"));
 
         vm.clearMockedCalls();
@@ -491,7 +501,9 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow.refreshTargetOutflowRate();
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_refreshTargetOutflowRate_allowsParentCaller_afterChildAllocationRefreshFailure() public {
@@ -506,7 +518,9 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         child.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0
+        );
 
         vm.prank(manager);
         child.addRecipient(childRecipientId, childRecipient, recipientMetadata);
@@ -515,13 +529,17 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(allocator);
         child.allocate(recipientIds, scaled);
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0
+        );
 
         vm.clearMockedCalls();
 
         child.refreshTargetOutflowRate();
 
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(child), child.distributionPool()), 0
+        );
     }
 
     function test_addFlowRecipient_doesNotAttemptOutflowRefresh() public {
@@ -530,25 +548,24 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         _mockDistributionRefreshFailure(flow, 0, bytes("refresh-failed"));
 
         vm.recordLogs();
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
-            bytes32(uint256(104)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(104)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.getMemberUnits(childAddr), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
         assertEq(_countEvents(logs, address(flow), TARGET_OUTFLOW_REFRESH_FAILED_SIG), 0);
     }
 
@@ -564,12 +581,7 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
-            bytes32(uint256(1304)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(1304)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
 
@@ -585,7 +597,9 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         vm.prank(manager);
         flow.addRecipient(recipientId, address(0x1905), recipientMetadata);
@@ -595,7 +609,9 @@ contract FlowRatesTest is FlowTestBase {
         flow.allocate(recipientIds, scaled);
 
         assertGt(flow.getMemberUnits(address(0x1905)), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_allocate_nonZeroToNonZeroUnits_skipsRefreshAttempt() public {
@@ -641,7 +657,9 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(allocator);
         flow.allocate(recipientIds, scaled);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
 
         strategy.setWeight(allocatorKey, 0);
 
@@ -649,7 +667,9 @@ contract FlowRatesTest is FlowTestBase {
         flow.allocate(recipientIds, scaled);
 
         assertEq(flow.getMemberUnits(address(0x1906)), 0);
-        assertEq(ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0);
+        assertEq(
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
+        );
     }
 
     function test_syncAllocation_zeroToNonZeroUnits_refreshesCachedOutflow() public {
@@ -782,7 +802,11 @@ contract FlowRatesTest is FlowTestBase {
         assertEq(flow.getMemberUnits(recipient), 0);
     }
 
-    function _countEvents(Vm.Log[] memory logs, address emitter, bytes32 eventSig) internal pure returns (uint256 count) {
+    function _countEvents(Vm.Log[] memory logs, address emitter, bytes32 eventSig)
+        internal
+        pure
+        returns (uint256 count)
+    {
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter != emitter) continue;
             if (logs[i].topics.length == 0 || logs[i].topics[0] != eventSig) continue;
@@ -792,7 +816,9 @@ contract FlowRatesTest is FlowTestBase {
         }
     }
 
-    function _mockDistributionRefreshFailure(CustomFlow targetFlow, int96 distributionFlowRate, bytes memory reason) internal {
+    function _mockDistributionRefreshFailure(CustomFlow targetFlow, int96 distributionFlowRate, bytes memory reason)
+        internal
+    {
         bytes memory distributeCallData = abi.encodeWithSelector(
             sf.gda.distributeFlow.selector,
             ISuperToken(address(superToken)),

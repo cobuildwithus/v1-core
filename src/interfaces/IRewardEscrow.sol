@@ -9,8 +9,6 @@ interface IRewardEscrow {
     struct ClaimPreview {
         uint256 snapshotGoalAmount;
         uint256 snapshotCobuildAmount;
-        uint256 goalRentAmount;
-        uint256 cobuildRentAmount;
         uint256 totalGoalAmount;
         uint256 totalCobuildAmount;
         uint256 userPoints;
@@ -21,8 +19,6 @@ interface IRewardEscrow {
         bool snapshotClaimed;
         bool successfulPointsCached;
         uint256 cachedSuccessfulPoints;
-        uint256 goalRentPerPointPaid;
-        uint256 cobuildRentPerPointPaid;
     }
 
     error ADDRESS_ZERO();
@@ -45,14 +41,7 @@ interface IRewardEscrow {
         uint64 goalFinalizedAt
     );
     event GoalSuperTokenUnwrapped(address indexed caller, uint256 superTokenAmount, uint256 rewardTokenAmount);
-    event Claimed(
-        address indexed account,
-        address indexed to,
-        uint256 rewardAmount,
-        uint256 cobuildAmount,
-        uint256 goalRentAmount,
-        uint256 cobuildRentAmount
-    );
+    event Claimed(address indexed account, address indexed to, uint256 rewardAmount, uint256 cobuildAmount);
     event FailedRewardsSwept(address indexed to, uint256 amount);
     event FailedCobuildRewardsSwept(address indexed to, uint256 amount);
 
@@ -71,10 +60,6 @@ interface IRewardEscrow {
     function totalPointsSnapshot() external view returns (uint256);
     function totalClaimed() external view returns (uint256);
     function totalCobuildClaimed() external view returns (uint256);
-    function totalGoalRentClaimed() external view returns (uint256);
-    function totalCobuildRentClaimed() external view returns (uint256);
-    function goalRentPerPointStored() external view returns (uint256);
-    function cobuildRentPerPointStored() external view returns (uint256);
     function claimed(address account) external view returns (bool);
     function trackedBudgetCount() external view returns (uint256);
     function trackedBudgetAt(uint256 index) external view returns (address);

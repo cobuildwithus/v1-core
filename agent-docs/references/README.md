@@ -8,6 +8,7 @@ This directory stores concise, high-signal references for implementation and rev
 - `agent-docs/references/flow-allocation-and-child-sync-map.md`
 - `agent-docs/references/tcr-and-arbitration-map.md`
 - `agent-docs/references/goal-funding-and-reward-map.md`
+- `agent-docs/references/known-design-intent-edge-cases.md`
 - `agent-docs/references/economic-considerations.md`
 - `agent-docs/references/uma-deployment-recommendations.md`
 - `agent-docs/references/testing-ci-map.md`

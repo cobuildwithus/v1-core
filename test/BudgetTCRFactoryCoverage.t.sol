@@ -281,6 +281,10 @@ contract BudgetTCRFactoryCoverageTest is Test {
             goalRulesets: IJBRulesets(address(new _MockImplementation())),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
+            premiumEscrowImplementation: address(new _MockImplementation()),
+            underwriterSlasherRouter: address(new _MockImplementation()),
+            budgetPremiumPpm: 100_000,
+            budgetSlashPpm: 50_000,
             managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,

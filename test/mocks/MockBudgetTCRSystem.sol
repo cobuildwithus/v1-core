@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
 contract MockBudgetTCRSuperToken is ERC20 {
-    constructor() ERC20("Budget Super Token", "BST") { }
+    constructor() ERC20("Budget Super Token", "BST") {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -24,6 +27,7 @@ contract MockBudgetChildFlow {
     address private _sweeper;
     address private immutable _owner;
     address private immutable _parent;
+    address private immutable _managerRewardPool;
     address private immutable _strategy;
     uint32 private immutable _managerRewardPoolFlowRatePpm;
 
@@ -39,6 +43,7 @@ contract MockBudgetChildFlow {
         address sweeper_,
         address owner_,
         address parent_,
+        address managerRewardPool_,
         address strategy_,
         uint32 managerRewardPoolFlowRatePpm_
     ) {
@@ -48,6 +53,7 @@ contract MockBudgetChildFlow {
         _sweeper = sweeper_;
         _owner = owner_;
         _parent = parent_;
+        _managerRewardPool = managerRewardPool_;
         _strategy = strategy_;
         _managerRewardPoolFlowRatePpm = managerRewardPoolFlowRatePpm_;
     }
@@ -70,6 +76,10 @@ contract MockBudgetChildFlow {
 
     function parent() external view returns (address) {
         return _parent;
+    }
+
+    function managerRewardPool() external view returns (address) {
+        return _managerRewardPool;
     }
 
     function strategies() external view returns (IAllocationStrategy[] memory s) {
@@ -229,7 +239,7 @@ contract MockGoalFlowForBudgetTCR {
         returns (bytes32 recipientId, address recipientAddress)
     {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
-        recipients[newRecipientId] = RecipientInfo({ recipient: recipient, isRemoved: false });
+        recipients[newRecipientId] = RecipientInfo({recipient: recipient, isRemoved: false});
         return (newRecipientId, recipient);
     }
 
@@ -239,24 +249,25 @@ contract MockGoalFlowForBudgetTCR {
         address childRecipientAdmin,
         address flowOperator,
         address sweeper,
-        address,
+        address childManagerRewardPool,
+        uint32 childManagerRewardPoolFlowRatePpm,
         IAllocationStrategy[] calldata childStrategies
     ) external returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
         address strategy = childStrategies.length == 0 ? address(0) : address(childStrategies[0]);
 
-        MockBudgetChildFlow child =
-            new MockBudgetChildFlow(
-                _superToken,
-                childRecipientAdmin,
-                flowOperator,
-                sweeper,
-                address(this),
-                address(this),
-                strategy,
-                0
-            );
-        recipients[newRecipientId] = RecipientInfo({ recipient: address(child), isRemoved: false });
+        MockBudgetChildFlow child = new MockBudgetChildFlow(
+            _superToken,
+            childRecipientAdmin,
+            flowOperator,
+            sweeper,
+            address(this),
+            address(this),
+            childManagerRewardPool,
+            strategy,
+            childManagerRewardPoolFlowRatePpm
+        );
+        recipients[newRecipientId] = RecipientInfo({recipient: address(child), isRemoved: false});
         return (newRecipientId, address(child));
     }
 
@@ -267,7 +278,6 @@ contract MockGoalFlowForBudgetTCR {
         if (info.recipient == address(0) || info.isRemoved) revert RECIPIENT_NOT_FOUND();
         info.isRemoved = true;
     }
-
 }
 
 contract MockGoalTreasuryForBudgetTCR {
@@ -300,7 +310,6 @@ contract MockRewardEscrowForBudgetTCR {
     constructor(address budgetStakeLedger_) {
         budgetStakeLedger = budgetStakeLedger_;
     }
-
 }
 
 contract MockBudgetStakeLedgerForBudgetTCR {
@@ -327,7 +336,7 @@ contract MockBudgetStakeLedgerForBudgetTCR {
     function _deriveRewardHistoryLock(IBudgetTreasury treasury) private view returns (bool lockRewardHistory) {
         try treasury.deadline() returns (uint64 deadline_) {
             if (deadline_ != 0) return true;
-        } catch { }
+        } catch {}
 
         bool hasBalance;
         bool hasThreshold;
@@ -336,11 +345,11 @@ contract MockBudgetStakeLedgerForBudgetTCR {
         try treasury.treasuryBalance() returns (uint256 balance_) {
             treasuryBalance_ = balance_;
             hasBalance = true;
-        } catch { }
+        } catch {}
         try treasury.activationThreshold() returns (uint256 threshold_) {
             activationThreshold_ = threshold_;
             hasThreshold = true;
-        } catch { }
+        } catch {}
 
         return hasBalance && hasThreshold && treasuryBalance_ >= activationThreshold_;
     }
@@ -349,6 +358,7 @@ contract MockBudgetStakeLedgerForBudgetTCR {
 contract MockStakeVaultForBudgetTCR {
     address public goalTreasury;
     address public jurorSlasher;
+    address public underwriterSlasher;
 
     constructor(address goalTreasury_) {
         goalTreasury = goalTreasury_;
@@ -357,4 +367,69 @@ contract MockStakeVaultForBudgetTCR {
     function setJurorSlasher(address jurorSlasher_) external {
         jurorSlasher = jurorSlasher_;
     }
+
+    function setUnderwriterSlasher(address underwriterSlasher_) external {
+        underwriterSlasher = underwriterSlasher_;
+    }
+}
+
+contract MockPremiumEscrowForBudgetTCR {
+    address public budgetTreasury;
+    address public budgetStakeLedger;
+    address public goalFlow;
+    address public underwriterSlasherRouter;
+    uint32 public budgetSlashPpm;
+    bool public closed;
+    IBudgetTreasury.BudgetState public finalState;
+    uint64 public activatedAt;
+    uint64 public closedAt;
+
+    function initialize(
+        address budgetTreasury_,
+        address budgetStakeLedger_,
+        address goalFlow_,
+        address underwriterSlasherRouter_,
+        uint32 budgetSlashPpm_
+    ) external {
+        budgetTreasury = budgetTreasury_;
+        budgetStakeLedger = budgetStakeLedger_;
+        goalFlow = goalFlow_;
+        underwriterSlasherRouter = underwriterSlasherRouter_;
+        budgetSlashPpm = budgetSlashPpm_;
+    }
+
+    function checkpoint(address) external {}
+
+    function claim(address) external pure returns (uint256 amount) {
+        return amount;
+    }
+
+    function close(IBudgetTreasury.BudgetState state_, uint64 activatedAt_, uint64 closedAt_) external {
+        closed = true;
+        finalState = state_;
+        activatedAt = activatedAt_;
+        closedAt = closedAt_;
+    }
+
+    function slash(address) external pure returns (uint256 slashWeight) {
+        return slashWeight;
+    }
+}
+
+contract MockUnderwriterSlasherRouterForBudgetTCR {
+    address public authority;
+    address public stakeVault;
+    mapping(address => bool) public isAuthorizedPremiumEscrow;
+
+    constructor(address authority_, address stakeVault_) {
+        authority = authority_;
+        stakeVault = stakeVault_;
+    }
+
+    function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external {
+        require(msg.sender == authority, "ONLY_AUTHORITY");
+        isAuthorizedPremiumEscrow[premiumEscrow] = authorized;
+    }
+
+    function slashUnderwriter(address, uint256) external {}
 }

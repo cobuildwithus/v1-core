@@ -716,7 +716,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase, Initializable {
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) { } catch { }
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch {}
             }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;

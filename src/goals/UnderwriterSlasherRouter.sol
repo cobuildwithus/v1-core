@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
-import {IStakeVault} from "src/interfaces/IStakeVault.sol";
-import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
-import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Routes underwriter slashing from premium escrows into stake vault and goal funding.
 /// @dev Cobuild conversion failures are best-effort and observable; cobuild stays in this contract on failure.
@@ -107,10 +107,10 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         );
     }
 
-    function _tryConvertHeldCobuild(address premiumEscrow, address underwriter)
-        internal
-        returns (uint256 convertedGoal)
-    {
+    function _tryConvertHeldCobuild(
+        address premiumEscrow,
+        address underwriter
+    ) internal returns (uint256 convertedGoal) {
         uint256 cobuildAmount = cobuildToken.balanceOf(address(this));
         if (cobuildAmount == 0) return 0;
         IJBTerminal goalTerminal = _resolveGoalTerminal();
@@ -128,9 +128,17 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         cobuildToken.forceApprove(address(goalTerminal), 0);
         cobuildToken.forceApprove(address(goalTerminal), cobuildAmount);
 
-        try goalTerminal.pay(
-            goalRevnetId, address(cobuildToken), cobuildAmount, address(this), 0, COBUILD_CONVERSION_MEMO, bytes("")
-        ) {
+        try
+            goalTerminal.pay(
+                goalRevnetId,
+                address(cobuildToken),
+                cobuildAmount,
+                address(this),
+                0,
+                COBUILD_CONVERSION_MEMO,
+                bytes("")
+            )
+        {
             convertedGoal = goalToken.balanceOf(address(this)) - goalBefore;
         } catch (bytes memory reason) {
             emit CobuildConversionFailed(premiumEscrow, underwriter, cobuildAmount, reason);

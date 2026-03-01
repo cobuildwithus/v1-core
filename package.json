@@ -57,6 +57,10 @@
     "review:gpt": "scripts/chatgpt-oracle-review.sh",
     "review:gpt:nozip": "scripts/build-nozip-review-prompt.sh",
     "review:gpt:nozip:list": "scripts/build-nozip-review-prompt.sh --list-profiles",
+    "review:gpt:direct": "bash scripts/run-review-gpt-direct.sh",
+    "review:gpt:direct:goals": "bash scripts/run-review-gpt-direct.sh goals",
+    "review:gpt:direct:flows": "bash scripts/run-review-gpt-direct.sh flows",
+    "review:gpt:direct:all": "bash scripts/run-review-gpt-direct.sh all",
     "prepare": "husky install",
     "build:sizes:raw": "forge build --sizes --contracts src --skip 'test/**'",
     "review:gpt:nozip:run": "scripts/run-review-gpt-nozip.sh"

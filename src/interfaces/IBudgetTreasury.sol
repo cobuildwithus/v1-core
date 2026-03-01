@@ -23,6 +23,7 @@ interface IBudgetTreasury is
 
     struct BudgetConfig {
         address flow;
+        address premiumEscrow;
         uint64 fundingDeadline;
         uint64 executionDuration;
         uint256 activationThreshold;
@@ -122,6 +123,7 @@ interface IBudgetTreasury is
     function resolved() external view returns (bool);
     function state() external view returns (BudgetState);
     function flow() external view returns (address);
+    function premiumEscrow() external view returns (address);
     function superToken() external view returns (ISuperToken);
 
     function treasuryBalance() external view returns (uint256);

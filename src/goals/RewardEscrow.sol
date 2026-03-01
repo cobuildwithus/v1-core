@@ -17,7 +17,6 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
     uint8 private constant _GOAL_SUCCEEDED = uint8(IGoalTreasury.GoalState.Succeeded);
     uint8 private constant _GOAL_EXPIRED = uint8(IGoalTreasury.GoalState.Expired);
 
-    uint256 private constant _INDEX_SCALE = 1e18;
     uint256 private constant _DEFAULT_FINALIZE_STEP = 32;
 
     IERC20 public immutable override rewardToken;
@@ -36,18 +35,9 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
     uint256 public override cobuildPoolSnapshot;
     uint256 public override totalClaimed;
     uint256 public override totalCobuildClaimed;
-    uint256 public override totalGoalRentClaimed;
-    uint256 public override totalCobuildRentClaimed;
-    uint256 public override goalRentPerPointStored;
-    uint256 public override cobuildRentPerPointStored;
 
     mapping(address => bool) public override claimed;
-    mapping(address => uint256) private _goalRentPerPointPaid;
-    mapping(address => uint256) private _cobuildRentPerPointPaid;
     mapping(address => uint256) private _cachedSuccessfulPointsPlusOne;
-
-    uint256 private _goalRentIndexedTotal;
-    uint256 private _cobuildRentIndexedTotal;
 
     constructor(
         address goalTreasury_,
@@ -180,24 +170,8 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
             }
         }
 
-        (uint256 goalRentPerPoint, uint256 cobuildRentPerPoint) = _previewRentPerPoint(snapshotPoints);
-        (preview.goalRentAmount, ) = RewardEscrowMath.computeRentClaim(
-            userPoints,
-            _goalRentPerPointPaid[account],
-            goalRentPerPoint,
-            _INDEX_SCALE
-        );
-        if (hasCobuildToken) {
-            (preview.cobuildRentAmount, ) = RewardEscrowMath.computeRentClaim(
-                userPoints,
-                _cobuildRentPerPointPaid[account],
-                cobuildRentPerPoint,
-                _INDEX_SCALE
-            );
-        }
-
-        preview.totalGoalAmount = preview.snapshotGoalAmount + preview.goalRentAmount;
-        preview.totalCobuildAmount = preview.snapshotCobuildAmount + preview.cobuildRentAmount;
+        preview.totalGoalAmount = preview.snapshotGoalAmount;
+        preview.totalCobuildAmount = preview.snapshotCobuildAmount;
     }
 
     function claimCursor(address account) external view override returns (ClaimCursor memory cursor) {
@@ -205,8 +179,6 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
         cursor.snapshotClaimed = claimed[account];
         cursor.successfulPointsCached = cachedPointsPlusOne != 0;
         cursor.cachedSuccessfulPoints = _decodeCachedSuccessfulPoints(cachedPointsPlusOne);
-        cursor.goalRentPerPointPaid = _goalRentPerPointPaid[account];
-        cursor.cobuildRentPerPointPaid = _cobuildRentPerPointPaid[account];
     }
 
     function unwrapGoalSuperToken(uint256 amount) external override nonReentrant returns (uint256 rewardAmount) {
@@ -235,11 +207,9 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
 
         _unwrapGoalSuperToken(type(uint256).max);
         rewardPoolSnapshot = rewardToken.balanceOf(address(this));
-        _goalRentIndexedTotal = rewardPoolSnapshot;
 
         if (address(cobuildToken) != address(0)) {
             cobuildPoolSnapshot = cobuildToken.balanceOf(address(this));
-            _cobuildRentIndexedTotal = cobuildPoolSnapshot;
         }
 
         _budgetStakeLedger.finalize(finalState_, goalFinalizedAt_);
@@ -297,8 +267,6 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
         uint256 userPoints = _successfulPointsFor(msg.sender);
         if (userPoints == 0) {
             _markClaimed(msg.sender);
-            _goalRentPerPointPaid[msg.sender] = goalRentPerPointStored;
-            _cobuildRentPerPointPaid[msg.sender] = cobuildRentPerPointStored;
             return _emitZeroClaim(msg.sender, to);
         }
 
@@ -338,14 +306,9 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
             }
         }
 
-        _updateRentIndexes(snapshotPoints);
-        uint256 goalRentAmount = _claimGoalRent(msg.sender, to, userPoints);
-        uint256 cobuildRentAmount = _claimCobuildRent(msg.sender, to, userPoints);
-
-        goalAmount = rewardAmount + goalRentAmount;
-        cobuildAmount = baseCobuildAmount + cobuildRentAmount;
-
-        emit Claimed(msg.sender, to, rewardAmount, baseCobuildAmount, goalRentAmount, cobuildRentAmount);
+        goalAmount = rewardAmount;
+        cobuildAmount = baseCobuildAmount;
+        emit Claimed(msg.sender, to, rewardAmount, baseCobuildAmount);
     }
 
     function releaseFailedAssetsToTreasury() external override nonReentrant onlyGoalTreasury returns (uint256 amount) {
@@ -414,58 +377,6 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
         );
     }
 
-    function _updateRentIndexes(uint256 snapshotPoints) internal {
-        (_goalRentIndexedTotal, goalRentPerPointStored) = RewardEscrowMath.updateRentIndex(
-            rewardToken.balanceOf(address(this)),
-            totalClaimed,
-            totalGoalRentClaimed,
-            _goalRentIndexedTotal,
-            goalRentPerPointStored,
-            snapshotPoints,
-            _INDEX_SCALE
-        );
-
-        IERC20 localCobuildToken = cobuildToken;
-        if (address(localCobuildToken) == address(0)) return;
-
-        (_cobuildRentIndexedTotal, cobuildRentPerPointStored) = RewardEscrowMath.updateRentIndex(
-            localCobuildToken.balanceOf(address(this)),
-            totalCobuildClaimed,
-            totalCobuildRentClaimed,
-            _cobuildRentIndexedTotal,
-            cobuildRentPerPointStored,
-            snapshotPoints,
-            _INDEX_SCALE
-        );
-    }
-
-    function _previewRentPerPoint(
-        uint256 snapshotPoints
-    ) internal view returns (uint256 goalRentPerPoint, uint256 cobuildRentPerPoint) {
-        (, goalRentPerPoint) = RewardEscrowMath.updateRentIndex(
-            rewardToken.balanceOf(address(this)),
-            totalClaimed,
-            totalGoalRentClaimed,
-            _goalRentIndexedTotal,
-            goalRentPerPointStored,
-            snapshotPoints,
-            _INDEX_SCALE
-        );
-
-        IERC20 localCobuildToken = cobuildToken;
-        if (address(localCobuildToken) == address(0)) return (goalRentPerPoint, 0);
-
-        (, cobuildRentPerPoint) = RewardEscrowMath.updateRentIndex(
-            localCobuildToken.balanceOf(address(this)),
-            totalCobuildClaimed,
-            totalCobuildRentClaimed,
-            _cobuildRentIndexedTotal,
-            cobuildRentPerPointStored,
-            snapshotPoints,
-            _INDEX_SCALE
-        );
-    }
-
     function _decodeCachedSuccessfulPoints(uint256 cachedPointsPlusOne) internal pure returns (uint256) {
         return cachedPointsPlusOne == 0 ? 0 : cachedPointsPlusOne - 1;
     }
@@ -489,36 +400,7 @@ contract RewardEscrow is IRewardEscrow, ReentrancyGuard {
     }
 
     function _emitZeroClaim(address account, address to) internal returns (uint256, uint256) {
-        emit Claimed(account, to, 0, 0, 0, 0);
+        emit Claimed(account, to, 0, 0);
         return (0, 0);
-    }
-
-    function _claimGoalRent(address account, address to, uint256 userPoints) internal returns (uint256 amount) {
-        (amount, _goalRentPerPointPaid[account]) = RewardEscrowMath.computeRentClaim(
-            userPoints,
-            _goalRentPerPointPaid[account],
-            goalRentPerPointStored,
-            _INDEX_SCALE
-        );
-        if (amount > 0) {
-            totalGoalRentClaimed += amount;
-            rewardToken.safeTransfer(to, amount);
-        }
-    }
-
-    function _claimCobuildRent(address account, address to, uint256 userPoints) internal returns (uint256 amount) {
-        IERC20 localCobuildToken = cobuildToken;
-        if (address(localCobuildToken) == address(0)) return 0;
-
-        (amount, _cobuildRentPerPointPaid[account]) = RewardEscrowMath.computeRentClaim(
-            userPoints,
-            _cobuildRentPerPointPaid[account],
-            cobuildRentPerPointStored,
-            _INDEX_SCALE
-        );
-        if (amount > 0) {
-            totalCobuildRentClaimed += amount;
-            localCobuildToken.safeTransfer(to, amount);
-        }
     }
 }

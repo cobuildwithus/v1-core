@@ -28,12 +28,7 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
         IAllocationStrategy[] memory strategies = _oneStrategy();
         vm.prank(manager);
         flow.addFlowRecipient(
-            bytes32(uint256(3001)),
-            recipientMetadata,
-            manager,
-            manager,
-            manager,
-            managerRewardPool,
+            bytes32(uint256(3001)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
             strategies
         );
     }
@@ -43,32 +38,21 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
         address sweeper = address(0x333);
         IAllocationStrategy[] memory strategies = _oneStrategy();
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
-            owner,
-            manager,
-            operator,
-            sweeper,
-            managerRewardPool,
-            address(0),
-            address(0),
-            strategies
+            owner, manager, operator, sweeper, managerRewardPool, address(0), address(0), strategies
         );
 
         assertEq(roleSeparatedFlow.recipientAdmin(), manager);
         assertEq(roleSeparatedFlow.flowOperator(), operator);
         assertEq(roleSeparatedFlow.sweeper(), sweeper);
-        _assertCallFails(address(roleSeparatedFlow), abi.encodeWithSignature("setRecipientAdmin(address)", address(0x1234)));
+        _assertCallFails(
+            address(roleSeparatedFlow), abi.encodeWithSignature("setRecipientAdmin(address)", address(0x1234))
+        );
 
         vm.startPrank(manager);
-        (, address childFlow) =
-            roleSeparatedFlow.addFlowRecipient(
-                bytes32(uint256(2001)),
-                recipientMetadata,
-                manager,
-                manager,
-                manager,
-                managerRewardPool,
-                strategies
-            );
+        (, address childFlow) = roleSeparatedFlow.addFlowRecipient(
+            bytes32(uint256(2001)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            strategies
+        );
         childFlow;
         _assertCallFails(
             address(roleSeparatedFlow),

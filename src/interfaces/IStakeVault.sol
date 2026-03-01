@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IStakeVault {
     error ADDRESS_ZERO();
@@ -37,10 +37,18 @@ interface IStakeVault {
     event CobuildWithdrawn(address indexed user, address indexed to, uint256 amount);
     event GoalResolved();
     event JurorOptedIn(
-        address indexed juror, uint256 goalAmount, uint256 cobuildAmount, uint256 weightDelta, address indexed delegate
+        address indexed juror,
+        uint256 goalAmount,
+        uint256 cobuildAmount,
+        uint256 weightDelta,
+        address indexed delegate
     );
     event JurorExitRequested(
-        address indexed juror, uint256 goalAmount, uint256 cobuildAmount, uint64 requestedAt, uint64 availableAt
+        address indexed juror,
+        uint256 goalAmount,
+        uint256 cobuildAmount,
+        uint64 requestedAt,
+        uint64 availableAt
     );
     event JurorExitFinalized(address indexed juror, uint256 goalAmount, uint256 cobuildAmount, uint256 weightDelta);
     event JurorDelegateSet(address indexed juror, address indexed delegate);
@@ -110,8 +118,7 @@ interface IStakeVault {
     function strategyKey() external pure returns (string memory);
     function stakeVault() external view returns (address);
 
-    function quoteGoalToCobuildWeightRatio(uint256 goalAmount)
-        external
-        view
-        returns (uint256 weightOut, uint112 goalWeight, uint256 weightRatio);
+    function quoteGoalToCobuildWeightRatio(
+        uint256 goalAmount
+    ) external view returns (uint256 weightOut, uint112 goalWeight, uint256 weightRatio);
 }

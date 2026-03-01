@@ -18,8 +18,10 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         childStrategies[0] = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
-        (, address childAddr) =
-            flow.addFlowRecipient(childId, recipientMetadata, manager, manager, manager, managerRewardPool, childStrategies);
+        (, address childAddr) = flow.addFlowRecipient(
+            childId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            childStrategies
+        );
 
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = childId;
@@ -211,9 +213,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         strategy.setWeight(key, reducedWeight);
 
         vm.expectCall(
-            address(strategy),
-            abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key),
-            uint64(1)
+            address(strategy), abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key), uint64(1)
         );
         vm.prank(other);
         flow.syncAllocation(address(strategy), key);
@@ -231,8 +231,10 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         childStrategies[0] = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
-        (, address childAddr) =
-            flow.addFlowRecipient(childId, recipientMetadata, manager, manager, manager, managerRewardPool, childStrategies);
+        (, address childAddr) = flow.addFlowRecipient(
+            childId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            childStrategies
+        );
 
         _addRecipient(recipientId, address(0xBEEF7));
 
@@ -278,27 +280,15 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         childStrategies[0] = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
-        (, address childAAddr) =
-            flow.addFlowRecipient(
-                childAId,
-                recipientMetadata,
-                manager,
-                manager,
-                manager,
-                managerRewardPool,
-                childStrategies
-            );
+        (, address childAAddr) = flow.addFlowRecipient(
+            childAId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            childStrategies
+        );
         vm.prank(manager);
-        (, address childBAddr) =
-            flow.addFlowRecipient(
-                childBId,
-                recipientMetadata,
-                manager,
-                manager,
-                manager,
-                managerRewardPool,
-                childStrategies
-            );
+        (, address childBAddr) = flow.addFlowRecipient(
+            childBId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
+            childStrategies
+        );
 
         _addRecipient(recipientId, address(0xBEEF8));
 

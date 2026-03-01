@@ -25,8 +25,9 @@ library FlowRates {
     ) external view returns (int96 distributionFlowRate, int96 managerRewardFlowRate) {
         if (_flowRate < 0) revert IFlow.FLOW_RATE_NEGATIVE();
         uint32 managerRewardPpm = cfg.managerRewardPool == address(0) ? 0 : cfg.managerRewardPoolFlowRatePpm;
-        int256 managerRewardFlowRateShare =
-            SafeCast.toInt256(_scaleAmountByPpm(SafeCast.toUint256(_flowRate), managerRewardPpm));
+        int256 managerRewardFlowRateShare = SafeCast.toInt256(
+            _scaleAmountByPpm(SafeCast.toUint256(_flowRate), managerRewardPpm)
+        );
 
         if (managerRewardFlowRateShare > type(int96).max) revert IFlow.FLOW_RATE_TOO_HIGH();
 
@@ -107,10 +108,7 @@ library FlowRates {
      * @param scaledPpm Share scaled by the protocol PPM scale (`1_000_000 == 100%`).
      * @return scaledAmount Scaled share of `amount`.
      */
-    function _scaleAmountByPpm(
-        uint256 amount,
-        uint256 scaledPpm
-    ) public pure returns (uint256) {
+    function _scaleAmountByPpm(uint256 amount, uint256 scaledPpm) public pure returns (uint256) {
         return Math.mulDiv(amount, scaledPpm, FlowProtocolConstants.PPM_SCALE);
     }
 }

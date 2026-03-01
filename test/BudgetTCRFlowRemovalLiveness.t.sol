@@ -16,6 +16,7 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -34,6 +35,7 @@ import { ERC1820RegistryCompiled } from
     "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
 import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
 import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     uint256 internal constant INITIAL_WEIGHT = 12e24;
@@ -78,6 +80,8 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
     address internal stackDeployer;
+    address internal premiumEscrowImplementation;
+    address internal underwriterSlasherRouter;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -112,7 +116,9 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(new BudgetTCRDeployer());
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance);
+        premiumEscrowImplementation = address(new PremiumEscrow());
+        underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         goalFlowImpl = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImpl), "");
@@ -401,6 +407,10 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: 100_000,
+            budgetSlashPpm: 50_000,
             managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,

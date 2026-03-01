@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
-import {ISuccessAssertionTreasury} from "src/interfaces/ISuccessAssertionTreasury.sol";
-import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
+import { ISuccessAssertionTreasury } from "src/interfaces/ISuccessAssertionTreasury.sol";
+import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 
 /// @notice Test-only resolver that acts as both resolver config and OOv3 endpoint.
 /// @dev Intended for non-production deployments where resolver actions are manually controlled by owner.
@@ -30,9 +30,12 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
     mapping(bytes32 assertionId => Assertion assertionData) internal _assertions;
     mapping(bytes32 assertionId => bool exists) internal _assertionExists;
 
-    constructor(IERC20 assertionCurrency_, address escalationManager_, bytes32 domainId_, address initialOwner)
-        Ownable(initialOwner)
-    {
+    constructor(
+        IERC20 assertionCurrency_,
+        address escalationManager_,
+        bytes32 domainId_,
+        address initialOwner
+    ) Ownable(initialOwner) {
         if (address(assertionCurrency_) == address(0)) revert ADDRESS_ZERO();
         optimisticOracle = OptimisticOracleV3Interface(address(this));
         assertionCurrency = assertionCurrency_;
@@ -42,11 +45,10 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
 
     /// @notice Register a pending success assertion on a treasury and mark it settled in this fake oracle.
     /// @dev Must be called by owner. `truthful` controls whether treasury can be resolved as success.
-    function prepareAssertionForTreasury(address treasury, bool truthful)
-        external
-        onlyOwner
-        returns (bytes32 assertionId)
-    {
+    function prepareAssertionForTreasury(
+        address treasury,
+        bool truthful
+    ) external onlyOwner returns (bytes32 assertionId) {
         assertionId = _prepareAssertionForTreasury(treasury, truthful);
     }
 
@@ -67,10 +69,12 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
         _assertions[assertionId].settlementResolution = truthful;
     }
 
-    function setAssertionTail(bytes32 assertionId, uint64 assertedAt, uint64 liveness, uint256 bond)
-        external
-        onlyOwner
-    {
+    function setAssertionTail(
+        bytes32 assertionId,
+        uint64 assertedAt,
+        uint64 liveness,
+        uint256 bond
+    ) external onlyOwner {
         _requireAssertionExists(assertionId);
         Assertion storage a = _assertions[assertionId];
         a.assertionTime = assertedAt;
@@ -111,12 +115,17 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
         revert UNSUPPORTED();
     }
 
-    function assertTruth(bytes memory, address, address, address, uint64, IERC20, uint256, bytes32, bytes32)
-        external
-        pure
-        override
-        returns (bytes32)
-    {
+    function assertTruth(
+        bytes memory,
+        address,
+        address,
+        address,
+        uint64,
+        IERC20,
+        uint256,
+        bytes32,
+        bytes32
+    ) external pure override returns (bytes32) {
         revert UNSUPPORTED();
     }
 
@@ -132,7 +141,9 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
         if (treasury == address(0)) revert ADDRESS_ZERO();
 
         ISuccessAssertionTreasury successTreasury = ISuccessAssertionTreasury(treasury);
-        assertionId = keccak256(abi.encodePacked(address(this), treasury, block.chainid, block.number, block.timestamp));
+        assertionId = keccak256(
+            abi.encodePacked(address(this), treasury, block.chainid, block.number, block.timestamp)
+        );
         successTreasury.registerSuccessAssertion(assertionId);
 
         uint64 assertedAt = successTreasury.pendingSuccessAssertionAt();

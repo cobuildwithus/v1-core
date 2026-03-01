@@ -89,7 +89,11 @@ library BudgetTCRStackDeploymentLib {
 
         _assertTreasuryConfiguration(budgetTreasury, budgetTCR, childFlow, premiumEscrow);
         IPremiumEscrow(premiumEscrow).initialize(
-            budgetTreasury, budgetStakeLedger, goalFlow, underwriterSlasherRouter, budgetSlashPpm
+            budgetTreasury,
+            budgetStakeLedger,
+            goalFlow,
+            underwriterSlasherRouter,
+            budgetSlashPpm
         );
         return budgetTreasury;
     }
@@ -121,7 +125,9 @@ library BudgetTCRStackDeploymentLib {
             revert INVALID_TREASURY_CONFIGURATION(budgetTreasury);
         }
 
-        if (configuredController != budgetTCR || configuredFlow != childFlow || configuredPremiumEscrow != premiumEscrow) {
+        if (
+            configuredController != budgetTCR || configuredFlow != childFlow || configuredPremiumEscrow != premiumEscrow
+        ) {
             revert INVALID_TREASURY_CONFIGURATION(budgetTreasury);
         }
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import {IStakeVault} from "./IStakeVault.sol";
+import { IStakeVault } from "./IStakeVault.sol";
 
 interface IUnderwriterSlasherRouter {
     error ADDRESS_ZERO();
@@ -15,7 +15,10 @@ interface IUnderwriterSlasherRouter {
 
     event PremiumEscrowAuthorizationSet(address indexed premiumEscrow, bool authorized);
     event CobuildConversionFailed(
-        address indexed premiumEscrow, address indexed underwriter, uint256 cobuildAmount, bytes reason
+        address indexed premiumEscrow,
+        address indexed underwriter,
+        uint256 cobuildAmount,
+        bytes reason
     );
     event UnderwriterSlashRouted(
         address indexed premiumEscrow,

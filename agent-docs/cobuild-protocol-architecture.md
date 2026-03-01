@@ -33,7 +33,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`
 - Stake and weight accounting: `src/goals/GoalStakeVault.sol`
 - Reward distribution escrow: `src/goals/RewardEscrow.sol`
-- Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/rent/reward math modules)
+- Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/reward math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
 
 ### Curation and arbitration domain
@@ -139,14 +139,13 @@ Durable architecture reference for module boundaries, integration paths, and pro
 
 5. Stake and reward path
 - `GoalStakeVault` tracks dual-asset stake and allocation weight.
-- `GoalStakeVault` can charge continuous rent on both stake assets (lazy accrual, withheld on withdraw, routed to reward escrow).
 - `GoalStakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` applies maturation on that effective unit-scale stake: each user/budget increment starts as fully unmatured and decays over time before contributing full reward-point rate. The maturation period uses a fixed global window (`6 hours`) independent of budget deadlines/windows.
 - `RewardEscrow` snapshots successful-budget points from `BudgetStakeLedger` at goal finalization; points are window-normalized (`raw matured stake-time / scoring-window seconds`) and budget raw accrual stops at the earliest exogenous cutoff (`activatedAt`, `fundingDeadline`, goal success, or removal), so longer funding deadlines do not linearly increase point yield for the same support pattern.
 - `RewardEscrow` recognizes budget recipients either directly (budget treasury recipient) or via child-flow recipient admin (`recipientAdmin`, typically the budget treasury).
 - When configured with a goal SuperToken manager-reward stream, `RewardEscrow` can permissionlessly unwrap to goal-token balances and finalization snapshots normalized pools.
-- `RewardEscrow.claim` now handles both one-time snapshot rewards and incremental rent redistribution using per-point indexes for post-finalize rent inflows.
+- `RewardEscrow.claim` handles one-time snapshot rewards pro-rata to successful points.
 
 6. TCR request/challenge/dispute lifecycle
 - Item add/remove -> challenge window -> dispute creation in arbitrator.

@@ -66,6 +66,10 @@ interface IBudgetTCR is IGeneralizedTCR {
         IJBRulesets goalRulesets;
         uint256 goalRevnetId;
         uint8 paymentTokenDecimals;
+        address premiumEscrowImplementation;
+        address underwriterSlasherRouter;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
         address managerRewardPool;
         BudgetValidationBounds budgetValidationBounds;
         OracleValidationBounds oracleValidationBounds;
@@ -126,6 +130,9 @@ interface IBudgetTCR is IGeneralizedTCR {
     error TERMINAL_RESOLUTION_FAILED();
     error REWARD_ESCROW_NOT_CONFIGURED();
     error BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
+    error INVALID_PPM(uint32 ppmValue);
+    error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
+    error UNDERWRITER_SLASHER_NOT_CONFIGURED();
 
     function initialize(RegistryConfig calldata registryConfig, DeploymentConfig calldata deploymentConfig) external;
     function activateRegisteredBudget(bytes32 itemID) external returns (bool activated);
