@@ -17,13 +17,11 @@ import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
  */
 contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
     address public immutable allocationLedger;
-    bytes32 private constant PREMIUM_ESCROW_REASON_LOOKUP_REVERTED = keccak256("PREMIUM_ESCROW_LOOKUP_REVERTED");
-    bytes32 private constant PREMIUM_ESCROW_REASON_TARGET_INVALID = keccak256("PREMIUM_ESCROW_TARGET_INVALID");
-    bytes32 private constant PREMIUM_ESCROW_REASON_CHECKPOINT_REVERTED = keccak256("PREMIUM_ESCROW_CHECKPOINT_REVERTED");
 
     mapping(address flow => GoalFlowLedgerMode.ValidationCache cache) private _validationCacheByFlow;
 
     error INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(address strategy, uint256 allocationKey);
+    error INVALID_BUDGET_PREMIUM_ESCROW(address budgetTreasury, address premiumEscrow);
 
     event ChildAllocationSyncAttempted(
         address indexed budgetTreasury,
@@ -41,12 +39,6 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address parentFlow,
         address parentStrategy,
         uint256 parentAllocationKey,
-        bytes32 reason
-    );
-    event PremiumEscrowCheckpointFailed(
-        address indexed budgetTreasury,
-        address indexed premiumEscrow,
-        address indexed account,
         bytes32 reason
     );
 
@@ -176,42 +168,11 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 budgetCount = changedBudgetTreasuries.length;
         for (uint256 i = 0; i < budgetCount; ) {
             address budgetTreasury = changedBudgetTreasuries[i];
-            address premiumEscrow;
-            try
-                IBudgetTreasury(budgetTreasury).premiumEscrow{
-                    gas: FlowProtocolConstants.GOAL_LEDGER_CHILD_SYNC_GAS_STIPEND
-                }()
-            returns (address resolvedPremiumEscrow) {
-                premiumEscrow = resolvedPremiumEscrow;
-            } catch {
-                emit PremiumEscrowCheckpointFailed(
-                    budgetTreasury,
-                    address(0),
-                    account,
-                    PREMIUM_ESCROW_REASON_LOOKUP_REVERTED
-                );
-                unchecked {
-                    ++i;
-                }
-                continue;
-            }
-
+            address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
             if (premiumEscrow == address(0) || premiumEscrow.code.length == 0) {
-                emit PremiumEscrowCheckpointFailed(budgetTreasury, premiumEscrow, account, PREMIUM_ESCROW_REASON_TARGET_INVALID);
-            } else {
-                try
-                    IPremiumEscrow(premiumEscrow).checkpoint{ gas: FlowProtocolConstants.GOAL_LEDGER_CHILD_SYNC_GAS_STIPEND }(
-                        account
-                    )
-                {} catch {
-                    emit PremiumEscrowCheckpointFailed(
-                        budgetTreasury,
-                        premiumEscrow,
-                        account,
-                        PREMIUM_ESCROW_REASON_CHECKPOINT_REVERTED
-                    );
-                }
+                revert INVALID_BUDGET_PREMIUM_ESCROW(budgetTreasury, premiumEscrow);
             }
+            IPremiumEscrow(premiumEscrow).checkpoint(account);
             unchecked {
                 ++i;
             }
