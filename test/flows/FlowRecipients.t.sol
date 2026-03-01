@@ -24,10 +24,6 @@ contract FlowRecipientsTest is FlowTestBase {
         "FlowInitialized(address,address,address,address,address,address,address,address,address,uint32,address)"
     );
 
-    function _useHarnessFlowImplementation() internal pure override returns (bool) {
-        return true;
-    }
-
     function _isChildFlow(address childAddr) internal view returns (bool) {
         address[] memory children = flow.getChildFlows();
         for (uint256 i = 0; i < children.length; ++i) {
@@ -758,6 +754,55 @@ contract FlowRecipientsTest is FlowTestBase {
         _addDefaultChildFlowRecipient(bytes32(uint256(4)), strategies);
     }
 
+    function test_removeRecipient_childFlow_clearsTracking() public {
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        vm.prank(manager);
+        (, address childAddr) = _addDefaultChildFlowRecipient(bytes32(uint256(1)), strategies);
+
+        vm.prank(manager);
+        flow.removeRecipient(bytes32(uint256(1)));
+
+        assertFalse(_isChildFlow(childAddr));
+        assertFalse(flow.recipientExists(childAddr));
+        assertEq(flow.distributionPool().getUnits(childAddr), 0);
+    }
+
+    function test_getRecipientById_notFound() public {
+        vm.expectRevert(IFlow.RECIPIENT_NOT_FOUND.selector);
+        flow.getRecipientById(bytes32(uint256(12345)));
+    }
+
+    function _mockDistributionRefreshFailure(int96 distributionFlowRate, bytes memory reason) internal {
+        bytes memory distributeCallData = abi.encodeWithSelector(
+            sf.gda.distributeFlow.selector,
+            ISuperToken(address(superToken)),
+            address(flow),
+            flow.distributionPool(),
+            distributionFlowRate,
+            new bytes(0)
+        );
+        bytes memory hostCallData =
+            abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, distributeCallData, new bytes(0));
+        vm.mockCallRevert(address(sf.host), hostCallData, reason);
+    }
+}
+
+contract FlowRecipientsHarnessOnlyTest is FlowTestBase {
+    function _useHarnessFlowImplementation() internal pure override returns (bool) {
+        return true;
+    }
+
+    function _addDefaultChildFlowRecipient(bytes32 recipientId, IAllocationStrategy[] memory strategies)
+        internal
+        returns (bytes32, address)
+    {
+        return flow.addFlowRecipient(
+            recipientId, recipientMetadata, manager, manager, manager, managerRewardPool, 0, strategies
+        );
+    }
+
     function test_addFlowRecipient_succeedsPastLegacyMaxChildFlowCount() public {
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
         strategies[0] = IAllocationStrategy(address(strategy));
@@ -796,40 +841,6 @@ contract FlowRecipientsTest is FlowTestBase {
         assertEq(rid, bytes32(uint256(1702)));
         assertEq(flow.getChildFlows().length, legacyCap);
         assertTrue(flow.recipientExists(childAddr));
-    }
-
-    function test_removeRecipient_childFlow_clearsTracking() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
-
-        vm.prank(manager);
-        (, address childAddr) = _addDefaultChildFlowRecipient(bytes32(uint256(1)), strategies);
-
-        vm.prank(manager);
-        flow.removeRecipient(bytes32(uint256(1)));
-
-        assertFalse(_isChildFlow(childAddr));
-        assertFalse(flow.recipientExists(childAddr));
-        assertEq(flow.distributionPool().getUnits(childAddr), 0);
-    }
-
-    function test_getRecipientById_notFound() public {
-        vm.expectRevert(IFlow.RECIPIENT_NOT_FOUND.selector);
-        flow.getRecipientById(bytes32(uint256(12345)));
-    }
-
-    function _mockDistributionRefreshFailure(int96 distributionFlowRate, bytes memory reason) internal {
-        bytes memory distributeCallData = abi.encodeWithSelector(
-            sf.gda.distributeFlow.selector,
-            ISuperToken(address(superToken)),
-            address(flow),
-            flow.distributionPool(),
-            distributionFlowRate,
-            new bytes(0)
-        );
-        bytes memory hostCallData =
-            abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, distributeCallData, new bytes(0));
-        vm.mockCallRevert(address(sf.host), hostCallData, reason);
     }
 }
 
