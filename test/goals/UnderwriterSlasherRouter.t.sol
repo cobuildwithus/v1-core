@@ -299,6 +299,29 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(cobuildToken.balanceOf(address(routerWithMissingTerminal)), 5e18);
     }
 
+    function test_slashUnderwriter_nonContractGoalTerminal_emitsFailureAndRetainsCobuild() public {
+        _authorizePremiumEscrow();
+        address nonContractTerminal = address(0xBEEF);
+        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(nonContractTerminal));
+        stakeVault.setNextSlash(7e18, 5e18);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit CobuildConversionFailed(
+            address(premiumEscrow),
+            underwriter,
+            5e18,
+            abi.encodeWithSelector(IUnderwriterSlasherRouter.INVALID_GOAL_TERMINAL.selector, nonContractTerminal)
+        );
+
+        vm.prank(address(premiumEscrow));
+        router.slashUnderwriter(underwriter, 25e18);
+
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 7e18);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(cobuildToken.balanceOf(address(router)), 5e18);
+        assertEq(terminal.payCallCount(), 0);
+    }
+
     function _authorizePremiumEscrow() internal {
         router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
     }

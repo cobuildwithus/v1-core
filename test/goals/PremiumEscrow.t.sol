@@ -250,6 +250,31 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), expectedSlashWeight);
     }
 
+    function test_slashRouterRevert_rollsBackSlashedState_andCanBeRetried() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        router.setShouldRevertSlash(true);
+        vm.expectRevert(PremiumEscrowMockRouter.SLASH_REVERT.selector);
+        escrow.slash(ALICE);
+
+        assertFalse(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+
+        router.setShouldRevertSlash(false);
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+        assertEq(router.lastUnderwriter(), ALICE);
+        assertEq(router.lastWeight(), 20);
+    }
+
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -488,11 +513,19 @@ contract PremiumEscrowMockGoalFlow {
 }
 
 contract PremiumEscrowMockRouter {
+    error SLASH_REVERT();
+
     address public lastUnderwriter;
     uint256 public lastWeight;
     uint256 public slashCalls;
+    bool public shouldRevertSlash;
+
+    function setShouldRevertSlash(bool shouldRevert) external {
+        shouldRevertSlash = shouldRevert;
+    }
 
     function slashUnderwriter(address underwriter, uint256 weight) external {
+        if (shouldRevertSlash) revert SLASH_REVERT();
         lastUnderwriter = underwriter;
         lastWeight = weight;
         slashCalls++;
