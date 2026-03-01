@@ -31,10 +31,7 @@ contract BudgetTCRStorageV1 {
     address public underwriterSlasherRouter;
     uint32 public budgetPremiumPpm;
     uint32 public budgetSlashPpm;
-    // Deprecated: validation now runs via BudgetTCRValidationLib.
-    address public itemValidator;
     address public budgetSuccessResolver;
-    address public managerRewardPool;
 
     IBudgetTCR.BudgetValidationBounds public budgetValidationBounds;
     IBudgetTCR.OracleValidationBounds public oracleValidationBounds;

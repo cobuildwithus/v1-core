@@ -78,7 +78,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
-        managerRewardPool = deploymentConfig.managerRewardPool;
         budgetValidationBounds = budgetBounds;
         oracleValidationBounds = oracleBounds;
 

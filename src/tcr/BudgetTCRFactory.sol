@@ -284,7 +284,6 @@ contract BudgetTCRFactory {
             underwriterSlasherRouter: underwriterSlasherRouter,
             budgetPremiumPpm: deploymentConfig.budgetPremiumPpm,
             budgetSlashPpm: deploymentConfig.budgetSlashPpm,
-            managerRewardPool: deploymentConfig.managerRewardPool,
             budgetValidationBounds: deploymentConfig.budgetValidationBounds,
             oracleValidationBounds: deploymentConfig.oracleValidationBounds
         });

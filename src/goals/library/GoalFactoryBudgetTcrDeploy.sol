@@ -97,7 +97,6 @@ library GoalFactoryBudgetTcrDeploy {
             underwriterSlasherRouter: request.underwriterSlasherRouter,
             budgetPremiumPpm: request.budgetPremiumPpm,
             budgetSlashPpm: request.budgetSlashPpm,
-            managerRewardPool: address(0),
             budgetValidationBounds: request.budgetBounds,
             oracleValidationBounds: request.oracleBounds
         });

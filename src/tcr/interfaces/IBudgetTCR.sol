@@ -70,7 +70,6 @@ interface IBudgetTCR is IGeneralizedTCR {
         address underwriterSlasherRouter;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
-        address managerRewardPool;
         BudgetValidationBounds budgetValidationBounds;
         OracleValidationBounds oracleValidationBounds;
     }

@@ -411,7 +411,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
             underwriterSlasherRouter: underwriterSlasherRouter,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
-            managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,
                 maxFundingHorizon: 60 days,

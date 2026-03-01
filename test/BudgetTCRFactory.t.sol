@@ -1089,7 +1089,6 @@ contract BudgetTCRFactoryTest is Test {
         deploymentConfig.goalRulesets = IJBRulesets(address(new _MockImplementation()));
         deploymentConfig.goalRevnetId = 42;
         deploymentConfig.paymentTokenDecimals = 18;
-        deploymentConfig.managerRewardPool = makeAddr("manager-reward-pool");
         deploymentConfig.budgetValidationBounds = IBudgetTCR.BudgetValidationBounds({
             minFundingLeadTime: 2 days,
             maxFundingHorizon: 90 days,
@@ -1140,7 +1139,7 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(address(deployedBudgetTCR.goalRulesets()), address(deploymentConfig.goalRulesets));
         assertEq(deployedBudgetTCR.goalRevnetId(), deploymentConfig.goalRevnetId);
         assertEq(deployedBudgetTCR.paymentTokenDecimals(), deploymentConfig.paymentTokenDecimals);
-        assertEq(deployedBudgetTCR.managerRewardPool(), deploymentConfig.managerRewardPool);
+        assertEq(deployedBudgetTCR.budgetSuccessResolver(), deploymentConfig.budgetSuccessResolver);
         assertEq(deployedBudgetTCR.premiumEscrowImplementation(), deploymentConfig.premiumEscrowImplementation);
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), deploymentConfig.underwriterSlasherRouter);
         assertEq(deployedBudgetTCR.budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
@@ -1424,7 +1423,6 @@ contract BudgetTCRFactoryTest is Test {
             underwriterSlasherRouter: address(0),
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
-            managerRewardPool: address(0),
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 1 days,
                 maxFundingHorizon: 60 days,
