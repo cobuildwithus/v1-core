@@ -216,6 +216,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             StakeVault delayedVault,
             UnderwriterSlasherRouter delayedRouter,
             PremiumEscrow delayedEscrow,
+            UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -250,7 +251,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
     }
 
-    function test_goalResolvedDuringPendingSuccessAssertionDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
+    function test_goalResolvedDuringPendingSuccessAssertionDelay_ifWithdrawGateOpens_thenSlashCannotRecoverPrincipal()
+        public
+    {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -262,6 +265,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             StakeVault delayedVault,
             UnderwriterSlasherRouter delayedRouter,
             PremiumEscrow delayedEscrow,
+            UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -283,12 +287,17 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         _expectWithdrawLocked(delayedVault);
 
-        uint256 stakedGoalBeforeSlash = delayedVault.stakedGoalOf(ALICE);
-        uint256 stakedCobuildBeforeSlash = delayedVault.stakedCobuildOf(ALICE);
-        assertEq(stakedGoalBeforeSlash, goalStake);
-        assertEq(stakedCobuildBeforeSlash, cobuildStake);
-        assertEq(goalToken.balanceOf(ALICE), 0);
-        assertEq(cobuildToken.balanceOf(ALICE), 0);
+        delayedBudgetStakeLedger.setAllTrackedBudgetsResolved(true);
+
+        vm.startPrank(ALICE);
+        delayedVault.withdrawGoal(delayedVault.stakedGoalOf(ALICE), ALICE);
+        delayedVault.withdrawCobuild(delayedVault.stakedCobuildOf(ALICE), ALICE);
+        vm.stopPrank();
+
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
         assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), assertionId);
 
         vm.warp(budgetClosedAt);
@@ -298,9 +307,14 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
         uint256 slashWeight = delayedEscrow.slash(ALICE);
 
-        _assertDelayedSlashOutcome(
-            delayedVault, delayedRouter, stakedGoalBeforeSlash, stakedCobuildBeforeSlash, fundingBefore, slashWeight
-        );
+        assertEq(slashWeight, 20e18);
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
     }
 
     function test_goalResolvedDuringReassertGraceDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
@@ -315,6 +329,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             StakeVault delayedVault,
             UnderwriterSlasherRouter delayedRouter,
             PremiumEscrow delayedEscrow,
+            UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -377,6 +392,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             StakeVault delayedVault,
             UnderwriterSlasherRouter delayedRouter,
             PremiumEscrow delayedEscrow,
+            UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -417,11 +433,15 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             StakeVault delayedVault,
             UnderwriterSlasherRouter delayedRouter,
             PremiumEscrow delayedEscrow,
+            UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         )
     {
-        delayedGoalTreasury = new UnderwritingMockGoalTreasuryResolutionReporter(address(this));
+        delayedBudgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
+        delayedBudgetStakeLedger.setAllTrackedBudgetsResolved(false);
+        delayedGoalTreasury =
+            new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(delayedBudgetStakeLedger));
         delayedVault = new StakeVault(
             address(delayedGoalTreasury),
             IERC20(address(goalToken)),
@@ -453,7 +473,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
         delayedVault.setUnderwriterSlasher(address(delayedRouter));
 
-        UnderwritingMockBudgetStakeLedger delayedBudgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
 
@@ -794,9 +813,11 @@ contract UnderwritingMockGoalFlow {
 contract UnderwritingMockGoalTreasuryResolutionReporter {
     bool public resolved;
     address public immutable authority;
+    address public immutable budgetStakeLedger;
 
-    constructor(address authority_) {
+    constructor(address authority_, address budgetStakeLedger_) {
         authority = authority_;
+        budgetStakeLedger = budgetStakeLedger_;
     }
 
     function setResolved(bool resolved_) external {
