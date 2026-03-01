@@ -7,6 +7,8 @@ import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
@@ -482,6 +484,86 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
     }
 
+    function test_realBudgetTreasuryAndLedger_goalResolvedThenTerminalFailure_prepareAndWithdrawGated_slashBeforeExit()
+        public
+    {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        bytes32 budgetRecipientId = keccak256("underwriting-real-budget-risk-path");
+        uint64 budgetActivatedAt = 10;
+        uint64 budgetClosedAt = 45;
+
+        (
+            StakeVault delayedVault,
+            UnderwriterSlasherRouter delayedRouter,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            SharedMockFlow delayedBudgetFlow,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
+
+        assertEq(delayedBudgetStakeLedger.registeredBudgetCount(), 1);
+        assertEq(delayedBudgetStakeLedger.registeredBudgetAt(0), address(delayedBudgetTreasury));
+        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+
+        goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
+
+        vm.warp(budgetActivatedAt);
+        delayedBudgetTreasury.sync();
+        delayedEscrow.checkpoint(ALICE);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), budgetActivatedAt);
+        assertEq(uint256(delayedBudgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+
+        delayedGoalTreasury.setResolved(true);
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        uint256 stakedGoalBeforePrepare = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforePrepare = delayedVault.stakedCobuildOf(ALICE);
+
+        vm.warp(budgetClosedAt);
+        delayedBudgetTreasury.resolveFailure();
+
+        assertTrue(delayedBudgetTreasury.resolved());
+        assertEq(uint256(delayedBudgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(delayedEscrow.closed());
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertTrue(delayedEscrow.slashed(ALICE));
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforePrepare);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforePrepare);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+
+        vm.startPrank(ALICE);
+        delayedVault.withdrawGoal(delayedVault.stakedGoalOf(ALICE), ALICE);
+        delayedVault.withdrawCobuild(delayedVault.stakedCobuildOf(ALICE), ALICE);
+        vm.stopPrank();
+
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertLt(goalToken.balanceOf(ALICE), goalStake);
+        assertLt(cobuildToken.balanceOf(ALICE), cobuildStake);
+        assertEq(goalToken.balanceOf(address(delayedRouter)), 0);
+        assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
+    }
+
     function _deployDelayedEscrowStack(
         uint256 goalStake,
         uint256 cobuildStake,
@@ -547,6 +629,125 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedBudgetTreasury.setPremiumEscrow(address(delayedEscrow));
         delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
         delayedBudgetStakeLedger.setCoverage(ALICE, address(delayedBudgetTreasury), budgetCoverage);
+    }
+
+    function _deployDelayedEscrowStackWithRealBudget(
+        uint256 goalStake,
+        uint256 cobuildStake,
+        uint256 budgetCoverage,
+        bytes32 budgetRecipientId
+    )
+        internal
+        returns (
+            StakeVault delayedVault,
+            UnderwriterSlasherRouter delayedRouter,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            SharedMockFlow delayedBudgetFlow,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        )
+    {
+        SharedMockFlow delayedGoalFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        delayedGoalFlow.setRecipientAdmin(address(this));
+
+        uint256 deploymentNonce = vm.getNonce(address(this));
+        address predictedBudgetStakeLedger = vm.computeCreateAddress(address(this), deploymentNonce + 1);
+
+        delayedGoalTreasury =
+            new UnderwritingMockGoalTreasuryResolutionReporter(address(this), predictedBudgetStakeLedger);
+        delayedGoalTreasury.setFlow(address(delayedGoalFlow));
+        delayedBudgetStakeLedger = new BudgetStakeLedger(address(delayedGoalTreasury));
+
+        delayedVault = new StakeVault(
+            address(delayedGoalTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(rulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+
+        goalToken.mint(ALICE, goalStake);
+        cobuildToken.mint(ALICE, cobuildStake);
+
+        vm.startPrank(ALICE);
+        goalToken.approve(address(delayedVault), type(uint256).max);
+        cobuildToken.approve(address(delayedVault), type(uint256).max);
+        delayedVault.depositGoal(goalStake);
+        delayedVault.depositCobuild(cobuildStake);
+        vm.stopPrank();
+
+        delayedRouter = new UnderwriterSlasherRouter(
+            IStakeVault(address(delayedVault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            GOAL_FUNDING_TARGET
+        );
+        delayedVault.setUnderwriterSlasher(address(delayedRouter));
+
+        delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        delayedBudgetFlow.setParent(address(delayedGoalFlow));
+
+        BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
+        delayedBudgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
+
+        PremiumEscrow escrowImplementation = new PremiumEscrow();
+        delayedEscrow = PremiumEscrow(Clones.clone(address(escrowImplementation)));
+
+        delayedBudgetFlow.setFlowOperator(address(delayedBudgetTreasury));
+        delayedBudgetFlow.setSweeper(address(delayedBudgetTreasury));
+
+        delayedBudgetTreasury.initialize(
+            address(this),
+            IBudgetTreasury.BudgetConfig({
+                flow: address(delayedBudgetFlow),
+                premiumEscrow: address(delayedEscrow),
+                fundingDeadline: uint64(block.timestamp + 20),
+                executionDuration: 20,
+                activationThreshold: 1e18,
+                runwayCap: 0,
+                successResolver: address(this),
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("underwriting-budget-success-oracle-spec"),
+                successAssertionPolicyHash: keccak256("underwriting-budget-success-policy")
+            })
+        );
+
+        delayedEscrow.initialize(
+            address(delayedBudgetTreasury),
+            address(delayedBudgetStakeLedger),
+            address(delayedGoalFlow),
+            address(delayedRouter),
+            BUDGET_SLASH_PPM
+        );
+
+        delayedBudgetStakeLedger.registerBudget(budgetRecipientId, address(delayedBudgetTreasury));
+
+        if (budgetCoverage != 0) {
+            bytes32[] memory recipientIds = new bytes32[](1);
+            recipientIds[0] = budgetRecipientId;
+            uint32[] memory scaled = new uint32[](1);
+            scaled[0] = 1_000_000;
+
+            vm.prank(address(delayedGoalFlow));
+            delayedBudgetStakeLedger.checkpointAllocation(
+                ALICE,
+                0,
+                new bytes32[](0),
+                new uint32[](0),
+                budgetCoverage,
+                recipientIds,
+                scaled
+            );
+        }
+
+        delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
     }
 
     function _expectWithdrawLocked(StakeVault delayedVault) internal {
@@ -900,6 +1101,7 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
     bool public resolved;
     address public immutable authority;
     address public immutable budgetStakeLedger;
+    address public flow;
 
     constructor(address authority_, address budgetStakeLedger_) {
         authority = authority_;
@@ -908,6 +1110,10 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
 
     function setResolved(bool resolved_) external {
         resolved = resolved_;
+    }
+
+    function setFlow(address flow_) external {
+        flow = flow_;
     }
 }
 
