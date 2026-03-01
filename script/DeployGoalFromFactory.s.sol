@@ -54,14 +54,6 @@ contract DeployGoalFromFactory is DeployScript {
         string memory flowImage = vm.envOr("FLOW_IMAGE", string("ipfs://IMAGE"));
         string memory flowTagline = vm.envOr("FLOW_TAGLINE", string(""));
         string memory flowUrl = vm.envOr("FLOW_URL", string(""));
-        uint256 managerRewardPoolFlowRatePpmRaw = vm.envOr("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", uint256(0));
-        if (managerRewardPoolFlowRatePpmRaw > 1_000_000) {
-            revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(managerRewardPoolFlowRatePpmRaw);
-        }
-        if (managerRewardPoolFlowRatePpmRaw != 0) {
-            revert FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_MUST_BE_ZERO(managerRewardPoolFlowRatePpmRaw);
-        }
-        uint32 managerRewardPoolFlowRatePpm = uint32(managerRewardPoolFlowRatePpmRaw);
         uint256 coverageLambda = vm.envOr("UNDERWRITING_COVERAGE_LAMBDA", uint256(0));
         uint256 budgetPremiumPpmRaw = vm.envOr("BUDGET_PREMIUM_PPM", uint256(0));
         if (budgetPremiumPpmRaw > 1_000_000) {
@@ -136,7 +128,6 @@ contract DeployGoalFromFactory is DeployScript {
             flowMetadata: GoalFactory.FlowMetadataParams({
                 title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
-            flowConfig: GoalFactory.FlowConfigParams({managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm}),
             underwriting: GoalFactory.UnderwritingParams({
                 coverageLambda: coverageLambda,
                 budgetPremiumPpm: budgetPremiumPpm,
@@ -219,8 +210,6 @@ contract DeployGoalFromFactory is DeployScript {
     error SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();
     error BUDGET_SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
-    error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_INVALID(uint256 value);
-    error FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM_MUST_BE_ZERO(uint256 value);
     error BUDGET_PREMIUM_PPM_INVALID(uint256 value);
     error BUDGET_SLASH_PPM_INVALID(uint256 value);
 }

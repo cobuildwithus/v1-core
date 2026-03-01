@@ -75,10 +75,6 @@ contract GoalFactory {
         string url;
     }
 
-    struct FlowConfigParams {
-        uint32 managerRewardPoolFlowRatePpm;
-    }
-
     struct UnderwritingParams {
         uint256 coverageLambda;
         uint32 budgetPremiumPpm;
@@ -108,7 +104,6 @@ contract GoalFactory {
         GoalTimingParams timing;
         SuccessParams success;
         FlowMetadataParams flowMetadata;
-        FlowConfigParams flowConfig;
         UnderwritingParams underwriting;
         BudgetTCRParams budgetTCR;
     }
@@ -135,7 +130,6 @@ contract GoalFactory {
     error INVALID_TAX_RATE();
     error INVALID_ASSERTION_CONFIG();
     error INVALID_SCALE();
-    error MANAGER_REWARD_POOL_FLOW_RATE_MUST_BE_ZERO(uint32 ppm);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
     error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
 
@@ -199,10 +193,6 @@ contract GoalFactory {
             p.success.successAssertionPolicyHash == bytes32(0)
         ) {
             revert INVALID_ASSERTION_CONFIG();
-        }
-
-        if (p.flowConfig.managerRewardPoolFlowRatePpm != 0) {
-            revert MANAGER_REWARD_POOL_FLOW_RATE_MUST_BE_ZERO(p.flowConfig.managerRewardPoolFlowRatePpm);
         }
 
         if (p.underwriting.budgetPremiumPpm > SCALE_1E6 || p.underwriting.budgetSlashPpm > SCALE_1E6) {
@@ -314,7 +304,6 @@ contract GoalFactory {
                     flowImage: p.flowMetadata.image,
                     flowTagline: p.flowMetadata.tagline,
                     flowUrl: p.flowMetadata.url,
-                    managerRewardPoolFlowRatePpm: p.flowConfig.managerRewardPoolFlowRatePpm,
                     minRaiseDeadline: minRaiseDeadline,
                     minRaise: p.timing.minRaise,
                     coverageLambda: p.underwriting.coverageLambda,
