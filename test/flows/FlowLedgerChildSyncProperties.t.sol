@@ -5,6 +5,7 @@ import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     bytes32 internal constant PARENT_BUDGET_RECIPIENT_ID = bytes32(uint256(1001));
@@ -26,6 +27,13 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     FlowLedgerPropPremiumEscrow internal premiumEscrow;
     FlowLedgerPropChildFlow internal childFlow;
     FlowLedgerPropChildStrategy internal childStrategy;
+
+    event PremiumEscrowCheckpointFailed(
+        address indexed budgetTreasury,
+        address indexed premiumEscrow,
+        address indexed account,
+        bytes reason
+    );
 
     function setUp() public override {
         super.setUp();
@@ -107,7 +115,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(secondPremiumEscrow.lastCheckpointAccount(), allocator);
     }
 
-    function test_allocate_withLedger_revertsWhenPremiumEscrowCheckpointReverts() public {
+    function test_allocate_withLedger_premiumEscrowCheckpointRevert_isBestEffort() public {
         premiumEscrow.setRevertOnCheckpoint(true);
         childFlow.setCommit(keccak256("child-commit"));
 
@@ -115,38 +123,43 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         bytes[][] memory allocationData = _parentAllocationData();
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
 
-        _allocateWithPrevStateForStrategyExpectRevert(
+        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
+        emit PremiumEscrowCheckpointFailed(
+            address(budgetTreasury),
+            address(premiumEscrow),
             allocator,
-            allocationData,
-            address(strategy),
-            address(flow),
-            recipientIds,
-            scaled,
             abi.encodeWithSelector(FlowLedgerPropPremiumEscrow.CHECKPOINT_REVERT.selector)
         );
 
-        assertEq(ledger.checkpointCallCount(), 0);
-        assertEq(childFlow.syncCallCount(), 0);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(childFlow.syncCallCount(), 1);
         assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(50e18, FULL_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
     }
 
-    function test_allocate_withLedger_revertsWhenBudgetPremiumEscrowHasNoCode() public {
+    function test_allocate_withLedger_invalidBudgetPremiumEscrow_isBestEffort() public {
         address invalidPremiumEscrow = address(0xBEEF);
         FlowLedgerPropBudgetTreasury invalidBudgetTreasury =
             new FlowLedgerPropBudgetTreasury(address(childFlow), invalidPremiumEscrow);
         ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(invalidBudgetTreasury));
+        childFlow.setCommit(keccak256("child-commit"));
 
         _setWeights(50e18);
         bytes[][] memory allocationData = _parentAllocationData();
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
 
-        _allocateWithPrevStateForStrategyExpectRevert(
+        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
+        emit PremiumEscrowCheckpointFailed(
+            address(invalidBudgetTreasury),
+            invalidPremiumEscrow,
             allocator,
-            allocationData,
-            address(strategy),
-            address(flow),
-            recipientIds,
-            scaled,
             abi.encodeWithSelector(
                 GoalFlowAllocationLedgerPipeline.INVALID_BUDGET_PREMIUM_ESCROW.selector,
                 address(invalidBudgetTreasury),
@@ -154,12 +167,20 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             )
         );
 
-        assertEq(ledger.checkpointCallCount(), 0);
-        assertEq(childFlow.syncCallCount(), 0);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(childFlow.syncCallCount(), 1);
         assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(50e18, FULL_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
     }
 
-    function test_allocate_withLedger_multipleChangedBudgets_revertIsAtomicBeforeChildSync() public {
+    function test_allocate_withLedger_multipleChangedBudgets_premiumCheckpointFailure_isBestEffort() public {
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
         FlowLedgerPropChildFlow secondChildFlow =
             new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
@@ -182,21 +203,83 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         scaled[0] = HALF_SCALED;
         scaled[1] = HALF_SCALED;
 
-        _allocateWithPrevStateForStrategyExpectRevert(
+        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
+        emit PremiumEscrowCheckpointFailed(
+            address(secondBudgetTreasury),
+            address(secondPremiumEscrow),
             allocator,
-            allocationData,
-            address(strategy),
-            address(flow),
-            recipientIds,
-            scaled,
             abi.encodeWithSelector(FlowLedgerPropPremiumEscrow.CHECKPOINT_REVERT.selector)
         );
 
-        assertEq(ledger.checkpointCallCount(), 0);
-        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(premiumEscrow.checkpointCallCount(), 1);
         assertEq(secondPremiumEscrow.checkpointCallCount(), 0);
-        assertEq(childFlow.syncCallCount(), 0);
-        assertEq(secondChildFlow.syncCallCount(), 0);
+        assertEq(childFlow.syncCallCount(), 1);
+        assertEq(secondChildFlow.syncCallCount(), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(25e18, HALF_SCALED));
+        assertEq(flow.distributionPool().getUnits(SECOND_BUDGET_RECIPIENT), _units(25e18, HALF_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
+    }
+
+    function test_allocate_withLedger_multipleChangedBudgets_invalidFirstPremiumEscrow_doesNotBlockLaterBudget() public {
+        FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropChildFlow secondChildFlow =
+            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
+
+        address invalidPremiumEscrow = address(0xBEEF);
+        FlowLedgerPropBudgetTreasury invalidBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(childFlow), invalidPremiumEscrow);
+        ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(invalidBudgetTreasury));
+
+        childFlow.setCommit(keccak256("child-commit-1"));
+        secondChildFlow.setCommit(keccak256("child-commit-2"));
+
+        _setWeights(25e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+
+        bytes32[] memory recipientIds = new bytes32[](2);
+        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        recipientIds[1] = SECOND_BUDGET_RECIPIENT_ID;
+
+        uint32[] memory scaled = new uint32[](2);
+        scaled[0] = HALF_SCALED;
+        scaled[1] = HALF_SCALED;
+
+        vm.expectEmit(true, true, true, true, address(ledgerPipeline));
+        emit PremiumEscrowCheckpointFailed(
+            address(invalidBudgetTreasury),
+            invalidPremiumEscrow,
+            allocator,
+            abi.encodeWithSelector(
+                GoalFlowAllocationLedgerPipeline.INVALID_BUDGET_PREMIUM_ESCROW.selector,
+                address(invalidBudgetTreasury),
+                invalidPremiumEscrow
+            )
+        );
+
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(secondPremiumEscrow.checkpointCallCount(), 1);
+        assertEq(childFlow.syncCallCount(), 1);
+        assertEq(secondChildFlow.syncCallCount(), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(25e18, HALF_SCALED));
+        assertEq(flow.distributionPool().getUnits(SECOND_BUDGET_RECIPIENT), _units(25e18, HALF_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
     }
 
     function test_allocate_withLedger_unchangedEffectiveAllocation_skipsPremiumCheckpointAndChildSync() public {
@@ -296,6 +379,72 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         _allocateParentSingleRecipient();
 
         assertEq(childFlow.syncCallCount(), 0);
+    }
+
+    function test_allocate_withRealBudgetStakeLedger_registerAndCheckpointStakeAccounting() public {
+        FlowLedgerPropStakeVault realStakeVault = new FlowLedgerPropStakeVault();
+
+        uint256 nonce = vm.getNonce(address(this));
+        address predictedFlow = vm.computeCreateAddress(address(this), nonce + 3);
+        FlowLedgerPropGoalTreasury realGoalTreasury =
+            new FlowLedgerPropGoalTreasury(predictedFlow, address(realStakeVault));
+        BudgetStakeLedger realLedger = new BudgetStakeLedger(address(realGoalTreasury));
+
+        strategy.setStakeVault(address(realStakeVault));
+        strategy.setCanAllocate(parentKey, allocator, true);
+        strategy.setCanAccountAllocate(allocator, true);
+
+        GoalFlowAllocationLedgerPipeline realPipeline = new GoalFlowAllocationLedgerPipeline(address(realLedger));
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+        address realFlow =
+            address(_deployFlowWithConfig(owner, manager, managerRewardPool, address(realPipeline), address(0), strategies));
+        assertEq(realFlow, predictedFlow);
+
+        vm.prank(owner);
+        superToken.transfer(realFlow, 500_000e18);
+
+        vm.prank(manager);
+        ICustomFlow(realFlow).addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
+
+        FlowLedgerPropBudgetFlowRegistrable registrableBudgetFlow = new FlowLedgerPropBudgetFlowRegistrable(realFlow);
+        FlowLedgerPropPremiumEscrow registrablePremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropBudgetTreasuryRegistrable registrableBudgetTreasury = new FlowLedgerPropBudgetTreasuryRegistrable(
+            address(registrableBudgetFlow),
+            address(registrablePremiumEscrow),
+            uint64(block.timestamp)
+        );
+
+        vm.prank(manager);
+        realLedger.registerBudget(PARENT_BUDGET_RECIPIENT_ID, address(registrableBudgetTreasury));
+
+        assertEq(realLedger.budgetForRecipient(PARENT_BUDGET_RECIPIENT_ID), address(registrableBudgetTreasury));
+        assertEq(realLedger.trackedBudgetCount(), 1);
+
+        bytes[][] memory allocationData = _defaultAllocationDataForKey(parentKey);
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        uint256 initialWeight = 40 * UNIT_WEIGHT_SCALE;
+        realStakeVault.setWeight(allocator, initialWeight);
+        strategy.setWeight(parentKey, initialWeight);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), realFlow, recipientIds, scaled
+        );
+
+        assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), initialWeight);
+        assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), initialWeight);
+
+        uint256 reducedWeight = 15 * UNIT_WEIGHT_SCALE;
+        realStakeVault.setWeight(allocator, reducedWeight);
+        strategy.setWeight(parentKey, reducedWeight);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), realFlow, recipientIds, scaled
+        );
+
+        assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), reducedWeight);
+        assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), reducedWeight);
+        assertEq(registrablePremiumEscrow.checkpointCallCount(), 2);
+        assertEq(registrablePremiumEscrow.lastCheckpointAccount(), allocator);
     }
 
     function testFuzz_allocate_changedStake_childCommitNonZero_syncs(uint96 initialStakeSeed, uint96 reducedStakeSeed)
@@ -513,5 +662,29 @@ contract FlowLedgerPropChildFlow {
         syncCallCount += 1;
         lastStrategy = strategy;
         lastAllocationKey = allocationKey;
+    }
+}
+
+contract FlowLedgerPropBudgetFlowRegistrable {
+    address public parent;
+
+    constructor(address parent_) {
+        parent = parent_;
+    }
+}
+
+contract FlowLedgerPropBudgetTreasuryRegistrable {
+    address public flow;
+    address public premiumEscrow;
+    uint64 public resolvedAt;
+    uint64 public activatedAt;
+    uint64 public executionDuration = 1 days;
+    uint64 public fundingDeadline = type(uint64).max;
+    uint8 public state;
+
+    constructor(address flow_, address premiumEscrow_, uint64 activatedAt_) {
+        flow = flow_;
+        premiumEscrow = premiumEscrow_;
+        activatedAt = activatedAt_;
     }
 }
