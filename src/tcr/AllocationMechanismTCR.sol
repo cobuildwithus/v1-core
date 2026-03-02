@@ -13,6 +13,7 @@ import { IManagedFlow } from "src/interfaces/IManagedFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 /**
  * @title AllocationMechanismTCR
@@ -260,12 +261,14 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             })
         );
 
+        ISuperfluidPool distributionPool = budgetFlow.distributionPool();
+        if (address(distributionPool) == address(0)) revert BUDGET_FLOW_MISMATCH();
+
         // Deploy an escrow that will receive all budget-flow funding for this round.
-        MechanismFundingEscrow escrow = new MechanismFundingEscrow(
-            budgetFlow.superToken(),
-            address(this),
-            address(budgetFlow),
-            deployed.prizeVault
+        address escrow = address(
+            new MechanismFundingEscrow(
+                budgetFlow.superToken(), distributionPool, address(this), address(budgetFlow), deployed.prizeVault
+            )
         );
 
         activationQueued[itemID] = false;
@@ -275,17 +278,17 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             submissionTCR: deployed.submissionTCR,
             arbitrator: deployed.arbitrator,
             depositStrategy: deployed.depositStrategy,
-            fundingEscrow: address(escrow),
+            fundingEscrow: escrow,
             active: true
         });
 
         // Add the escrow as a budget-flow recipient.
-        budgetFlow.addRecipient(itemID, address(escrow), listing.metadata);
+        budgetFlow.addRecipient(itemID, escrow, listing.metadata);
 
         emit RoundActivated(
             itemID,
             deployed.prizeVault,
-            address(escrow),
+            escrow,
             deployed.submissionTCR,
             deployed.arbitrator,
             deployed.depositStrategy

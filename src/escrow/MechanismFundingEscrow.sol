@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
+import { ISuperToken, ISuperfluidPool } from
+    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 /// @title MechanismFundingEscrow
 /// @notice Holds SuperToken funding for an allocation mechanism.
@@ -17,28 +19,42 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 ///          - releases escrowed funds to the mechanism's payout contract, or
 ///          - refunds escrowed funds back to the funding source.
 contract MechanismFundingEscrow {
+    using SuperTokenV1Library for ISuperToken;
+
     error ADDRESS_ZERO();
     error ONLY_CONTROLLER();
     error TRANSFER_FAILED();
+    error POOL_CONNECTION_FAILED();
 
     event Released(address indexed recipient, uint256 amount);
     event Refunded(address indexed refundRecipient, uint256 amount);
 
     ISuperToken public immutable superToken;
+    ISuperfluidPool public immutable distributionPool;
     address public immutable controller;
     address public immutable refundRecipient;
     address public immutable recipient;
 
-    constructor(ISuperToken superToken_, address controller_, address refundRecipient_, address recipient_) {
+    constructor(
+        ISuperToken superToken_,
+        ISuperfluidPool distributionPool_,
+        address controller_,
+        address refundRecipient_,
+        address recipient_
+    ) {
         if (address(superToken_) == address(0)) revert ADDRESS_ZERO();
+        if (address(distributionPool_) == address(0)) revert ADDRESS_ZERO();
         if (controller_ == address(0)) revert ADDRESS_ZERO();
         if (refundRecipient_ == address(0)) revert ADDRESS_ZERO();
         if (recipient_ == address(0)) revert ADDRESS_ZERO();
 
         superToken = superToken_;
+        distributionPool = distributionPool_;
         controller = controller_;
         refundRecipient = refundRecipient_;
         recipient = recipient_;
+
+        if (!superToken_.connectPool(distributionPool_)) revert POOL_CONNECTION_FAILED();
     }
 
     modifier onlyController() {
