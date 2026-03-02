@@ -93,8 +93,10 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _recipient,
         RecipientMetadata memory _metadata
     ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
+        Config storage cfg = _cfgStorage();
         RecipientsState storage recipientsState = _recipientsStorage();
-        address recipientAddress = FlowRecipients.addRecipient(recipientsState, _recipientId, _recipient, _metadata);
+        address recipientAddress =
+            FlowRecipients.addRecipient(recipientsState, _recipientId, _recipient, _metadata, address(this), cfg.managerRewardPool);
 
         emit RecipientCreated(_recipientId, recipientsState.recipients[_recipientId], msg.sender);
 
@@ -145,7 +147,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             _strategies
         );
 
-        FlowRecipients.addFlowRecipient(recipientsState, _recipientId, recipient, _metadata);
+        FlowRecipients.addFlowRecipient(recipientsState, _recipientId, recipient, _metadata, address(this));
         FlowSets.add(_childFlowsSet(), recipient);
 
         emit RecipientCreated(_recipientId, recipientsState.recipients[_recipientId], msg.sender);
@@ -320,7 +322,9 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     function _bestEffortRefreshOutflowFromCachedTarget(int96 expectedTargetOutflowRate) internal {
-        try this._refreshOutflowFromCachedTarget(expectedTargetOutflowRate) {} catch {}
+        try this._refreshOutflowFromCachedTarget(expectedTargetOutflowRate) {} catch (bytes memory reason) {
+            emit TargetOutflowRefreshFailed(expectedTargetOutflowRate, reason);
+        }
     }
 
     function _bestEffortRefreshOutflowAfterUnitsCrossing(Config storage cfg, uint128 totalUnitsBefore) internal {

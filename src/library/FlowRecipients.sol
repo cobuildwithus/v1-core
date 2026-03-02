@@ -8,6 +8,7 @@ import { FlowPools } from "./FlowPools.sol";
 
 library FlowRecipients {
     using EnumerableSet for EnumerableSet.AddressSet;
+    /// @dev Library calls are emitted as DELEGATECALL by Solidity. Caller-derived values must be passed explicitly.
 
     /**
      * @notice Marks a recipient as removed in recipient-state storage
@@ -46,19 +47,24 @@ library FlowRecipients {
      * @param recipientId The ID of the recipient to be approved
      * @param recipient The address to be added as an approved recipient
      * @param metadata The metadata of the recipient
+     * @param self The calling flow address (`address(this)` from the caller contract).
+     * @param managerRewardPool The caller-configured manager reward pool address.
+     * @dev `self` and `managerRewardPool` are explicit to avoid hidden coupling to library delegatecall context.
      * @return address The address of the newly created recipient
      */
     function addRecipient(
         FlowTypes.RecipientsState storage recipientsState,
         bytes32 recipientId,
         address recipient,
-        FlowTypes.RecipientMetadata memory metadata
+        FlowTypes.RecipientMetadata memory metadata,
+        address self,
+        address managerRewardPool
     ) public returns (address) {
         validateMetadata(metadata);
 
         if (recipient == address(0)) revert IFlow.ADDRESS_ZERO();
-        if (recipient == address(this)) revert IFlow.SELF_RECIPIENT_NOT_ALLOWED();
-        if (recipient == IFlow(address(this)).managerRewardPool()) revert IFlow.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED();
+        if (recipient == self) revert IFlow.SELF_RECIPIENT_NOT_ALLOWED();
+        if (recipient == managerRewardPool) revert IFlow.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED();
         if (recipientsState.recipientExists[recipient]) revert IFlow.RECIPIENT_ALREADY_EXISTS();
         if (recipientsState.recipients[recipientId].recipient != address(0)) revert IFlow.RECIPIENT_ALREADY_EXISTS();
 
@@ -82,14 +88,17 @@ library FlowRecipients {
      * @param recipientId The ID of the recipient to be approved
      * @param recipient The address to be added as an approved recipient
      * @param metadata The metadata of the recipient
+     * @param self The calling flow address (`address(this)` from the caller contract).
+     * @dev `self` is explicit to avoid hidden coupling to library delegatecall context.
      */
     function addFlowRecipient(
         FlowTypes.RecipientsState storage recipientsState,
         bytes32 recipientId,
         address recipient,
-        FlowTypes.RecipientMetadata memory metadata
+        FlowTypes.RecipientMetadata memory metadata,
+        address self
     ) public {
-        if (recipient == address(this)) revert IFlow.SELF_RECIPIENT_NOT_ALLOWED();
+        if (recipient == self) revert IFlow.SELF_RECIPIENT_NOT_ALLOWED();
         if (recipientsState.recipientExists[recipient]) revert IFlow.RECIPIENT_ALREADY_EXISTS();
         if (recipientsState.recipients[recipientId].recipient != address(0)) revert IFlow.RECIPIENT_ALREADY_EXISTS();
 
