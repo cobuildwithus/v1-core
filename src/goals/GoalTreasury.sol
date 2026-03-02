@@ -100,14 +100,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         TreasurySuccessAssertions.FailClosedReason indexed reason
     );
 
-    constructor(address initialOwner, GoalConfig memory config) {
-        if (initialOwner == address(0)) {
-            if (!_isImplementationConfig(config)) revert ADDRESS_ZERO();
-            _disableInitializers();
-            return;
-        }
-
-        _initialize(initialOwner, config);
+    constructor() {
         _disableInitializers();
     }
 
@@ -200,26 +193,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             derivedDeadline,
             config.minRaise
         );
-    }
-
-    function _isImplementationConfig(GoalConfig memory config) private pure returns (bool) {
-        return
-            config.flow == address(0) &&
-            config.stakeVault == address(0) &&
-            config.budgetStakeLedger == address(0) &&
-            config.hook == address(0) &&
-            config.goalRulesets == address(0) &&
-            config.goalRevnetId == 0 &&
-            config.minRaiseDeadline == 0 &&
-            config.minRaise == 0 &&
-            config.coverageLambda == 0 &&
-            config.budgetPremiumPpm == 0 &&
-            config.budgetSlashPpm == 0 &&
-            config.successResolver == address(0) &&
-            config.successAssertionLiveness == 0 &&
-            config.successAssertionBond == 0 &&
-            config.successOracleSpecHash == bytes32(0) &&
-            config.successAssertionPolicyHash == bytes32(0);
     }
 
     function recordHookFunding(uint256 amount) external override nonReentrant returns (bool accepted) {
@@ -835,12 +808,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         (IJBDirectory directory, bytes memory directoryFailureReason) =
             _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
         if (address(directory) == address(0)) {
-            if (directoryFailureReason.length != 0) {
-                revert COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
-                    address(configuredCobuildToken), directoryFailureReason
-                );
-            }
-            revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
+            revert COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address(configuredCobuildToken), directoryFailureReason);
         }
 
         address controller = address(directory.controllerOf(goalRevnetIdForLookup));
@@ -888,12 +856,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         (IJBDirectory directory, bytes memory directoryFailureReason) =
             _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
         if (address(directory) == address(0)) {
-            if (directoryFailureReason.length != 0) {
-                revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
-                    address(configuredGoalToken), directoryFailureReason
-                );
-            }
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(configuredGoalToken));
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
+                address(configuredGoalToken), directoryFailureReason
+            );
         }
 
         _requireTokenMatchesRevnetId(directory, configuredGoalRevnetId, configuredGoalToken);
