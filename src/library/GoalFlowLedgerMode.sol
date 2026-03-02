@@ -73,11 +73,9 @@ library GoalFlowLedgerMode {
         address ledger,
         address expectedFlow
     ) internal returns (address goalTreasury, address stakeVault) {
-        if (cache.validatedLedger == ledger) {
-            return (cache.validatedGoalTreasury, cache.validatedStakeVault);
-        }
-
-        (goalTreasury, stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
+        bool cacheHit;
+        (goalTreasury, stakeVault, cacheHit) = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        if (cacheHit) return (goalTreasury, stakeVault);
 
         cache.validatedLedger = ledger;
         cache.validatedGoalTreasury = goalTreasury;
@@ -90,11 +88,7 @@ library GoalFlowLedgerMode {
         address ledger,
         address expectedFlow
     ) internal view returns (address goalTreasury, address stakeVault) {
-        if (cache.validatedLedger == ledger) {
-            return (cache.validatedGoalTreasury, cache.validatedStakeVault);
-        }
-
-        (goalTreasury, stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
+        (goalTreasury, stakeVault, ) = _validatedLedger(strategies, cache, ledger, expectedFlow);
     }
 
     function validateForInitializeOrRevertView(
@@ -122,26 +116,26 @@ library GoalFlowLedgerMode {
     }
 
     function detectBudgetDeltasCalldata(
-        uint256 percentageScale,
+        uint256 allocationPpmScale,
         address ledger,
         uint256 prevWeight,
         bytes32[] calldata prevIds,
-        uint32[] calldata prevAllocationScaled,
+        uint32[] calldata prevAllocationPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationScaled
+        uint32[] calldata newAllocationPpm
     ) internal view returns (address[] memory budgetTreasuries) {
         if (ledger == address(0)) return new address[](0);
         return
             _detectBudgetDeltaTreasuriesCalldata(
-                percentageScale,
+                allocationPpmScale,
                 IBudgetStakeLedger(ledger),
                 prevWeight,
                 prevIds,
-                prevAllocationScaled,
+                prevAllocationPpm,
                 newWeight,
                 newRecipientIds,
-                newAllocationScaled
+                newAllocationPpm
             );
     }
 
@@ -155,17 +149,7 @@ library GoalFlowLedgerMode {
         if (ledger == address(0)) return (0, false);
 
         (address treasury, address stakeVault) = validateOrRevertView(strategies, cache, ledger, expectedFlow);
-        if (_goalTreasuryResolvedOrRevert(ledger, treasury)) return (0, false);
-
-        bool goalResolved;
-        try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
-            goalResolved = goalResolved_;
-        } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
-        }
-        if (goalResolved) {
-            return (0, false);
-        }
+        if (!_shouldCheckpointWithValidatedContext(ledger, treasury, stakeVault)) return (0, false);
 
         try IStakeVault(stakeVault).weightOf(account) returns (uint256 weight_) {
             newWeight = weight_;
@@ -186,17 +170,7 @@ library GoalFlowLedgerMode {
         if (ledger == address(0)) return (0, false);
 
         (address treasury, address stakeVault) = validateOrRevert(strategies, cache, ledger, expectedFlow);
-        if (_goalTreasuryResolvedOrRevert(ledger, treasury)) return (0, false);
-
-        bool goalResolved;
-        try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved_) {
-            goalResolved = goalResolved_;
-        } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
-        }
-        if (goalResolved) {
-            return (0, false);
-        }
+        if (!_shouldCheckpointWithValidatedContext(ledger, treasury, stakeVault)) return (0, false);
 
         resolvedWeight = committedWeight;
         shouldCheckpoint = true;
@@ -325,15 +299,42 @@ library GoalFlowLedgerMode {
         }
     }
 
+    function _validatedLedger(
+        IAllocationStrategy[] memory strategies,
+        ValidationCache storage cache,
+        address ledger,
+        address expectedFlow
+    ) private view returns (address goalTreasury, address stakeVault, bool cacheHit) {
+        if (cache.validatedLedger == ledger) {
+            return (cache.validatedGoalTreasury, cache.validatedStakeVault, true);
+        }
+
+        (goalTreasury, stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
+    }
+
+    function _shouldCheckpointWithValidatedContext(
+        address ledger,
+        address treasury,
+        address stakeVault
+    ) private view returns (bool shouldCheckpoint) {
+        if (_goalTreasuryResolvedOrRevert(ledger, treasury)) return false;
+
+        try IStakeVault(stakeVault).goalResolved() returns (bool goalResolved) {
+            return !goalResolved;
+        } catch {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
+        }
+    }
+
     function _detectBudgetDeltaTreasuriesCalldata(
-        uint256 percentageScale,
+        uint256 allocationPpmScale,
         IBudgetStakeLedger ledgerReader,
         uint256 prevWeight,
         bytes32[] calldata prevIds,
-        uint32[] calldata prevAllocationScaled,
+        uint32[] calldata prevAllocationPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationScaled
+        uint32[] calldata newAllocationPpm
     ) private view returns (address[] memory budgetTreasuries) {
         uint256 oldLen = prevIds.length;
         uint256 newLen = newRecipientIds.length;
@@ -361,16 +362,16 @@ library GoalFlowLedgerMode {
             if (step.hasOld) {
                 oldAllocated = FlowUnitMath.effectiveAllocatedStake(
                     prevWeight,
-                    prevAllocationScaled[step.oldIndex],
-                    percentageScale
+                    prevAllocationPpm[step.oldIndex],
+                    allocationPpmScale
                 );
             }
 
             if (step.hasNew) {
                 newAllocated = FlowUnitMath.effectiveAllocatedStake(
                     newWeight,
-                    newAllocationScaled[step.newIndex],
-                    percentageScale
+                    newAllocationPpm[step.newIndex],
+                    allocationPpmScale
                 );
             }
 

@@ -191,6 +191,13 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertTrue(shouldCheckpoint);
     }
 
+    function test_prepareCheckpointContextFromCommittedWeight_returnsCommittedWeightWhenGoalActive() public {
+        (uint256 resolvedWeight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+        assertEq(resolvedWeight, 777);
+        assertTrue(shouldCheckpoint);
+    }
+
     function test_prepareCheckpointContext_revertsWhenGoalResolvedProbeReverts() public {
         stakeVault.setRevertGoalResolved(true);
 
@@ -225,6 +232,19 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
                 IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY.selector,
                 address(ledger),
                 address(treasury)
+            )
+        );
+        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+    }
+
+    function test_prepareCheckpointContextFromCommittedWeight_revertsWhenGoalResolvedProbeReverts() public {
+        stakeVault.setRevertGoalResolved(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
+                address(treasury),
+                address(stakeVault)
             )
         );
         harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
