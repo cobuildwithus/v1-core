@@ -173,6 +173,105 @@ contract GoalFlowLedgerModeParityTest is Test {
         _assertNoDelta(deltas);
     }
 
+    function test_detectBudgetDeltas_prioritizesDecreasesBeforeIncreases() public {
+        bytes32 idA = bytes32(uint256(1));
+        bytes32 idB = bytes32(uint256(2));
+        address budgetA = address(0xB001);
+        address budgetB = address(0xB002);
+
+        ledger.setBudget(idA, budgetA);
+        ledger.setBudget(idB, budgetB);
+
+        bytes32[] memory prevRecipientIds = new bytes32[](2);
+        prevRecipientIds[0] = idA;
+        prevRecipientIds[1] = idB;
+
+        uint32[] memory prevAllocationPpm = new uint32[](2);
+        prevAllocationPpm[0] = 300_000; // increases
+        prevAllocationPpm[1] = 700_000; // decreases
+
+        bytes32[] memory newRecipientIds = new bytes32[](2);
+        newRecipientIds[0] = idA;
+        newRecipientIds[1] = idB;
+
+        uint32[] memory newAllocationPpm = new uint32[](2);
+        newAllocationPpm[0] = 600_000;
+        newAllocationPpm[1] = 400_000;
+
+        uint256 weight = 100 * UNIT_WEIGHT_SCALE;
+        address[] memory deltas = _detectAndAssertReference(
+            weight,
+            prevRecipientIds,
+            prevAllocationPpm,
+            weight,
+            newRecipientIds,
+            newAllocationPpm
+        );
+
+        assertEq(deltas.length, 2);
+        // idA sorts before idB, but idB decreases while idA increases.
+        assertEq(deltas[0], budgetB);
+        assertEq(deltas[1], budgetA);
+    }
+
+    function test_detectBudgetDeltas_preservesStableOrderWithinDecreaseAndIncreaseBuckets() public {
+        bytes32 idA = bytes32(uint256(1));
+        bytes32 idB = bytes32(uint256(2));
+        bytes32 idC = bytes32(uint256(3));
+        bytes32 idD = bytes32(uint256(4));
+
+        address budgetA = address(0xB001);
+        address budgetB = address(0xB002);
+        address budgetC = address(0xB003);
+        address budgetD = address(0xB004);
+
+        ledger.setBudget(idA, budgetA);
+        ledger.setBudget(idB, budgetB);
+        ledger.setBudget(idC, budgetC);
+        ledger.setBudget(idD, budgetD);
+
+        bytes32[] memory prevRecipientIds = new bytes32[](4);
+        prevRecipientIds[0] = idA;
+        prevRecipientIds[1] = idB;
+        prevRecipientIds[2] = idC;
+        prevRecipientIds[3] = idD;
+
+        uint32[] memory prevAllocationPpm = new uint32[](4);
+        prevAllocationPpm[0] = 250_000; // increase
+        prevAllocationPpm[1] = 250_000; // decrease
+        prevAllocationPpm[2] = 250_000; // increase
+        prevAllocationPpm[3] = 250_000; // decrease
+
+        bytes32[] memory newRecipientIds = new bytes32[](4);
+        newRecipientIds[0] = idA;
+        newRecipientIds[1] = idB;
+        newRecipientIds[2] = idC;
+        newRecipientIds[3] = idD;
+
+        uint32[] memory newAllocationPpm = new uint32[](4);
+        newAllocationPpm[0] = 300_000;
+        newAllocationPpm[1] = 200_000;
+        newAllocationPpm[2] = 350_000;
+        newAllocationPpm[3] = 150_000;
+
+        uint256 weight = 100 * UNIT_WEIGHT_SCALE;
+        address[] memory deltas = _detectAndAssertReference(
+            weight,
+            prevRecipientIds,
+            prevAllocationPpm,
+            weight,
+            newRecipientIds,
+            newAllocationPpm
+        );
+
+        assertEq(deltas.length, 4);
+        // Decreases first (idB then idD), then increases (idA then idC).
+        assertEq(deltas[0], budgetB);
+        assertEq(deltas[1], budgetD);
+        assertEq(deltas[2], budgetA);
+        assertEq(deltas[3], budgetC);
+    }
+
     function testFuzz_unitQuantization_poolUnitsAndLedgerStakeStayAligned(
         uint256 weight,
         uint32 allocationPpm
@@ -264,7 +363,8 @@ contract GoalFlowLedgerModeParityTest is Test {
     ) internal view returns (address[] memory deltas) {
         uint256 oldLen = prevRecipientIds.length;
         uint256 newLen = newRecipientIds.length;
-        address[] memory tmp = new address[](oldLen + newLen);
+        address[] memory tmpBudgets = new address[](oldLen + newLen);
+        bool[] memory tmpIsDecrease = new bool[](oldLen + newLen);
         uint256 count;
         uint256 oldIndex;
         uint256 newIndex;
@@ -298,16 +398,40 @@ contract GoalFlowLedgerModeParityTest is Test {
             if (oldAllocated == newAllocated) continue;
             address budget = ledger.budgetForRecipient(recipientId);
             if (budget == address(0)) continue;
-            tmp[count] = budget;
+
+            bool isDecrease = newAllocated < oldAllocated;
+            tmpBudgets[count] = budget;
+            tmpIsDecrease[count] = isDecrease;
             unchecked {
                 ++count;
             }
         }
 
         deltas = new address[](count);
+        uint256 writeIndex;
         for (uint256 i = 0; i < count; ) {
-            deltas[i] = tmp[i];
+            if (!tmpIsDecrease[i]) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+            deltas[writeIndex] = tmpBudgets[i];
             unchecked {
+                ++writeIndex;
+                ++i;
+            }
+        }
+        for (uint256 i = 0; i < count; ) {
+            if (tmpIsDecrease[i]) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+            deltas[writeIndex] = tmpBudgets[i];
+            unchecked {
+                ++writeIndex;
                 ++i;
             }
         }

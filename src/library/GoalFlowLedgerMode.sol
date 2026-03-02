@@ -340,8 +340,10 @@ library GoalFlowLedgerMode {
         uint256 newLen = newRecipientIds.length;
         if (oldLen == 0 && newLen == 0) return new address[](0);
 
-        address[] memory tmp = new address[](oldLen + newLen);
-        uint256 count;
+        address[] memory decreases = new address[](oldLen + newLen);
+        address[] memory increases = new address[](oldLen + newLen);
+        uint256 decreaseCount;
+        uint256 increaseCount;
         (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
             prevIds,
             newRecipientIds,
@@ -380,15 +382,29 @@ library GoalFlowLedgerMode {
             address budgetTreasury = ledgerReader.budgetForRecipient(recipientId);
             if (budgetTreasury == address(0)) continue;
 
-            tmp[count] = budgetTreasury;
-            unchecked {
-                ++count;
+            if (newAllocated < oldAllocated) {
+                decreases[decreaseCount] = budgetTreasury;
+                unchecked {
+                    ++decreaseCount;
+                }
+            } else {
+                increases[increaseCount] = budgetTreasury;
+                unchecked {
+                    ++increaseCount;
+                }
             }
         }
 
-        budgetTreasuries = new address[](count);
-        for (uint256 i = 0; i < count; ) {
-            budgetTreasuries[i] = tmp[i];
+        uint256 totalCount = decreaseCount + increaseCount;
+        budgetTreasuries = new address[](totalCount);
+        for (uint256 i = 0; i < decreaseCount; ) {
+            budgetTreasuries[i] = decreases[i];
+            unchecked {
+                ++i;
+            }
+        }
+        for (uint256 i = 0; i < increaseCount; ) {
+            budgetTreasuries[decreaseCount + i] = increases[i];
             unchecked {
                 ++i;
             }
