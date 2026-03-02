@@ -9,6 +9,8 @@ import { IManagedFlow } from "../interfaces/IManagedFlow.sol";
 import { AddressKeyAllocationStrategy } from "./AddressKeyAllocationStrategy.sol";
 
 /// @notice Shared budget-flow strategy that resolves budget context from the caller flow address.
+/// @dev The `IAllocationStrategy` view hooks use `msg.sender` as flow context because runtime calls come from
+///      the flow itself. Off-chain callers (EOAs/indexers/simulators) should prefer the explicit `*ForFlow` views.
 contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRouterStrategy {
     IBudgetStakeLedger public immutable override budgetStakeLedger;
     address public immutable override registrar;
@@ -46,34 +48,50 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
         recipientId = _recipientIdByFlow[flow];
     }
 
+    /// @notice Returns live weight for `key` in caller-flow context.
+    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
+    ///      Non-flow callers fail closed via zero weight; use `currentWeightForFlow` off-chain.
     function currentWeight(uint256 key) external view override returns (uint256) {
         return _currentWeightForFlow(msg.sender, key);
     }
 
+    /// @notice Returns whether `caller` can allocate for `key` in caller-flow context.
+    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
+    ///      Non-flow callers fail closed via `false`; use `canAllocateForFlow` off-chain.
     function canAllocate(uint256 key, address caller) external view override returns (bool) {
         return _canAllocateForFlow(msg.sender, key, caller);
     }
 
+    /// @notice Returns whether `account` has positive allocation weight in caller-flow context.
+    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
+    ///      Non-flow callers fail closed via `false`; use `canAccountAllocateForFlow` off-chain.
     function canAccountAllocate(address account) external view override returns (bool) {
         return _canAccountAllocateForFlow(msg.sender, account);
     }
 
+    /// @notice Returns current allocation weight for `account` in caller-flow context.
+    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
+    ///      Non-flow callers fail closed via zero weight; use `accountAllocationWeightForFlow` off-chain.
     function accountAllocationWeight(address account) external view override returns (uint256) {
         return _accountAllocationWeightForFlow(msg.sender, account);
     }
 
+    /// @notice Returns live weight for `key` in explicit `flow` context.
     function currentWeightForFlow(address flow, uint256 key) external view override returns (uint256) {
         return _currentWeightForFlow(flow, key);
     }
 
+    /// @notice Returns whether `caller` can allocate for `key` in explicit `flow` context.
     function canAllocateForFlow(address flow, uint256 key, address caller) external view override returns (bool) {
         return _canAllocateForFlow(flow, key, caller);
     }
 
+    /// @notice Returns whether `account` has positive allocation weight in explicit `flow` context.
     function canAccountAllocateForFlow(address flow, address account) external view override returns (bool) {
         return _canAccountAllocateForFlow(flow, account);
     }
 
+    /// @notice Returns current allocation weight for `account` in explicit `flow` context.
     function accountAllocationWeightForFlow(address flow, address account) external view override returns (uint256) {
         return _accountAllocationWeightForFlow(flow, account);
     }
