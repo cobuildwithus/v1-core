@@ -94,7 +94,9 @@ cobuild-protocol/
 - Budget underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` premium entitlement uses a balance-index over live `BudgetStakeLedger` coverage checkpoints (no snapshot-only settlement),
+  - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
+  - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes
     spend-proportional slash weight from `premiumEarned`, `managerRewardPoolFlowRatePpm`, `coverageLambda`, and
     `budgetSlashPpm`, caps by strict slash-percent principal

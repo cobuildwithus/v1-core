@@ -36,6 +36,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error NOT_CLOSED();
     error NOT_SLASHABLE();
     error UNRESOLVED_SPEND_FORMULA_PARAMS(uint32 premiumPpm, uint256 coverageLambda);
+    error GOAL_TREASURY_UNAVAILABLE();
+    error GOAL_NOT_SUCCEEDED(IGoalTreasury.GoalState state);
+    error GOAL_NOT_EXPIRED(IGoalTreasury.GoalState state);
 
     event PremiumIndexed(
         uint256 indexed distributedPremium,
@@ -54,6 +57,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 totalCoverage
     );
     event Claimed(address indexed account, address indexed to, uint256 amount);
+    event UnclaimablePremiumSwept(address indexed goalFlow, uint256 amount);
     event Closed(IBudgetTreasury.BudgetState indexed finalState, uint64 activatedAt, uint64 closedAt);
     event UnderwriterSlashed(
         address indexed underwriter,
@@ -219,6 +223,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     function claim(address to) external override nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ADDRESS_ZERO();
 
+        _requireGoalSucceeded();
+
         _checkpoint(msg.sender, !closed);
 
         AccountState storage accountState = _accountStates[msg.sender];
@@ -236,6 +242,34 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
         premiumToken.safeTransfer(to, amount);
         emit Claimed(msg.sender, to, amount);
+    }
+
+    /// @notice Sweeps unclaimable premium to the goal flow once the goal has expired.
+    /// @dev Premiums are escrowed for underwriters and only become claimable on goal success.
+    ///      On goal expiry, these premiums are intentionally made unclaimable and should be burned.
+    ///      This function forwards the SuperToken to the goal flow; anyone can then call
+    ///      `GoalTreasury.settleLateResidual()` to sweep/downgrade/burn. We attempt this burn
+    ///      best-effort here, but do not fail closed if it reverts.
+    function burnOnGoalFailure() external override nonReentrant returns (uint256 amount) {
+        (address goalTreasury, IGoalTreasury.GoalState state) = _goalTreasuryStateOrRevert();
+        if (state != IGoalTreasury.GoalState.Expired) revert GOAL_NOT_EXPIRED(state);
+
+        // Ensure any newly received premium is accounted for before sweeping.
+        _checkpointGlobal();
+
+        amount = premiumToken.balanceOf(address(this));
+        if (amount != 0) {
+            premiumToken.safeTransfer(goalFlow, amount);
+            if (address(managerRewardPool) == address(0)) {
+                accountedBalance = premiumToken.balanceOf(address(this));
+            }
+
+            emit UnclaimablePremiumSwept(goalFlow, amount);
+        }
+
+        // Best-effort burn: this will sweep the goal flow balance (including the swept premium)
+        // and burn the underlying via the goal's revnet controller.
+        try IGoalTreasury(goalTreasury).settleLateResidual() {} catch {}
     }
 
     function close(
@@ -435,6 +469,22 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         } catch {
             lambda = 0;
         }
+    }
+
+    function _goalTreasuryOrRevert() internal view returns (address goalTreasury) {
+        if (goalFlow == address(0) || goalFlow.code.length == 0) revert GOAL_TREASURY_UNAVAILABLE();
+        goalTreasury = IFlow(goalFlow).flowOperator();
+        if (goalTreasury == address(0) || goalTreasury.code.length == 0) revert GOAL_TREASURY_UNAVAILABLE();
+    }
+
+    function _requireGoalSucceeded() internal view {
+        (, IGoalTreasury.GoalState state) = _goalTreasuryStateOrRevert();
+        if (state != IGoalTreasury.GoalState.Succeeded) revert GOAL_NOT_SUCCEEDED(state);
+    }
+
+    function _goalTreasuryStateOrRevert() internal view returns (address goalTreasury, IGoalTreasury.GoalState state) {
+        goalTreasury = _goalTreasuryOrRevert();
+        state = IGoalTreasury(goalTreasury).state();
     }
 
     function _accrueExposure(AccountState storage accountState) internal {

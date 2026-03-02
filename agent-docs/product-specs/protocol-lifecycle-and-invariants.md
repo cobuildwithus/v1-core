@@ -48,7 +48,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
+  - premium claims are allowed only while parent goal state is `Succeeded`,
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
+  - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
 - Budget failure slashing semantics are spend-proportional and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),

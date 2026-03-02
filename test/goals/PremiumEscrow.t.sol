@@ -243,6 +243,28 @@ contract PremiumEscrowTest is Test {
         escrow.burnOnGoalFailure();
     }
 
+    function test_burnOnGoalFailureWithZeroEscrowBalanceReturnsZeroAndStillAttemptsLateResidualSettle() public {
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 0);
+        assertEq(goalTreasury.settleLateResidualCalls(), 1);
+    }
+
+    function test_burnOnGoalFailureWithOrphanRecycledPremiumStillAttemptsLateResidualSettle() public {
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
+        premiumToken.mint(address(escrow), 33e18);
+
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 0);
+        assertEq(goalTreasury.settleLateResidualCalls(), 1);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 33e18);
+    }
+
     function test_burnOnGoalFailureRevertsWhenGoalTreasuryUnavailable() public {
         _setCoverageAndCheckpointClaimable(ALICE, 100, 25e18);
 

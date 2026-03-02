@@ -101,7 +101,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` indexes premium against live budget coverage from `BudgetStakeLedger`,
+  - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total coverage is recycled to goal funding via goal flow,
+  - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes spend-proportional slash weight from premium accrual + spend-formula params, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
@@ -149,7 +151,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `StakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` is coverage-only accounting for per-budget allocated stake plus checkpoint history (no points/rent-time accrual subsystem).
-- `PremiumEscrow` checkpoints account coverage, accrues claimable premium from indexed inflows, and recycles orphan premium when coverage is zero.
+- `PremiumEscrow` checkpoints account coverage, accrues premium from indexed inflows, recycles orphan premium when coverage is zero, and gates claims on parent goal success.
+- On goal `Expired`, escrowed premium becomes unclaimable and can be swept to goal flow via `burnOnGoalFailure()` for terminal residual burn settlement.
 - `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` computes per-underwriter spend-proportional slash weight from premium accrual + spend-formula params, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`.
 - Slash requires resolvable non-zero spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`) and reverts when unresolved.
 - Underwriter withdrawals are caller-prepared post-resolution:

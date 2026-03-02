@@ -170,6 +170,22 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(goalSuperToken.balanceOf(PREMIUM_RECIPIENT), 45e18);
     }
 
+    function test_underwriterCoverage_claimRevertsWhenGoalNotSucceeded() public {
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
+
+        escrow.checkpoint(ALICE);
+        goalSuperToken.mint(address(escrow), 45e18);
+        escrow.checkpoint(ALICE);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Active);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.GOAL_NOT_SUCCEEDED.selector, IGoalTreasury.GoalState.Active)
+        );
+        vm.prank(ALICE);
+        escrow.claim(PREMIUM_RECIPIENT);
+    }
+
     function test_failedBudgetAfterActivation_slashesStake_convertsCobuild_andFundsGoalPath() public {
         budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
 
@@ -1636,6 +1652,8 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
     address public immutable budgetStakeLedger;
     address public flow;
     uint256 public coverageLambda;
+    IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
+    uint256 public settleLateResidualCalls;
 
     constructor(address authority_, address budgetStakeLedger_) {
         authority = authority_;
@@ -1652,6 +1670,18 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
 
     function setCoverageLambda(uint256 coverageLambda_) external {
         coverageLambda = coverageLambda_;
+    }
+
+    function setState(IGoalTreasury.GoalState state_) external {
+        _state = state_;
+    }
+
+    function state() external view returns (IGoalTreasury.GoalState) {
+        return _state;
+    }
+
+    function settleLateResidual() external {
+        settleLateResidualCalls += 1;
     }
 }
 
