@@ -98,7 +98,7 @@ contract FlowRecipientsTest is FlowTestBase {
         bytes32 recipientId = bytes32(uint256(3));
 
         vm.prank(manager);
-        vm.expectRevert(FlowRecipients.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED.selector);
+        vm.expectRevert(IFlow.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED.selector);
         flow.addRecipient(recipientId, managerRewardPool, recipientMetadata);
 
         assertFalse(flow.recipientExists(managerRewardPool));

@@ -8,7 +8,6 @@ import { FlowPools } from "./FlowPools.sol";
 
 library FlowRecipients {
     using EnumerableSet for EnumerableSet.AddressSet;
-    error MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED();
 
     /**
      * @notice Marks a recipient as removed in recipient-state storage
@@ -59,7 +58,7 @@ library FlowRecipients {
 
         if (recipient == address(0)) revert IFlow.ADDRESS_ZERO();
         if (recipient == address(this)) revert IFlow.SELF_RECIPIENT_NOT_ALLOWED();
-        if (recipient == IFlow(address(this)).managerRewardPool()) revert MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED();
+        if (recipient == IFlow(address(this)).managerRewardPool()) revert IFlow.MANAGER_REWARD_POOL_RECIPIENT_NOT_ALLOWED();
         if (recipientsState.recipientExists[recipient]) revert IFlow.RECIPIENT_ALREADY_EXISTS();
         if (recipientsState.recipients[recipientId].recipient != address(0)) revert IFlow.RECIPIENT_ALREADY_EXISTS();
 
