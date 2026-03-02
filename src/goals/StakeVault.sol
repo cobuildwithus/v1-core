@@ -415,8 +415,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function slashJurorStake(address juror, uint256 weightAmount, address recipient) external override nonReentrant {
         if (msg.sender != jurorSlasher) revert ONLY_JUROR_SLASHER();
-        (StakeVaultSlashMath.SlashAmounts memory slash, bool didSlash) = _slashStake(juror, weightAmount, recipient);
-        if (!didSlash) return;
+        StakeVaultSlashMath.SlashAmounts memory slash = _slashStake(juror, weightAmount, recipient);
+        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
 
         uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
 
@@ -429,8 +429,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         address recipient
     ) external override nonReentrant {
         if (msg.sender != underwriterSlasher) revert ONLY_UNDERWRITER_SLASHER();
-        (StakeVaultSlashMath.SlashAmounts memory slash, bool didSlash) = _slashStake(underwriter, weightAmount, recipient);
-        if (!didSlash) return;
+        StakeVaultSlashMath.SlashAmounts memory slash = _slashStake(underwriter, weightAmount, recipient);
+        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
 
         uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
 
@@ -448,30 +448,26 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         address account,
         uint256 weightAmount,
         address recipient
-    )
-        internal
-        returns (
-            StakeVaultSlashMath.SlashAmounts memory slash,
-            bool didSlash
-        )
-    {
+    ) internal returns (StakeVaultSlashMath.SlashAmounts memory slash) {
         if (recipient == address(0)) revert ADDRESS_ZERO();
-        if (weightAmount == 0) return (slash, didSlash);
+        if (weightAmount == 0) return slash;
 
         uint256 currentStakeWeight = _stakeWeightOf(account);
-        if (currentStakeWeight == 0) return (slash, didSlash);
+        if (currentStakeWeight == 0) return slash;
 
         uint256 requestedWeight = Math.min(weightAmount, currentStakeWeight);
 
-        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(account);
-        slash = StakeVaultSlashMath.computeStakeSlashBreakdown(
-            snapshot,
-            requestedWeight,
-            currentStakeWeight
-        );
-        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return (slash, didSlash);
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = StakeVaultSlashMath.StakeSlashSnapshot({
+            stakedGoal: _stakedGoal[account],
+            goalWeight: _accountGoalStakeWeight[account],
+            stakedCobuild: _stakedCobuild[account],
+            lockedGoal: _jurorLockedGoal[account],
+            lockedGoalWeight: _jurorLockedGoalWeight[account],
+            lockedCobuild: _jurorLockedCobuild[account]
+        });
+        slash = StakeVaultSlashMath.computeStakeSlashBreakdown(snapshot, requestedWeight, currentStakeWeight);
+        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return slash;
 
-        snapshot = _loadLockedStakeSlashSnapshot(account, snapshot);
         StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
             snapshot,
             slash
@@ -515,25 +511,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             _safeTransferExact(cobuildToken, recipient, slash.cobuildAmount);
         }
 
-        return (slash, true);
-    }
-
-    function _loadStakeSlashSnapshot(
-        address juror
-    ) internal view returns (StakeVaultSlashMath.StakeSlashSnapshot memory snapshot) {
-        snapshot.stakedGoal = _stakedGoal[juror];
-        snapshot.goalWeight = _accountGoalStakeWeight[juror];
-        snapshot.stakedCobuild = _stakedCobuild[juror];
-    }
-
-    function _loadLockedStakeSlashSnapshot(
-        address juror,
-        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot
-    ) internal view returns (StakeVaultSlashMath.StakeSlashSnapshot memory) {
-        snapshot.lockedGoal = _jurorLockedGoal[juror];
-        snapshot.lockedGoalWeight = _jurorLockedGoalWeight[juror];
-        snapshot.lockedCobuild = _jurorLockedCobuild[juror];
-        return snapshot;
+        return slash;
     }
 
     function _trySyncGoalFlowAllocation(address account) internal {
