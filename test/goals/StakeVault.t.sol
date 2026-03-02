@@ -461,6 +461,118 @@ contract StakeVaultTest is Test {
         vault.quoteGoalToCobuildWeightRatio(1e18);
     }
 
+    function test_quoteGoalToCobuildWeight_decayInterpolatesFromActivationToDeadline() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        uint64 deadline = activatedAt + 1_000;
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(deadline);
+
+        vm.warp(activatedAt);
+        (uint256 atActivation, uint112 rulesetWeight, uint256 weightScale) =
+            decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(atActivation, 200e18);
+        assertEq(rulesetWeight, 5e17);
+        assertEq(weightScale, 1e18);
+
+        vm.warp(activatedAt + 500);
+        (uint256 atMidpoint,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(atMidpoint, 150e18);
+
+        vm.warp(deadline + 1);
+        (uint256 afterDeadline,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(afterDeadline, 100e18);
+    }
+
+    function test_depositGoal_decayAppliedOnlyAtDepositTime() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(decayVault), type(uint256).max);
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        uint64 deadline = activatedAt + 1_000;
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(deadline);
+
+        vm.warp(activatedAt);
+        vm.prank(alice);
+        decayVault.depositGoal(100e18);
+        assertEq(decayVault.weightOf(alice), 200e18);
+
+        vm.warp(activatedAt + 500);
+        vm.prank(alice);
+        decayVault.depositGoal(100e18);
+
+        // First deposit keeps its originally-accounted weight; only the second deposit is decayed.
+        assertEq(decayVault.stakedGoalOf(alice), 200e18);
+        assertEq(decayVault.weightOf(alice), 350e18);
+        assertEq(decayVault.totalWeight(), 350e18);
+    }
+
+    function test_quoteGoalToCobuildWeight_fallsBackToBaseWeightWhenTreasuryMetadataUnavailable() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        uint64 deadline = activatedAt + 1_000;
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(deadline);
+
+        vm.warp(activatedAt + 500);
+        (uint256 withMetadata,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(withMetadata, 150e18);
+
+        metadataTreasury.setRevertActivatedAt(true);
+        (uint256 activatedReadReverts,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(activatedReadReverts, 200e18);
+
+        metadataTreasury.setRevertActivatedAt(false);
+        metadataTreasury.setActivatedAt(0);
+        (uint256 activatedUnset,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(activatedUnset, 200e18);
+
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setRevertDeadline(true);
+        (uint256 deadlineReadReverts,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(deadlineReadReverts, 200e18);
+
+        metadataTreasury.setRevertDeadline(false);
+        metadataTreasury.setDeadline(0);
+        (uint256 deadlineUnset,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(deadlineUnset, 200e18);
+    }
+
     function test_markGoalResolved_revertsForUnauthorizedWhenTreasuryNotResolved() public {
         VaultResolvedSignal signal = new VaultResolvedSignal();
 
@@ -2419,6 +2531,39 @@ contract VaultGoalTreasuryWithDeadline {
     }
 
     function deadline() external view returns (uint64) {
+        return _deadline;
+    }
+}
+
+contract VaultGoalTreasuryDecayMetadata {
+    uint64 internal _activatedAt;
+    uint64 internal _deadline;
+    bool internal _revertActivatedAt;
+    bool internal _revertDeadline;
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        _activatedAt = activatedAt_;
+    }
+
+    function setDeadline(uint64 deadline_) external {
+        _deadline = deadline_;
+    }
+
+    function setRevertActivatedAt(bool shouldRevert_) external {
+        _revertActivatedAt = shouldRevert_;
+    }
+
+    function setRevertDeadline(bool shouldRevert_) external {
+        _revertDeadline = shouldRevert_;
+    }
+
+    function activatedAt() external view returns (uint64) {
+        if (_revertActivatedAt) revert("ACTIVATED_AT_FAILURE");
+        return _activatedAt;
+    }
+
+    function deadline() external view returns (uint64) {
+        if (_revertDeadline) revert("DEADLINE_FAILURE");
         return _deadline;
     }
 }
