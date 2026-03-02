@@ -41,6 +41,7 @@ contract SubmissionDepositRoutingTest is Test {
     address internal roundOperator = address(0x0F00);
     address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
+    address internal bob = address(0xB0B);
     address internal challenger = address(0xC0FFEE);
 
     uint256 internal constant ARBITRATION_COST = 1e14;
@@ -66,6 +67,7 @@ contract SubmissionDepositRoutingTest is Test {
         factory = new RoundFactory();
 
         underlying.mint(alice, 1000e18);
+        underlying.mint(bob, 1000e18);
         underlying.mint(challenger, 1000e18);
     }
 
@@ -102,7 +104,7 @@ contract SubmissionDepositRoutingTest is Test {
         vm.prank(alice);
         underlying.approve(address(tcr), type(uint256).max);
 
-        bytes memory item = _submissionItem();
+        bytes memory item = _submissionItem(alice);
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
 
@@ -151,7 +153,7 @@ contract SubmissionDepositRoutingTest is Test {
         vm.prank(challenger);
         underlying.approve(address(tcr), type(uint256).max);
 
-        bytes memory item = _submissionItem();
+        bytes memory item = _submissionItem(alice);
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
 
@@ -208,7 +210,7 @@ contract SubmissionDepositRoutingTest is Test {
         vm.prank(challenger);
         underlying.approve(address(tcr), type(uint256).max);
 
-        bytes memory item = _submissionItem();
+        bytes memory item = _submissionItem(alice);
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
 
@@ -232,7 +234,67 @@ contract SubmissionDepositRoutingTest is Test {
         assertEq(tcr.submissionDeposits(itemId), 0);
     }
 
-    function _submissionItem() internal pure returns (bytes memory) {
-        return abi.encode(uint8(0), DEFAULT_POST_ID);
+    function test_noneRuling_refundsRequester_notPayloadRecipient_whenDifferent() public {
+        address prizePool = address(0xBADA55);
+        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(underlying, prizePool);
+
+        RoundSubmissionTCR implementation = new RoundSubmissionTCR();
+        RoundSubmissionTCR tcr = RoundSubmissionTCR(Clones.clone(address(implementation)));
+        RoundTestArbitrator arb = new RoundTestArbitrator(IVotes(address(underlying)), address(tcr), 1, 1, 1, ARBITRATION_COST);
+
+        tcr.initialize(
+            RoundSubmissionTCR.RoundConfig({
+                roundId: bytes32("r"),
+                startAt: uint64(block.timestamp - 1),
+                endAt: uint64(block.timestamp + 30 days),
+                prizeVault: prizePool
+            }),
+            RoundSubmissionTCR.RegistryConfig({
+                arbitrator: arb,
+                arbitratorExtraData: "",
+                registrationMetaEvidence: "reg",
+                clearingMetaEvidence: "clr",
+                governor: governor,
+                votingToken: IVotes(address(underlying)),
+                submissionBaseDeposit: SUBMISSION_DEPOSIT,
+                submissionDepositStrategy: strategy,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: 1 days
+            })
+        );
+
+        vm.prank(bob);
+        underlying.approve(address(tcr), type(uint256).max);
+        vm.prank(challenger);
+        underlying.approve(address(tcr), type(uint256).max);
+
+        bytes memory item = _submissionItem(alice);
+        vm.prank(bob);
+        bytes32 itemId = tcr.addItem(item);
+
+        vm.prank(challenger);
+        tcr.challengeRequest(itemId, "");
+
+        (bool exists, uint256 requestIndex) = tcr.getLatestRequestIndex(itemId);
+        assertTrue(exists);
+
+        (, uint256 disputeId,,,,,,,,) = tcr.getRequestInfo(itemId, requestIndex);
+        assertGt(disputeId, 0);
+
+        uint256 requesterBefore = underlying.balanceOf(bob);
+        uint256 recipientBefore = underlying.balanceOf(alice);
+
+        arb.giveRuling(address(tcr), disputeId, 0);
+
+        assertEq(underlying.balanceOf(bob) - requesterBefore, SUBMISSION_DEPOSIT);
+        assertEq(underlying.balanceOf(alice), recipientBefore);
+        assertEq(underlying.balanceOf(prizePool), 0);
+        assertEq(tcr.submissionDeposits(itemId), 0);
+    }
+
+    function _submissionItem(address recipient) internal pure returns (bytes memory) {
+        return abi.encode(uint8(0), DEFAULT_POST_ID, recipient);
     }
 }

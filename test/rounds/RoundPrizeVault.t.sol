@@ -69,19 +69,22 @@ contract RoundPrizeVaultTest is Test {
         underlying.mint(alice, 1000e18);
         vm.prank(alice);
         underlying.approve(address(submissions), type(uint256).max);
+        underlying.mint(bob, 1000e18);
+        vm.prank(bob);
+        underlying.approve(address(submissions), type(uint256).max);
     }
 
     function _submitAndRegister() internal returns (bytes32 itemId) {
-        bytes memory item = _submissionItem();
+        bytes memory item = _submissionItem(alice);
         vm.prank(alice);
         itemId = submissions.addItem(item);
 
-        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
         submissions.executeRequest(itemId);
     }
 
-    function _submissionItem() internal pure returns (bytes memory) {
-        return abi.encode(uint8(0), DEFAULT_POST_ID);
+    function _submissionItem(address recipient) internal pure returns (bytes memory) {
+        return abi.encode(uint8(0), DEFAULT_POST_ID, recipient);
     }
 
     function test_constructor_revertsOnZeroAddresses() public {
@@ -110,7 +113,7 @@ contract RoundPrizeVaultTest is Test {
     }
 
     function test_setEntitlement_revertsWhenSubmissionNotRegistered() public {
-        bytes memory item = _submissionItem();
+        bytes memory item = _submissionItem(alice);
         vm.prank(alice);
         bytes32 id = submissions.addItem(item);
 
@@ -135,6 +138,22 @@ contract RoundPrizeVaultTest is Test {
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(RoundPrizeVault.ENTITLEMENT_LT_CLAIMED.selector, 99, 100));
         vault.setEntitlement(id, 99);
+    }
+
+    function test_setEntitlement_zero_allowsClearingWhenSubmissionNotRegistered() public {
+        bytes32 id = _submitAndRegister();
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+
+        vm.prank(alice);
+        submissions.removeItem(id, "");
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 0);
+        assertEq(vault.entitlementOf(id), 0);
     }
 
     function test_setEntitlements_lengthMismatch() public {
@@ -162,7 +181,7 @@ contract RoundPrizeVaultTest is Test {
         vault.claim(id);
     }
 
-    function test_claim_revertsWhenSubmissionRemovedAfterEntitlementSnapshot() public {
+    function test_claim_revertsWhenSubmissionRemovedAfterEntitlementSet() public {
         bytes32 id = _submitAndRegister();
 
         vm.prank(operator);
@@ -172,7 +191,7 @@ contract RoundPrizeVaultTest is Test {
         vm.prank(alice);
         submissions.removeItem(id, "");
 
-        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
         submissions.executeRequest(id);
 
         vm.prank(alice);
@@ -303,5 +322,64 @@ contract RoundPrizeVaultTest is Test {
 
         vm.expectRevert(RoundPrizeVault.SUPER_TOKEN_NOT_CONFIGURED.selector);
         vault2.downgrade(1);
+    }
+
+    function test_copyCalldataFrontRun_doesNotHijackVaultClaimRecipient() public {
+        bytes memory item = _submissionItem(alice);
+        vm.prank(bob);
+        bytes32 id = submissions.addItem(item);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+        underlying.mint(address(vault), 100);
+
+        vm.prank(bob);
+        vm.expectRevert(RoundPrizeVault.ONLY_SUBMITTER.selector);
+        vault.claim(id);
+
+        vm.prank(alice);
+        vault.claim(id);
+        assertEq(vault.claimedOf(id), 100);
+    }
+
+    function test_wrongRecipientCanBeCorrectedViaRemovalAndReAdd() public {
+        bytes memory attackerItem = _submissionItem(bob);
+        vm.prank(bob);
+        bytes32 id = submissions.addItem(attackerItem);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+        underlying.mint(address(vault), 100);
+
+        vm.prank(alice);
+        submissions.removeItem(id, "");
+
+        vm.prank(bob);
+        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
+        vault.claim(id);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        bytes memory correctedItem = _submissionItem(alice);
+        vm.prank(alice);
+        submissions.addItem(correctedItem);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(bob);
+        vm.expectRevert(RoundPrizeVault.ONLY_SUBMITTER.selector);
+        vault.claim(id);
+
+        vm.prank(alice);
+        vault.claim(id);
+        assertEq(vault.claimedOf(id), 100);
     }
 }

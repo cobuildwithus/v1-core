@@ -146,8 +146,9 @@ interface IGeneralizedTCR {
     );
 
     /**
-     * @notice Emitted when someone submits an item for the first time
-     * @param _itemID The ID of the new item
+     * @notice Emitted when someone submits item data for registration
+     * @dev Can emit on first submission and when an absent item is re-submitted.
+     * @param _itemID The ID of the submitted item
      * @param _submitter The address of the requester
      * @param _evidenceGroupID Unique identifier of the evidence group the evidence belongs to
      * @param _data The item data

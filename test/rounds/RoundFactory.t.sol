@@ -252,7 +252,7 @@ contract RoundFactoryTest is Test {
         vm.prank(challenger);
         underlying.approve(address(tcr), type(uint256).max);
 
-        bytes memory item = abi.encode(uint8(0), DEFAULT_POST_ID);
+        bytes memory item = abi.encode(uint8(0), DEFAULT_POST_ID, alice);
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
 

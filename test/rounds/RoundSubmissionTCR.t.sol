@@ -21,6 +21,7 @@ contract RoundSubmissionTCRTest is Test {
 
     address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
+    address internal bob = address(0xB0B);
 
     uint256 internal constant ARBITRATION_COST = 1e14;
     uint256 internal constant CHALLENGE_PERIOD = 7 days;
@@ -45,15 +46,18 @@ contract RoundSubmissionTCRTest is Test {
         token.mint(alice, 1000e18);
         vm.prank(alice);
         token.approve(address(tcr), type(uint256).max);
+        token.mint(bob, 1000e18);
+        vm.prank(bob);
+        token.approve(address(tcr), type(uint256).max);
     }
 
-    function _encode(uint8 source, bytes32 postId) internal pure returns (bytes memory) {
-        return abi.encode(source, postId);
+    function _encode(uint8 source, bytes32 postId, address recipient) internal pure returns (bytes memory) {
+        return abi.encode(source, postId, recipient);
     }
 
     function _assertAcceptsAt(uint256 timestamp) internal {
         vm.warp(timestamp);
-        bytes memory item = _encode(0, DEFAULT_POST_ID);
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
 
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
@@ -108,7 +112,14 @@ contract RoundSubmissionTCRTest is Test {
     }
 
     function test_verifyItemData_rejectsZeroPostId() public {
-        bytes memory item = _encode(0, bytes32(0));
+        bytes memory item = _encode(0, bytes32(0), alice);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        tcr.addItem(item);
+    }
+
+    function test_verifyItemData_rejectsZeroRecipient() public {
+        bytes memory item = _encode(0, DEFAULT_POST_ID, address(0));
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         tcr.addItem(item);
@@ -118,7 +129,7 @@ contract RoundSubmissionTCRTest is Test {
         uint256 startAt = uint256(tcr.startAt());
         vm.warp(startAt == 0 ? 0 : startAt - 1);
 
-        bytes memory item = _encode(0, DEFAULT_POST_ID);
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         tcr.addItem(item);
@@ -127,7 +138,7 @@ contract RoundSubmissionTCRTest is Test {
     function test_verifyItemData_rejectsAfterEndAt() public {
         vm.warp(uint256(tcr.endAt()) + 1);
 
-        bytes memory item = _encode(0, DEFAULT_POST_ID);
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         tcr.addItem(item);
@@ -151,7 +162,7 @@ contract RoundSubmissionTCRTest is Test {
         vm.prank(alice);
         token.approve(address(tcr2), type(uint256).max);
 
-        bytes memory item = _encode(0, DEFAULT_POST_ID);
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
 
         vm.warp(uint256(exactTs) - 1);
         vm.prank(alice);
@@ -165,12 +176,12 @@ contract RoundSubmissionTCRTest is Test {
         vm.warp(uint256(exactTs) + 1);
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
-        tcr2.addItem(item);
+        tcr2.addItem(_encode(0, bytes32("new-post"), alice));
     }
 
     function test_constructItemId_isKeccakSourceAndPostId() public {
         bytes32 postId = keccak256("hello");
-        bytes memory item = _encode(7, postId);
+        bytes memory item = _encode(7, postId, alice);
         bytes32 expected = keccak256(abi.encodePacked(uint8(7), postId));
 
         vm.prank(alice);
@@ -179,19 +190,21 @@ contract RoundSubmissionTCRTest is Test {
     }
 
     function test_decodeEncodeRoundTrip() public {
-        RoundSubmissionTCR.SubmissionRef memory ref = RoundSubmissionTCR.SubmissionRef({ source: 3, postId: bytes32("abc") });
+        RoundSubmissionTCR.Submission memory submission =
+            RoundSubmissionTCR.Submission({ source: 3, postId: bytes32("abc"), recipient: alice });
 
-        bytes memory encoded = tcr.encodeSubmission(ref);
-        RoundSubmissionTCR.SubmissionRef memory decoded = tcr.decodeSubmission(encoded);
+        bytes memory encoded = tcr.encodeSubmission(submission);
+        RoundSubmissionTCR.Submission memory decoded = tcr.decodeSubmission(encoded);
 
-        assertEq(decoded.source, ref.source);
-        assertEq(decoded.postId, ref.postId);
+        assertEq(decoded.source, submission.source);
+        assertEq(decoded.postId, submission.postId);
+        assertEq(decoded.recipient, submission.recipient);
     }
 
-    function test_itemManagerAndStatus_updatesAfterExecute() public {
-        bytes memory item = _encode(0, DEFAULT_POST_ID);
+    function test_itemManagerAndStatus_usesPayloadRecipient_notRequester() public {
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
 
-        vm.prank(alice);
+        vm.prank(bob);
         bytes32 itemId = tcr.addItem(item);
 
         (address managerBefore, IGeneralizedTCR.Status statusBefore) = tcr.itemManagerAndStatus(itemId);
@@ -206,8 +219,98 @@ contract RoundSubmissionTCRTest is Test {
         assertEq(uint256(statusAfter), uint256(IGeneralizedTCR.Status.Registered));
     }
 
+    function test_itemManagerAndData_updateWhenReAddedAfterRemoval() public {
+        bytes memory initial = _encode(0, DEFAULT_POST_ID, alice);
+        vm.prank(alice);
+        bytes32 itemId = tcr.addItem(initial);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        vm.prank(alice);
+        tcr.removeItem(itemId, "");
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        bytes memory corrected = _encode(0, DEFAULT_POST_ID, bob);
+        vm.prank(alice);
+        bytes32 readdedId = tcr.addItem(corrected);
+        assertEq(readdedId, itemId);
+
+        (bytes memory storedData, IGeneralizedTCR.Status status,) = tcr.getItemInfo(itemId);
+        assertEq(keccak256(storedData), keccak256(corrected));
+        assertEq(uint256(status), uint256(IGeneralizedTCR.Status.RegistrationRequested));
+
+        (address managerAfter,) = tcr.itemManagerAndStatus(itemId);
+        assertEq(managerAfter, bob);
+    }
+
+    function test_verifyItemData_allowsReAddAfterEndAt_onlyForExistingItem() public {
+        bytes memory existingItem = _encode(0, DEFAULT_POST_ID, alice);
+        vm.prank(alice);
+        bytes32 itemId = tcr.addItem(existingItem);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        vm.prank(alice);
+        tcr.removeItem(itemId, "");
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        vm.warp(uint256(tcr.endAt()) + 1);
+
+        vm.prank(alice);
+        bytes32 readdId = tcr.addItem(existingItem);
+        assertEq(readdId, itemId);
+
+        bytes memory newItemAfterEnd = _encode(0, bytes32("new-post"), alice);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        tcr.addItem(newItemAfterEnd);
+    }
+
+    function test_verifyItemData_allowsRecipientCorrectionAfterEndAt() public {
+        bytes memory originalItem = _encode(0, DEFAULT_POST_ID, bob);
+        vm.prank(bob);
+        bytes32 itemId = tcr.addItem(originalItem);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        vm.prank(bob);
+        tcr.removeItem(itemId, "");
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        tcr.executeRequest(itemId);
+
+        vm.warp(uint256(tcr.endAt()) + 1);
+
+        bytes memory correctedItem = _encode(0, DEFAULT_POST_ID, alice);
+        vm.prank(alice);
+        bytes32 readdId = tcr.addItem(correctedItem);
+        assertEq(readdId, itemId);
+
+        (bytes memory storedData, IGeneralizedTCR.Status status,) = tcr.getItemInfo(itemId);
+        assertEq(keccak256(storedData), keccak256(correctedItem));
+        assertEq(uint256(status), uint256(IGeneralizedTCR.Status.RegistrationRequested));
+
+        (address manager,) = tcr.itemManagerAndStatus(itemId);
+        assertEq(manager, alice);
+    }
+
+    function test_copyCalldataFrontRun_cannotHijackManager() public {
+        bytes memory item = _encode(0, DEFAULT_POST_ID, alice);
+
+        vm.prank(bob);
+        bytes32 itemId = tcr.addItem(item);
+
+        (address manager, IGeneralizedTCR.Status status) = tcr.itemManagerAndStatus(itemId);
+        assertEq(manager, alice);
+        assertEq(uint256(status), uint256(IGeneralizedTCR.Status.RegistrationRequested));
+    }
+
     function test_addItem_revertsOnDuplicateAfterRegistered() public {
-        bytes memory item = _encode(1, DEFAULT_POST_ID);
+        bytes memory item = _encode(1, DEFAULT_POST_ID, alice);
 
         vm.prank(alice);
         bytes32 itemId = tcr.addItem(item);
