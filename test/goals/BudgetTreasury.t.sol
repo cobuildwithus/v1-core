@@ -242,7 +242,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_canAcceptFunding_falseWhenFundingWindowEnds() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         assertFalse(treasury.canAcceptFunding());
     }
 
@@ -306,7 +306,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_donateUnderlyingAndUpgrade_revertsWhenFundingClosed() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -429,7 +429,7 @@ contract BudgetTreasuryTest is Test {
         superToken.mint(address(flow), 300e18);
         _setIncomingFlowRate(50);
 
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
@@ -457,7 +457,7 @@ contract BudgetTreasuryTest is Test {
     function test_sync_afterFundingDeadline_withThresholdReached_keepsFundingAnchoredDeadline() public {
         superToken.mint(address(flow), 300e18);
 
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
@@ -475,7 +475,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_fundingBelowThresholdAfterWindow_expires() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
@@ -509,7 +509,7 @@ contract BudgetTreasuryTest is Test {
         );
         assertGt(shortExecutionTreasury.deadline(), shortExecutionTreasury.fundingDeadline());
 
-        vm.warp(shortExecutionTreasury.fundingDeadline());
+        _warpPastFundingDeadline(shortExecutionTreasury);
         _registerSuccessAssertion(shortExecutionTreasury);
         vm.prank(owner);
         shortExecutionTreasury.resolveSuccess();
@@ -685,7 +685,7 @@ contract BudgetTreasuryTest is Test {
         treasury.sync();
         int96 initialRate = flow.targetOutflowRate();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         _setIncomingFlowRate(125);
@@ -705,7 +705,7 @@ contract BudgetTreasuryTest is Test {
         treasury.sync();
         assertGt(flow.targetOutflowRate(), 0);
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerPendingUnsettledSuccessAssertion(treasury);
         bytes32 pendingAssertionId = treasury.pendingSuccessAssertionId();
 
@@ -723,7 +723,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         vm.warp(treasury.deadline());
@@ -764,7 +764,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         finalizeCleanupTreasury.sync();
 
-        vm.warp(finalizeCleanupTreasury.fundingDeadline());
+        _warpPastFundingDeadline(finalizeCleanupTreasury);
         bytes32 assertionId = keccak256("budget-finalize-cleanup-assertion");
         vm.prank(address(resolverWithFinalize));
         finalizeCleanupTreasury.registerSuccessAssertion(assertionId);
@@ -823,7 +823,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         finalizeCleanupTreasury.sync();
 
-        vm.warp(finalizeCleanupTreasury.fundingDeadline());
+        _warpPastFundingDeadline(finalizeCleanupTreasury);
         bytes32 assertionId = keccak256("budget-finalize-cleanup-assertion");
         vm.prank(address(resolverWithFinalize));
         finalizeCleanupTreasury.registerSuccessAssertion(assertionId);
@@ -871,7 +871,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertionWithSettlement(treasury, true, false);
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
@@ -905,7 +905,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         unresolvedConfigTreasury.sync();
 
-        vm.warp(unresolvedConfigTreasury.fundingDeadline());
+        _warpPastFundingDeadline(unresolvedConfigTreasury);
         bytes32 assertionId = keccak256("budget-assertion-config-read-failure");
         vm.prank(address(revertingResolverConfig));
         unresolvedConfigTreasury.registerSuccessAssertion(assertionId);
@@ -949,7 +949,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         zeroOracleTreasury.sync();
 
-        vm.warp(zeroOracleTreasury.fundingDeadline());
+        _warpPastFundingDeadline(zeroOracleTreasury);
         bytes32 assertionId = keccak256("budget-assertion-oracle-zero-address");
         vm.prank(address(zeroOracleResolverConfig));
         zeroOracleTreasury.registerSuccessAssertion(assertionId);
@@ -994,7 +994,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         unresolvedAssertionReadTreasury.sync();
 
-        vm.warp(unresolvedAssertionReadTreasury.fundingDeadline());
+        _warpPastFundingDeadline(unresolvedAssertionReadTreasury);
         bytes32 assertionId = keccak256("budget-assertion-oracle-read-failure");
         vm.prank(address(revertingAssertionReadResolver));
         unresolvedAssertionReadTreasury.registerSuccessAssertion(assertionId);
@@ -1025,7 +1025,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertionWithSettlement(treasury, true, false);
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
@@ -1055,7 +1055,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertionWithSettlement(treasury, true, false);
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
@@ -1085,7 +1085,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertionWithSettlement(treasury, true, false);
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
@@ -1243,7 +1243,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(100);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerPendingUnsettledSuccessAssertion(treasury);
 
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
@@ -1293,7 +1293,7 @@ contract BudgetTreasuryTest is Test {
     function test_registerSuccessAssertion_onlySuccessResolver() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         vm.prank(outsider);
         vm.expectRevert(IBudgetTreasury.ONLY_SUCCESS_RESOLVER.selector);
@@ -1303,7 +1303,7 @@ contract BudgetTreasuryTest is Test {
     function test_registerSuccessAssertion_revertsOnZeroAssertionId() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         vm.prank(owner);
         vm.expectRevert(IBudgetTreasury.INVALID_ASSERTION_ID.selector);
@@ -1313,7 +1313,7 @@ contract BudgetTreasuryTest is Test {
     function test_registerSuccessAssertion_revertsWhenAssertionAlreadyPending() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         bytes32 assertionId = keccak256("budget-first-assertion");
         vm.prank(owner);
@@ -1329,7 +1329,7 @@ contract BudgetTreasuryTest is Test {
     function test_clearSuccessAssertion_onlySuccessResolver() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
@@ -1347,7 +1347,7 @@ contract BudgetTreasuryTest is Test {
     function test_clearSuccessAssertion_revertsOnAssertionIdMismatch() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
@@ -1365,7 +1365,7 @@ contract BudgetTreasuryTest is Test {
     function test_registerAndClearSuccessAssertion_emitsEventsAndResetsPendingState() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         bytes32 assertionId = keccak256("budget-register-clear");
 
@@ -1389,7 +1389,7 @@ contract BudgetTreasuryTest is Test {
     function test_resolveSuccess_fromActive_afterFundingDeadline_beforeDeadline() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         _registerSuccessAssertion(treasury);
         vm.prank(owner);
@@ -1409,6 +1409,16 @@ contract BudgetTreasuryTest is Test {
         treasury.registerSuccessAssertion(keccak256("early"));
     }
 
+    function test_registerSuccessAssertion_revertsAtFundingDeadlineBoundary() public {
+        superToken.mint(address(flow), 100e18);
+        treasury.sync();
+        vm.warp(treasury.fundingDeadline());
+
+        vm.prank(owner);
+        vm.expectRevert(IBudgetTreasury.FUNDING_WINDOW_NOT_ENDED.selector);
+        treasury.registerSuccessAssertion(keccak256("at-boundary"));
+    }
+
     function test_resolveSuccess_revertsAtDeadlineWithoutPendingAssertion() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
@@ -1423,7 +1433,7 @@ contract BudgetTreasuryTest is Test {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         vm.warp(treasury.deadline());
@@ -1438,7 +1448,7 @@ contract BudgetTreasuryTest is Test {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
 
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
@@ -1484,8 +1494,16 @@ contract BudgetTreasuryTest is Test {
         treasury.resolveFailure();
     }
 
+    function test_resolveFailure_fromFunding_revertsAtFundingDeadlineBoundary() public {
+        vm.warp(treasury.fundingDeadline());
+
+        vm.prank(owner);
+        vm.expectRevert(IBudgetTreasury.FUNDING_WINDOW_NOT_ENDED.selector);
+        treasury.resolveFailure();
+    }
+
     function test_resolveFailure_fromFunding_afterFundingDeadline() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1516,7 +1534,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_resolveFailure_revertsWhenAlreadyResolved() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1561,7 +1579,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_whenResolved_isNoOp() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1573,7 +1591,7 @@ contract BudgetTreasuryTest is Test {
     function test_sync_whenSucceeded_isNoOp() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
 
         _registerSuccessAssertion(treasury);
         vm.prank(owner);
@@ -1606,7 +1624,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_settleLateResidualToParent_sweepsLateInflowAfterFinalize() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1673,7 +1691,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_noOpWhenResolvedByFailure() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1682,7 +1700,7 @@ contract BudgetTreasuryTest is Test {
         assertTrue(treasury.resolved());
     }
     function test_sync_noOpWhenResolvedByExpiry() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         treasury.sync();
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
 
@@ -1702,7 +1720,7 @@ contract BudgetTreasuryTest is Test {
     function test_disableSuccessResolution_clearsPendingAssertion_andBlocksSuccessResolutionPaths() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
-        vm.warp(treasury.fundingDeadline());
+        _warpPastFundingDeadline(treasury);
         _registerSuccessAssertion(treasury);
 
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
@@ -1750,7 +1768,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_finalize_fromFunding_skipsFlowStopWhenAlreadyZero() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
         assertEq(flow.setFlowRateCallCount(), 0);
@@ -1883,7 +1901,7 @@ contract BudgetTreasuryTest is Test {
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         target.initialize(address(controllerMock), config);
 
-        vm.warp(target.fundingDeadline() + 1);
+        _warpPastFundingDeadline(target);
         vm.prank(address(controllerMock));
         target.resolveFailure();
 
@@ -1901,7 +1919,7 @@ contract BudgetTreasuryTest is Test {
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         target.initialize(address(controllerMock), config);
 
-        vm.warp(target.fundingDeadline() + 1);
+        _warpPastFundingDeadline(target);
         vm.expectEmit(true, false, false, true, address(target));
         emit IBudgetTreasury.TerminalSideEffectFailed(
             TERMINAL_OP_PARENT_PRUNE, abi.encodeWithSignature("Error(string)", "PRUNE_FAILED")
@@ -1921,7 +1939,7 @@ contract BudgetTreasuryTest is Test {
         IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
         target.initialize(address(controllerMock), config);
 
-        vm.warp(target.fundingDeadline() + 1);
+        _warpPastFundingDeadline(target);
         vm.expectEmit(true, false, false, true, address(target));
         emit IBudgetTreasury.TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, abi.encodePacked("GOAL_SYNC_NOT_APPLIED"));
         vm.prank(address(controllerMock));
@@ -1963,7 +1981,7 @@ contract BudgetTreasuryTest is Test {
         uint64 activatedAt = treasuryWithRealEscrow.activatedAt();
         assertGt(activatedAt, 0);
 
-        vm.warp(treasuryWithRealEscrow.fundingDeadline());
+        _warpPastFundingDeadline(treasuryWithRealEscrow);
         _registerSuccessAssertion(treasuryWithRealEscrow);
 
         vm.prank(owner);
@@ -1984,7 +2002,7 @@ contract BudgetTreasuryTest is Test {
     function test_finalize_withRealPremiumEscrow_expiredWithoutActivation_closesEscrowButRemainsNotSlashable() public {
         (BudgetTreasury treasuryWithRealEscrow, PremiumEscrow realEscrow) = _deployTreasuryWithRealPremiumEscrow();
 
-        vm.warp(treasuryWithRealEscrow.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasuryWithRealEscrow);
         treasuryWithRealEscrow.sync();
 
         assertEq(uint256(treasuryWithRealEscrow.state()), uint256(IBudgetTreasury.BudgetState.Expired));
@@ -2008,7 +2026,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_canAcceptFunding_falseAfterFinalized() public {
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         vm.prank(owner);
         treasury.resolveFailure();
         assertFalse(treasury.canAcceptFunding());
@@ -2022,7 +2040,7 @@ contract BudgetTreasuryTest is Test {
         assertFalse(treasury.resolved());
         assertEq(treasury.resolvedAt(), 0);
 
-        vm.warp(treasury.fundingDeadline() + 1);
+        _warpPastFundingDeadline(treasury);
         uint64 expectedResolvedAt = uint64(block.timestamp);
         vm.prank(owner);
         treasury.resolveFailure();
@@ -2104,12 +2122,16 @@ contract BudgetTreasuryTest is Test {
         flow.setSweeper(address(deployed));
     }
 
+    function _warpPastFundingDeadline(BudgetTreasury target) internal {
+        vm.warp(target.fundingDeadline() + 1);
+    }
+
     function _openReassertGraceWindow(BudgetTreasury target) internal returns (uint64 graceDeadline) {
         superToken.mint(address(flow), 200e18);
         _setIncomingFlowRate(100);
         target.sync();
 
-        vm.warp(target.fundingDeadline());
+        _warpPastFundingDeadline(target);
         _registerSuccessAssertionWithSettlement(target, true, false);
 
         vm.warp(target.deadline());
