@@ -523,9 +523,10 @@ contract AllocationMechanismTCRTest is Test {
 
         assertGt(released, 0);
         assertEq(released, balanceAfterSecondTick);
-        assertFalse(afterRelease.active);
-        assertEq(budgetFlow.recipientById(itemId), address(0));
-        assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
+        // Releasing funds does not stop future funding; stop conditions are enforced by syncRoundFunding.
+        assertTrue(afterRelease.active);
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertTrue(budgetFlow.recipientExists(deployment.fundingEscrow));
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
         assertEq(superToken.balanceOf(deployment.prizeVault), vaultBefore + released);
     }
