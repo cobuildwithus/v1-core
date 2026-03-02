@@ -4,9 +4,14 @@ pragma solidity ^0.8.34;
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
+import {IAllocationKeyAccountResolver} from "src/interfaces/IAllocationKeyAccountResolver.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {GoalFlowLedgerMode} from "src/library/GoalFlowLedgerMode.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     bytes32 internal constant PARENT_BUDGET_RECIPIENT_ID = bytes32(uint256(1001));
@@ -529,6 +534,92 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(childFlow.lastStrategy(), address(childStrategy));
     }
 
+    function test_gas_allocate_withLedgerPremiumCheckpoint_overheadUnderTwentyPercent() public {
+        uint256 withPremiumCheckpointGas = _measureAllocateGasForPipelineVariant(true);
+        uint256 withoutPremiumCheckpointGas = _measureAllocateGasForPipelineVariant(false);
+
+        assertGt(withPremiumCheckpointGas, withoutPremiumCheckpointGas);
+
+        uint256 overhead = withPremiumCheckpointGas - withoutPremiumCheckpointGas;
+        uint256 overheadBps = (overhead * FlowProtocolConstants.BPS_SCALE_UINT256) / withPremiumCheckpointGas;
+
+        emit log_named_uint("allocate_gas_with_premium_checkpoint", withPremiumCheckpointGas);
+        emit log_named_uint("allocate_gas_without_premium_checkpoint", withoutPremiumCheckpointGas);
+        emit log_named_uint("allocate_gas_premium_checkpoint_overhead", overhead);
+        emit log_named_uint("allocate_gas_premium_checkpoint_overhead_bps", overheadBps);
+
+        assertLe(overheadBps, 2_000);
+    }
+
+    function _measureAllocateGasForPipelineVariant(bool includePremiumCheckpoint) internal returns (uint256 gasUsed) {
+        uint256 deploymentNonce = vm.getNonce(address(this));
+        address predictedFlow = vm.computeCreateAddress(address(this), deploymentNonce + 5);
+
+        FlowLedgerPropStakeVault benchmarkStakeVault = new FlowLedgerPropStakeVault();
+        FlowLedgerPropGoalTreasury benchmarkGoalTreasury =
+            new FlowLedgerPropGoalTreasury(predictedFlow, address(benchmarkStakeVault));
+        FlowLedgerPropLedger benchmarkLedger = new FlowLedgerPropLedger(address(benchmarkGoalTreasury));
+        address benchmarkPipeline = includePremiumCheckpoint
+            ? address(new GoalFlowAllocationLedgerPipeline(address(benchmarkLedger)))
+            : address(new FlowLedgerPropNoPremiumCheckpointPipeline(address(benchmarkLedger)));
+
+        MockAllocationStrategy benchmarkStrategy = new MockAllocationStrategy();
+        benchmarkStrategy.setUseAuxAsKey(true);
+        benchmarkStrategy.setStakeVault(address(benchmarkStakeVault));
+
+        uint256 benchmarkKey = benchmarkStrategy.allocationKey(allocator, bytes(""));
+        benchmarkStrategy.setCanAllocate(benchmarkKey, allocator, true);
+        benchmarkStrategy.setCanAccountAllocate(allocator, true);
+
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(benchmarkStrategy));
+
+        ICustomFlow benchmarkFlow = ICustomFlow(
+            address(_deployFlowWithConfig(owner, manager, managerRewardPool, benchmarkPipeline, address(0), strategies))
+        );
+        assertEq(address(benchmarkFlow), predictedFlow);
+
+        vm.prank(owner);
+        superToken.transfer(address(benchmarkFlow), 500_000e18);
+
+        FlowLedgerPropChildStrategy benchmarkChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow benchmarkChildFlow = new FlowLedgerPropChildFlow(address(benchmarkChildStrategy));
+        FlowLedgerPropPremiumEscrow benchmarkPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropBudgetTreasury benchmarkBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(benchmarkChildFlow), address(benchmarkPremiumEscrow));
+
+        vm.prank(manager);
+        benchmarkFlow.addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
+        benchmarkLedger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(benchmarkBudgetTreasury));
+
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = FULL_SCALED;
+
+        uint256 initialWeight = 100 * UNIT_WEIGHT_SCALE;
+        uint256 reducedWeight = 75 * UNIT_WEIGHT_SCALE;
+        benchmarkStakeVault.setWeight(allocator, initialWeight);
+        benchmarkStrategy.setWeight(benchmarkKey, initialWeight);
+
+        vm.prank(allocator);
+        benchmarkFlow.allocate(recipientIds, scaled);
+
+        benchmarkStakeVault.setWeight(allocator, reducedWeight);
+        benchmarkStrategy.setWeight(benchmarkKey, reducedWeight);
+
+        uint256 gasBefore = gasleft();
+        vm.prank(allocator);
+        benchmarkFlow.allocate(recipientIds, scaled);
+        gasUsed = gasBefore - gasleft();
+
+        if (includePremiumCheckpoint) {
+            assertEq(benchmarkPremiumEscrow.checkpointCallCount(), 2);
+        } else {
+            assertEq(benchmarkPremiumEscrow.checkpointCallCount(), 0);
+        }
+    }
+
     function _setWeights(uint256 weight) internal {
         stakeVault.setWeight(allocator, weight);
         strategy.setWeight(parentKey, weight);
@@ -579,6 +670,73 @@ contract FlowLedgerPropStakeVault {
 
     function weightOf(address account) external view returns (uint256) {
         return _weight[account];
+    }
+}
+
+contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
+    address public immutable allocationLedger;
+
+    error INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(address strategy, uint256 allocationKey);
+
+    constructor(address allocationLedger_) {
+        allocationLedger = allocationLedger_;
+    }
+
+    function validateForFlow(address) external pure { }
+
+    function onAllocationCommitted(
+        address strategy,
+        uint256 allocationKey,
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationsPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationsPpm
+    ) external {
+        address ledger = allocationLedger;
+        if (ledger == address(0)) return;
+
+        address account = IAllocationKeyAccountResolver(strategy).accountForAllocationKey(allocationKey);
+        if (account == address(0)) revert INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(strategy, allocationKey);
+
+        IBudgetStakeLedger(ledger).checkpointAllocation(
+            account,
+            prevWeight,
+            prevRecipientIds,
+            prevAllocationsPpm,
+            newWeight,
+            newRecipientIds,
+            newAllocationsPpm
+        );
+
+        address[] memory changedBudgetTreasuries = GoalFlowLedgerMode.detectBudgetDeltasCalldata(
+            FlowProtocolConstants.PPM_SCALE_UINT256,
+            ledger,
+            prevWeight,
+            prevRecipientIds,
+            prevAllocationsPpm,
+            newWeight,
+            newRecipientIds,
+            newAllocationsPpm
+        );
+        if (changedBudgetTreasuries.length == 0) return;
+
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions =
+            GoalFlowLedgerMode.buildChildSyncActions(account, changedBudgetTreasuries);
+        GoalFlowLedgerMode.executeChildSyncBestEffort(actions);
+    }
+
+    function previewChildSyncRequirements(
+        address,
+        uint256,
+        uint256,
+        bytes32[] calldata,
+        uint32[] calldata,
+        bytes32[] calldata,
+        uint32[] calldata
+    ) external pure returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
+        reqs = new ICustomFlow.ChildSyncRequirement[](0);
     }
 }
 
