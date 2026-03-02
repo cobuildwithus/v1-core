@@ -312,6 +312,29 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 100);
     }
 
+    function test_slashFallsBackWhenGoalFlowOperatorLookupReverts() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+
+        budgetFlow.setManagerRewardPoolFlowRatePpm(100_000);
+        budgetTreasury.setFlow(address(budgetFlow));
+        goalFlow.setRevertFlowOperator(true);
+
+        budgetTreasury.setActivatedAt(10);
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        vm.expectEmit(true, false, false, true, address(escrow));
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, false, 0, 100_000, 0, 10, 20, 100, 20);
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, 20);
+        assertEq(router.slashCalls(), 1);
+        assertEq(router.lastUnderwriter(), ALICE);
+        assertEq(router.lastWeight(), 20);
+    }
+
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -559,8 +582,11 @@ contract PremiumEscrowMockBudgetFlow {
 }
 
 contract PremiumEscrowMockGoalFlow {
+    error FLOW_OPERATOR_REVERT();
+
     ISuperToken internal _superToken;
     address internal _flowOperator;
+    bool internal _revertFlowOperator;
 
     constructor(address superToken_) {
         _superToken = ISuperToken(superToken_);
@@ -574,7 +600,12 @@ contract PremiumEscrowMockGoalFlow {
         _flowOperator = flowOperator_;
     }
 
+    function setRevertFlowOperator(bool shouldRevert_) external {
+        _revertFlowOperator = shouldRevert_;
+    }
+
     function flowOperator() external view returns (address) {
+        if (_revertFlowOperator) revert FLOW_OPERATOR_REVERT();
         return _flowOperator;
     }
 }

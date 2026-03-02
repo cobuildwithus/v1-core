@@ -6,6 +6,7 @@ import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IUnderwriterSlasherRouter } from "../interfaces/IUnderwriterSlasherRouter.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
+import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -52,10 +53,27 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 duration
     );
 
+    /// @notice Emitted with the inputs used to compute slashing for an underwriter.
+    /// @dev `usedSpendFormula == true` means the spend-proportional formula was applied;
+    ///      otherwise the contract fell back to the legacy exposure-duration formula.
+    event UnderwriterSlashCalculated(
+        address indexed underwriter,
+        bool usedSpendFormula,
+        uint256 premiumEarned,
+        uint32 premiumPpm,
+        uint256 coverageLambda,
+        uint256 duration,
+        uint256 rawSlashWeight,
+        uint256 capWeight,
+        uint256 finalSlashWeight
+    );
+
     struct AccountState {
         uint256 userIndex;
         uint256 claimable;
+        uint256 premiumEarned;
         uint256 userCov;
+        uint256 peakCov;
         uint256 exposureIntegral;
         uint64 lastExposureTs;
         bool slashed;
@@ -127,8 +145,16 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         return _accountStates[account].claimable;
     }
 
+    function premiumEarned(address account) external view returns (uint256) {
+        return _accountStates[account].premiumEarned;
+    }
+
     function userCov(address account) external view override returns (uint256) {
         return _accountStates[account].userCov;
+    }
+
+    function peakCov(address account) external view returns (uint256) {
+        return _accountStates[account].peakCov;
     }
 
     function exposureIntegral(address account) external view override returns (uint256) {
@@ -213,13 +239,72 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         accountState.slashed = true;
 
         uint256 duration = uint256(closedAt - activatedAt);
-        if (duration != 0 && budgetSlashPpm != 0 && accountState.exposureIntegral != 0) {
-            slashWeight = Math.mulDiv(accountState.exposureIntegral, uint256(budgetSlashPpm), duration * _PPM_SCALE);
-            if (slashWeight != 0) {
-                IUnderwriterSlasherRouter(underwriterSlasherRouter).slashUnderwriter(underwriter, slashWeight);
+        if (duration == 0 || budgetSlashPpm == 0) {
+            emit UnderwriterSlashCalculated(
+                underwriter,
+                false,
+                accountState.premiumEarned,
+                0,
+                0,
+                duration,
+                0,
+                accountState.peakCov,
+                0
+            );
+            emit UnderwriterSlashed(underwriter, accountState.exposureIntegral, 0, duration);
+            return 0;
+        }
+
+        // Attempt spend-proportional slashing (primary formula):
+        //   spendShare = premiumEarned / premiumFraction
+        //   avgCoverageEq = spendShare * coverageLambda / duration
+        //   rawSlashWeight = avgCoverageEq * budgetSlashPpm
+        //   slashWeight = min(rawSlashWeight, peakCoverage)
+        //
+        // If configuration cannot be resolved, fall back to the legacy exposure-duration formula.
+
+        (uint32 premiumPpm, uint256 coverageLambda) = _resolveSpendFormulaParams();
+        bool usedSpendFormula = (premiumPpm != 0 && coverageLambda != 0);
+
+        uint256 rawSlashWeight;
+        uint256 capWeight = accountState.peakCov;
+
+        if (usedSpendFormula) {
+            // spendShare = premiumEarned * 1e6 / premiumPpm
+            uint256 spendShare = Math.mulDiv(accountState.premiumEarned, _PPM_SCALE, uint256(premiumPpm));
+            // avgCoverageEq = spendShare * coverageLambda / duration
+            uint256 avgCoverageEq = Math.mulDiv(spendShare, coverageLambda, duration);
+            // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
+            rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), _PPM_SCALE);
+            slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
+        } else {
+            // Legacy fallback: slash proportional to time-weighted average coverage.
+            // slashWeight = exposureIntegral * budgetSlashPpm / (duration * 1e6)
+            if (accountState.exposureIntegral != 0) {
+                rawSlashWeight = Math.mulDiv(
+                    accountState.exposureIntegral,
+                    uint256(budgetSlashPpm),
+                    duration * _PPM_SCALE
+                );
+                slashWeight = rawSlashWeight;
             }
         }
 
+        if (slashWeight != 0) {
+            IUnderwriterSlasherRouter(underwriterSlasherRouter).slashUnderwriter(underwriter, slashWeight);
+        }
+
+        emit UnderwriterSlashCalculated(
+            underwriter,
+            usedSpendFormula,
+            accountState.premiumEarned,
+            premiumPpm,
+            coverageLambda,
+            duration,
+            rawSlashWeight,
+            capWeight,
+            slashWeight
+        );
         emit UnderwriterSlashed(underwriter, accountState.exposureIntegral, slashWeight, duration);
     }
 
@@ -249,6 +334,11 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
                 }
                 accountState.userCov = currentCoverage;
             }
+
+            // Track peak coverage for bounded slashing.
+            if (accountState.userCov > accountState.peakCov) {
+                accountState.peakCov = accountState.userCov;
+            }
         }
 
         emit AccountCheckpointed(
@@ -264,9 +354,45 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     function _accruePremium(AccountState storage accountState) internal {
         uint256 indexDelta = premiumIndex - accountState.userIndex;
         if (indexDelta != 0 && accountState.userCov != 0) {
-            accountState.claimable += Math.mulDiv(accountState.userCov, indexDelta, _INDEX_SCALE);
+            uint256 accrued = Math.mulDiv(accountState.userCov, indexDelta, _INDEX_SCALE);
+            if (accrued != 0) {
+                accountState.claimable += accrued;
+                // Track total earned premium (independent of claiming) to support spend-proportional slashing.
+                accountState.premiumEarned += accrued;
+            }
         }
         accountState.userIndex = premiumIndex;
+    }
+
+    function _resolveSpendFormulaParams() internal view returns (uint32 premiumPpm, uint256 lambda) {
+        // Resolve premium share (ppm) from the budget flow itself.
+        address budgetFlow;
+        try IBudgetTreasury(budgetTreasury).flow() returns (address flow_) {
+            budgetFlow = flow_;
+        } catch {
+            return (0, 0);
+        }
+        if (budgetFlow == address(0) || budgetFlow.code.length == 0) return (0, 0);
+
+        try IFlow(budgetFlow).managerRewardPoolFlowRatePpm() returns (uint32 ppm) {
+            premiumPpm = ppm;
+        } catch {
+            premiumPpm = 0;
+        }
+
+        // Resolve coverage lambda from the goal treasury (flow operator for the root goal flow).
+        address goalTreasury;
+        try IFlow(goalFlow).flowOperator() returns (address goalTreasury_) {
+            goalTreasury = goalTreasury_;
+        } catch {
+            return (premiumPpm, 0);
+        }
+        if (goalTreasury == address(0) || goalTreasury.code.length == 0) return (premiumPpm, 0);
+        try IGoalTreasury(goalTreasury).coverageLambda() returns (uint256 lambda_) {
+            lambda = lambda_;
+        } catch {
+            lambda = 0;
+        }
     }
 
     function _accrueExposure(AccountState storage accountState) internal {
