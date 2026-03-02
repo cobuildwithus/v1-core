@@ -535,8 +535,10 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 oldTotalCoverage = totalCoverage;
 
         if (oldTotalCoverage == 0) {
-            premiumToken.safeTransfer(goalFlow, incoming);
+            // Write the cumulative receipt baseline before external transfer to avoid
+            // reentrant callbacks observing stale receipt accounting.
             accountedManagerRewardReceived = totalReceived;
+            premiumToken.safeTransfer(goalFlow, incoming);
             emit OrphanPremiumRecycled(goalFlow, incoming);
             return;
         }
@@ -565,6 +567,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 oldTotalCoverage = totalCoverage;
 
         if (oldTotalCoverage == 0) {
+            // Lock baseline before transfer so reentrant callbacks cannot reprocess
+            // the same orphan balance delta under non-standard token hook ordering.
+            accountedBalance = currentBalance;
             premiumToken.safeTransfer(goalFlow, incoming);
             accountedBalance = premiumToken.balanceOf(address(this));
             emit OrphanPremiumRecycled(goalFlow, incoming);
