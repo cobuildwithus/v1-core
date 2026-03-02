@@ -11,6 +11,7 @@ import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
@@ -194,7 +195,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow.checkpoint(ALICE);
 
         vm.warp(30);
-        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(escrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
@@ -222,7 +223,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow.checkpoint(ALICE);
 
         vm.warp(30);
-        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(escrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
@@ -256,7 +257,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow.checkpoint(ALICE);
 
         vm.warp(30);
-        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(escrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
@@ -267,7 +268,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         goalFlow.setFlowOperator(address(0));
 
         vm.expectRevert(
-            abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_SPEND_FORMULA_PARAMS.selector, BUDGET_PREMIUM_PPM, 0)
+            abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0)
         );
         escrow.slash(ALICE);
 
@@ -362,7 +363,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(budgetClosedAt);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -418,7 +419,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
 
         vm.warp(budgetClosedAt);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -470,7 +471,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         _expectWithdrawLocked(delayedVault);
 
         vm.warp(budgetClosedAt);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -627,7 +628,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertFalse(delayedBudgetTreasury.isReassertGraceActive());
 
         uint64 budgetClosedAt = uint64(block.timestamp);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -671,7 +672,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(budgetClosedAt);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -731,7 +732,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 stakedCobuildBeforePrepare = delayedVault.stakedCobuildOf(ALICE);
 
         vm.warp(budgetClosedAt);
-        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
         delayedBudgetTreasury.resolveFailure();
 
         assertTrue(delayedBudgetTreasury.resolved());
@@ -991,18 +992,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
     }
 
-    function _fundEscrowForTargetSlash(
-        PremiumEscrow escrow_,
-        uint64 activatedAt_,
-        uint64 closedAt_,
-        uint256 targetSlashWeight
-    )
-        internal
-    {
-        uint256 duration = uint256(closedAt_ - activatedAt_);
-        uint256 premiumNeeded =
-            (targetSlashWeight * duration * uint256(BUDGET_PREMIUM_PPM)) / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
-        goalSuperToken.mint(address(escrow_), premiumNeeded);
+    function _fundEscrowForTargetSlash(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
+        uint256 duration = uint256(IBudgetTreasury(escrow_.budgetTreasury()).executionDuration());
+        // New credit-drawn formula: targetSlashWeight = creditDrawn * coverageLambda / duration * budgetSlashPpm / 1e6
+        // => creditDrawn = targetSlashWeight * duration * 1e6 / (coverageLambda * budgetSlashPpm)
+        uint256 creditNeeded =
+            (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256) / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
+        address budgetFlow_ = escrow_.budgetFlow();
+        (bool ok,) = escrow_.goalFlow().call(
+            abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, creditNeeded)
+        );
+        require(ok, "_fundEscrowForTargetSlash: setTotalReceivedByMember failed");
+        escrow_.checkpoint(ALICE);
     }
 }
 
@@ -1643,6 +1644,7 @@ contract UnderwritingMockBudgetTreasury {
     uint64 public pendingSuccessAssertionAt;
     uint64 public reassertGraceDeadline;
     bool public reassertGraceUsed;
+    uint64 public executionDuration = 20;
     address public flow;
 
     constructor(ISuperToken superToken_) {
@@ -1659,6 +1661,10 @@ contract UnderwritingMockBudgetTreasury {
 
     function setFlow(address flow_) external {
         flow = flow_;
+    }
+
+    function setExecutionDuration(uint64 executionDuration_) external {
+        executionDuration = executionDuration_;
     }
 
     function setActivatedAt(uint64 activatedAt_) external {
@@ -1704,6 +1710,7 @@ contract UnderwritingMockBudgetTreasury {
 contract UnderwritingMockGoalFlow {
     ISuperToken internal immutable _superToken;
     address internal _flowOperator;
+    mapping(address => uint256) internal _totalReceivedByMember;
 
     constructor(ISuperToken superToken_) {
         _superToken = superToken_;
@@ -1719,6 +1726,14 @@ contract UnderwritingMockGoalFlow {
 
     function setFlowOperator(address flowOperator_) external {
         _flowOperator = flowOperator_;
+    }
+
+    function setTotalReceivedByMember(address member, uint256 amount) external {
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalReceivedByMember(address member) external view returns (uint256) {
+        return _totalReceivedByMember[member];
     }
 }
 

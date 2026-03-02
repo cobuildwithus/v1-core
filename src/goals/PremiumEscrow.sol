@@ -35,7 +35,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error ALREADY_CLOSED();
     error NOT_CLOSED();
     error NOT_SLASHABLE();
-    error UNRESOLVED_SPEND_FORMULA_PARAMS(uint32 premiumPpm, uint256 coverageLambda);
+    error UNRESOLVED_CREDIT_SLASH_PARAMS(uint256 coverageLambda);
     error GOAL_TREASURY_UNAVAILABLE();
     error GOAL_NOT_SUCCEEDED(IGoalTreasury.GoalState state);
     error GOAL_NOT_EXPIRED(IGoalTreasury.GoalState state);
@@ -45,6 +45,12 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 indexed totalCoverage,
         uint256 indexDelta,
         uint256 newPremiumIndex
+    );
+    event CreditIndexed(
+        uint256 indexed distributedCredit,
+        uint256 indexed totalCoverage,
+        uint256 indexDelta,
+        uint256 newCreditIndex
     );
     event ManagerRewardPoolConnected(address indexed pool, uint256 baselineReceived);
     event OrphanPremiumRecycled(address indexed destination, uint256 amount);
@@ -67,12 +73,12 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     );
 
     /// @notice Emitted with the inputs used to compute slashing for an underwriter.
-    /// @dev `usedSpendFormula == false` only on zero-duration/zero-slash-ppm early return paths.
+    /// @dev `usedCreditFormula == false` only on zero-duration/zero-slash-ppm early return paths.
     event UnderwriterSlashCalculated(
         address indexed underwriter,
-        bool usedSpendFormula,
+        bool usedCreditFormula,
+        uint256 creditDrawn,
         uint256 premiumEarned,
-        uint32 premiumPpm,
         uint256 coverageLambda,
         uint256 duration,
         uint256 rawSlashWeight,
@@ -82,8 +88,10 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
     struct AccountState {
         uint256 userIndex;
+        uint256 userCreditIndex;
         uint256 claimable;
         uint256 premiumEarned;
+        uint256 creditDrawn;
         uint256 userCov;
         uint256 peakCov;
         uint256 exposureIntegral;
@@ -95,11 +103,17 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     address public budgetStakeLedger;
     IERC20 public premiumToken;
     address public goalFlow;
+    /// @notice The child budget flow contract (recipient of goal flow distributions).
+    address public budgetFlow;
     address public underwriterSlasherRouter;
     uint32 public budgetSlashPpm;
 
     uint256 public premiumIndex;
+    /// @notice Cumulative goal-flow credit (receipts by the budget flow) indexed per unit coverage.
+    uint256 public creditIndex;
     uint256 public accountedBalance;
+    /// @notice Cumulative goal-flow receipts already accounted for credit indexing.
+    uint256 public accountedGoalReceived;
     /// @notice Optional manager reward distribution pool used as canonical premium inflow source.
     ISuperfluidPool public managerRewardPool;
     /// @notice Cumulative manager-reward receipts already accounted for indexing/recycling.
@@ -149,8 +163,16 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         budgetStakeLedger = budgetStakeLedger_;
         premiumToken = IERC20(premiumTokenAddress);
         goalFlow = goalFlow_;
+        budgetFlow = IBudgetTreasury(budgetTreasury_).flow();
         underwriterSlasherRouter = underwriterSlasherRouter_;
         budgetSlashPpm = budgetSlashPpm_;
+
+        // Establish a baseline so future goal-flow receipt deltas are well-defined.
+        try IFlow(goalFlow_).getTotalReceivedByMember(budgetFlow) returns (uint256 totalReceived) {
+            accountedGoalReceived = totalReceived;
+        } catch {
+            accountedGoalReceived = 0;
+        }
     }
 
     /// @notice Connects this escrow as a member of the manager reward distribution pool.
@@ -200,6 +222,10 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
     function exposureIntegral(address account) external view override returns (uint256) {
         return _accountStates[account].exposureIntegral;
+    }
+
+    function creditDrawn(address account) external view override returns (uint256) {
+        return _accountStates[account].creditDrawn;
     }
 
     function lastExposureTs(address account) external view returns (uint64) {
@@ -317,7 +343,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (accountState.slashed) return 0;
         accountState.slashed = true;
 
-        uint256 duration = uint256(closedAt - activatedAt);
+        uint256 duration = uint256(IBudgetTreasury(budgetTreasury).executionDuration());
         if (duration == 0 || budgetSlashPpm == 0) {
             uint256 earlyCapWeight = Math.mulDiv(
                 accountState.peakCov,
@@ -327,8 +353,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             emit UnderwriterSlashCalculated(
                 underwriter,
                 false,
+                accountState.creditDrawn,
                 accountState.premiumEarned,
-                0,
                 0,
                 duration,
                 0,
@@ -339,16 +365,13 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             return 0;
         }
 
-        // Spend-proportional slashing formula:
-        //   spendShare = premiumEarned / premiumFraction
-        //   avgCoverageEq = spendShare * coverageLambda / duration
+        // Credit-drawn-proportional slashing formula (normalized by configured execution duration):
+        //   avgCoverageEq = creditDrawn * coverageLambda / duration
         //   rawSlashWeight = avgCoverageEq * budgetSlashPpm
         //   slashWeight = min(rawSlashWeight, peakCoverage * budgetSlashPpm / 1e6)
 
-        (uint32 premiumPpm, uint256 coverageLambda) = _resolveSpendFormulaParams();
-        if (premiumPpm == 0 || coverageLambda == 0) {
-            revert UNRESOLVED_SPEND_FORMULA_PARAMS(premiumPpm, coverageLambda);
-        }
+        uint256 coverageLambda = _resolveCoverageLambda();
+        if (coverageLambda == 0) revert UNRESOLVED_CREDIT_SLASH_PARAMS(coverageLambda);
 
         uint256 rawSlashWeight;
         uint256 capWeight = Math.mulDiv(
@@ -356,14 +379,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             uint256(budgetSlashPpm),
             FlowProtocolConstants.PPM_SCALE_UINT256
         );
-        // spendShare = premiumEarned * 1e6 / premiumPpm
-        uint256 spendShare = Math.mulDiv(
-            accountState.premiumEarned,
-            FlowProtocolConstants.PPM_SCALE_UINT256,
-            uint256(premiumPpm)
-        );
-        // avgCoverageEq = spendShare * coverageLambda / duration
-        uint256 avgCoverageEq = Math.mulDiv(spendShare, coverageLambda, duration);
+        // avgCoverageEq = creditDrawn * coverageLambda / duration
+        uint256 avgCoverageEq = Math.mulDiv(accountState.creditDrawn, coverageLambda, duration);
         // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
         rawSlashWeight = Math.mulDiv(
             avgCoverageEq,
@@ -379,8 +396,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         emit UnderwriterSlashCalculated(
             underwriter,
             true,
+            accountState.creditDrawn,
             accountState.premiumEarned,
-            premiumPpm,
             coverageLambda,
             duration,
             rawSlashWeight,
@@ -401,6 +418,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 previousCoverage = accountState.userCov;
 
         _accruePremium(accountState);
+        _accrueCredit(accountState);
         _accrueExposure(accountState);
 
         if (syncCoverage) {
@@ -439,38 +457,33 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             uint256 accrued = Math.mulDiv(accountState.userCov, indexDelta, _INDEX_SCALE);
             if (accrued != 0) {
                 accountState.claimable += accrued;
-                // Track total earned premium (independent of claiming) to support spend-proportional slashing.
+                // Track total earned premium (independent of claiming) for analytics.
                 accountState.premiumEarned += accrued;
             }
         }
         accountState.userIndex = premiumIndex;
     }
 
-    function _resolveSpendFormulaParams() internal view returns (uint32 premiumPpm, uint256 lambda) {
-        // Resolve premium share (ppm) from the budget flow itself.
-        address budgetFlow;
-        try IBudgetTreasury(budgetTreasury).flow() returns (address flow_) {
-            budgetFlow = flow_;
-        } catch {
-            return (0, 0);
+    function _accrueCredit(AccountState storage accountState) internal {
+        uint256 indexDelta = creditIndex - accountState.userCreditIndex;
+        if (indexDelta != 0 && accountState.userCov != 0) {
+            uint256 accrued = Math.mulDiv(accountState.userCov, indexDelta, _INDEX_SCALE);
+            if (accrued != 0) {
+                accountState.creditDrawn += accrued;
+            }
         }
-        if (budgetFlow == address(0) || budgetFlow.code.length == 0) return (0, 0);
+        accountState.userCreditIndex = creditIndex;
+    }
 
-        try IFlow(budgetFlow).managerRewardPoolFlowRatePpm() returns (uint32 ppm) {
-            premiumPpm = ppm;
-        } catch {
-            premiumPpm = 0;
-        }
-
-        // Resolve coverage lambda from the goal treasury (flow operator for the root goal flow).
-        address goalTreasury;
+    function _resolveCoverageLambda() internal view returns (uint256 lambda) {
+        address resolvedGoalTreasury;
         try IFlow(goalFlow).flowOperator() returns (address goalTreasury_) {
-            goalTreasury = goalTreasury_;
+            resolvedGoalTreasury = goalTreasury_;
         } catch {
-            return (premiumPpm, 0);
+            return 0;
         }
-        if (goalTreasury == address(0) || goalTreasury.code.length == 0) return (premiumPpm, 0);
-        try IGoalTreasury(goalTreasury).coverageLambda() returns (uint256 lambda_) {
+        if (resolvedGoalTreasury == address(0) || resolvedGoalTreasury.code.length == 0) return 0;
+        try IGoalTreasury(resolvedGoalTreasury).coverageLambda() returns (uint256 lambda_) {
             lambda = lambda_;
         } catch {
             lambda = 0;
@@ -513,11 +526,51 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     }
 
     function _checkpointGlobal() internal {
+        _checkpointGlobalGoalFlowReceipts();
         if (address(managerRewardPool) != address(0)) {
             _checkpointGlobalFromManagerRewardPool();
         } else {
             _checkpointGlobalFromBalance();
         }
+    }
+
+    function _checkpointGlobalGoalFlowReceipts() internal {
+        address budgetFlow_ = budgetFlow;
+        if (budgetFlow_ == address(0)) return;
+
+        uint256 totalReceived;
+        try IFlow(goalFlow).getTotalReceivedByMember(budgetFlow_) returns (uint256 received_) {
+            totalReceived = received_;
+        } catch {
+            return;
+        }
+
+        uint256 previousAccounted = accountedGoalReceived;
+        // Defensive clamp in case cumulative receipt accounting ever moves backwards.
+        if (totalReceived < previousAccounted) {
+            accountedGoalReceived = totalReceived;
+            previousAccounted = totalReceived;
+        }
+        if (totalReceived == previousAccounted) return;
+
+        uint256 incoming = totalReceived - previousAccounted;
+        uint256 oldTotalCoverage = totalCoverage;
+
+        // If there is no active coverage snapshot, do not attribute receipts to underwriters.
+        // (This is consistent with credit-line logic: zero coverage implies no insured credit.)
+        if (oldTotalCoverage == 0) {
+            accountedGoalReceived = totalReceived;
+            return;
+        }
+
+        uint256 indexDelta = Math.mulDiv(incoming, _INDEX_SCALE, oldTotalCoverage);
+        if (indexDelta == 0) return;
+
+        uint256 distributed = Math.mulDiv(indexDelta, oldTotalCoverage, _INDEX_SCALE);
+        creditIndex += indexDelta;
+        accountedGoalReceived = previousAccounted + distributed;
+
+        emit CreditIndexed(distributed, oldTotalCoverage, indexDelta, creditIndex);
     }
 
     function _checkpointGlobalFromManagerRewardPool() internal {
