@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
@@ -46,6 +47,7 @@ contract AllocationMechanismTCRTest is Test {
     address internal roundOperator = address(0x0F00);
     address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
+    address internal constant MOCK_DISTRIBUTION_POOL = address(0xD157);
 
     uint256 internal constant ARBITRATION_COST = 1e14;
 
@@ -105,7 +107,10 @@ contract AllocationMechanismTCRTest is Test {
                 url: "https://example.com"
             }),
             startAt: startAt,
-            endAt: endAt
+            endAt: endAt,
+            fundingDeadline: 0,
+            minBudgetFunding: 0,
+            maxBudgetFunding: 0
         });
     }
 
@@ -153,6 +158,28 @@ contract AllocationMechanismTCRTest is Test {
         vm.warp(vm.getBlockTimestamp() + 1 days + 1);
     }
 
+    function _registerAndActivate(
+        AllocationMechanismTCR.RoundMechanismListing memory listing
+    ) internal returns (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) {
+        vm.prank(alice);
+        itemId = mechanism.addItem(abi.encode(listing));
+
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+        mechanism.activateRound(itemId);
+
+        deployment = mechanism.roundDeployment(itemId);
+    }
+
+    function _mockEscrowTotalReceived(address escrow, uint256 totalReceived) internal {
+        vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(MOCK_DISTRIBUTION_POOL));
+        vm.mockCall(
+            MOCK_DISTRIBUTION_POOL,
+            abi.encodeWithSignature("getTotalAmountReceivedByMember(address)", escrow),
+            abi.encode(totalReceived)
+        );
+    }
+
     function test_initialize_revertsWhenBudgetFlowRecipientAdminMismatch() public {
         AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
@@ -192,6 +219,16 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_verifyItemData_rejectsInvalidTimeWindow() public {
         AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(200, 100);
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+    }
+
+    function test_verifyItemData_rejectsInvalidFundingPolicy_maxBelowMin() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(100, 200);
+        listing.minBudgetFunding = 10e18;
+        listing.maxBudgetFunding = 9e18;
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
@@ -281,8 +318,14 @@ contract AllocationMechanismTCRTest is Test {
         assertTrue(deployment.active);
         assertTrue(deployed.prizeVault.code.length > 0);
         assertTrue(deployed.submissionTCR.code.length > 0);
-        assertEq(budgetFlow.recipientById(itemId), deployed.prizeVault);
-        assertTrue(budgetFlow.recipientExists(deployed.prizeVault));
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertTrue(budgetFlow.recipientExists(deployment.fundingEscrow));
+        assertEq(MechanismFundingEscrow(deployment.fundingEscrow).recipient(), deployed.prizeVault);
+        assertEq(MechanismFundingEscrow(deployment.fundingEscrow).refundRecipient(), address(budgetFlow));
+        assertEq(MechanismFundingEscrow(deployment.fundingEscrow).controller(), address(mechanism));
+
+        uint256 escrowedBeforeRemoval = 7e18;
+        superToken.mint(deployment.fundingEscrow, escrowedBeforeRemoval);
 
         vm.prank(alice);
         mechanism.removeItem(itemId, "");
@@ -294,7 +337,9 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.finalizeRemovedRound(itemId);
         AllocationMechanismTCR.RoundDeployment memory afterDeployment = mechanism.roundDeployment(itemId);
         assertFalse(afterDeployment.active);
-        assertFalse(budgetFlow.recipientExists(deployed.prizeVault));
+        assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowedBeforeRemoval);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
     }
 
     function test_addItem_revertsWhileRemovalFinalizationPending() public {
@@ -321,5 +366,108 @@ contract AllocationMechanismTCRTest is Test {
         vm.prank(alice);
         vm.expectRevert(AllocationMechanismTCR.REMOVAL_FINALIZATION_PENDING.selector);
         mechanism.addItem(abi.encode(listing));
+    }
+
+    function test_releaseRoundFunds_revertsBelowMinBudgetFunding() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AllocationMechanismTCR.ROUND_BELOW_MIN_FUNDING.selector, listing.minBudgetFunding, 99e18)
+        );
+        mechanism.releaseRoundFunds(itemId, 0);
+    }
+
+    function test_releaseRoundFunds_revertsWhenExpiredUnderfunded() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 3 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 2 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        vm.warp(uint256(listing.fundingDeadline) + 1);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AllocationMechanismTCR.ROUND_EXPIRED_UNDERFUNDED.selector,
+                listing.fundingDeadline,
+                listing.minBudgetFunding,
+                99e18
+            )
+        );
+        mechanism.releaseRoundFunds(itemId, 0);
+    }
+
+    function test_releaseRoundFunds_sweepsEscrowToPrizeVaultWhenMinMet() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = 5e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding);
+
+        uint256 released = mechanism.releaseRoundFunds(itemId, 0);
+        assertEq(released, escrowed);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(deployment.prizeVault), escrowed);
+    }
+
+    function test_syncRoundFunding_refundsEscrowWhenExpiredUnderfundedEvenAfterEndAt() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 2 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 2 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = 3e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+
+        vm.warp(uint256(listing.endAt) + 1);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
+        mechanism.syncRoundFunding(itemId);
+
+        AllocationMechanismTCR.RoundDeployment memory afterSync = mechanism.roundDeployment(itemId);
+        assertFalse(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
+    }
+
+    function test_syncRoundFunding_stopsAtCapWithoutRefundingEscrow() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.maxBudgetFunding = 250e18;
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = 2e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.maxBudgetFunding);
+
+        mechanism.syncRoundFunding(itemId);
+
+        AllocationMechanismTCR.RoundDeployment memory afterSync = mechanism.roundDeployment(itemId);
+        assertFalse(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
+        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
     }
 }
