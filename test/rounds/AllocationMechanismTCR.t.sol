@@ -48,6 +48,11 @@ contract AllocationMechanismTCRTest is Test {
     address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal constant MOCK_DISTRIBUTION_POOL = address(0xD157);
+    address internal constant MOCK_SUPERFLUID_HOST = address(0xF0057);
+    address internal constant MOCK_GDA = address(0x6DA);
+    bytes4 internal constant CALL_AGREEMENT_SELECTOR = bytes4(keccak256("callAgreement(address,bytes,bytes)"));
+    bytes32 internal constant GDA_AGREEMENT_CLASS =
+        keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1");
 
     uint256 internal constant ARBITRATION_COST = 1e14;
 
@@ -68,6 +73,15 @@ contract AllocationMechanismTCRTest is Test {
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
         roundFactory = new RoundFactory();
+
+        vm.mockCall(address(superToken), abi.encodeWithSignature("getHost()"), abi.encode(MOCK_SUPERFLUID_HOST));
+        vm.mockCall(
+            MOCK_SUPERFLUID_HOST,
+            abi.encodeWithSignature("getAgreementClass(bytes32)", GDA_AGREEMENT_CLASS),
+            abi.encode(MOCK_GDA)
+        );
+        vm.mockCall(MOCK_SUPERFLUID_HOST, abi.encodeWithSelector(CALL_AGREEMENT_SELECTOR), abi.encode(bytes("")));
+        vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(MOCK_DISTRIBUTION_POOL));
 
         mechanismDepositStrategy = new EscrowSubmissionDepositStrategy(underlying);
         AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
@@ -332,6 +346,7 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).recipient(), deployed.prizeVault);
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).refundRecipient(), address(budgetFlow));
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).controller(), address(mechanism));
+        assertEq(address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool()), MOCK_DISTRIBUTION_POOL);
 
         uint256 escrowedBeforeRemoval = 7e18;
         superToken.mint(deployment.fundingEscrow, escrowedBeforeRemoval);
@@ -349,6 +364,47 @@ contract AllocationMechanismTCRTest is Test {
         assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
         assertEq(superToken.balanceOf(address(budgetFlow)), escrowedBeforeRemoval);
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+    }
+
+    function test_activateRound_revertsWhenBudgetFlowDistributionPoolIsZero() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(address(0)));
+
+        vm.expectRevert(AllocationMechanismTCR.BUDGET_FLOW_MISMATCH.selector);
+        mechanism.activateRound(itemId);
+    }
+
+    function test_activateRound_revertsWhenEscrowPoolConnectFails() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        bytes memory connectFailure = abi.encodeWithSignature("Error(string)", "CONNECT_FAIL");
+        vm.mockCallRevert(MOCK_SUPERFLUID_HOST, abi.encodeWithSelector(CALL_AGREEMENT_SELECTOR), connectFailure);
+
+        vm.expectRevert(connectFailure);
+        mechanism.activateRound(itemId);
+
+        AllocationMechanismTCR.RoundDeployment memory deployment = mechanism.roundDeployment(itemId);
+        assertEq(deployment.prizeVault, address(0));
+        assertEq(deployment.fundingEscrow, address(0));
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertTrue(mechanism.activationQueued(itemId));
     }
 
     function test_addItem_revertsWhileRemovalFinalizationPending() public {
