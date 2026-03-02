@@ -12,6 +12,9 @@ interface IPremiumEscrow {
         uint32 budgetSlashPpm
     ) external;
 
+    /// @notice Connects this escrow to the budget manager reward distribution pool.
+    function connectManagerRewardPool(address managerRewardPool) external;
+
     function checkpoint(address account) external;
     function claim(address to) external returns (uint256 amount);
     function close(IBudgetTreasury.BudgetState state, uint64 activatedAt, uint64 closedAt) external;

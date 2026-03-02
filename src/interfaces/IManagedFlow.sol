@@ -69,6 +69,12 @@ interface IManagedFlow {
     function managerRewardPool() external view returns (address);
 
     /**
+     * @notice Returns the manager reward distribution pool address (if configured).
+     * @return The manager reward distribution pool.
+     */
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool);
+
+    /**
      * @notice Returns the recipient administration authority address.
      * @return The recipient admin address.
      */

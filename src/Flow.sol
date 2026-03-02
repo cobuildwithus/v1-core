@@ -278,14 +278,15 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Sets the flow to the manager reward pool
-     * @param _newManagerRewardFlowRate The new flow rate to the manager reward pool
+     * @notice Sets the flow to the manager reward distribution pool.
+     * @param newManagerRewardFlowRate The new flow rate to the manager reward distribution pool.
      */
-    function _setFlowToManagerRewardPool(int96 _newManagerRewardFlowRate) internal {
+    function _setFlowToManagerRewardPool(int96 newManagerRewardFlowRate) internal {
+        Config storage cfg = _cfgStorage();
         // some flows initially don't have a manager reward pool, so we don't need to set a flow to it
-        if (_cfgStorage().managerRewardPool == address(0)) return;
+        if (cfg.managerRewardPool == address(0)) return;
 
-        FlowPools.setFlowToManagerRewardPool(_cfgStorage(), getManagerRewardPoolFlowRate(), _newManagerRewardFlowRate);
+        FlowPools.setFlowToManagerRewardPool(cfg, getManagerRewardPoolFlowRate(), newManagerRewardFlowRate);
     }
 
     /**
@@ -469,6 +470,14 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
+     * @notice Retrieves the manager reward distribution pool (if configured).
+     * @return ISuperfluidPool The manager reward distribution pool.
+     */
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return _cfgStorage().managerRewardDistributionPool;
+    }
+
+    /**
      * @notice Retrieves the SuperToken used for the flow
      * @return ISuperToken The SuperToken instance
      */
@@ -533,8 +542,8 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Retrieves the current flow rate to the manager reward pool
-     * @return flowRate The current flow rate to the manager reward pool
+     * @notice Retrieves the current flow rate to the manager reward distribution pool
+     * @return flowRate The current flow rate to the manager reward distribution pool
      */
     function getManagerRewardPoolFlowRate() public view returns (int96) {
         return FlowRates.getManagerRewardPoolFlowRate(_cfgStorage(), address(this));

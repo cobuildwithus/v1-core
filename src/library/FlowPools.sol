@@ -41,39 +41,23 @@ library FlowPools {
     }
 
     /**
-     * @notice Sets the flow to the manager reward pool
+     * @notice Sets the manager reward distribution flow rate.
+     * @dev Manager reward share is distributed to `cfg.managerRewardDistributionPool` when configured.
      * @param cfg The config storage of the Flow contract
-     * @param _currentManagerRewardFlowRate The current flow rate to the manager reward pool
-     * @param _newManagerRewardFlowRate The new flow rate to the manager reward pool
+     * @param currentManagerRewardFlowRate The current manager reward distribution flow rate
+     * @param newManagerRewardFlowRate The new manager reward distribution flow rate
      */
     // slither-disable-next-line unused-return
     function setFlowToManagerRewardPool(
         FlowTypes.Config storage cfg,
-        int96 _currentManagerRewardFlowRate,
-        int96 _newManagerRewardFlowRate
+        int96 currentManagerRewardFlowRate,
+        int96 newManagerRewardFlowRate
     ) public {
-        if (_newManagerRewardFlowRate == _currentManagerRewardFlowRate) return;
-
-        if (_newManagerRewardFlowRate > 0) {
-            // if flow to reward pool is 0, create a flow, otherwise update the flow
-            if (_currentManagerRewardFlowRate == 0) {
-                // Transitioning from zero to positive requires creating the stream.
-                cfg.superToken.createFlow(cfg.managerRewardPool, _newManagerRewardFlowRate);
-            } else {
-                cfg.superToken.updateFlow(cfg.managerRewardPool, _newManagerRewardFlowRate);
-            }
-        } else if (_currentManagerRewardFlowRate > 0 && _newManagerRewardFlowRate == 0) {
-            // only delete if the flow rate is going to 0 and reward pool flow rate is currently > 0
-            cfg.superToken.deleteFlow(address(this), cfg.managerRewardPool);
-        }
+        if (newManagerRewardFlowRate == currentManagerRewardFlowRate) return;
+        if (address(cfg.managerRewardDistributionPool) == address(0)) return;
+        cfg.superToken.distributeFlow(address(this), cfg.managerRewardDistributionPool, newManagerRewardFlowRate);
     }
 
-    /**
-     * @notice Resets the flow distribution after removing a recipient
-     * @dev This function should be called after removing a recipient to ensure proper flow rate distribution
-     * @param cfg The config storage of the Flow contract
-     * @param recipientAddress The address of the removed recipient
-     */
     function removeFromPools(FlowTypes.Config storage cfg, address recipientAddress) public {
         updateDistributionMemberUnits(cfg, recipientAddress, 0);
     }

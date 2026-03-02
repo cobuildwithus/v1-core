@@ -8,6 +8,8 @@ import { IUnderwriterSlasherRouter } from "../interfaces/IUnderwriterSlasherRout
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
+import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
+import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -15,12 +17,17 @@ import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/
 
 contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
+    using SuperTokenV1Library for ISuperToken;
 
     uint256 private constant _INDEX_SCALE = 1e27;
 
     error ADDRESS_ZERO();
     error INVALID_SLASH_PPM(uint32 value);
     error ONLY_BUDGET_TREASURY();
+    error ONLY_BUDGET_CONTROL();
+    error INVALID_MANAGER_REWARD_POOL(address pool);
+    error MANAGER_REWARD_POOL_ALREADY_SET(address currentPool);
+    error POOL_CONNECT_FAILED();
     error INVALID_CLOSE_STATE(IBudgetTreasury.BudgetState state);
     error INVALID_CLOSE_WINDOW(uint64 activatedAt, uint64 closedAt);
     error INVALID_CLOSE_TIMESTAMP(uint64 closedAt);
@@ -36,6 +43,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint256 indexDelta,
         uint256 newPremiumIndex
     );
+    event ManagerRewardPoolConnected(address indexed pool, uint256 baselineReceived);
     event OrphanPremiumRecycled(address indexed destination, uint256 amount);
     event AccountCheckpointed(
         address indexed account,
@@ -88,6 +96,10 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
     uint256 public premiumIndex;
     uint256 public accountedBalance;
+    /// @notice Optional manager reward distribution pool used as canonical premium inflow source.
+    ISuperfluidPool public managerRewardPool;
+    /// @notice Cumulative manager-reward receipts already accounted for indexing/recycling.
+    uint256 public accountedManagerRewardReceived;
     uint256 public totalCoverage;
 
     bool public closed;
@@ -135,6 +147,31 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         goalFlow = goalFlow_;
         underwriterSlasherRouter = underwriterSlasherRouter_;
         budgetSlashPpm = budgetSlashPpm_;
+    }
+
+    /// @notice Connects this escrow as a member of the manager reward distribution pool.
+    /// @dev Callable by budget treasury or its controller. One-time configuration (idempotent for same pool).
+    function connectManagerRewardPool(address managerRewardPool_) external override {
+        address budgetTreasury_ = budgetTreasury;
+        address controller = budgetTreasury_ == address(0) ? address(0) : IBudgetTreasury(budgetTreasury_).controller();
+        if (msg.sender != budgetTreasury_ && msg.sender != controller) revert ONLY_BUDGET_CONTROL();
+        if (managerRewardPool_ == address(0) || managerRewardPool_.code.length == 0) {
+            revert INVALID_MANAGER_REWARD_POOL(managerRewardPool_);
+        }
+        address currentManagerRewardPool = address(managerRewardPool);
+        if (currentManagerRewardPool != address(0)) {
+            if (currentManagerRewardPool == managerRewardPool_) return;
+            revert MANAGER_REWARD_POOL_ALREADY_SET(currentManagerRewardPool);
+        }
+
+        ISuperfluidPool managerRewardDistributionPool = ISuperfluidPool(managerRewardPool_);
+        managerRewardPool = managerRewardDistributionPool;
+        bool success = ISuperToken(address(premiumToken)).connectPool(managerRewardDistributionPool);
+        if (!success) revert POOL_CONNECT_FAILED();
+
+        // Establish a baseline so future deltas are well-defined.
+        accountedManagerRewardReceived = managerRewardDistributionPool.getTotalAmountReceivedByMember(address(this));
+        emit ManagerRewardPoolConnected(managerRewardPool_, accountedManagerRewardReceived);
     }
 
     function userIndex(address account) external view returns (uint256) {
@@ -193,7 +230,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (amount == 0) return 0;
 
         accountState.claimable = claimableAmount - amount;
-        accountedBalance = amount > accountedBalance ? 0 : accountedBalance - amount;
+        if (address(managerRewardPool) == address(0)) {
+            accountedBalance = amount > accountedBalance ? 0 : accountedBalance - amount;
+        }
 
         premiumToken.safeTransfer(to, amount);
         emit Claimed(msg.sender, to, amount);
@@ -418,6 +457,45 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     }
 
     function _checkpointGlobal() internal {
+        if (address(managerRewardPool) != address(0)) {
+            _checkpointGlobalFromManagerRewardPool();
+        } else {
+            _checkpointGlobalFromBalance();
+        }
+    }
+
+    function _checkpointGlobalFromManagerRewardPool() internal {
+        uint256 totalReceived = managerRewardPool.getTotalAmountReceivedByMember(address(this));
+        uint256 previousAccounted = accountedManagerRewardReceived;
+
+        // Defensive clamp in case cumulative receipt accounting ever moves backwards.
+        if (totalReceived < previousAccounted) {
+            accountedManagerRewardReceived = totalReceived;
+            previousAccounted = totalReceived;
+        }
+        if (totalReceived == previousAccounted) return;
+
+        uint256 incoming = totalReceived - previousAccounted;
+        uint256 oldTotalCoverage = totalCoverage;
+
+        if (oldTotalCoverage == 0) {
+            premiumToken.safeTransfer(goalFlow, incoming);
+            accountedManagerRewardReceived = totalReceived;
+            emit OrphanPremiumRecycled(goalFlow, incoming);
+            return;
+        }
+
+        uint256 indexDelta = Math.mulDiv(incoming, _INDEX_SCALE, oldTotalCoverage);
+        if (indexDelta == 0) return;
+
+        uint256 distributed = Math.mulDiv(indexDelta, oldTotalCoverage, _INDEX_SCALE);
+        premiumIndex += indexDelta;
+        accountedManagerRewardReceived = previousAccounted + distributed;
+
+        emit PremiumIndexed(distributed, oldTotalCoverage, indexDelta, premiumIndex);
+    }
+
+    function _checkpointGlobalFromBalance() internal {
         uint256 currentBalance = premiumToken.balanceOf(address(this));
         uint256 previousAccounted = accountedBalance;
 

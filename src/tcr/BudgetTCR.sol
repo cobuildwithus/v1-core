@@ -14,6 +14,7 @@ import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IPremiumEscrow } from "src/interfaces/IPremiumEscrow.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -327,6 +328,11 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             oracleValidationBounds.liveness,
             oracleValidationBounds.bondAmount
         );
+
+        address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
+        if (managerRewardDistributionPool != address(0)) {
+            IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
+        }
         if (deployedBudgetTreasury != budgetTreasury) {
             revert BUDGET_TREASURY_MISMATCH();
         }

@@ -24,7 +24,9 @@ library FlowRates {
         int96 _flowRate
     ) external view returns (int96 distributionFlowRate, int96 managerRewardFlowRate) {
         if (_flowRate < 0) revert IFlow.FLOW_RATE_NEGATIVE();
-        uint32 managerRewardPpm = cfg.managerRewardPool == address(0) ? 0 : cfg.managerRewardPoolFlowRatePpm;
+        uint32 managerRewardPpm = address(cfg.managerRewardDistributionPool) == address(0)
+            ? 0
+            : cfg.managerRewardPoolFlowRatePpm;
         int256 managerRewardFlowRateShare = SafeCast.toInt256(
             _scaleAmountByPpm(SafeCast.toUint256(_flowRate), managerRewardPpm)
         );
@@ -41,23 +43,24 @@ library FlowRates {
      * @return actualFlowRate The actual flow rate for the Flow contract
      */
     function getActualFlowRate(FlowTypes.Config storage cfg, address flowAddress) public view returns (int96) {
-        int96 managerRewardFlowRate = cfg.managerRewardPool == address(0)
+        int96 distributionFlowRate = cfg.superToken.getFlowDistributionFlowRate(flowAddress, cfg.distributionPool);
+        int96 managerRewardFlowRate = address(cfg.managerRewardDistributionPool) == address(0)
             ? int96(0)
-            : cfg.superToken.getFlowRate(flowAddress, cfg.managerRewardPool);
-        return managerRewardFlowRate + cfg.superToken.getFlowDistributionFlowRate(flowAddress, cfg.distributionPool);
+            : cfg.superToken.getFlowDistributionFlowRate(flowAddress, cfg.managerRewardDistributionPool);
+        return managerRewardFlowRate + distributionFlowRate;
     }
 
     /**
-     * @notice Retrieves the current flow rate to the manager reward pool
+     * @notice Retrieves the current flow rate to the manager reward distribution pool
      * @param flowAddress The address of the flow contract
-     * @return flowRate The current flow rate to the manager reward pool
+     * @return flowRate The current flow rate to the manager reward distribution pool
      */
     function getManagerRewardPoolFlowRate(
         FlowTypes.Config storage cfg,
         address flowAddress
     ) external view returns (int96 flowRate) {
-        if (cfg.managerRewardPool == address(0)) return 0;
-        flowRate = cfg.superToken.getFlowRate(flowAddress, cfg.managerRewardPool);
+        if (address(cfg.managerRewardDistributionPool) == address(0)) return 0;
+        flowRate = cfg.superToken.getFlowDistributionFlowRate(flowAddress, cfg.managerRewardDistributionPool);
     }
 
     /**

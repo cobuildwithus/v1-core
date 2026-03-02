@@ -60,6 +60,8 @@ interface FlowTypes {
         ISuperToken superToken;
         /// The Superfluid pool used to distribute recipient allocations in the SuperToken
         ISuperfluidPool distributionPool;
+        /// Optional manager reward distribution pool for protocol-owned manager reward routing.
+        ISuperfluidPool managerRewardDistributionPool;
     }
 
     struct RecipientsState {

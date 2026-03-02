@@ -58,6 +58,13 @@ library FlowInitialization {
         cfg.superToken = ISuperToken(initConfig.superToken);
         cfg.distributionPool = cfg.superToken.createPool(address(this), poolConfig);
 
+        if (initConfig.managerRewardPool != address(0)) {
+            cfg.managerRewardDistributionPool = cfg.superToken.createPool(address(this), poolConfig);
+            if (!cfg.managerRewardDistributionPool.updateMemberUnits(initConfig.managerRewardPool, 1)) {
+                revert IFlow.UNITS_UPDATE_FAILED();
+            }
+        }
+
         address allocationPipeline = initConfig.allocationPipeline;
         if (allocationPipeline != address(0)) {
             if (allocationPipeline.code.length == 0) revert IFlow.INVALID_ALLOCATION_PIPELINE(allocationPipeline);
