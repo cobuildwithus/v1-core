@@ -14,7 +14,6 @@ import { FlowUnitMath } from "./FlowUnitMath.sol";
 import { SortedRecipientMerge } from "./SortedRecipientMerge.sol";
 
 library GoalFlowLedgerMode {
-    uint256 private constant _BPS_SCALE = 10_000;
     uint256 private constant _SYNC_GAS_HEADROOM_BPS = 1_000; // Keep 10% of entry gas as headroom.
     uint256 private constant _SYNC_MIN_FINALIZATION_GAS = 400_000;
 
@@ -60,7 +59,8 @@ library GoalFlowLedgerMode {
     bytes32 internal constant CHILD_SYNC_SKIP_GAS_BUDGET = "GAS_BUDGET";
 
     function syncMinGasReserve(uint256 gasAtStart) internal pure returns (uint256) {
-        return (gasAtStart * _SYNC_GAS_HEADROOM_BPS) / _BPS_SCALE + _SYNC_MIN_FINALIZATION_GAS;
+        return (gasAtStart * _SYNC_GAS_HEADROOM_BPS) / FlowProtocolConstants.BPS_SCALE_UINT256
+            + _SYNC_MIN_FINALIZATION_GAS;
     }
 
     function childSyncGasStipend() internal pure returns (uint256) {
@@ -116,7 +116,7 @@ library GoalFlowLedgerMode {
     }
 
     function detectBudgetDeltasCalldata(
-        uint256 allocationPpmScale,
+        uint256 allocationScalePpm,
         address ledger,
         uint256 prevWeight,
         bytes32[] calldata prevIds,
@@ -128,7 +128,7 @@ library GoalFlowLedgerMode {
         if (ledger == address(0)) return new address[](0);
         return
             _detectBudgetDeltaTreasuriesCalldata(
-                allocationPpmScale,
+                allocationScalePpm,
                 IBudgetStakeLedger(ledger),
                 prevWeight,
                 prevIds,
@@ -327,7 +327,7 @@ library GoalFlowLedgerMode {
     }
 
     function _detectBudgetDeltaTreasuriesCalldata(
-        uint256 allocationPpmScale,
+        uint256 allocationScalePpm,
         IBudgetStakeLedger ledgerReader,
         uint256 prevWeight,
         bytes32[] calldata prevIds,
@@ -363,7 +363,7 @@ library GoalFlowLedgerMode {
                 oldAllocated = FlowUnitMath.effectiveAllocatedStake(
                     prevWeight,
                     prevAllocationPpm[step.oldIndex],
-                    allocationPpmScale
+                    allocationScalePpm
                 );
             }
 
@@ -371,7 +371,7 @@ library GoalFlowLedgerMode {
                 newAllocated = FlowUnitMath.effectiveAllocatedStake(
                     newWeight,
                     newAllocationPpm[step.newIndex],
-                    allocationPpmScale
+                    allocationScalePpm
                 );
             }
 

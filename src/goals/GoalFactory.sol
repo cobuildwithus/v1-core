@@ -21,6 +21,7 @@ import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetT
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract GoalFactory {
     IREVDeployer public immutable REV_DEPLOYER;
@@ -40,8 +41,6 @@ contract GoalFactory {
     address public immutable DEFAULT_INVALID_ROUND_REWARDS_SINK;
 
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
-    uint32 internal constant SCALE_1E6 = 1_000_000;
-    uint16 internal constant BPS_DENOMINATOR = 10_000;
 
     struct RevnetParams {
         address owner;
@@ -183,8 +182,8 @@ contract GoalFactory {
     function deployGoal(DeployParams calldata p) external returns (DeployedGoalStack memory out) {
         if (p.revnet.owner == address(0)) revert ADDRESS_ZERO();
         if (p.revnet.durationSeconds == 0) revert INVALID_DURATION();
-        if (p.revnet.reservedPercent > BPS_DENOMINATOR) revert INVALID_RESERVED_PERCENT();
-        if (p.revnet.cashOutTaxRate > BPS_DENOMINATOR) revert INVALID_TAX_RATE();
+        if (p.revnet.reservedPercent > FlowProtocolConstants.BPS_SCALE) revert INVALID_RESERVED_PERCENT();
+        if (p.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
 
         if (p.success.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
@@ -195,7 +194,10 @@ contract GoalFactory {
             revert INVALID_ASSERTION_CONFIG();
         }
 
-        if (p.underwriting.budgetPremiumPpm > SCALE_1E6 || p.underwriting.budgetSlashPpm > SCALE_1E6) {
+        if (
+            p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE
+                || p.underwriting.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE
+        ) {
             revert INVALID_SCALE();
         }
 
