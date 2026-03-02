@@ -23,10 +23,10 @@ interface IAllocationPipeline {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsScaled,
+        uint32[] calldata prevAllocationsPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsScaled
+        uint32[] calldata newAllocationsPpm
     ) external;
 
     /**
@@ -37,8 +37,8 @@ interface IAllocationPipeline {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsScaled,
+        uint32[] calldata prevAllocationsPpm,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsScaled
+        uint32[] calldata newAllocationsPpm
     ) external view returns (ICustomFlow.ChildSyncRequirement[] memory reqs);
 }

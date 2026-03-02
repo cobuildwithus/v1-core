@@ -17,14 +17,14 @@ library CustomFlowPreview {
         address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationScaled
+        uint32[] calldata newAllocationPpm
     ) external view returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
-        FlowAllocations.validateAllocations(cfg, recipients, newRecipientIds, newAllocationScaled);
+        FlowAllocations.validateAllocations(cfg, recipients, newRecipientIds, newAllocationPpm);
 
         address pipeline = pipelineState.allocationPipeline;
         if (pipeline == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
 
-        (bytes32[] memory prevIds, uint32[] memory prevScaled, uint256 prevWeight) = CustomFlowPreviousState
+        (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) = CustomFlowPreviousState
             .loadAndResolvePreviousState(recipients, alloc, strategy, allocationKey);
 
         return
@@ -33,9 +33,9 @@ library CustomFlowPreview {
                 allocationKey,
                 prevWeight,
                 prevIds,
-                prevScaled,
+                prevAllocationPpm,
                 newRecipientIds,
-                newAllocationScaled
+                newAllocationPpm
             );
     }
 }

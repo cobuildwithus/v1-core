@@ -9,9 +9,9 @@ library AllocationSnapshot {
     function encodeMemory(
         FlowTypes.RecipientsState storage recipients,
         bytes32[] memory ids,
-        uint32[] memory allocationScaled
+        uint32[] memory allocationPpm
     ) internal view returns (bytes memory packed) {
-        if (ids.length != allocationScaled.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
+        if (ids.length != allocationPpm.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
 
         uint256 count = ids.length;
         if (count > type(uint16).max) revert IFlow.OVERFLOW();
@@ -25,7 +25,7 @@ library AllocationSnapshot {
             if (indexPlusOne == 0) revert IFlow.INVALID_RECIPIENT_ID();
 
             _writeUint32(packed, cursor, indexPlusOne - 1);
-            _writeUint32(packed, cursor + 4, allocationScaled[i]);
+            _writeUint32(packed, cursor + 4, allocationPpm[i]);
             cursor += 8;
 
             unchecked {
@@ -37,7 +37,7 @@ library AllocationSnapshot {
     function decodeStorage(
         FlowTypes.RecipientsState storage recipients,
         bytes storage packed
-    ) internal view returns (bytes32[] memory ids, uint32[] memory allocationScaled) {
+    ) internal view returns (bytes32[] memory ids, uint32[] memory allocationPpm) {
         bytes memory copied = packed;
         return decodeMemory(recipients, copied);
     }
@@ -45,7 +45,7 @@ library AllocationSnapshot {
     function decodeMemory(
         FlowTypes.RecipientsState storage recipients,
         bytes memory packed
-    ) internal view returns (bytes32[] memory ids, uint32[] memory allocationScaled) {
+    ) internal view returns (bytes32[] memory ids, uint32[] memory allocationPpm) {
         if (packed.length == 0) {
             return (new bytes32[](0), new uint32[](0));
         }
@@ -56,7 +56,7 @@ library AllocationSnapshot {
         if (packed.length != expectedLength) revert IFlow.INVALID_PREV_ALLOCATION();
 
         ids = new bytes32[](count);
-        allocationScaled = new uint32[](count);
+        allocationPpm = new uint32[](count);
 
         uint256 indexTableLength = recipients.recipientIdByIndex.length;
         uint256 cursor = 2;
@@ -64,8 +64,8 @@ library AllocationSnapshot {
 
         for (uint256 i = 0; i < count; ) {
             uint32 recipientIndex = _readUint32(packed, cursor);
-            uint32 scaled = _readUint32(packed, cursor + 4);
-            if (scaled == 0) revert IFlow.INVALID_PREV_ALLOCATION();
+            uint32 allocationPpmValue = _readUint32(packed, cursor + 4);
+            if (allocationPpmValue == 0) revert IFlow.INVALID_PREV_ALLOCATION();
             if (recipientIndex >= indexTableLength) revert IFlow.INVALID_PREV_ALLOCATION();
 
             bytes32 recipientId = recipients.recipientIdByIndex[recipientIndex];
@@ -73,7 +73,7 @@ library AllocationSnapshot {
             prev = recipientId;
 
             ids[i] = recipientId;
-            allocationScaled[i] = scaled;
+            allocationPpm[i] = allocationPpmValue;
             cursor += 8;
 
             unchecked {

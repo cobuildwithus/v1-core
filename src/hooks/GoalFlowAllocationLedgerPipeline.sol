@@ -55,10 +55,10 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsScaled,
+        uint32[] calldata prevAllocationsPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsScaled
+        uint32[] calldata newAllocationsPpm
     ) external override {
         // Use the caller as canonical flow identity so a strategy cannot spoof another flow.
         // GoalFlowLedgerMode then validates ledger/stake-vault wiring against this flow address.
@@ -80,10 +80,10 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
             account,
             prevWeight,
             prevRecipientIds,
-            prevAllocationsScaled,
+            prevAllocationsPpm,
             resolvedWeight,
             newRecipientIds,
-            newAllocationsScaled
+            newAllocationsPpm
         );
         if (changedBudgetTreasuries.length == 0) return;
 
@@ -118,19 +118,19 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address account,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsScaled,
+        uint32[] calldata prevAllocationsPpm,
         uint256 resolvedWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsScaled
+        uint32[] calldata newAllocationsPpm
     ) private returns (address[] memory changedBudgetTreasuries) {
         IBudgetStakeLedger(ledger).checkpointAllocation(
             account,
             prevWeight,
             prevRecipientIds,
-            prevAllocationsScaled,
+            prevAllocationsPpm,
             resolvedWeight,
             newRecipientIds,
-            newAllocationsScaled
+            newAllocationsPpm
         );
 
         return
@@ -139,10 +139,10 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                 ledger,
                 prevWeight,
                 prevRecipientIds,
-                prevAllocationsScaled,
+                prevAllocationsPpm,
                 resolvedWeight,
                 newRecipientIds,
-                newAllocationsScaled
+                newAllocationsPpm
             );
     }
 
@@ -184,9 +184,9 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsScaled,
+        uint32[] calldata prevAllocationsPpm,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsScaled
+        uint32[] calldata newAllocationsPpm
     ) external view override returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
         // Preview uses the same trust model as commit: caller is the flow identity under validation.
         address flow = msg.sender;
@@ -213,10 +213,10 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
             ledger,
             prevWeight,
             prevRecipientIds,
-            prevAllocationsScaled,
+            prevAllocationsPpm,
             resolvedWeight,
             newRecipientIds,
-            newAllocationsScaled
+            newAllocationsPpm
         );
 
         return GoalFlowLedgerMode.requiredChildSyncRequirements(account, changedBudgetTreasuries);

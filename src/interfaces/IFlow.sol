@@ -139,7 +139,7 @@ interface IFlow is IFlowEvents, IManagedFlow {
     /// @dev Reverts if an expected contract address has no deployed code.
     error NOT_A_CONTRACT(address account);
 
-    /// @dev Reverts if allocation scaled does not sum to the full allocation scale (1_000_000)
+    /// @dev Reverts if allocation PPM values do not sum to the full allocation scale (1_000_000)
     error INVALID_SCALED_SUM();
 
     /// @dev Reverts if metadata is invalid
@@ -270,7 +270,7 @@ interface IFlow is IFlowEvents, IManagedFlow {
      * @notice Reads the current allocation commitment for a strategy/allocationKey pair.
      * @param strategy The allocation strategy address.
      * @param allocationKey The allocation key for the strategy.
-     * @return commit Hash of canonical previous recipient ids + allocation scaled payload.
+     * @return commit Hash of canonical previous recipient ids + allocation ppm payload.
      */
     function getAllocationCommitment(address strategy, uint256 allocationKey) external view returns (bytes32 commit);
 }
@@ -357,13 +357,13 @@ interface ICustomFlow is IFlow {
      * @param strategy Parent allocation strategy.
      * @param allocationKey Parent allocation key.
      * @param newRecipientIds New recipient ids for the parent allocation update.
-     * @param newAllocationScaled New recipient allocations in 1e6-scale for the parent allocation update.
+     * @param newAllocationPpm New recipient allocations in 1e6-scale for the parent allocation update.
      * @return reqs Required child-sync targets.
      */
     function previewChildSyncRequirements(
         address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationScaled
+        uint32[] calldata newAllocationPpm
     ) external view returns (ChildSyncRequirement[] memory reqs);
 }

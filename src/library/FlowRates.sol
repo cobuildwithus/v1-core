@@ -104,11 +104,11 @@ library FlowRates {
 
     /**
      * @notice Multiplies an amount by a PPM-scaled share.
-     * @param amount Amount to scale by `scaledPpm`.
-     * @param scaledPpm Share scaled by the protocol PPM scale (`1_000_000 == 100%`).
+     * @param amount Amount to scale by `sharePpm`.
+     * @param sharePpm Share scaled by the protocol PPM scale (`1_000_000 == 100%`).
      * @return scaledAmount Scaled share of `amount`.
      */
-    function _scaleAmountByPpm(uint256 amount, uint256 scaledPpm) public pure returns (uint256) {
-        return Math.mulDiv(amount, scaledPpm, FlowProtocolConstants.PPM_SCALE);
+    function _scaleAmountByPpm(uint256 amount, uint256 sharePpm) public pure returns (uint256) {
+        return Math.mulDiv(amount, sharePpm, FlowProtocolConstants.PPM_SCALE_UINT256);
     }
 }

@@ -75,7 +75,7 @@ contract CustomFlow is ICustomFlow, Flow {
         if (_allocStorage().allocCommit[strategy][allocationKey] == bytes32(0)) revert STALE_CLEAR_NO_COMMITMENT();
         (
             bytes32[] memory prevRecipientIds,
-            uint32[] memory prevAllocationScaled,
+            uint32[] memory prevAllocationPpm,
             uint256 prevWeight
         ) = CustomFlowPreviousState.loadAndResolvePreviousState(
                 _recipientsStorage(),
@@ -88,7 +88,7 @@ contract CustomFlow is ICustomFlow, Flow {
             allocationKey,
             prevWeight,
             prevRecipientIds,
-            prevAllocationScaled,
+            prevAllocationPpm,
             requireZeroWeight
         );
     }
@@ -124,7 +124,7 @@ contract CustomFlow is ICustomFlow, Flow {
         address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationScaled
+        uint32[] calldata newAllocationPpm
     ) external view returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
         _requireDefaultStrategy(strategy);
         return
@@ -136,7 +136,7 @@ contract CustomFlow is ICustomFlow, Flow {
                 strategy,
                 allocationKey,
                 newRecipientIds,
-                newAllocationScaled
+                newAllocationPpm
             );
     }
 
@@ -146,7 +146,7 @@ contract CustomFlow is ICustomFlow, Flow {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationScaled,
+        uint32[] memory prevAllocationPpm,
         bool requireZeroWeight
     ) internal {
         if (requireZeroWeight) {
@@ -165,9 +165,9 @@ contract CustomFlow is ICustomFlow, Flow {
             allocationKey,
             prevWeight,
             prevRecipientIds,
-            prevAllocationScaled,
+            prevAllocationPpm,
             prevRecipientIds,
-            prevAllocationScaled
+            prevAllocationPpm
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);

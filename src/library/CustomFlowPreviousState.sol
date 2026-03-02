@@ -13,16 +13,16 @@ library CustomFlowPreviousState {
         FlowTypes.AllocationState storage alloc,
         address strategy,
         uint256 allocationKey
-    ) external view returns (bytes32[] memory prevIds, uint32[] memory prevAllocationScaled, uint256 prevWeight) {
-        (prevIds, prevAllocationScaled) = AllocationSnapshot.decodeStorage(
+    ) external view returns (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) {
+        (prevIds, prevAllocationPpm) = AllocationSnapshot.decodeStorage(
             recipients,
             alloc.allocSnapshotPacked[strategy][allocationKey]
         );
 
         bytes32 oldCommit = alloc.allocCommit[strategy][allocationKey];
         if (oldCommit == bytes32(0)) {
-            if (prevIds.length != 0 || prevAllocationScaled.length != 0) revert IFlow.INVALID_PREV_ALLOCATION();
-            return (prevIds, prevAllocationScaled, 0);
+            if (prevIds.length != 0 || prevAllocationPpm.length != 0) revert IFlow.INVALID_PREV_ALLOCATION();
+            return (prevIds, prevAllocationPpm, 0);
         }
 
         uint256 cachedWeightPlusOne = alloc.allocWeightPlusOne[strategy][allocationKey];
@@ -31,7 +31,7 @@ library CustomFlowPreviousState {
             prevWeight = cachedWeightPlusOne - 1;
         }
 
-        if (AllocationCommitment.hashMemory(prevIds, prevAllocationScaled) != oldCommit) {
+        if (AllocationCommitment.hashMemory(prevIds, prevAllocationPpm) != oldCommit) {
             revert IFlow.INVALID_PREV_ALLOCATION();
         }
     }

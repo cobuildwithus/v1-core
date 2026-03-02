@@ -7,6 +7,7 @@ import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IUnderwriterSlasherRouter } from "../interfaces/IUnderwriterSlasherRouter.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -15,7 +16,6 @@ import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/
 contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
-    uint256 private constant _PPM_SCALE = 1_000_000;
     uint256 private constant _INDEX_SCALE = 1e27;
 
     error ADDRESS_ZERO();
@@ -119,7 +119,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (goalFlow_ == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouter_ == address(0)) revert ADDRESS_ZERO();
-        if (budgetSlashPpm_ > _PPM_SCALE) revert INVALID_SLASH_PPM(budgetSlashPpm_);
+        if (budgetSlashPpm_ > FlowProtocolConstants.PPM_SCALE) revert INVALID_SLASH_PPM(budgetSlashPpm_);
 
         address premiumTokenAddress = address(IFlow(goalFlow_).superToken());
         if (premiumTokenAddress == address(0)) revert ADDRESS_ZERO();
@@ -240,6 +240,11 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
         uint256 duration = uint256(closedAt - activatedAt);
         if (duration == 0 || budgetSlashPpm == 0) {
+            uint256 earlyCapWeight = Math.mulDiv(
+                accountState.peakCov,
+                uint256(budgetSlashPpm),
+                FlowProtocolConstants.PPM_SCALE_UINT256
+            );
             emit UnderwriterSlashCalculated(
                 underwriter,
                 false,
@@ -248,7 +253,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
                 0,
                 duration,
                 0,
-                accountState.peakCov,
+                earlyCapWeight,
                 0
             );
             emit UnderwriterSlashed(underwriter, accountState.exposureIntegral, 0, duration);
@@ -259,7 +264,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         //   spendShare = premiumEarned / premiumFraction
         //   avgCoverageEq = spendShare * coverageLambda / duration
         //   rawSlashWeight = avgCoverageEq * budgetSlashPpm
-        //   slashWeight = min(rawSlashWeight, peakCoverage)
+        //   slashWeight = min(rawSlashWeight, peakCoverage * budgetSlashPpm / 1e6)
 
         (uint32 premiumPpm, uint256 coverageLambda) = _resolveSpendFormulaParams();
         if (premiumPpm == 0 || coverageLambda == 0) {
@@ -267,13 +272,25 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         }
 
         uint256 rawSlashWeight;
-        uint256 capWeight = accountState.peakCov;
+        uint256 capWeight = Math.mulDiv(
+            accountState.peakCov,
+            uint256(budgetSlashPpm),
+            FlowProtocolConstants.PPM_SCALE_UINT256
+        );
         // spendShare = premiumEarned * 1e6 / premiumPpm
-        uint256 spendShare = Math.mulDiv(accountState.premiumEarned, _PPM_SCALE, uint256(premiumPpm));
+        uint256 spendShare = Math.mulDiv(
+            accountState.premiumEarned,
+            FlowProtocolConstants.PPM_SCALE_UINT256,
+            uint256(premiumPpm)
+        );
         // avgCoverageEq = spendShare * coverageLambda / duration
         uint256 avgCoverageEq = Math.mulDiv(spendShare, coverageLambda, duration);
         // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
-        rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), _PPM_SCALE);
+        rawSlashWeight = Math.mulDiv(
+            avgCoverageEq,
+            uint256(budgetSlashPpm),
+            FlowProtocolConstants.PPM_SCALE_UINT256
+        );
         slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
 
         if (slashWeight != 0) {

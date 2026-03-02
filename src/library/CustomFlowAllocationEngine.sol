@@ -24,7 +24,7 @@ library CustomFlowAllocationEngine {
         if (!strategy.canAllocate(allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
 
         address strategyAddress = address(strategy);
-        (bytes32[] memory prevIds, uint32[] memory prevScaled, uint256 prevWeight) = CustomFlowPreviousState
+        (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) = CustomFlowPreviousState
             .loadAndResolvePreviousState(recipients, alloc, strategyAddress, allocationKey);
 
         applyAllocationWithPipeline(
@@ -36,7 +36,7 @@ library CustomFlowAllocationEngine {
             allocationKey,
             prevWeight,
             prevIds,
-            prevScaled,
+            prevAllocationPpm,
             recipientIds,
             allocationsPpm
         );
@@ -51,7 +51,7 @@ library CustomFlowAllocationEngine {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] memory prevIds,
-        uint32[] memory prevAllocationScaled,
+        uint32[] memory prevAllocationPpm,
         bytes32[] memory recipientIds,
         uint32[] memory allocationsPpm
     ) public {
@@ -62,7 +62,7 @@ library CustomFlowAllocationEngine {
             strategy,
             allocationKey,
             prevIds,
-            prevAllocationScaled,
+            prevAllocationPpm,
             prevWeight,
             recipientIds,
             allocationsPpm
@@ -76,7 +76,7 @@ library CustomFlowAllocationEngine {
             allocationKey,
             prevWeight,
             prevIds,
-            prevAllocationScaled,
+            prevAllocationPpm,
             _committedWeight(alloc, strategy, allocationKey),
             recipientIds,
             allocationsPpm

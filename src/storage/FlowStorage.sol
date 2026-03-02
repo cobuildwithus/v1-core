@@ -40,7 +40,7 @@ interface FlowTypes {
     }
 
     struct Config {
-        /// The proportion of the total flow rate allocated to the manager rewards pool in scaled (1e6 == 100%)
+        /// The proportion of the total flow rate allocated to the manager rewards pool in PPM (1e6 == 100%).
         uint32 managerRewardPoolFlowRatePpm;
         /// The flow implementation
         address flowImplementation;
@@ -84,7 +84,7 @@ interface FlowTypes {
         /// 0 means unset and 1 encodes weight 0.
         mapping(address => mapping(uint256 => uint256)) allocWeightPlusOne;
         /// Packed previous allocation snapshot for (strategy, allocationKey).
-        /// Layout: uint16 count + repeated (uint32 recipientIndex, uint32 allocationScaled).
+        /// Layout: uint16 count + repeated (uint32 recipientIndex, uint32 allocationPpm).
         mapping(address => mapping(uint256 => bytes)) allocSnapshotPacked;
     }
 
