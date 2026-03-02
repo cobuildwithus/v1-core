@@ -492,6 +492,44 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(deployment.prizeVault), escrowed);
     }
 
+    function test_releaseRoundFunds_afterFundingTicks_balanceIncreases_andReleasesNonZero() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertTrue(budgetFlow.recipientExists(deployment.fundingEscrow));
+
+        uint256 balanceBefore = superToken.balanceOf(deployment.fundingEscrow);
+        assertEq(balanceBefore, 0);
+
+        superToken.mint(deployment.fundingEscrow, 2e18);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 40e18);
+        uint256 balanceAfterFirstTick = superToken.balanceOf(deployment.fundingEscrow);
+        assertGt(balanceAfterFirstTick, balanceBefore);
+
+        superToken.mint(deployment.fundingEscrow, 3e18);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding);
+        uint256 balanceAfterSecondTick = superToken.balanceOf(deployment.fundingEscrow);
+        assertGt(balanceAfterSecondTick, balanceAfterFirstTick);
+
+        uint256 vaultBefore = superToken.balanceOf(deployment.prizeVault);
+        uint256 released = mechanism.releaseRoundFunds(itemId, 0);
+        AllocationMechanismTCR.RoundDeployment memory afterRelease = mechanism.roundDeployment(itemId);
+
+        assertGt(released, 0);
+        assertEq(released, balanceAfterSecondTick);
+        assertFalse(afterRelease.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(deployment.prizeVault), vaultBefore + released);
+    }
+
     function test_syncRoundFunding_refundsEscrowWhenExpiredUnderfundedEvenAfterEndAt() public {
         AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),
@@ -511,6 +549,7 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR.RoundDeployment memory afterSync = mechanism.roundDeployment(itemId);
         assertFalse(afterSync.active);
         assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
         assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
     }
