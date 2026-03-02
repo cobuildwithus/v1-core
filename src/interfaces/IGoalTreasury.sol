@@ -144,6 +144,9 @@ interface IGoalTreasury is
     event UnderwriterSlasherConfigured(address indexed authority, address indexed slasher);
 
     function minRaiseDeadline() external view returns (uint64);
+    /// @notice Timestamp when the goal transitioned from Funding -> Active.
+    /// @dev Returns 0 while the goal is still in Funding.
+    function activatedAt() external view returns (uint64);
     function deadline() external view returns (uint64);
     function successAt() external view returns (uint64);
     function resolvedAt() external view returns (uint64);

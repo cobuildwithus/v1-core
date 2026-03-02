@@ -49,6 +49,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     GoalState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
     TreasuryReassertGrace.State private _reassertGrace;
+    uint64 public override activatedAt;
     uint64 public override successAt;
     uint64 public override resolvedAt;
 
@@ -424,6 +425,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         uint256 raised = _raisedForLifecycle();
         if (raised < minRaise) revert MIN_RAISE_NOT_REACHED(raised, minRaise);
 
+        // Record the activation timestamp for downstream stake-weight schedules.
+        // This is set once on Funding -> Active.
+        activatedAt = uint64(block.timestamp);
         _setState(GoalState.Active);
         _syncFlowRate();
     }
