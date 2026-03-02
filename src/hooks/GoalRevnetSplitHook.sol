@@ -131,16 +131,12 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
         }
 
         IERC20 sourceToken = IERC20(context.token);
-        uint256 treasuryBalanceBefore = sourceToken.balanceOf(address(goalTreasury));
-        _requireHookBalance(sourceToken, context.amount);
-        sourceToken.safeTransfer(address(goalTreasury), context.amount);
-        uint256 receivedAmount = sourceToken.balanceOf(address(goalTreasury)) - treasuryBalanceBefore;
-        if (receivedAmount != context.amount) revert SOURCE_TOKEN_AMOUNT_MISMATCH(context.amount, receivedAmount);
+        _safeTransferToGoalTreasuryExact(sourceToken, context.amount);
         (
             IGoalTreasury.HookSplitAction action,
             uint256 superTokenAmount,
             uint256 burnAmount
-        ) = goalTreasury.processHookSplit(context.token, receivedAmount);
+        ) = goalTreasury.processHookSplit(context.token, context.amount);
 
         bool funded = action == IGoalTreasury.HookSplitAction.Funded;
 
@@ -161,6 +157,14 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
             funded,
             action
         );
+    }
+
+    function _safeTransferToGoalTreasuryExact(IERC20 sourceToken, uint256 amount) internal {
+        _requireHookBalance(sourceToken, amount);
+        uint256 treasuryBalanceBefore = sourceToken.balanceOf(address(goalTreasury));
+        sourceToken.safeTransfer(address(goalTreasury), amount);
+        uint256 received = sourceToken.balanceOf(address(goalTreasury)) - treasuryBalanceBefore;
+        if (received != amount) revert SOURCE_TOKEN_AMOUNT_MISMATCH(amount, received);
     }
 
     function _requireHookBalance(IERC20 token, uint256 amount) internal view {

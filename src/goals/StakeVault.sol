@@ -112,20 +112,20 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (goalResolved) revert GOAL_ALREADY_RESOLVED();
         if (amount == 0) revert INVALID_AMOUNT();
 
-        uint256 received = _safeTransferFromExact(goalToken, msg.sender, amount);
+        _safeTransferFromExact(goalToken, msg.sender, amount);
 
         uint112 currentRulesetWeight = _requireStakingOpen();
-        uint256 weightDelta = Math.mulDiv(received, _goalWeightScale, currentRulesetWeight);
+        uint256 weightDelta = Math.mulDiv(amount, _goalWeightScale, currentRulesetWeight);
         // slither-disable-next-line incorrect-equality
         if (weightDelta == 0) revert ZERO_WEIGHT_DELTA();
 
-        _stakedGoal[msg.sender] += received;
-        totalStakedGoal += received;
+        _stakedGoal[msg.sender] += amount;
+        totalStakedGoal += amount;
         _accountGoalStakeWeight[msg.sender] += weightDelta;
 
         _totalWeight += weightDelta;
 
-        emit GoalStaked(msg.sender, received, weightDelta);
+        emit GoalStaked(msg.sender, amount, weightDelta);
     }
 
     function depositCobuild(uint256 amount) external override nonReentrant {
@@ -133,14 +133,14 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount == 0) revert INVALID_AMOUNT();
         _requireStakingOpen();
 
-        uint256 received = _safeTransferFromExact(cobuildToken, msg.sender, amount);
+        _safeTransferFromExact(cobuildToken, msg.sender, amount);
 
-        _stakedCobuild[msg.sender] += received;
-        totalStakedCobuild += received;
+        _stakedCobuild[msg.sender] += amount;
+        totalStakedCobuild += amount;
 
-        _totalWeight += received;
+        _totalWeight += amount;
 
-        emit CobuildStaked(msg.sender, received, received);
+        emit CobuildStaked(msg.sender, amount, amount);
     }
 
     function withdrawGoal(uint256 amount, address to) external override nonReentrant {
@@ -808,10 +808,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         return address(uint160(key));
     }
 
-    function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal returns (uint256 received) {
+    function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal {
         uint256 vaultBalanceBefore = token.balanceOf(address(this));
         token.safeTransferFrom(from, address(this), amount);
-        received = token.balanceOf(address(this)) - vaultBalanceBefore;
+        uint256 received = token.balanceOf(address(this)) - vaultBalanceBefore;
         if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
     }
 

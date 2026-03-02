@@ -476,16 +476,17 @@ abstract contract GeneralizedTCR is
 
         if (submissionDeposits[itemID] != 0) revert SUBMISSION_DEPOSIT_ALREADY_SET();
 
-        // Track actual received amount (fee-on-transfer unsupported).
-        uint256 balanceBefore = erc20.balanceOf(address(this));
-        erc20.safeTransferFrom(payer, address(this), amount);
-        uint256 balanceAfter = erc20.balanceOf(address(this));
-        uint256 received = balanceAfter - balanceBefore;
-
-        if (received != amount) revert SUBMISSION_DEPOSIT_TRANSFER_INCOMPLETE();
+        if (_safeTransferFromReceived(payer, amount) != amount) revert SUBMISSION_DEPOSIT_TRANSFER_INCOMPLETE();
 
         submissionDeposits[itemID] = amount;
         emit SubmissionDepositPaid(itemID, payer, amount);
+    }
+
+    // Returns the actual amount received by this contract.
+    function _safeTransferFromReceived(address from, uint256 amount) internal returns (uint256 received) {
+        uint256 balanceBefore = erc20.balanceOf(address(this));
+        erc20.safeTransferFrom(from, address(this), amount);
+        received = erc20.balanceOf(address(this)) - balanceBefore;
     }
 
     function _handleSubmissionDepositOnResolution(
@@ -575,15 +576,10 @@ abstract contract GeneralizedTCR is
 
         // Track actual received amount to avoid over-crediting on non-standard transfers.
         // Fee-on-transfer/rebasing tokens are unsupported because contributors must fully fund their side.
-        uint256 balanceBefore = erc20.balanceOf(address(this));
-        erc20.safeTransferFrom(_contributor, address(this), amountToTransfer);
-        uint256 balanceAfter = erc20.balanceOf(address(this));
-        uint256 received = balanceAfter - balanceBefore;
+        uint256 received = _safeTransferFromReceived(_contributor, amountToTransfer);
 
         // Take up to the amount necessary to fund the current round at the current costs.
-        uint256 contribution = _round.contribute(_side, _contributor, received, _totalRequired);
-
-        return contribution;
+        return _round.contribute(_side, _contributor, received, _totalRequired);
     }
 
     /**
