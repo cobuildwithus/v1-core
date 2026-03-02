@@ -116,6 +116,7 @@ contract RoundFactory {
     ) external returns (DeployedRound memory out) {
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (roundOperator == address(0)) revert ADDRESS_ZERO();
+        _requireDeployedContract(budgetTreasury);
 
         // Resolve budget flow -> goal flow -> goal treasury -> stake vault.
         address budgetFlow = _requireDeployedContract(IBudgetTreasury(budgetTreasury).flow());
