@@ -7,14 +7,14 @@ import { ICustomFlow } from "src/interfaces/IFlow.sol";
 
 contract GoalFlowLedgerModeHarness {
     struct DetectParams {
-        uint256 percentageScale;
+        uint256 allocationScalePpm;
         address ledger;
         uint256 prevWeight;
         uint256 newWeight;
         bytes32[] prevRecipientIds;
-        uint32[] prevAllocationsScaled;
+        uint32[] prevAllocationPpm;
         bytes32[] newRecipientIds;
-        uint32[] newAllocationsScaled;
+        uint32[] newAllocationPpm;
     }
 
     IAllocationStrategy[] internal _strategies;
@@ -56,14 +56,14 @@ contract GoalFlowLedgerModeHarness {
     function detectCalldata(DetectParams calldata params) external view returns (address[] memory budgetTreasuries) {
         return
             GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-                params.percentageScale,
+                params.allocationScalePpm,
                 params.ledger,
                 params.prevWeight,
                 params.prevRecipientIds,
-                params.prevAllocationsScaled,
+                params.prevAllocationPpm,
                 params.newWeight,
                 params.newRecipientIds,
-                params.newAllocationsScaled
+                params.newAllocationPpm
             );
     }
 

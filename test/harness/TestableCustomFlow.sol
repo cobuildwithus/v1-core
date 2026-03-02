@@ -39,10 +39,10 @@ contract TestableCustomFlow is CustomFlow {
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] calldata prevIds,
-        uint32[] calldata prevAllocationScaled
+        uint32[] calldata prevAllocationPpm
     ) external {
         bytes32[] memory ids = prevIds;
-        uint32[] memory scaled = prevAllocationScaled;
+        uint32[] memory allocationPpm = prevAllocationPpm;
         CustomFlowAllocationEngine.applyAllocationWithPipeline(
             _cfgStorage(),
             _recipientsStorage(),
@@ -52,9 +52,9 @@ contract TestableCustomFlow is CustomFlow {
             allocationKey,
             prevWeight,
             ids,
-            scaled,
+            allocationPpm,
             ids,
-            scaled
+            allocationPpm
         );
     }
 
@@ -65,7 +65,7 @@ contract TestableCustomFlow is CustomFlow {
         FlowAllocations.validateAllocations(_cfgStorage(), _recipientsStorage(), recipientIds, allocationsPpm);
 
         bytes32[] memory ids = recipientIds;
-        uint32[] memory scaled = allocationsPpm;
+        uint32[] memory allocationPpm = allocationsPpm;
         CustomFlowAllocationEngine.processAllocationForCaller(
             _cfgStorage(),
             _recipientsStorage(),
@@ -74,7 +74,7 @@ contract TestableCustomFlow is CustomFlow {
             _defaultStrategyOrRevert(),
             msg.sender,
             ids,
-            scaled
+            allocationPpm
         );
     }
 }

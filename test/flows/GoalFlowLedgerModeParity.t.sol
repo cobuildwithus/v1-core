@@ -5,10 +5,11 @@ import { Test } from "forge-std/Test.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { GoalFlowLedgerModeHarness } from "test/harness/GoalFlowLedgerModeHarness.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { FlowUnitMath } from "src/library/FlowUnitMath.sol";
 
 contract GoalFlowLedgerModeParityTest is Test {
-    uint256 internal constant SCALE = 1_000_000;
+    uint256 internal constant PPM_SCALE = FlowProtocolConstants.PPM_SCALE_UINT256;
     uint256 internal constant POOL_SIZE = 12;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
 
@@ -33,11 +34,11 @@ contract GoalFlowLedgerModeParityTest is Test {
         bytes32[] memory pool = _idPool();
         bytes32[] memory prevRecipientIds = _selectIds(pool, prevMask);
         bytes32[] memory newRecipientIds = _selectIds(pool, newMask);
-        uint32[] memory prevAllocationsScaled = _buildScaled(prevRecipientIds.length, prevPpmSeed);
-        uint32[] memory newAllocationsScaled = _buildScaled(newRecipientIds.length, newPpmSeed);
+        uint32[] memory prevAllocationPpm = _buildAllocationPpm(prevRecipientIds.length, prevPpmSeed);
+        uint32[] memory newAllocationPpm = _buildAllocationPpm(newRecipientIds.length, newPpmSeed);
 
         _seedBudgets(pool, budgetMask, budgetClassMask);
-        _detectAndAssertReference(prevWeight, prevRecipientIds, prevAllocationsScaled, newWeight, newRecipientIds, newAllocationsScaled);
+        _detectAndAssertReference(prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm);
     }
 
     function test_detectBudgetDeltas_addRecipientBranch_reportsOnlyAddedBudget() public {
@@ -52,19 +53,19 @@ contract GoalFlowLedgerModeParityTest is Test {
         bytes32[] memory prevRecipientIds = new bytes32[](1);
         prevRecipientIds[0] = idA;
 
-        uint32[] memory prevAllocationsScaled = new uint32[](1);
-        prevAllocationsScaled[0] = 200_000;
+        uint32[] memory prevAllocationPpm = new uint32[](1);
+        prevAllocationPpm[0] = 200_000;
 
         bytes32[] memory newRecipientIds = new bytes32[](2);
         newRecipientIds[0] = idA;
         newRecipientIds[1] = idB;
 
-        uint32[] memory newAllocationsScaled = new uint32[](2);
-        newAllocationsScaled[0] = 200_000;
-        newAllocationsScaled[1] = 300_000;
+        uint32[] memory newAllocationPpm = new uint32[](2);
+        newAllocationPpm[0] = 200_000;
+        newAllocationPpm[1] = 300_000;
 
         uint256 weight = 10 * UNIT_WEIGHT_SCALE;
-        address[] memory deltas = _detectAndAssertReference(weight, prevRecipientIds, prevAllocationsScaled, weight, newRecipientIds, newAllocationsScaled);
+        address[] memory deltas = _detectAndAssertReference(weight, prevRecipientIds, prevAllocationPpm, weight, newRecipientIds, newAllocationPpm);
         _assertSingleDelta(deltas, budgetB);
     }
 
@@ -73,15 +74,15 @@ contract GoalFlowLedgerModeParityTest is Test {
         ledger.setBudget(idA, address(0xB001));
 
         bytes32[] memory prevRecipientIds = new bytes32[](0);
-        uint32[] memory prevAllocationsScaled = new uint32[](0);
+        uint32[] memory prevAllocationPpm = new uint32[](0);
 
         bytes32[] memory newRecipientIds = new bytes32[](1);
         newRecipientIds[0] = idA;
 
-        uint32[] memory newAllocationsScaled = new uint32[](1);
-        newAllocationsScaled[0] = 333_333;
+        uint32[] memory newAllocationPpm = new uint32[](1);
+        newAllocationPpm[0] = 333_333;
 
-        address[] memory deltas = _detectAndAssertReference(0, prevRecipientIds, prevAllocationsScaled, 3, newRecipientIds, newAllocationsScaled);
+        address[] memory deltas = _detectAndAssertReference(0, prevRecipientIds, prevAllocationPpm, 3, newRecipientIds, newAllocationPpm);
         _assertNoDelta(deltas);
     }
 
@@ -98,18 +99,18 @@ contract GoalFlowLedgerModeParityTest is Test {
         prevRecipientIds[0] = idA;
         prevRecipientIds[1] = idB;
 
-        uint32[] memory prevAllocationsScaled = new uint32[](2);
-        prevAllocationsScaled[0] = 250_000;
-        prevAllocationsScaled[1] = 750_000;
+        uint32[] memory prevAllocationPpm = new uint32[](2);
+        prevAllocationPpm[0] = 250_000;
+        prevAllocationPpm[1] = 750_000;
 
         bytes32[] memory newRecipientIds = new bytes32[](1);
         newRecipientIds[0] = idB;
 
-        uint32[] memory newAllocationsScaled = new uint32[](1);
-        newAllocationsScaled[0] = 750_000;
+        uint32[] memory newAllocationPpm = new uint32[](1);
+        newAllocationPpm[0] = 750_000;
 
         uint256 weight = 10 * UNIT_WEIGHT_SCALE;
-        address[] memory deltas = _detectAndAssertReference(weight, prevRecipientIds, prevAllocationsScaled, weight, newRecipientIds, newAllocationsScaled);
+        address[] memory deltas = _detectAndAssertReference(weight, prevRecipientIds, prevAllocationPpm, weight, newRecipientIds, newAllocationPpm);
         _assertSingleDelta(deltas, budgetA);
     }
 
@@ -120,13 +121,13 @@ contract GoalFlowLedgerModeParityTest is Test {
         bytes32[] memory prevRecipientIds = new bytes32[](1);
         prevRecipientIds[0] = idA;
 
-        uint32[] memory prevAllocationsScaled = new uint32[](1);
-        prevAllocationsScaled[0] = 333_333;
+        uint32[] memory prevAllocationPpm = new uint32[](1);
+        prevAllocationPpm[0] = 333_333;
 
         bytes32[] memory newRecipientIds = new bytes32[](0);
-        uint32[] memory newAllocationsScaled = new uint32[](0);
+        uint32[] memory newAllocationPpm = new uint32[](0);
 
-        address[] memory deltas = _detectAndAssertReference(3, prevRecipientIds, prevAllocationsScaled, 0, newRecipientIds, newAllocationsScaled);
+        address[] memory deltas = _detectAndAssertReference(3, prevRecipientIds, prevAllocationPpm, 0, newRecipientIds, newAllocationPpm);
         _assertNoDelta(deltas);
     }
 
@@ -137,16 +138,16 @@ contract GoalFlowLedgerModeParityTest is Test {
         bytes32[] memory prevRecipientIds = new bytes32[](1);
         prevRecipientIds[0] = idA;
 
-        uint32[] memory prevAllocationsScaled = new uint32[](1);
-        prevAllocationsScaled[0] = 100_001;
+        uint32[] memory prevAllocationPpm = new uint32[](1);
+        prevAllocationPpm[0] = 100_001;
 
         bytes32[] memory newRecipientIds = new bytes32[](1);
         newRecipientIds[0] = idA;
 
-        uint32[] memory newAllocationsScaled = new uint32[](1);
-        newAllocationsScaled[0] = 100_000;
+        uint32[] memory newAllocationPpm = new uint32[](1);
+        newAllocationPpm[0] = 100_000;
 
-        address[] memory deltas = _detectAndAssertReference(10, prevRecipientIds, prevAllocationsScaled, 11, newRecipientIds, newAllocationsScaled);
+        address[] memory deltas = _detectAndAssertReference(10, prevRecipientIds, prevAllocationPpm, 11, newRecipientIds, newAllocationPpm);
         _assertNoDelta(deltas);
     }
 
@@ -157,30 +158,30 @@ contract GoalFlowLedgerModeParityTest is Test {
         bytes32[] memory prevRecipientIds = new bytes32[](1);
         prevRecipientIds[0] = idA;
 
-        uint32[] memory prevAllocationsScaled = new uint32[](1);
-        prevAllocationsScaled[0] = 1_000_000;
+        uint32[] memory prevAllocationPpm = new uint32[](1);
+        prevAllocationPpm[0] = 1_000_000;
 
         bytes32[] memory newRecipientIds = new bytes32[](1);
         newRecipientIds[0] = idA;
 
-        uint32[] memory newAllocationsScaled = new uint32[](1);
-        newAllocationsScaled[0] = 1_000_000;
+        uint32[] memory newAllocationPpm = new uint32[](1);
+        newAllocationPpm[0] = 1_000_000;
 
         // Raw allocated changes from 1 to 999_999_999_999_999, but both quantize to zero effective stake.
         address[] memory deltas =
-            _detectAndAssertReference(1, prevRecipientIds, prevAllocationsScaled, UNIT_WEIGHT_SCALE - 1, newRecipientIds, newAllocationsScaled);
+            _detectAndAssertReference(1, prevRecipientIds, prevAllocationPpm, UNIT_WEIGHT_SCALE - 1, newRecipientIds, newAllocationPpm);
         _assertNoDelta(deltas);
     }
 
     function testFuzz_unitQuantization_poolUnitsAndLedgerStakeStayAligned(
         uint256 weight,
-        uint32 allocationScaled
+        uint32 allocationPpm
     ) public pure {
-        allocationScaled = uint32(bound(uint256(allocationScaled), 0, SCALE));
+        allocationPpm = uint32(bound(uint256(allocationPpm), 0, PPM_SCALE));
 
-        uint256 weighted = FlowUnitMath.weightedAllocation(weight, allocationScaled, SCALE);
-        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationScaled, SCALE);
-        uint256 allocated = FlowUnitMath.effectiveAllocatedStake(weight, allocationScaled, SCALE);
+        uint256 weighted = FlowUnitMath.weightedAllocation(weight, allocationPpm, PPM_SCALE);
+        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, PPM_SCALE);
+        uint256 allocated = FlowUnitMath.effectiveAllocatedStake(weight, allocationPpm, PPM_SCALE);
 
         assertEq(allocated, units * UNIT_WEIGHT_SCALE);
         assertEq(allocated, FlowUnitMath.floorToUnitWeightScale(weighted));
@@ -189,40 +190,40 @@ contract GoalFlowLedgerModeParityTest is Test {
 
     function testFuzz_flowUnitMath_matchesCanonicalMulDivFlooring(
         uint256 weight,
-        uint32 allocationScaled
+        uint32 allocationPpm
     ) public pure {
-        allocationScaled = uint32(bound(uint256(allocationScaled), 0, SCALE));
+        allocationPpm = uint32(bound(uint256(allocationPpm), 0, PPM_SCALE));
 
-        uint256 expectedWeighted = Math.mulDiv(weight, allocationScaled, SCALE);
+        uint256 expectedWeighted = Math.mulDiv(weight, allocationPpm, PPM_SCALE);
         uint256 expectedUnits = expectedWeighted / UNIT_WEIGHT_SCALE;
         uint256 expectedAllocated = expectedUnits * UNIT_WEIGHT_SCALE;
 
-        assertEq(FlowUnitMath.weightedAllocation(weight, allocationScaled, SCALE), expectedWeighted);
-        assertEq(FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationScaled, SCALE), expectedUnits);
-        assertEq(FlowUnitMath.effectiveAllocatedStake(weight, allocationScaled, SCALE), expectedAllocated);
+        assertEq(FlowUnitMath.weightedAllocation(weight, allocationPpm, PPM_SCALE), expectedWeighted);
+        assertEq(FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, PPM_SCALE), expectedUnits);
+        assertEq(FlowUnitMath.effectiveAllocatedStake(weight, allocationPpm, PPM_SCALE), expectedAllocated);
         assertEq(FlowUnitMath.floorToUnitWeightScale(expectedWeighted), expectedAllocated);
     }
 
     function _detectAndAssertReference(
         uint256 prevWeight,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationsScaled,
+        uint32[] memory prevAllocationPpm,
         uint256 newWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationsScaled
+        uint32[] memory newAllocationPpm
     ) internal view returns (address[] memory fromCalldata) {
         GoalFlowLedgerModeHarness.DetectParams memory params = GoalFlowLedgerModeHarness.DetectParams({
-            percentageScale: SCALE,
+            allocationScalePpm: PPM_SCALE,
             ledger: address(ledger),
             prevWeight: prevWeight,
             newWeight: newWeight,
             prevRecipientIds: prevRecipientIds,
-            prevAllocationsScaled: prevAllocationsScaled,
+            prevAllocationPpm: prevAllocationPpm,
             newRecipientIds: newRecipientIds,
-            newAllocationsScaled: newAllocationsScaled
+            newAllocationPpm: newAllocationPpm
         });
         fromCalldata = harness.detectCalldata(params);
-        _assertExpectedDeltas(fromCalldata, prevWeight, prevRecipientIds, prevAllocationsScaled, newWeight, newRecipientIds, newAllocationsScaled);
+        _assertExpectedDeltas(fromCalldata, prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm);
     }
 
     function _assertSingleDelta(address[] memory deltas, address expectedBudget) internal pure {
@@ -238,12 +239,12 @@ contract GoalFlowLedgerModeParityTest is Test {
         address[] memory actual,
         uint256 prevWeight,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationsScaled,
+        uint32[] memory prevAllocationPpm,
         uint256 newWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationsScaled
+        uint32[] memory newAllocationPpm
     ) internal view {
-        address[] memory expected = _expectedBudgetDeltas(prevWeight, prevRecipientIds, prevAllocationsScaled, newWeight, newRecipientIds, newAllocationsScaled);
+        address[] memory expected = _expectedBudgetDeltas(prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm);
         assertEq(actual.length, expected.length);
         for (uint256 i = 0; i < actual.length; ) {
             assertEq(actual[i], expected[i]);
@@ -256,10 +257,10 @@ contract GoalFlowLedgerModeParityTest is Test {
     function _expectedBudgetDeltas(
         uint256 prevWeight,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationsScaled,
+        uint32[] memory prevAllocationPpm,
         uint256 newWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationsScaled
+        uint32[] memory newAllocationPpm
     ) internal view returns (address[] memory deltas) {
         uint256 oldLen = prevRecipientIds.length;
         uint256 newLen = newRecipientIds.length;
@@ -274,20 +275,20 @@ contract GoalFlowLedgerModeParityTest is Test {
 
             if (newIndex >= newLen || (oldIndex < oldLen && uint256(prevRecipientIds[oldIndex]) < uint256(newRecipientIds[newIndex]))) {
                 recipientId = prevRecipientIds[oldIndex];
-                oldAllocated = _scaledStake(prevWeight, prevAllocationsScaled[oldIndex]);
+                oldAllocated = _allocatedStakeFromPpm(prevWeight, prevAllocationPpm[oldIndex]);
                 unchecked {
                     ++oldIndex;
                 }
             } else if (oldIndex >= oldLen || uint256(newRecipientIds[newIndex]) < uint256(prevRecipientIds[oldIndex])) {
                 recipientId = newRecipientIds[newIndex];
-                newAllocated = _scaledStake(newWeight, newAllocationsScaled[newIndex]);
+                newAllocated = _allocatedStakeFromPpm(newWeight, newAllocationPpm[newIndex]);
                 unchecked {
                     ++newIndex;
                 }
             } else {
                 recipientId = prevRecipientIds[oldIndex];
-                oldAllocated = _scaledStake(prevWeight, prevAllocationsScaled[oldIndex]);
-                newAllocated = _scaledStake(newWeight, newAllocationsScaled[newIndex]);
+                oldAllocated = _allocatedStakeFromPpm(prevWeight, prevAllocationPpm[oldIndex]);
+                newAllocated = _allocatedStakeFromPpm(newWeight, newAllocationPpm[newIndex]);
                 unchecked {
                     ++oldIndex;
                     ++newIndex;
@@ -312,8 +313,8 @@ contract GoalFlowLedgerModeParityTest is Test {
         }
     }
 
-    function _scaledStake(uint256 weight, uint32 allocationScaled) internal pure returns (uint256) {
-        return FlowUnitMath.effectiveAllocatedStake(weight, allocationScaled, SCALE);
+    function _allocatedStakeFromPpm(uint256 weight, uint32 allocationPpm) internal pure returns (uint256) {
+        return FlowUnitMath.effectiveAllocatedStake(weight, allocationPpm, PPM_SCALE);
     }
 
     function _idPool() internal pure returns (bytes32[] memory ids) {
@@ -354,10 +355,10 @@ contract GoalFlowLedgerModeParityTest is Test {
         }
     }
 
-    function _buildScaled(uint256 length, uint256 seed) internal pure returns (uint32[] memory scaled) {
-        scaled = new uint32[](length);
+    function _buildAllocationPpm(uint256 length, uint256 seed) internal pure returns (uint32[] memory allocationPpm) {
+        allocationPpm = new uint32[](length);
         for (uint256 i = 0; i < length; ) {
-            scaled[i] = uint32(uint256(keccak256(abi.encode(seed, i))) % SCALE);
+            allocationPpm[i] = uint32(uint256(keccak256(abi.encode(seed, i))) % PPM_SCALE);
             unchecked {
                 ++i;
             }

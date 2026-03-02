@@ -99,14 +99,14 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_detectCalldata_returnsEmptyArrayWhenLedgerIsZero() public {
         GoalFlowLedgerModeHarness.DetectParams memory params = GoalFlowLedgerModeHarness.DetectParams({
-            percentageScale: 1_000_000,
+            allocationScalePpm: 1_000_000,
             ledger: address(0),
             prevWeight: 0,
             newWeight: 0,
             prevRecipientIds: new bytes32[](0),
-            prevAllocationsScaled: new uint32[](0),
+            prevAllocationPpm: new uint32[](0),
             newRecipientIds: new bytes32[](0),
-            newAllocationsScaled: new uint32[](0)
+            newAllocationPpm: new uint32[](0)
         });
 
         address[] memory deltas = harness.detectCalldata(params);

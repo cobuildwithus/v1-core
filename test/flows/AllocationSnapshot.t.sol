@@ -24,19 +24,19 @@ contract AllocationSnapshotTest is Test {
         ids[0] = ID1;
         ids[1] = ID2;
 
-        uint32[] memory scaled = new uint32[](2);
-        scaled[0] = 0x00010203;
-        scaled[1] = 0x04050607;
+        uint32[] memory allocationPpm = new uint32[](2);
+        allocationPpm[0] = 0x00010203;
+        allocationPpm[1] = 0x04050607;
 
-        bytes memory fromMemory = harness.encodeMemory(ids, scaled);
+        bytes memory fromMemory = harness.encodeMemory(ids, allocationPpm);
         assertEq(fromMemory, hex"000200000000000102030000000104050607");
 
-        (bytes32[] memory decodedIds, uint32[] memory decodedScaled) = harness.decodeMemory(fromMemory);
+        (bytes32[] memory decodedIds, uint32[] memory decodedAllocationPpm) = harness.decodeMemory(fromMemory);
         assertEq(decodedIds.length, 2);
         assertEq(decodedIds[0], ID1);
         assertEq(decodedIds[1], ID2);
-        assertEq(decodedScaled[0], scaled[0]);
-        assertEq(decodedScaled[1], scaled[1]);
+        assertEq(decodedAllocationPpm[0], allocationPpm[0]);
+        assertEq(decodedAllocationPpm[1], allocationPpm[1]);
     }
 
     function test_encodeMemory_revertsOnLengthMismatch() public {
@@ -44,11 +44,11 @@ contract AllocationSnapshotTest is Test {
         ids[0] = ID1;
         ids[1] = ID2;
 
-        uint32[] memory scaled = new uint32[](1);
-        scaled[0] = 1_000_000;
+        uint32[] memory allocationPpm = new uint32[](1);
+        allocationPpm[0] = 1_000_000;
 
         vm.expectRevert(IFlow.ARRAY_LENGTH_MISMATCH.selector);
-        harness.encodeMemory(ids, scaled);
+        harness.encodeMemory(ids, allocationPpm);
     }
 
     function test_encodeMemory_revertsOnInvalidRecipientId() public {
@@ -56,21 +56,21 @@ contract AllocationSnapshotTest is Test {
         ids[0] = ID1;
         ids[1] = bytes32(uint256(999));
 
-        uint32[] memory scaled = new uint32[](2);
-        scaled[0] = 500_000;
-        scaled[1] = 500_000;
+        uint32[] memory allocationPpm = new uint32[](2);
+        allocationPpm[0] = 500_000;
+        allocationPpm[1] = 500_000;
 
         vm.expectRevert(IFlow.INVALID_RECIPIENT_ID.selector);
-        harness.encodeMemory(ids, scaled);
+        harness.encodeMemory(ids, allocationPpm);
     }
 
     function test_encodeMemory_revertsOnOverflowCount() public {
         uint256 count = uint256(type(uint16).max) + 1;
         bytes32[] memory ids = new bytes32[](count);
-        uint32[] memory scaled = new uint32[](count);
+        uint32[] memory allocationPpm = new uint32[](count);
 
         vm.expectRevert(IFlow.OVERFLOW.selector);
-        harness.encodeMemory(ids, scaled);
+        harness.encodeMemory(ids, allocationPpm);
     }
 }
 
@@ -87,11 +87,11 @@ contract AllocationSnapshotHarness {
         _recipients.recipientIdByIndex[recipientIndex] = id;
     }
 
-    function encodeMemory(bytes32[] memory ids, uint32[] memory scaled) external view returns (bytes memory) {
-        return AllocationSnapshot.encodeMemory(_recipients, ids, scaled);
+    function encodeMemory(bytes32[] memory ids, uint32[] memory allocationPpm) external view returns (bytes memory) {
+        return AllocationSnapshot.encodeMemory(_recipients, ids, allocationPpm);
     }
 
-    function decodeMemory(bytes memory packed) external view returns (bytes32[] memory ids, uint32[] memory scaled) {
+    function decodeMemory(bytes memory packed) external view returns (bytes32[] memory ids, uint32[] memory allocationPpm) {
         return AllocationSnapshot.decodeMemory(_recipients, packed);
     }
 }

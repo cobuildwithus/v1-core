@@ -57,12 +57,12 @@ library FlowAllocations {
         address strategy,
         uint256 allocationKey,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationScaled,
+        uint32[] memory prevAllocationPpm,
         uint256 prevWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationScaled
+        uint32[] memory newAllocationPpm
     ) public {
-        uint256 allocationScale = FlowProtocolConstants.PPM_SCALE;
+        uint256 allocationScalePpm = FlowProtocolConstants.PPM_SCALE_UINT256;
         uint256 newWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
 
         // New inputs must be strictly sorted and unique for canonical hashing and linear merge
@@ -74,11 +74,11 @@ library FlowAllocations {
         bool isBrandNewKey = oldCommit == bytes32(0);
 
         if (isBrandNewKey) {
-            if (prevRecipientIds.length != 0 || prevAllocationScaled.length != 0 || prevWeight != 0) {
+            if (prevRecipientIds.length != 0 || prevAllocationPpm.length != 0 || prevWeight != 0) {
                 revert IFlow.INVALID_PREV_ALLOCATION();
             }
         } else {
-            if (AllocationCommitment.hashMemory(prevRecipientIds, prevAllocationScaled) != oldCommit) {
+            if (AllocationCommitment.hashMemory(prevRecipientIds, prevAllocationPpm) != oldCommit) {
                 revert IFlow.INVALID_PREV_ALLOCATION();
             }
             if (oldWeightPlusOne == 0) revert IFlow.INVALID_PREV_ALLOCATION();
@@ -87,20 +87,20 @@ library FlowAllocations {
         // --- assemble old & new unit pairs ---
         _PairUnits[] memory oldPairs;
         if (oldCommit != bytes32(0)) {
-            oldPairs = _pairsUnitsFromComputed(prevRecipientIds, prevAllocationScaled, prevWeight, allocationScale);
+            oldPairs = _pairsUnitsFromComputed(prevRecipientIds, prevAllocationPpm, prevWeight, allocationScalePpm);
         } else {
             oldPairs = new _PairUnits[](0);
         }
         _PairUnits[] memory newPairs = _pairsUnitsFromComputed(
             newRecipientIds,
-            newAllocationScaled,
+            newAllocationPpm,
             newWeight,
-            allocationScale
+            allocationScalePpm
         );
-        bytes32 newCommit = AllocationCommitment.hashMemory(newRecipientIds, newAllocationScaled);
+        bytes32 newCommit = AllocationCommitment.hashMemory(newRecipientIds, newAllocationPpm);
         bytes memory packedSnapshot = new bytes(0);
         if (newCommit != oldCommit) {
-            packedSnapshot = AllocationSnapshot.encodeMemory(recipients, newRecipientIds, newAllocationScaled);
+            packedSnapshot = AllocationSnapshot.encodeMemory(recipients, newRecipientIds, newAllocationPpm);
             alloc.allocSnapshotPacked[strategy][allocationKey] = packedSnapshot;
         }
 
@@ -246,14 +246,17 @@ library FlowAllocations {
 
     function _pairsUnitsFromComputed(
         bytes32[] memory ids,
-        uint32[] memory allocationScaled,
+        uint32[] memory allocationPpm,
         uint256 weight,
-        uint256 allocationScale
+        uint256 allocationScalePpm
     ) internal pure returns (_PairUnits[] memory pairs) {
-        if (ids.length != allocationScaled.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
+        if (ids.length != allocationPpm.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
         pairs = new _PairUnits[](ids.length);
         for (uint256 i; i < ids.length; ) {
-            pairs[i] = _PairUnits({ id: ids[i], units: _computedUnits(weight, allocationScaled[i], allocationScale) });
+            pairs[i] = _PairUnits({
+                id: ids[i],
+                units: _computedUnits(weight, allocationPpm[i], allocationScalePpm)
+            });
             unchecked {
                 ++i;
             }
@@ -262,10 +265,10 @@ library FlowAllocations {
 
     function _computedUnits(
         uint256 weight,
-        uint32 allocationScaled,
-        uint256 allocationScale
+        uint32 allocationPpm,
+        uint256 allocationScalePpm
     ) internal pure returns (uint128) {
-        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationScaled, allocationScale);
+        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, allocationScalePpm);
         if (units > type(uint128).max) revert IFlow.OVERFLOW();
         return uint128(units);
     }

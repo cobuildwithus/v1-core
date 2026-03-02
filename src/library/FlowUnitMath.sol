@@ -7,18 +7,18 @@ import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 library FlowUnitMath {
     function weightedAllocation(
         uint256 weight,
-        uint32 allocationScaled,
-        uint256 allocationScale
+        uint32 allocationPpm,
+        uint256 allocationScalePpm
     ) internal pure returns (uint256) {
-        return Math.mulDiv(weight, allocationScaled, allocationScale);
+        return Math.mulDiv(weight, allocationPpm, allocationScalePpm);
     }
 
     function poolUnitsFromScaledAllocation(
         uint256 weight,
-        uint32 allocationScaled,
-        uint256 allocationScale
+        uint32 allocationPpm,
+        uint256 allocationScalePpm
     ) internal pure returns (uint256) {
-        return weightedAllocation(weight, allocationScaled, allocationScale) / FlowProtocolConstants.UNIT_WEIGHT_SCALE;
+        return weightedAllocation(weight, allocationPpm, allocationScalePpm) / FlowProtocolConstants.UNIT_WEIGHT_SCALE;
     }
 
     function floorToUnitWeightScale(uint256 amount) internal pure returns (uint256) {
@@ -27,9 +27,9 @@ library FlowUnitMath {
 
     function effectiveAllocatedStake(
         uint256 weight,
-        uint32 allocationScaled,
-        uint256 allocationScale
+        uint32 allocationPpm,
+        uint256 allocationScalePpm
     ) internal pure returns (uint256) {
-        return floorToUnitWeightScale(weightedAllocation(weight, allocationScaled, allocationScale));
+        return floorToUnitWeightScale(weightedAllocation(weight, allocationPpm, allocationScalePpm));
     }
 }

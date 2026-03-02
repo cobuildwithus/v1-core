@@ -61,10 +61,10 @@ contract FlowAllocationsCoverageHarness {
         address strategy,
         uint256 key,
         bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationScaled,
+        uint32[] memory prevAllocationPpm,
         uint256 prevWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationScaled
+        uint32[] memory newAllocationPpm
     ) external {
         FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
             _cfg,
@@ -73,10 +73,10 @@ contract FlowAllocationsCoverageHarness {
             strategy,
             key,
             prevRecipientIds,
-            prevAllocationScaled,
+            prevAllocationPpm,
             prevWeight,
             newRecipientIds,
-            newAllocationScaled
+            newAllocationPpm
         );
     }
 }
@@ -133,10 +133,10 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
-            _scaled(FlowProtocolConstants.PPM_SCALE),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
@@ -144,7 +144,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         harness.setCommit(
             address(strategy),
             ALLOCATION_KEY,
-            AllocationCommitment.hashMemory(_ids(ID_A), _scaled(FlowProtocolConstants.PPM_SCALE))
+            AllocationCommitment.hashMemory(_ids(ID_A), _allocationPpm(FlowProtocolConstants.PPM_SCALE))
         );
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
 
@@ -153,10 +153,10 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_B),
-            _scaled(FlowProtocolConstants.PPM_SCALE),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
@@ -164,7 +164,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         harness.setCommit(
             address(strategy),
             ALLOCATION_KEY,
-            AllocationCommitment.hashMemory(_ids(ID_A), _scaled(FlowProtocolConstants.PPM_SCALE))
+            AllocationCommitment.hashMemory(_ids(ID_A), _allocationPpm(FlowProtocolConstants.PPM_SCALE))
         );
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 0);
 
@@ -173,20 +173,20 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
-            _scaled(FlowProtocolConstants.PPM_SCALE),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _scaled(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
     function test_applyMemory_revertsWhenNewRecipientListIsEmpty() public {
         bytes32[] memory emptyIds = new bytes32[](0);
-        uint32[] memory emptyScaled = new uint32[](0);
+        uint32[] memory emptyAllocationPpm = new uint32[](0);
 
         vm.expectRevert(IFlow.TOO_FEW_RECIPIENTS.selector);
         harness.applyMemoryUnchecked(
-            address(strategy), ALLOCATION_KEY, emptyIds, emptyScaled, 0, emptyIds, emptyScaled
+            address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, emptyIds, emptyAllocationPpm
         );
     }
 
@@ -195,7 +195,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
         vm.expectRevert(IFlow.NOT_SORTED_OR_DUPLICATE.selector);
         harness.applyMemoryUnchecked(
-            address(strategy), ALLOCATION_KEY, new bytes32[](0), new uint32[](0), 0, unsorted, _scaled(500_000, 500_000)
+            address(strategy), ALLOCATION_KEY, new bytes32[](0), new uint32[](0), 0, unsorted, _allocationPpm(500_000, 500_000)
         );
     }
 
@@ -214,14 +214,14 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_coversBrandNewAndExistingUnchangedCommitPath() public {
         bytes32[] memory ids = _ids(ID_A, ID_B);
-        uint32[] memory scaled = _scaled(500_000, 500_000);
+        uint32[] memory allocationPpm = _allocationPpm(500_000, 500_000);
         bytes32[] memory emptyIds = new bytes32[](0);
-        uint32[] memory emptyScaled = new uint32[](0);
+        uint32[] memory emptyAllocationPpm = new uint32[](0);
 
-        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, emptyIds, emptyScaled, 0, ids, scaled);
+        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, ids, allocationPpm);
 
         bytes32 beforeCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
-        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, ids, scaled, TEST_WEIGHT, ids, scaled);
+        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, ids, allocationPpm, TEST_WEIGHT, ids, allocationPpm);
         bytes32 afterCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
 
         assertEq(afterCommit, beforeCommit);
@@ -229,9 +229,9 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_coversNegativeAndPositiveDeltaPaths_thenOverflowsOnPositiveSum() public {
         bytes32[] memory oldIds = _ids(ID_A);
-        uint32[] memory oldScaled = _scaled(FlowProtocolConstants.PPM_SCALE);
+        uint32[] memory oldAllocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
 
-        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldScaled));
+        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldAllocationPpm));
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
 
         pool.setUnits(makeAddr("recipient-b"), type(uint128).max);
@@ -241,18 +241,18 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             oldIds,
-            oldScaled,
+            oldAllocationPpm,
             TEST_WEIGHT,
             _ids(ID_A, ID_B),
-            _scaled(500_000, 500_000)
+            _allocationPpm(500_000, 500_000)
         );
     }
 
     function test_applyMemory_revertsWhenPoolUnitUpdateFails() public {
         bytes32[] memory oldIds = _ids(ID_A);
-        uint32[] memory oldScaled = _scaled(FlowProtocolConstants.PPM_SCALE);
+        uint32[] memory oldAllocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
 
-        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldScaled));
+        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldAllocationPpm));
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
         pool.setUpdateOk(false);
 
@@ -261,10 +261,10 @@ contract FlowAllocationsBranchCoverageTest is Test {
             address(strategy),
             ALLOCATION_KEY,
             oldIds,
-            oldScaled,
+            oldAllocationPpm,
             TEST_WEIGHT,
             _ids(ID_B),
-            _scaled(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
         );
     }
 
@@ -279,12 +279,12 @@ contract FlowAllocationsBranchCoverageTest is Test {
         arr[1] = b;
     }
 
-    function _scaled(uint32 a) internal pure returns (uint32[] memory arr) {
+    function _allocationPpm(uint32 a) internal pure returns (uint32[] memory arr) {
         arr = new uint32[](1);
         arr[0] = a;
     }
 
-    function _scaled(uint32 a, uint32 b) internal pure returns (uint32[] memory arr) {
+    function _allocationPpm(uint32 a, uint32 b) internal pure returns (uint32[] memory arr) {
         arr = new uint32[](2);
         arr[0] = a;
         arr[1] = b;
