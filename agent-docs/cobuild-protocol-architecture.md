@@ -89,7 +89,13 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Goal treasury min-raise lifecycle gating is balance-based (`superToken.balanceOf(flow)`), not `totalRaised`, so direct flow inflows can satisfy activation.
 - Goal treasury target computation is spend-pattern driven (linear pattern locked at present).
 - For active linear spend-down, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable; write-time fallback behavior remains best-effort.
-- Goal sync enforces underwriting cap when configured: `targetOutflowRate <= distributionPool.totalUnits / coverageLambda`.
+- Goal sync does not enforce coverage-based rate clamping; underwriting is enforced by budget recipient credit-line gating in `BudgetTCR.syncBudgetTreasuries`.
+- Goal sync still fail-safe guards empty distribution: when total distribution units are zero, target rate is zero.
+- Budget credit-line gating uses:
+  - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
+  - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
+  - recipient gating: `goalFlow.setRecipientEnabled(itemID, enabled)` to force units to zero while over line and restore virtual units on re-enable,
+  - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
 - Goal and budget treasuries share thin mechanics via `TreasuryBase` (donation ingress wrappers, treasury-balance reads, and flow-zero helper), while retaining separate lifecycle/economic policy logic.
 - Finalization path still triggers flow stop + residual settlement + stake-vault resolution.
 - Underwriting premium/slash routing is hard-cutover:

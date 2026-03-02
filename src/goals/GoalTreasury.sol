@@ -448,25 +448,11 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function _computeClampedTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
         int96 targetRate = GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, balance, remaining);
-        return _clampTargetFlowRateToCoverageCap(targetRate);
-    }
 
-    function _coverageCapFlowRate() internal view returns (int96) {
-        uint256 lambda = coverageLambda;
-        if (lambda == 0) return type(int96).max;
+        // Underwriting is enforced via budget-level credit-line recipient gating.
+        // Avoid streaming into an empty distribution pool (all recipients disabled or no recipients).
+        if (_flow.distributionPool().getTotalUnits() == 0) return 0;
 
-        uint256 cappedRate = uint256(_flow.distributionPool().getTotalUnits()) / lambda;
-        uint256 int96Max = uint256(uint96(type(int96).max));
-        if (cappedRate > int96Max) {
-            cappedRate = int96Max;
-        }
-
-        return int96(int256(cappedRate));
-    }
-
-    function _clampTargetFlowRateToCoverageCap(int96 targetRate) internal view returns (int96) {
-        int96 capRate = _coverageCapFlowRate();
-        if (targetRate > capRate) return capRate;
         return targetRate;
     }
 

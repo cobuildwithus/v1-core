@@ -71,6 +71,10 @@ interface FlowTypes {
         mapping(bytes32 => FlowRecipient) recipients;
         /// The mapping of addresses to whether they are a recipient
         mapping(address => bool) recipientExists;
+        /// Recipient gating flag. When true, actual pool units are forced to zero.
+        mapping(address => bool) isRecipientDisabled;
+        /// Virtual units preserved while a recipient is disabled.
+        mapping(address => uint128) savedUnitsWhenDisabled;
     }
 
     struct AllocationState {

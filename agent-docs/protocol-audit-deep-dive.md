@@ -184,7 +184,7 @@ Goal treasury flow-rate policy:
 
 - Spend-down target over remaining time.
 - Sync fallback order: target rate -> max-safe bounded rate -> zero.
-- Optional coverage-cap clamp (`coverageLambda`) limits outflow by insured capacity.
+- Goal-level coverage-rate clamping is removed; underwriting is enforced via budget credit-line recipient gating in `BudgetTCR.syncBudgetTreasuries`.
 
 Budget treasury flow-rate policy:
 

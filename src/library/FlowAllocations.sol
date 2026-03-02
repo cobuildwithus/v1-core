@@ -198,7 +198,10 @@ library FlowAllocations {
             int256 delta = int256(uint256(cursor.newUnits)) - int256(uint256(cursor.oldUnits));
             if (delta == 0) continue;
 
-            uint128 current = cfg.distributionPool.getUnits(recipientAddress);
+            bool isDisabled = recipients.isRecipientDisabled[recipientAddress];
+            uint128 current = isDisabled
+                ? recipients.savedUnitsWhenDisabled[recipientAddress]
+                : cfg.distributionPool.getUnits(recipientAddress);
             uint128 target;
             if (delta < 0) {
                 uint256 dec = uint256(-delta);
@@ -210,7 +213,12 @@ library FlowAllocations {
             }
 
             if (target != current) {
-                FlowPools.updateDistributionMemberUnits(cfg, recipientAddress, target);
+                if (isDisabled) {
+                    // Preserve allocator intent while recipient is gated. Actual pool units remain at zero.
+                    recipients.savedUnitsWhenDisabled[recipientAddress] = target;
+                } else {
+                    FlowPools.updateDistributionMemberUnits(cfg, recipientAddress, target);
+                }
             }
         }
 

@@ -401,6 +401,57 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
+     * @notice Returns whether a recipient is currently enabled.
+     * @param recipientId The recipient id.
+     * @return enabled True when recipient is enabled.
+     */
+    function isRecipientEnabled(bytes32 recipientId) external view returns (bool enabled) {
+        RecipientsState storage recipientsState = _recipientsStorage();
+        FlowRecipient storage recipient = recipientsState.recipients[recipientId];
+        address recipientAddress = recipient.recipient;
+        if (recipientAddress == address(0)) revert INVALID_RECIPIENT_ID();
+        if (recipient.isRemoved) return false;
+        return !recipientsState.isRecipientDisabled[recipientAddress];
+    }
+
+    /**
+     * @notice Enables or disables a recipient without losing virtual allocation intent.
+     * @dev Disabled recipients keep virtual units in storage while actual distribution pool units remain zero.
+     * @param recipientId The recipient id.
+     * @param enabled Whether the recipient should be enabled.
+     */
+    function setRecipientEnabled(bytes32 recipientId, bool enabled) external onlyRecipientAdmin nonReentrant {
+        Config storage cfg = _cfgStorage();
+        RecipientsState storage recipientsState = _recipientsStorage();
+        FlowRecipient storage recipient = recipientsState.recipients[recipientId];
+        address recipientAddress = recipient.recipient;
+        if (recipientAddress == address(0)) revert INVALID_RECIPIENT_ID();
+        if (recipient.isRemoved) revert NOT_APPROVED_RECIPIENT();
+
+        bool isDisabled = recipientsState.isRecipientDisabled[recipientAddress];
+        if (enabled) {
+            if (!isDisabled) return;
+            uint128 totalUnitsBefore = cfg.distributionPool.getTotalUnits();
+            uint128 restoreUnits = recipientsState.savedUnitsWhenDisabled[recipientAddress];
+
+            recipientsState.isRecipientDisabled[recipientAddress] = false;
+            recipientsState.savedUnitsWhenDisabled[recipientAddress] = 0;
+            FlowPools.updateDistributionMemberUnits(cfg, recipientAddress, restoreUnits);
+            _bestEffortRefreshOutflowAfterUnitsCrossing(cfg, totalUnitsBefore);
+            return;
+        }
+
+        if (isDisabled) return;
+        uint128 totalUnitsBefore = cfg.distributionPool.getTotalUnits();
+        uint128 currentUnits = cfg.distributionPool.getUnits(recipientAddress);
+
+        recipientsState.isRecipientDisabled[recipientAddress] = true;
+        recipientsState.savedUnitsWhenDisabled[recipientAddress] = currentUnits;
+        FlowPools.updateDistributionMemberUnits(cfg, recipientAddress, 0);
+        _bestEffortRefreshOutflowAfterUnitsCrossing(cfg, totalUnitsBefore);
+    }
+
+    /**
      * @return totalFlowRate The total flow rate of the distribution pool and the manager reward pool
      */
     function targetOutflowRate() public view returns (int96) {

@@ -34,9 +34,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - raw linear target is `treasuryBalance / timeRemaining`,
   - when the linear target is currently buffer-affordable, sync applies a proactive buffer-derived liquidation-horizon cap before write attempts,
   - write-time fallback ladder remains active on reverts.
-- Goal active flow-rate targeting is additionally coverage-capped when underwriting is configured:
-  - if `coverageLambda > 0`, sync clamps target by insured capacity `distributionPool.totalUnits / coverageLambda`,
-  - goal outflow cannot exceed insured capacity until coverage units increase.
+- Goal active flow-rate targeting is not coverage-rate-clamped:
+  - underwriting enforcement uses budget credit-line recipient gating in `BudgetTCR.syncBudgetTreasuries`,
+  - goal target returns zero when distribution pool total units are zero (no enabled recipients).
+- Budget credit-line gating uses:
+  - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
+  - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
+  - recipient gating: over-line disables goal-flow recipient (effective units `0`), under-line re-enables and restores saved virtual units,
+  - enforcement is best-effort in batch sync; failures emit `BudgetCreditCapEnforcementFailed` and do not abort other items.
 - Budget active flow-rate targeting is parent-member-rate based:
   - raw budget target is `parentFlow.getMemberFlowRate(address(budgetFlow))` clamped at `>= 0`,
   - unsolicited third-party inbound streams to the budget flow must not increase budget target rate.

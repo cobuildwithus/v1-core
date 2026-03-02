@@ -267,6 +267,27 @@ interface IFlow is IFlowEvents, IManagedFlow {
     function getMemberFlowRate(address memberAddr) external view returns (int96);
 
     /**
+     * @notice Retrieves the cumulative amount received by a distribution-pool member.
+     * @param memberAddr The member address.
+     * @return totalAmountReceived The total amount received by this member.
+     */
+    function getTotalReceivedByMember(address memberAddr) external view returns (uint256 totalAmountReceived);
+
+    /**
+     * @notice Enables or disables a recipient while preserving virtual allocation intent.
+     * @param recipientId The recipient id.
+     * @param enabled Whether the recipient should be enabled.
+     */
+    function setRecipientEnabled(bytes32 recipientId, bool enabled) external;
+
+    /**
+     * @notice Returns whether a recipient is enabled.
+     * @param recipientId The recipient id.
+     * @return enabled True when recipient is enabled.
+     */
+    function isRecipientEnabled(bytes32 recipientId) external view returns (bool enabled);
+
+    /**
      * @notice Reads the current allocation commitment for a strategy/allocationKey pair.
      * @param strategy The allocation strategy address.
      * @param allocationKey The allocation key for the strategy.
