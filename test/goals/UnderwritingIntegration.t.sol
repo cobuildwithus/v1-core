@@ -1027,6 +1027,16 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         );
     }
 
+    function test_goalTreasuryCloneInitialize_revertsOnSecondCall() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        candidateTreasury.initialize(address(this), config);
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        candidateTreasury.initialize(address(this), config);
+    }
+
     function test_goalRevnetSplitHookImplementation_initializeRevertsInvalidInitialization() public {
         GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
 
@@ -1056,6 +1066,26 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(address(splitHookClone.superToken()), address(superToken));
         assertEq(splitHookClone.underlyingToken(), address(underlyingToken));
         assertEq(splitHookClone.goalRevnetId(), GOAL_REVNET_ID);
+    }
+
+    function test_goalRevnetSplitHookCloneInitialize_revertsOnSecondCall() public {
+        GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
+        GoalRevnetSplitHook splitHookClone = GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
+
+        splitHookClone.initialize(
+            IJBDirectory(address(directory)),
+            IGoalTreasury(address(treasury)),
+            IFlow(address(flow)),
+            GOAL_REVNET_ID
+        );
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        splitHookClone.initialize(
+            IJBDirectory(address(directory)),
+            IGoalTreasury(address(treasury)),
+            IFlow(address(flow)),
+            GOAL_REVNET_ID
+        );
     }
 
     function test_sync_clampsOutflowUntilCoverageIncreases() public {
