@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -179,6 +180,36 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 45e18);
         assertEq(escrow.accountedBalance(), accountedBalanceBefore);
         assertEq(goalTreasury.settleLateResidualCalls(), 1);
+    }
+
+    function test_burnOnGoalFailure_connectedPool_roundingDust_doesNotBrickLaterCloseCheckpoint() public {
+        // Use a non-divisible incoming amount to create manager-pool accounting dust.
+        ledger.setCoverage(ALICE, address(budgetTreasury), 3);
+        escrow.checkpoint(ALICE);
+
+        PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(pool));
+
+        pool.setTotalAmountReceivedByMember(address(escrow), 5);
+        premiumToken.mint(address(escrow), 5);
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.accountedManagerRewardReceived(), 4);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+        escrow.burnOnGoalFailure();
+
+        // Drop coverage to zero so the next global checkpoint would recycle any remaining incoming delta.
+        ledger.setCoverage(ALICE, address(budgetTreasury), 0);
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.totalCoverage(), 0);
+
+        vm.warp(1);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Expired, 0, 1);
+
+        assertTrue(escrow.closed());
+        assertEq(escrow.accountedManagerRewardReceived(), 5);
     }
 }
 

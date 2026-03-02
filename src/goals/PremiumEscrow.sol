@@ -267,6 +267,12 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             emit UnclaimablePremiumSwept(goalFlow, amount);
         }
 
+        if (address(managerRewardPool) != address(0)) {
+            // Rebaseline to cumulative pool receipts so post-burn checkpoints do not
+            // attempt to recycle already-swept rounding dust.
+            accountedManagerRewardReceived = managerRewardPool.getTotalAmountReceivedByMember(address(this));
+        }
+
         // Best-effort burn: this will sweep the goal flow balance (including the swept premium)
         // and burn the underlying via the goal's revnet controller.
         try IGoalTreasury(goalTreasury).settleLateResidual() {} catch {}
