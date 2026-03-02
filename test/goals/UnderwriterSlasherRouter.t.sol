@@ -409,6 +409,57 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(goalSuperToken.balanceOf(randomCaller), 0);
     }
 
+    function test_retryConversionAndForward_permissionlessCaller_convertsHeldCobuild_andForwardsToFixedTarget()
+        public
+    {
+        uint256 heldCobuild = 5e18;
+        uint256 heldGoal = 2e18;
+        uint256 heldSuper = 3e18;
+        uint256 expectedForwarded = heldCobuild + heldGoal + heldSuper;
+        address randomCaller = address(0xBEEF);
+
+        cobuildToken.mint(address(router), heldCobuild);
+        goalToken.mint(address(router), heldGoal);
+        goalSuperToken.mint(address(router), heldSuper);
+
+        vm.prank(randomCaller);
+        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) = router.retryConversionAndForward();
+
+        assertEq(convertedGoalAmount, heldCobuild);
+        assertEq(forwardedSuperTokenAmount, expectedForwarded);
+        assertEq(terminal.payCallCount(), 1);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(cobuildToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), expectedForwarded);
+        assertEq(goalSuperToken.balanceOf(randomCaller), 0);
+    }
+
+    function test_retryConversionAndForward_conversionFailure_doesNotRevert_andStillForwardsHeldGoal() public {
+        uint256 heldCobuild = 5e18;
+        uint256 heldGoal = 2e18;
+        uint256 expectedForwarded = heldGoal;
+        terminal.setShouldRevertPay(true);
+
+        cobuildToken.mint(address(router), heldCobuild);
+        goalToken.mint(address(router), heldGoal);
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit CobuildConversionFailed(
+            address(0), address(0), heldCobuild, abi.encodeWithSelector(RouterMockTerminal.PAY_REVERT.selector)
+        );
+
+        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) = router.retryConversionAndForward();
+
+        assertEq(convertedGoalAmount, 0);
+        assertEq(forwardedSuperTokenAmount, expectedForwarded);
+        assertEq(terminal.payCallCount(), 0);
+        assertEq(cobuildToken.balanceOf(address(router)), heldCobuild);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), expectedForwarded);
+    }
+
     function test_constructor_revertsWhenSuperTokenUnderlyingMismatch() public {
         SharedMockSuperToken badSuperToken = new SharedMockSuperToken(address(cobuildToken));
 

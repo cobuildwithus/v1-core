@@ -93,8 +93,8 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         uint256 goalSlashedAmount = goalToken.balanceOf(address(this)) - goalBefore;
         uint256 cobuildSlashedAmount = cobuildToken.balanceOf(address(this)) - cobuildBefore;
 
-        uint256 convertedGoalAmount = _tryConvertHeldCobuild(premiumEscrow, underwriter);
-        uint256 forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance(premiumEscrow, underwriter);
+        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) =
+            _convertAndForwardGoalBalance(premiumEscrow, underwriter);
 
         emit UnderwriterSlashRouted(
             premiumEscrow,
@@ -116,6 +116,23 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         emit GoalSuperTokenForwardingRetried(
             msg.sender, goalBalanceBefore, superTokenBalanceBefore, forwardedSuperTokenAmount
         );
+    }
+
+    function retryConversionAndForward()
+        external
+        override
+        nonReentrant
+        returns (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount)
+    {
+        (convertedGoalAmount, forwardedSuperTokenAmount) = _convertAndForwardGoalBalance(address(0), address(0));
+    }
+
+    function _convertAndForwardGoalBalance(
+        address premiumEscrow,
+        address underwriter
+    ) internal returns (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) {
+        convertedGoalAmount = _tryConvertHeldCobuild(premiumEscrow, underwriter);
+        forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance(premiumEscrow, underwriter);
     }
 
     function _tryConvertHeldCobuild(
