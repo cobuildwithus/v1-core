@@ -208,6 +208,94 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         assertEq(arb.slashCallerBountyBps(), arb.DEFAULT_SLASH_CALLER_BOUNTY_BPS());
     }
 
+    function test_removedLegacyInitializers_selectors_notExposed_onFreshProxy() public {
+        bytes[] memory legacyCalls = new bytes[](6);
+        legacyCalls[0] = abi.encodeWithSignature(
+            "initialize(address,address,address,uint256,uint256,uint256,uint256)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
+        legacyCalls[1] = abi.encodeWithSignature(
+            "initializeWithSlashConfig(address,address,address,uint256,uint256,uint256,uint256,uint256,uint256)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost,
+            uint256(321),
+            uint256(123)
+        );
+        legacyCalls[2] = abi.encodeWithSignature(
+            "initializeWithStakeVault(address,address,address,uint256,uint256,uint256,uint256,address)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost,
+            address(0)
+        );
+        legacyCalls[3] = abi.encodeWithSignature(
+            "initializeWithStakeVaultAndSlashConfig(address,address,address,uint256,uint256,uint256,uint256,address,uint256,uint256)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost,
+            address(0),
+            uint256(321),
+            uint256(123)
+        );
+        legacyCalls[4] = abi.encodeWithSignature(
+            "initializeWithStakeVaultAndBudgetScope(address,address,address,uint256,uint256,uint256,uint256,address,address)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost,
+            address(0),
+            address(0)
+        );
+        legacyCalls[5] = abi.encodeWithSignature(
+            "initializeWithStakeVaultAndBudgetScopeAndSlashConfig(address,address,address,uint256,uint256,uint256,uint256,address,address,uint256,uint256)",
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost,
+            address(0),
+            address(0),
+            uint256(321),
+            uint256(123)
+        );
+
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        for (uint256 i = 0; i < legacyCalls.length; ) {
+            address proxy = _deployProxy(address(impl), "");
+            (bool success,) = proxy.call(legacyCalls[i]);
+            assertFalse(success);
+            assertEq(address(ERC20VotesArbitrator(proxy).votingToken()), address(0));
+            assertEq(address(ERC20VotesArbitrator(proxy).arbitrable()), address(0));
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     function test_initialize_config_accepts_explicit_slash_config() public {
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
         IERC20VotesArbitrator.InitConfig memory cfg = IERC20VotesArbitrator.InitConfig({
