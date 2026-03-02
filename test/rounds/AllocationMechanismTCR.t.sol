@@ -235,6 +235,15 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.addItem(abi.encode(listing));
     }
 
+    function test_verifyItemData_rejectsInvalidFundingPolicy_minWithoutDeadline() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(100, 200);
+        listing.minBudgetFunding = 10e18;
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+    }
+
     function testFuzz_verifyItemData_rejectsMalformedShortPayloads(bytes calldata payload) public {
         // Valid encoded listings are significantly larger than this bound.
         vm.assume(payload.length < 224);
@@ -469,5 +478,62 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(budgetFlow.recipientById(itemId), address(0));
         assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
         assertEq(superToken.balanceOf(address(budgetFlow)), 0);
+    }
+
+    function test_finalizeRemovedRound_refundsEscrowAfterFundingAlreadyStopped() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.maxBudgetFunding = 250e18;
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = 4e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.maxBudgetFunding);
+
+        mechanism.syncRoundFunding(itemId);
+        AllocationMechanismTCR.RoundDeployment memory afterSync = mechanism.roundDeployment(itemId);
+        assertFalse(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+        assertTrue(mechanism.removalQueued(itemId));
+
+        mechanism.finalizeRemovedRound(itemId);
+        assertFalse(mechanism.removalQueued(itemId));
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
+    }
+
+    function test_syncRoundFunding_noopWhileRemovalFinalizationQueued() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        listing.maxBudgetFunding = 250e18;
+
+        (bytes32 itemId, AllocationMechanismTCR.RoundDeployment memory deployment) = _registerAndActivate(listing);
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+        assertTrue(mechanism.removalQueued(itemId));
+
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.maxBudgetFunding);
+        mechanism.syncRoundFunding(itemId);
+
+        AllocationMechanismTCR.RoundDeployment memory afterSync = mechanism.roundDeployment(itemId);
+        assertTrue(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+
+        mechanism.finalizeRemovedRound(itemId);
+        assertFalse(mechanism.removalQueued(itemId));
+        AllocationMechanismTCR.RoundDeployment memory afterFinalize = mechanism.roundDeployment(itemId);
+        assertFalse(afterFinalize.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
     }
 }
