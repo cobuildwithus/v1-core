@@ -1175,6 +1175,43 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(flow.targetOutflowRate(), 0);
     }
 
+    function test_sync_characterizesZeroUnitsRestartDeadZone_outflowRemainsZeroUntilNextSyncAfterUnitsRestore()
+        public
+    {
+        distributionPool.setTotalUnits(80);
+
+        superToken.mint(address(flow), 100e18);
+        vm.prank(address(hook));
+        assertTrue(treasury.recordHookFunding(100e18));
+        treasury.sync();
+
+        int96 rateBeforeClamp = flow.targetOutflowRate();
+        assertGt(rateBeforeClamp, 0);
+        assertEq(treasury.targetFlowRate(), rateBeforeClamp);
+
+        distributionPool.setTotalUnits(0);
+        treasury.sync();
+
+        assertEq(treasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+
+        // Simulate budget re-enable via restored pool units (for example after credit headroom returns).
+        distributionPool.setTotalUnits(80);
+
+        int96 unclampedTarget = treasury.targetFlowRate();
+        assertGt(unclampedTarget, 0);
+
+        // Cached outflow is zero, so refresh is a no-op until treasury sync applies a new target.
+        flow.refreshTargetOutflowRate();
+        assertEq(flow.targetOutflowRate(), 0);
+
+        treasury.sync();
+
+        assertEq(treasury.targetFlowRate(), unclampedTarget);
+        assertEq(flow.targetOutflowRate(), unclampedTarget);
+        assertGt(flow.targetOutflowRate(), 0);
+    }
+
     function test_processHookSplit_afterTerminalization_burnsEntireAmount() public {
         vm.warp(block.timestamp + 4 days);
         treasury.sync();
