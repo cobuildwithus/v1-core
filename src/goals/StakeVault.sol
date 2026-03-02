@@ -113,7 +113,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         _safeTransferFromExact(goalToken, msg.sender, amount);
 
         uint112 currentRulesetWeight = _requireStakingOpen();
-        uint256 weightDelta = Math.mulDiv(amount, _goalWeightScale, currentRulesetWeight);
+        uint256 weightDelta = _computeGoalStakeWeightDelta(amount, currentRulesetWeight);
         // slither-disable-next-line incorrect-equality
         if (weightDelta == 0) revert ZERO_WEIGHT_DELTA();
 
@@ -634,9 +634,70 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         currentRulesetWeight = _requireStakingOpen();
         weightScale = _goalWeightScale;
 
-        // Mirror the inverse of JBX/Nana mint math:
+        // Mirrors `depositGoal(...)` weight accounting.
+        //
+        // Base weight is the inverse of JBX/Nana mint math:
         // tokenCount = amount * weight / weightScale  =>  amount = tokenCount * weightScale / weight.
-        weightOut = Math.mulDiv(goalAmount, weightScale, currentRulesetWeight);
+        //
+        // When the goal is Active, new goal-token deposits are linearly downweighted from activation -> deadline
+        // towards a 1:1 goal-token:cobuild-token weight at deadline.
+        weightOut = _computeGoalStakeWeightDelta(goalAmount, currentRulesetWeight);
+    }
+
+    /// @dev Compute the stake-weight delta for a goal-token deposit.
+    ///
+    /// Behavior:
+    /// - Before goal activation (Funding): no time-based downweight is applied.
+    /// - After activation: weight decays linearly from the base (inverse mint) weight at activation
+    ///   towards a 1:1 weight (goalAmount) at the goal's deadline.
+    ///
+    /// This is intentionally applied *at deposit time* to avoid requiring continuous weight syncs
+    /// across Flow allocations.
+    function _computeGoalStakeWeightDelta(
+        uint256 goalAmount,
+        uint112 currentRulesetWeight
+    ) internal view returns (uint256 weightOut) {
+        // Base weight: inverse mint math.
+        uint256 base = Math.mulDiv(goalAmount, _goalWeightScale, currentRulesetWeight);
+
+        // If goal token is already <= 1:1 relative to cobuild, skip time-based decay.
+        // This also avoids underflow in `base - goalAmount`.
+        if (base <= goalAmount) return base;
+
+        // Fetch activation + deadline from the treasury. These are best-effort: if unavailable or unset,
+        // fall back to base weight.
+        uint64 activated;
+        uint64 end;
+        if (goalTreasury.code.length != 0) {
+            IGoalTreasury treasury = IGoalTreasury(goalTreasury);
+            try treasury.activatedAt() returns (uint64 activatedAt_) {
+                activated = activatedAt_;
+            } catch {}
+            try treasury.deadline() returns (uint64 deadline_) {
+                end = deadline_;
+            } catch {}
+        }
+
+        // Not yet activated or deadline unknown => no decay.
+        if (activated == 0 || end == 0) return base;
+
+        // If the activation/deadline window is degenerate, treat as fully decayed.
+        if (end <= activated) return goalAmount;
+
+        uint256 nowTs = block.timestamp;
+        uint256 activatedTs = uint256(activated);
+        uint256 endTs = uint256(end);
+        if (nowTs <= activatedTs) return base;
+        if (nowTs >= endTs) return goalAmount;
+
+        uint256 remaining = endTs - nowTs;
+        uint256 duration = endTs - activatedTs;
+
+        // Linear interpolation between:
+        // - base (at remaining == duration)
+        // - goalAmount (at remaining == 0)
+        uint256 delta = base - goalAmount;
+        return goalAmount + Math.mulDiv(delta, remaining, duration);
     }
 
     function _readCurrentWeight(IJBRulesets rulesets, uint256 projectId) internal view returns (uint112) {
