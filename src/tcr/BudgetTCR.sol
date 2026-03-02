@@ -138,7 +138,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address childFlow = deployment.childFlow;
         address budgetTreasury = deployment.budgetTreasury;
         if (!deployment.active) {
-            _pendingRemovalFinalizations[itemID] = false;
+            _clearRemovalPendingState(itemID);
             emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, false, true);
             return true;
         }
@@ -149,18 +149,25 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            treasury.disableSuccessResolution();
-            if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
+            bool activationLocked = _isActivationLockedRemoval(itemID, treasury);
+            if (activationLocked) {
+                // Removal must stop budget spend immediately, but activated removals do not auto-force failure.
+                treasury.forceFlowRateToZero();
+                terminallyResolved = _resolved(treasury);
+            } else {
+                treasury.disableSuccessResolution();
+                if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
+            }
         }
 
         deployment.active = false;
-        _pendingRemovalFinalizations[itemID] = false;
+        _clearRemovalPendingState(itemID);
         emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, removedFromParent, terminallyResolved);
     }
 
     // slither-disable-next-line reentrancy-no-eth
     function _onItemRegistered(bytes32 itemID, bytes memory) internal override {
-        _pendingRemovalFinalizations[itemID] = false;
+        _clearRemovalPendingState(itemID);
         _pendingRegistrationActivations[itemID] = true;
         emit BudgetStackActivationQueued(itemID);
     }
@@ -171,10 +178,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         if (!deployment.active) {
-            _pendingRemovalFinalizations[itemID] = false;
+            _clearRemovalPendingState(itemID);
             return;
         }
 
+        address budgetTreasury = deployment.budgetTreasury;
+        if (budgetTreasury != address(0)) {
+            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+            if (!_isActivationLockedRemoval(itemID, treasury)) {
+                // Pre-activation removals are immediate fail-closed and cannot later become success-eligible.
+                treasury.disableSuccessResolution();
+            }
+        }
+
+        _removalAcceptedAt[itemID] = uint64(block.timestamp);
         _pendingRemovalFinalizations[itemID] = true;
         emit BudgetStackRemovalQueued(itemID);
     }
@@ -190,16 +207,13 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
         if (!treasury.successResolutionDisabled()) {
             treasury.forceFlowRateToZero();
+            if (!_resolved(treasury)) {
+                try treasury.sync() {} catch (bytes memory reason) {
+                    emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
+                }
+            }
             terminallyResolved = _resolved(treasury);
         } else {
-            try treasury.disableSuccessResolution() {} catch (bytes memory reason) {
-                emit BudgetTerminalizationStepFailed(
-                    itemID,
-                    budgetTreasury,
-                    IBudgetTreasury.disableSuccessResolution.selector,
-                    reason
-                );
-            }
             terminallyResolved = _tryResolveBudgetTerminalState(itemID, treasury);
         }
         emit BudgetStackTerminalizationRetried(itemID, budgetTreasury, terminallyResolved);
@@ -446,6 +460,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function _resolved(IBudgetTreasury treasury) internal view returns (bool resolved_) {
         return treasury.resolved();
+    }
+
+    function _clearRemovalPendingState(bytes32 itemID) internal {
+        _pendingRemovalFinalizations[itemID] = false;
+        _removalAcceptedAt[itemID] = 0;
+    }
+
+    function _isActivationLockedRemoval(bytes32 itemID, IBudgetTreasury treasury) internal view returns (bool) {
+        uint64 activatedAt = treasury.activatedAt();
+        if (activatedAt == 0) return false;
+
+        uint64 removalAcceptedAt = _removalAcceptedAt[itemID];
+        if (removalAcceptedAt == 0) return true;
+        return activatedAt <= removalAcceptedAt;
     }
 
     function _removeRecipientFromGoalFlowIfPresent(
