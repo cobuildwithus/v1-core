@@ -26,6 +26,8 @@ contract MockVotesArbitrator is IERC20VotesArbitrator {
         sink = address(0);
     }
 
+    function initializeWithConfig(InitConfig calldata) external pure {}
+
     function initialize(address, address, address, uint256, uint256, uint256, uint256) external pure {}
 
     function initializeWithSlashConfig(address, address, address, uint256, uint256, uint256, uint256, uint256, uint256)

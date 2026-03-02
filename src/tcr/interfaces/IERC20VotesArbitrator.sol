@@ -32,6 +32,20 @@ interface IERC20VotesArbitrator is IArbitrator {
         uint256 claimableCobuildSlashReward;
     }
 
+    struct InitConfig {
+        address invalidRoundRewardsSink;
+        address votingToken;
+        address arbitrable;
+        uint256 votingPeriod;
+        uint256 votingDelay;
+        uint256 revealPeriod;
+        uint256 arbitrationCost;
+        address stakeVault;
+        address fixedBudgetTreasury;
+        uint256 wrongOrMissedSlashBps;
+        uint256 slashCallerBountyBps;
+    }
+
     /// @notice Error thrown when the voting token address is invalid (zero address)
     error INVALID_VOTING_TOKEN_ADDRESS();
 
@@ -265,7 +279,13 @@ interface IERC20VotesArbitrator is IArbitrator {
     ) external view returns (bytes32 commitHash);
 
     /**
-     * @notice Used to initialize the contract.
+     * @notice Canonical initializer for all deployment modes.
+     * @param config Initialization config.
+     */
+    function initializeWithConfig(InitConfig calldata config) external;
+
+    /**
+     * @notice Legacy compatibility initializer using default slash config and no stake vault scope.
      * @param invalidRoundRewardsSink The sink address for invalid/no-vote round rewards.
      * @param votingToken The address of the ERC20 voting token.
      * @param arbitrable The address of the arbitrable contract.

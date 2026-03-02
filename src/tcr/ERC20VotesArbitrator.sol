@@ -14,6 +14,7 @@ import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IJurorSlasher } from "src/interfaces/IJurorSlasher.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -25,7 +26,6 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeable, ArbitratorStorageV1 {
     using SafeERC20 for IERC20;
 
-    uint256 internal constant BPS_DENOMINATOR = 10_000;
     uint256 public constant DEFAULT_WRONG_OR_MISSED_SLASH_BPS = 50;
     uint256 public constant DEFAULT_SLASH_CALLER_BOUNTY_BPS = 100;
     uint256 public constant MAX_SLASH_CALLER_BOUNTY_BPS = 500;
@@ -57,8 +57,13 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         _disableInitializers();
     }
 
+    /// @notice Canonical initializer that accepts all configuration in one struct.
+    function initializeWithConfig(InitConfig calldata config) external initializer {
+        _initializeFromConfig(config);
+    }
+
     /**
-     * @notice Used to initialize the contract
+     * @notice Legacy compatibility initializer using defaults (no stake vault, no fixed budget scope).
      * @param invalidRoundRewardsSink_ The sink address for unresolved/no-vote round rewards
      * @param votingToken_ The address of the ERC20 voting token
      * @param arbitrable_ The address of the arbitrable contract
@@ -76,16 +81,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 revealPeriod_,
         uint256 arbitrationCost_
     ) public initializer {
-        _initialize(
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            invalidRoundRewardsSink_,
-            DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
-            DEFAULT_SLASH_CALLER_BOUNTY_BPS
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: address(0),
+                fixedBudgetTreasury: address(0),
+                wrongOrMissedSlashBps: DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
+                slashCallerBountyBps: DEFAULT_SLASH_CALLER_BOUNTY_BPS
+            })
         );
     }
 
@@ -112,16 +121,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 wrongOrMissedSlashBps_,
         uint256 slashCallerBountyBps_
     ) public initializer {
-        _initialize(
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            invalidRoundRewardsSink_,
-            wrongOrMissedSlashBps_,
-            slashCallerBountyBps_
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: address(0),
+                fixedBudgetTreasury: address(0),
+                wrongOrMissedSlashBps: wrongOrMissedSlashBps_,
+                slashCallerBountyBps: slashCallerBountyBps_
+            })
         );
     }
 
@@ -146,18 +159,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 arbitrationCost_,
         address stakeVault_
     ) public initializer {
-        _initializeWithStakeVaultAndSlashConfig(
-            invalidRoundRewardsSink_,
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            stakeVault_,
-            address(0),
-            DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
-            DEFAULT_SLASH_CALLER_BOUNTY_BPS
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: stakeVault_,
+                fixedBudgetTreasury: address(0),
+                wrongOrMissedSlashBps: DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
+                slashCallerBountyBps: DEFAULT_SLASH_CALLER_BOUNTY_BPS
+            })
         );
     }
 
@@ -186,18 +201,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 wrongOrMissedSlashBps_,
         uint256 slashCallerBountyBps_
     ) public initializer {
-        _initializeWithStakeVaultAndSlashConfig(
-            invalidRoundRewardsSink_,
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            stakeVault_,
-            address(0),
-            wrongOrMissedSlashBps_,
-            slashCallerBountyBps_
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: stakeVault_,
+                fixedBudgetTreasury: address(0),
+                wrongOrMissedSlashBps: wrongOrMissedSlashBps_,
+                slashCallerBountyBps: slashCallerBountyBps_
+            })
         );
     }
 
@@ -212,18 +229,20 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         address stakeVault_,
         address fixedBudgetTreasury_
     ) public initializer {
-        _initializeWithStakeVaultAndSlashConfig(
-            invalidRoundRewardsSink_,
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            stakeVault_,
-            fixedBudgetTreasury_,
-            DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
-            DEFAULT_SLASH_CALLER_BOUNTY_BPS
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: stakeVault_,
+                fixedBudgetTreasury: fixedBudgetTreasury_,
+                wrongOrMissedSlashBps: DEFAULT_WRONG_OR_MISSED_SLASH_BPS,
+                slashCallerBountyBps: DEFAULT_SLASH_CALLER_BOUNTY_BPS
+            })
         );
     }
 
@@ -240,47 +259,40 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         uint256 wrongOrMissedSlashBps_,
         uint256 slashCallerBountyBps_
     ) public initializer {
-        _initializeWithStakeVaultAndSlashConfig(
-            invalidRoundRewardsSink_,
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            stakeVault_,
-            fixedBudgetTreasury_,
-            wrongOrMissedSlashBps_,
-            slashCallerBountyBps_
+        _initializeFromConfig(
+            InitConfig({
+                invalidRoundRewardsSink: invalidRoundRewardsSink_,
+                votingToken: votingToken_,
+                arbitrable: arbitrable_,
+                votingPeriod: votingPeriod_,
+                votingDelay: votingDelay_,
+                revealPeriod: revealPeriod_,
+                arbitrationCost: arbitrationCost_,
+                stakeVault: stakeVault_,
+                fixedBudgetTreasury: fixedBudgetTreasury_,
+                wrongOrMissedSlashBps: wrongOrMissedSlashBps_,
+                slashCallerBountyBps: slashCallerBountyBps_
+            })
         );
     }
 
-    function _initializeWithStakeVaultAndSlashConfig(
-        address invalidRoundRewardsSink_,
-        address votingToken_,
-        address arbitrable_,
-        uint256 votingPeriod_,
-        uint256 votingDelay_,
-        uint256 revealPeriod_,
-        uint256 arbitrationCost_,
-        address stakeVault_,
-        address fixedBudgetTreasury_,
-        uint256 wrongOrMissedSlashBps_,
-        uint256 slashCallerBountyBps_
-    ) internal {
+    function _initializeFromConfig(InitConfig memory config) internal {
         _initialize(
-            votingToken_,
-            arbitrable_,
-            votingPeriod_,
-            votingDelay_,
-            revealPeriod_,
-            arbitrationCost_,
-            invalidRoundRewardsSink_,
-            wrongOrMissedSlashBps_,
-            slashCallerBountyBps_
+            config.votingToken,
+            config.arbitrable,
+            config.votingPeriod,
+            config.votingDelay,
+            config.revealPeriod,
+            config.arbitrationCost,
+            config.invalidRoundRewardsSink,
+            config.wrongOrMissedSlashBps,
+            config.slashCallerBountyBps
         );
-        _setStakeVault(stakeVault_);
-        _setFixedBudgetTreasury(fixedBudgetTreasury_);
+        if (config.fixedBudgetTreasury != address(0) && config.stakeVault == address(0)) {
+            revert INVALID_STAKE_VAULT_ADDRESS();
+        }
+        if (config.stakeVault != address(0)) _setStakeVault(config.stakeVault);
+        _setFixedBudgetTreasury(config.fixedBudgetTreasury);
     }
 
     function _initialize(
@@ -304,7 +316,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         if (arbitrationCost_ < MIN_ARBITRATION_COST || arbitrationCost_ > MAX_ARBITRATION_COST) {
             revert INVALID_ARBITRATION_COST();
         }
-        if (wrongOrMissedSlashBps_ > BPS_DENOMINATOR) revert INVALID_WRONG_OR_MISSED_SLASH_BPS();
+        if (wrongOrMissedSlashBps_ > FlowProtocolConstants.BPS_SCALE_UINT256) revert INVALID_WRONG_OR_MISSED_SLASH_BPS();
         if (slashCallerBountyBps_ > MAX_SLASH_CALLER_BOUNTY_BPS) revert INVALID_SLASH_CALLER_BOUNTY_BPS();
         __ReentrancyGuard_init();
 
@@ -1084,7 +1096,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     }
 
     function bps2Uint(uint256 bps, uint256 number) internal pure returns (uint256) {
-        return (number * bps) / BPS_DENOMINATOR;
+        return (number * bps) / FlowProtocolConstants.BPS_SCALE_UINT256;
     }
 
     function _slashToWinnerPools(uint256 disputeId, uint256 round, address juror, uint256 weightAmount) internal {

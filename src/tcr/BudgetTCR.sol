@@ -15,6 +15,7 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -48,10 +49,12 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (underwriterSlasherRouter_ == address(0) || underwriterSlasherRouter_.code.length == 0) {
             revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
         }
-        if (deploymentConfig.budgetPremiumPpm > 1_000_000) {
+        if (deploymentConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_PPM(deploymentConfig.budgetPremiumPpm);
         }
-        if (deploymentConfig.budgetSlashPpm > 1_000_000) revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
+        if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
+            revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
+        }
         if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
@@ -346,18 +349,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         IArbitrator.ArbitratorParams memory arbParams = arbitrator.getArbitratorParamsForFactory();
         mechanismArbitrator = Clones.clone(deployer.allocationMechanismArbitratorImplementation());
 
-        IERC20VotesArbitrator(mechanismArbitrator).initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
-            IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
-            address(erc20),
-            allocationMechanism,
-            arbParams.votingPeriod,
-            arbParams.votingDelay,
-            arbParams.revealPeriod,
-            arbParams.arbitrationCost,
-            goalTreasury.stakeVault(),
-            budgetTreasury,
-            arbParams.wrongOrMissedSlashBps,
-            arbParams.slashCallerBountyBps
+        IERC20VotesArbitrator(mechanismArbitrator).initializeWithConfig(
+            IERC20VotesArbitrator.InitConfig({
+                invalidRoundRewardsSink: IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
+                votingToken: address(erc20),
+                arbitrable: allocationMechanism,
+                votingPeriod: arbParams.votingPeriod,
+                votingDelay: arbParams.votingDelay,
+                revealPeriod: arbParams.revealPeriod,
+                arbitrationCost: arbParams.arbitrationCost,
+                stakeVault: goalTreasury.stakeVault(),
+                fixedBudgetTreasury: budgetTreasury,
+                wrongOrMissedSlashBps: arbParams.wrongOrMissedSlashBps,
+                slashCallerBountyBps: arbParams.slashCallerBountyBps
+            })
         );
 
         AllocationMechanismTCR(allocationMechanism).initialize(

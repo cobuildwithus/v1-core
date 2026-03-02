@@ -157,18 +157,20 @@ contract RoundFactory {
 
         // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
         address arbitrator = arbitratorImplementation.clone();
-        IERC20VotesArbitrator(arbitrator).initializeWithStakeVaultAndBudgetScopeAndSlashConfig(
-            address(prizeVault), // invalidRoundRewardsSink: keep funds in the round pool.
-            address(underlying),
-            submissionTcr,
-            arbConfig.votingPeriod,
-            arbConfig.votingDelay,
-            arbConfig.revealPeriod,
-            arbConfig.arbitrationCost,
-            stakeVault,
-            budgetTreasury,
-            arbConfig.wrongOrMissedSlashBps,
-            arbConfig.slashCallerBountyBps
+        IERC20VotesArbitrator(arbitrator).initializeWithConfig(
+            IERC20VotesArbitrator.InitConfig({
+                invalidRoundRewardsSink: address(prizeVault), // keep unresolved/no-vote rewards in the round pool.
+                votingToken: address(underlying),
+                arbitrable: submissionTcr,
+                votingPeriod: arbConfig.votingPeriod,
+                votingDelay: arbConfig.votingDelay,
+                revealPeriod: arbConfig.revealPeriod,
+                arbitrationCost: arbConfig.arbitrationCost,
+                stakeVault: stakeVault,
+                fixedBudgetTreasury: budgetTreasury,
+                wrongOrMissedSlashBps: arbConfig.wrongOrMissedSlashBps,
+                slashCallerBountyBps: arbConfig.slashCallerBountyBps
+            })
         );
 
         // 5) Initialize the submission registry.

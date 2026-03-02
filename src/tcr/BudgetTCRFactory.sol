@@ -14,9 +14,9 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetTCRFactory {
-    uint256 internal constant BPS_DENOMINATOR = 10_000;
     uint256 internal constant HEALTHY_ARBITRATION_COST_MULTIPLIER = 6; // Healthy lower bound: 6x arb cost.
     bytes32 internal constant BUDGET_TCR_SALT_DOMAIN = keccak256("BudgetTCRFactory.BudgetTCR");
 
@@ -79,7 +79,7 @@ contract BudgetTCRFactory {
         if (arbitratorImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (stackDeployerImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (authorizedCaller_ == address(0)) revert ADDRESS_ZERO();
-        if (escrowBondBps_ == 0 || escrowBondBps_ > BPS_DENOMINATOR) {
+        if (escrowBondBps_ == 0 || escrowBondBps_ > FlowProtocolConstants.BPS_SCALE_UINT256) {
             revert INVALID_ESCROW_BOND_BPS(escrowBondBps_);
         }
         _assertImplementationHasCode(budgetTCRImplementation_);
@@ -118,17 +118,20 @@ contract BudgetTCRFactory {
         address stackDeployer = Clones.clone(stackDeployerImplementation);
         IBudgetTCRDeployer(stackDeployer).initialize(budgetTCR, deploymentConfig.premiumEscrowImplementation);
 
-        IERC20VotesArbitrator(arbitrator).initializeWithStakeVaultAndSlashConfig(
-            registryConfig.invalidRoundRewardsSink,
-            token,
-            budgetTCR,
-            arbitratorParams.votingPeriod,
-            arbitratorParams.votingDelay,
-            arbitratorParams.revealPeriod,
-            arbitratorParams.arbitrationCost,
-            stakeVault,
-            arbitratorParams.wrongOrMissedSlashBps,
-            arbitratorParams.slashCallerBountyBps
+        IERC20VotesArbitrator(arbitrator).initializeWithConfig(
+            IERC20VotesArbitrator.InitConfig({
+                invalidRoundRewardsSink: registryConfig.invalidRoundRewardsSink,
+                votingToken: token,
+                arbitrable: budgetTCR,
+                votingPeriod: arbitratorParams.votingPeriod,
+                votingDelay: arbitratorParams.votingDelay,
+                revealPeriod: arbitratorParams.revealPeriod,
+                arbitrationCost: arbitratorParams.arbitrationCost,
+                stakeVault: stakeVault,
+                fixedBudgetTreasury: address(0),
+                wrongOrMissedSlashBps: arbitratorParams.wrongOrMissedSlashBps,
+                slashCallerBountyBps: arbitratorParams.slashCallerBountyBps
+            })
         );
         _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
         address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
@@ -365,7 +368,7 @@ contract BudgetTCRFactory {
         uint256 sizingBase = budgetBounds.maxRunwayCap != 0
             ? budgetBounds.maxRunwayCap
             : budgetBounds.maxActivationThreshold;
-        uint256 sizingComponent = (sizingBase * escrowBondBps) / BPS_DENOMINATOR;
+        uint256 sizingComponent = (sizingBase * escrowBondBps) / FlowProtocolConstants.BPS_SCALE_UINT256;
         uint256 floorComponent = arbitrationCost * HEALTHY_ARBITRATION_COST_MULTIPLIER;
         deposit = sizingComponent > floorComponent ? sizingComponent : floorComponent;
     }
