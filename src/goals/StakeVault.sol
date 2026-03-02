@@ -51,7 +51,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     mapping(address => uint256) private _jurorLockedGoal;
     mapping(address => uint256) private _jurorLockedCobuild;
     mapping(address => uint256) private _jurorLockedGoalWeight;
-    mapping(address => uint256) private _jurorWeight;
     mapping(address => address) private _jurorDelegate;
 
     struct JurorExitRequest {
@@ -69,7 +68,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     uint256 public override totalStakedGoal;
     uint256 public override totalStakedCobuild;
-    uint256 public override totalJurorWeight;
     uint256 private _totalWeight;
 
     address public override jurorSlasher;
@@ -310,7 +308,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             _jurorLockedCobuild[msg.sender] = lockedCobuild + cobuildAmount;
         }
 
-        uint256 oldWeight = _jurorWeight[msg.sender];
+        uint256 oldWeight = _currentJurorWeight(msg.sender);
         uint256 weightDelta = goalWeightDelta + cobuildAmount;
         uint256 newWeight = oldWeight + weightDelta;
         _setJurorWeight(msg.sender, newWeight);
@@ -372,7 +370,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         delete _jurorExitRequest[msg.sender];
 
-        uint256 oldWeight = _jurorWeight[msg.sender];
+        uint256 oldWeight = _currentJurorWeight(msg.sender);
         uint256 weightReduction = goalWeightReduction + cobuildAmount;
         uint256 newWeight = oldWeight - weightReduction;
         _setJurorWeight(msg.sender, newWeight);
@@ -570,6 +568,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         return _totalWeight;
     }
 
+    function totalJurorWeight() external view override returns (uint256) {
+        return _currentTotalJurorWeight();
+    }
+
     function underwriterWithdrawalPrepareCursor(address underwriter) external view override returns (uint256) {
         return _underwriterWithdrawalPrepareCursor[underwriter];
     }
@@ -603,7 +605,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function jurorWeightOf(address user) external view override returns (uint256) {
-        return _jurorWeight[user];
+        return _currentJurorWeight(user);
     }
 
     function jurorDelegateOf(address user) external view override returns (address) {
@@ -740,18 +742,19 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function _setJurorWeight(address juror, uint256 newWeight) internal {
-        uint256 oldWeight = _jurorWeight[juror];
+        uint256 oldWeight = _currentJurorWeight(juror);
         if (oldWeight == newWeight) return;
 
-        _jurorWeight[juror] = newWeight;
+        uint256 oldTotalWeight = _currentTotalJurorWeight();
+        uint256 newTotalWeight;
         if (newWeight > oldWeight) {
-            totalJurorWeight += newWeight - oldWeight;
+            newTotalWeight = oldTotalWeight + (newWeight - oldWeight);
         } else {
-            totalJurorWeight -= oldWeight - newWeight;
+            newTotalWeight = oldTotalWeight - (oldWeight - newWeight);
         }
 
         _jurorWeightCheckpoints[juror].push(SafeCast.toUint32(block.number), SafeCast.toUint224(newWeight));
-        _totalJurorWeightCheckpoints.push(SafeCast.toUint32(block.number), SafeCast.toUint224(totalJurorWeight));
+        _totalJurorWeightCheckpoints.push(SafeCast.toUint32(block.number), SafeCast.toUint224(newTotalWeight));
     }
 
     function _clampJurorGoalWeight(address juror) internal {
@@ -780,6 +783,14 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function _stakeWeightOf(address user) internal view returns (uint256) {
         return _accountGoalStakeWeight[user] + _stakedCobuild[user];
+    }
+
+    function _currentJurorWeight(address juror) internal view returns (uint256) {
+        return _jurorWeightCheckpoints[juror].latest();
+    }
+
+    function _currentTotalJurorWeight() internal view returns (uint256) {
+        return _totalJurorWeightCheckpoints.latest();
     }
 
     function _accountForKey(uint256 key) internal pure returns (address) {

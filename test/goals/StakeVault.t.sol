@@ -1111,6 +1111,43 @@ contract StakeVaultTest is Test {
         assertEq(vault.getPastTotalJurorWeight(block.number - 1), 40e18);
     }
 
+    function test_totalJurorWeight_tracksLatestCheckpointAcrossJurorsAfterSameBlockUpdates() public {
+        goalToken.mint(bob, 1_000e18);
+        cobuildToken.mint(bob, 1_000e18);
+
+        vm.startPrank(bob);
+        goalToken.approve(address(vault), type(uint256).max);
+        cobuildToken.approve(address(vault), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        vault.depositGoal(100e18); // 50e18 goal weight.
+        vault.depositCobuild(40e18); // +40e18 cobuild weight.
+        vault.optInAsJuror(100e18, 40e18, address(0)); // 90e18 juror weight.
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        vault.depositGoal(80e18); // 40e18 goal weight.
+        vault.depositCobuild(20e18); // +20e18 cobuild weight.
+        vault.optInAsJuror(80e18, 20e18, address(0)); // 60e18 juror weight.
+        vm.stopPrank();
+
+        assertEq(vault.jurorWeightOf(alice), 90e18);
+        assertEq(vault.jurorWeightOf(bob), 60e18);
+        assertEq(vault.totalJurorWeight(), 150e18);
+
+        vault.setJurorSlasher(address(this));
+        vault.slashJurorStake(bob, 60e18, slashRecipient);
+
+        assertEq(vault.jurorWeightOf(alice), 90e18);
+        assertEq(vault.jurorWeightOf(bob), 0);
+        assertEq(vault.totalJurorWeight(), 90e18);
+        assertEq(vault.totalJurorWeight(), vault.jurorWeightOf(alice) + vault.jurorWeightOf(bob));
+
+        vm.roll(block.number + 1);
+        assertEq(vault.getPastTotalJurorWeight(block.number - 1), 90e18);
+    }
+
     function test_optInJuror_emitsOnlyJurorOptedIn() public {
         vm.prank(alice);
         vault.depositGoal(100e18);
