@@ -460,6 +460,33 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(goalSuperToken.balanceOf(fundingTarget), expectedForwarded);
     }
 
+    function test_retryConversionAndForward_forwardRevert_doesNotRevert_andRetainsConvertedSuperToken() public {
+        uint256 heldCobuild = 5e18;
+        bytes memory reason = bytes("RETRY_CONVERT_FORWARD_FAIL");
+        address randomCaller = address(0xBEEF);
+        cobuildToken.mint(address(router), heldCobuild);
+
+        vm.mockCallRevert(
+            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, heldCobuild), reason
+        );
+
+        vm.expectEmit(true, true, true, true, address(router));
+        emit GoalSuperTokenForwardingFailed(address(0), address(0), heldCobuild, reason);
+
+        vm.prank(randomCaller);
+        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) = router.retryConversionAndForward();
+
+        assertEq(convertedGoalAmount, heldCobuild);
+        assertEq(forwardedSuperTokenAmount, 0);
+        assertEq(terminal.payCallCount(), 1);
+        assertEq(terminal.lastPayAmount(), heldCobuild);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(cobuildToken.balanceOf(address(router)), 0);
+        assertEq(goalSuperToken.balanceOf(address(router)), heldCobuild);
+        assertEq(goalSuperToken.balanceOf(fundingTarget), 0);
+        assertEq(goalSuperToken.balanceOf(randomCaller), 0);
+    }
+
     function test_constructor_revertsWhenSuperTokenUnderlyingMismatch() public {
         SharedMockSuperToken badSuperToken = new SharedMockSuperToken(address(cobuildToken));
 
