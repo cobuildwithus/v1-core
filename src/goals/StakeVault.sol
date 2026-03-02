@@ -40,14 +40,14 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     IJBRulesets public immutable goalRulesets;
     uint256 public immutable goalRevnetId;
-    uint256 private immutable _goalWeightRatio;
+    uint256 private immutable _goalWeightScale;
 
     bool public override goalResolved;
     uint64 public override goalResolvedAt;
 
     mapping(address => uint256) private _stakedGoal;
     mapping(address => uint256) private _stakedCobuild;
-    mapping(address => uint256) private _goalWeight;
+    mapping(address => uint256) private _accountGoalStakeWeight;
     mapping(address => uint256) private _jurorLockedGoal;
     mapping(address => uint256) private _jurorLockedCobuild;
     mapping(address => uint256) private _jurorLockedGoalWeight;
@@ -105,26 +105,23 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         goalRulesets = goalRulesets_;
         goalRevnetId = goalRevnetId_;
         paymentTokenDecimals = paymentTokenDecimals_;
-        _goalWeightRatio = 10 ** paymentTokenDecimals_;
+        _goalWeightScale = 10 ** paymentTokenDecimals_;
     }
 
     function depositGoal(uint256 amount) external override nonReentrant {
         if (goalResolved) revert GOAL_ALREADY_RESOLVED();
         if (amount == 0) revert INVALID_AMOUNT();
 
-        uint256 balanceBefore = goalToken.balanceOf(address(this));
-        goalToken.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 received = goalToken.balanceOf(address(this)) - balanceBefore;
-        if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
+        uint256 received = _safeTransferFromExact(goalToken, msg.sender, amount);
 
-        uint112 goalWeight = _requireStakingOpen();
-        uint256 weightDelta = Math.mulDiv(received, _goalWeightRatio, goalWeight);
+        uint112 currentRulesetWeight = _requireStakingOpen();
+        uint256 weightDelta = Math.mulDiv(received, _goalWeightScale, currentRulesetWeight);
         // slither-disable-next-line incorrect-equality
         if (weightDelta == 0) revert ZERO_WEIGHT_DELTA();
 
         _stakedGoal[msg.sender] += received;
         totalStakedGoal += received;
-        _goalWeight[msg.sender] += weightDelta;
+        _accountGoalStakeWeight[msg.sender] += weightDelta;
 
         _totalWeight += weightDelta;
 
@@ -136,10 +133,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount == 0) revert INVALID_AMOUNT();
         _requireStakingOpen();
 
-        uint256 balanceBefore = cobuildToken.balanceOf(address(this));
-        cobuildToken.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 received = cobuildToken.balanceOf(address(this)) - balanceBefore;
-        if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
+        uint256 received = _safeTransferFromExact(cobuildToken, msg.sender, amount);
 
         _stakedCobuild[msg.sender] += received;
         totalStakedCobuild += received;
@@ -159,11 +153,12 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount > staked) revert INSUFFICIENT_STAKED_BALANCE();
         if (amount > staked - _jurorLockedGoal[msg.sender]) revert JUROR_WITHDRAWAL_LOCKED();
 
-        uint256 goalWeightForUser = _goalWeight[msg.sender];
-        uint256 weightReduction = amount == staked ? goalWeightForUser : Math.mulDiv(goalWeightForUser, amount, staked);
+        uint256 accountGoalStakeWeight = _accountGoalStakeWeight[msg.sender];
+        uint256 weightReduction =
+            amount == staked ? accountGoalStakeWeight : Math.mulDiv(accountGoalStakeWeight, amount, staked);
 
         _stakedGoal[msg.sender] = staked - amount;
-        _goalWeight[msg.sender] = goalWeightForUser - weightReduction;
+        _accountGoalStakeWeight[msg.sender] = accountGoalStakeWeight - weightReduction;
         totalStakedGoal -= amount;
         _totalWeight -= weightReduction;
 
@@ -296,13 +291,13 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         uint256 goalWeightDelta = 0;
         if (goalAmount != 0) {
-            uint256 goalWeight = _goalWeight[msg.sender];
+            uint256 accountGoalStakeWeight = _accountGoalStakeWeight[msg.sender];
             uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
             goalWeightDelta = StakeVaultJurorMath.computeOptInGoalWeightDelta(
                 goalAmount,
                 stakedGoal,
                 lockedGoal,
-                goalWeight,
+                accountGoalStakeWeight,
                 lockedGoalWeight
             );
             // slither-disable-next-line incorrect-equality
@@ -420,65 +415,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function slashJurorStake(address juror, uint256 weightAmount, address recipient) external override nonReentrant {
         if (msg.sender != jurorSlasher) revert ONLY_JUROR_SLASHER();
-        if (recipient == address(0)) revert ADDRESS_ZERO();
-        if (weightAmount == 0) return;
-
-        uint256 currentStakeWeight = _stakeWeightOf(juror);
-        if (currentStakeWeight == 0) return;
-
-        uint256 requestedWeight = Math.min(weightAmount, currentStakeWeight);
-
-        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(juror);
-        StakeVaultSlashMath.SlashAmounts memory slash = StakeVaultSlashMath.computeStakeSlashBreakdown(
-            snapshot,
-            requestedWeight,
-            currentStakeWeight
-        );
-        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
-
-        snapshot = _loadLockedStakeSlashSnapshot(juror, snapshot);
-        StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
-            snapshot,
-            slash
-        );
-
-        if (slash.goalAmount != 0) {
-            _stakedGoal[juror] = snapshot.stakedGoal - slash.goalAmount;
-            totalStakedGoal -= slash.goalAmount;
-            _goalWeight[juror] = snapshot.goalWeight - slash.goalWeight;
-        }
-
-        if (slash.cobuildAmount != 0) {
-            _stakedCobuild[juror] = snapshot.stakedCobuild - slash.cobuildAmount;
-            totalStakedCobuild -= slash.cobuildAmount;
-        }
-
-        if (lockedSlash.goalAmount != 0) {
-            _jurorLockedGoal[juror] = snapshot.lockedGoal - lockedSlash.goalAmount;
-            _jurorLockedGoalWeight[juror] = snapshot.lockedGoalWeight - lockedSlash.goalWeight;
-        }
-
-        if (lockedSlash.cobuildAmount != 0) {
-            _jurorLockedCobuild[juror] = snapshot.lockedCobuild - lockedSlash.cobuildAmount;
-        }
-
-        _syncJurorExitRequest(juror);
+        (StakeVaultSlashMath.SlashAmounts memory slash, bool didSlash) = _slashStake(juror, weightAmount, recipient);
+        if (!didSlash) return;
 
         uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
-        _totalWeight -= totalWeightReduction;
-
-        _clampJurorGoalWeight(juror);
-
-        uint256 newJurorWeight = _jurorLockedGoalWeight[juror] + _jurorLockedCobuild[juror];
-        _setJurorWeight(juror, newJurorWeight);
-        _trySyncGoalFlowAllocation(juror);
-
-        if (slash.goalAmount != 0) {
-            _safeTransferExact(goalToken, recipient, slash.goalAmount);
-        }
-        if (slash.cobuildAmount != 0) {
-            _safeTransferExact(cobuildToken, recipient, slash.cobuildAmount);
-        }
 
         emit JurorSlashed(juror, weightAmount, totalWeightReduction, slash.goalAmount, slash.cobuildAmount, recipient);
     }
@@ -489,65 +429,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         address recipient
     ) external override nonReentrant {
         if (msg.sender != underwriterSlasher) revert ONLY_UNDERWRITER_SLASHER();
-        if (recipient == address(0)) revert ADDRESS_ZERO();
-        if (weightAmount == 0) return;
-
-        uint256 currentStakeWeight = _stakeWeightOf(underwriter);
-        if (currentStakeWeight == 0) return;
-
-        uint256 requestedWeight = Math.min(weightAmount, currentStakeWeight);
-
-        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(underwriter);
-        StakeVaultSlashMath.SlashAmounts memory slash = StakeVaultSlashMath.computeStakeSlashBreakdown(
-            snapshot,
-            requestedWeight,
-            currentStakeWeight
-        );
-        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
-
-        snapshot = _loadLockedStakeSlashSnapshot(underwriter, snapshot);
-        StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
-            snapshot,
-            slash
-        );
-
-        if (slash.goalAmount != 0) {
-            _stakedGoal[underwriter] = snapshot.stakedGoal - slash.goalAmount;
-            totalStakedGoal -= slash.goalAmount;
-            _goalWeight[underwriter] = snapshot.goalWeight - slash.goalWeight;
-        }
-
-        if (slash.cobuildAmount != 0) {
-            _stakedCobuild[underwriter] = snapshot.stakedCobuild - slash.cobuildAmount;
-            totalStakedCobuild -= slash.cobuildAmount;
-        }
-
-        if (lockedSlash.goalAmount != 0) {
-            _jurorLockedGoal[underwriter] = snapshot.lockedGoal - lockedSlash.goalAmount;
-            _jurorLockedGoalWeight[underwriter] = snapshot.lockedGoalWeight - lockedSlash.goalWeight;
-        }
-
-        if (lockedSlash.cobuildAmount != 0) {
-            _jurorLockedCobuild[underwriter] = snapshot.lockedCobuild - lockedSlash.cobuildAmount;
-        }
-
-        _syncJurorExitRequest(underwriter);
+        (StakeVaultSlashMath.SlashAmounts memory slash, bool didSlash) = _slashStake(underwriter, weightAmount, recipient);
+        if (!didSlash) return;
 
         uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
-        _totalWeight -= totalWeightReduction;
-
-        _clampJurorGoalWeight(underwriter);
-
-        uint256 newJurorWeight = _jurorLockedGoalWeight[underwriter] + _jurorLockedCobuild[underwriter];
-        _setJurorWeight(underwriter, newJurorWeight);
-        _trySyncGoalFlowAllocation(underwriter);
-
-        if (slash.goalAmount != 0) {
-            _safeTransferExact(goalToken, recipient, slash.goalAmount);
-        }
-        if (slash.cobuildAmount != 0) {
-            _safeTransferExact(cobuildToken, recipient, slash.cobuildAmount);
-        }
 
         emit UnderwriterSlashed(
             underwriter,
@@ -559,11 +444,85 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         );
     }
 
+    function _slashStake(
+        address account,
+        uint256 weightAmount,
+        address recipient
+    )
+        internal
+        returns (
+            StakeVaultSlashMath.SlashAmounts memory slash,
+            bool didSlash
+        )
+    {
+        if (recipient == address(0)) revert ADDRESS_ZERO();
+        if (weightAmount == 0) return (slash, didSlash);
+
+        uint256 currentStakeWeight = _stakeWeightOf(account);
+        if (currentStakeWeight == 0) return (slash, didSlash);
+
+        uint256 requestedWeight = Math.min(weightAmount, currentStakeWeight);
+
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = _loadStakeSlashSnapshot(account);
+        slash = StakeVaultSlashMath.computeStakeSlashBreakdown(
+            snapshot,
+            requestedWeight,
+            currentStakeWeight
+        );
+        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return (slash, didSlash);
+
+        snapshot = _loadLockedStakeSlashSnapshot(account, snapshot);
+        StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
+            snapshot,
+            slash
+        );
+
+        if (slash.goalAmount != 0) {
+            _stakedGoal[account] = snapshot.stakedGoal - slash.goalAmount;
+            totalStakedGoal -= slash.goalAmount;
+            _accountGoalStakeWeight[account] = snapshot.goalWeight - slash.goalWeight;
+        }
+
+        if (slash.cobuildAmount != 0) {
+            _stakedCobuild[account] = snapshot.stakedCobuild - slash.cobuildAmount;
+            totalStakedCobuild -= slash.cobuildAmount;
+        }
+
+        if (lockedSlash.goalAmount != 0) {
+            _jurorLockedGoal[account] = snapshot.lockedGoal - lockedSlash.goalAmount;
+            _jurorLockedGoalWeight[account] = snapshot.lockedGoalWeight - lockedSlash.goalWeight;
+        }
+
+        if (lockedSlash.cobuildAmount != 0) {
+            _jurorLockedCobuild[account] = snapshot.lockedCobuild - lockedSlash.cobuildAmount;
+        }
+
+        _syncJurorExitRequest(account);
+
+        uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
+        _totalWeight -= totalWeightReduction;
+
+        _clampJurorGoalWeight(account);
+
+        uint256 newJurorWeight = _jurorLockedGoalWeight[account] + _jurorLockedCobuild[account];
+        _setJurorWeight(account, newJurorWeight);
+        _trySyncGoalFlowAllocation(account);
+
+        if (slash.goalAmount != 0) {
+            _safeTransferExact(goalToken, recipient, slash.goalAmount);
+        }
+        if (slash.cobuildAmount != 0) {
+            _safeTransferExact(cobuildToken, recipient, slash.cobuildAmount);
+        }
+
+        return (slash, true);
+    }
+
     function _loadStakeSlashSnapshot(
         address juror
     ) internal view returns (StakeVaultSlashMath.StakeSlashSnapshot memory snapshot) {
         snapshot.stakedGoal = _stakedGoal[juror];
-        snapshot.goalWeight = _goalWeight[juror];
+        snapshot.goalWeight = _accountGoalStakeWeight[juror];
         snapshot.stakedCobuild = _stakedCobuild[juror];
     }
 
@@ -689,15 +648,15 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function quoteGoalToCobuildWeightRatio(
         uint256 goalAmount
-    ) public view override returns (uint256 weightOut, uint112 goalWeight, uint256 weightRatio) {
+    ) public view override returns (uint256 weightOut, uint112 currentRulesetWeight, uint256 weightScale) {
         if (goalAmount == 0) return (0, 0, 0);
 
-        goalWeight = _requireStakingOpen();
-        weightRatio = _goalWeightRatio;
+        currentRulesetWeight = _requireStakingOpen();
+        weightScale = _goalWeightScale;
 
         // Mirror the inverse of JBX/Nana mint math:
-        // tokenCount = amount * weight / weightRatio  =>  amount = tokenCount * weightRatio / weight.
-        weightOut = Math.mulDiv(goalAmount, weightRatio, goalWeight);
+        // tokenCount = amount * weight / weightScale  =>  amount = tokenCount * weightScale / weight.
+        weightOut = Math.mulDiv(goalAmount, weightScale, currentRulesetWeight);
     }
 
     function _readCurrentWeight(IJBRulesets rulesets, uint256 projectId) internal view returns (uint112) {
@@ -708,9 +667,9 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         }
     }
 
-    function _requireStakingOpen() internal view returns (uint112 goalWeight) {
-        goalWeight = _readCurrentWeight(goalRulesets, goalRevnetId);
-        if (goalWeight == 0) revert GOAL_STAKING_CLOSED();
+    function _requireStakingOpen() internal view returns (uint112 currentRulesetWeight) {
+        currentRulesetWeight = _readCurrentWeight(goalRulesets, goalRevnetId);
+        if (currentRulesetWeight == 0) revert GOAL_STAKING_CLOSED();
     }
 
     function _goalTreasuryReportsResolved() private view returns (bool) {
@@ -819,7 +778,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function _clampJurorGoalWeight(address juror) internal {
         uint256 lockedGoalWeight = _jurorLockedGoalWeight[juror];
-        uint256 currentGoalWeight = _goalWeight[juror];
+        uint256 currentGoalWeight = _accountGoalStakeWeight[juror];
 
         if (lockedGoalWeight > currentGoalWeight) {
             _jurorLockedGoalWeight[juror] = currentGoalWeight;
@@ -842,11 +801,18 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function _stakeWeightOf(address user) internal view returns (uint256) {
-        return _goalWeight[user] + _stakedCobuild[user];
+        return _accountGoalStakeWeight[user] + _stakedCobuild[user];
     }
 
     function _accountForKey(uint256 key) internal pure returns (address) {
         return address(uint160(key));
+    }
+
+    function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal returns (uint256 received) {
+        uint256 vaultBalanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(from, address(this), amount);
+        received = token.balanceOf(address(this)) - vaultBalanceBefore;
+        if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
     }
 
     function _safeTransferExact(IERC20 token, address to, uint256 amount) internal {
