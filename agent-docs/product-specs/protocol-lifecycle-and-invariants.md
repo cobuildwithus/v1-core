@@ -47,7 +47,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
 - Budget failure slashing semantics are spend-proportional and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
-  - slash weight derives from `premiumEarned` with spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`), applies `budgetSlashPpm`, and is capped by per-underwriter `peakCov`,
+  - slash weight derives from `premiumEarned` with spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`), applies `budgetSlashPpm`, and is capped by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`),
   - unresolved spend-formula params revert slash (no exposure-integral fallback mode),
   - slashing is idempotent per underwriter per escrow.
 - Slashed value recycle path is routed and observable:

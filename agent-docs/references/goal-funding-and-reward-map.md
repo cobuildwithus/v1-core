@@ -54,7 +54,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - `BudgetStakeLedger` is coverage-only accounting (per-user and per-budget allocated stake plus checkpoint history for vote snapshots).
 - `PremiumEscrow` checkpoints per-underwriter budget coverage and accrues premium from indexed inflows.
 - Premium inflow with zero budget coverage is recycled to goal funding path (no orphan premium custody).
-- On escrow close to `Failed` or post-activation `Expired`, `PremiumEscrow.slash(underwriter)` computes spend-proportional slash amount from escrow premium accrual + spend-formula params, applies `budgetSlashPpm`, caps by per-underwriter `peakCov`, and calls `UnderwriterSlasherRouter`.
+- On escrow close to `Failed` or post-activation `Expired`, `PremiumEscrow.slash(underwriter)` computes spend-proportional slash amount from escrow premium accrual + spend-formula params, applies `budgetSlashPpm`, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and calls `UnderwriterSlasherRouter`.
 - Slash requires resolvable non-zero spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`) and reverts when unresolved.
 - `UnderwriterSlasherRouter` receives slashed stake via `StakeVault`, best-effort converts cobuild -> goal token, upgrades to goal SuperToken, and forwards to goal funding target; failures remain observable and retryable via `retryForwarding`.
 - Post-goal-resolution underwriter withdrawals are caller-prepared, not globally budget-gated:

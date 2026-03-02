@@ -92,7 +92,8 @@ cobuild-protocol/
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes
     spend-proportional slash weight from `premiumEarned`, `managerRewardPoolFlowRatePpm`, `coverageLambda`, and
-    `budgetSlashPpm`, caps by per-underwriter `peakCov`, and routes slashing through the per-goal underwriter slasher router.
+    `budgetSlashPpm`, caps by strict slash-percent principal
+    (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through the per-goal underwriter slasher router.
   - slash requires resolvable non-zero spend-formula parameters (`managerRewardPoolFlowRatePpm`, `coverageLambda`);
     unresolved params revert (no legacy exposure-integral fallback path).
 - Underwriter slash recycling path:

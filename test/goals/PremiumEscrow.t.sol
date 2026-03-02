@@ -328,7 +328,7 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 20);
     }
 
-    function test_slashUsesSpendFormula_andCapsAtPeakCoverage() public {
+    function test_slashUsesSpendFormula_andCapsAtPeakCoverageSlashPercent() public {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -352,13 +352,13 @@ contract PremiumEscrowTest is Test {
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
         vm.expectEmit(true, false, false, true, address(escrow));
-        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 120, 100_000, 10, 20, 120, 100, 100);
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 120, 100_000, 10, 20, 120, 20, 20);
         uint256 slashWeight = escrow.slash(ALICE);
 
-        assertEq(slashWeight, 100);
+        assertEq(slashWeight, 20);
         assertEq(router.slashCalls(), 1);
         assertEq(router.lastUnderwriter(), ALICE);
-        assertEq(router.lastWeight(), 100);
+        assertEq(router.lastWeight(), 20);
     }
 
     function test_slashRevertsWhenSpendFormulaParamsAreUnresolved() public {
