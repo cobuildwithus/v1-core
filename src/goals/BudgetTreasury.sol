@@ -128,7 +128,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function canAcceptFunding() public view override returns (bool) {
-        return _canAcceptFunding(_deriveBudgetDerivedState(), treasuryBalance());
+        return _canAcceptFunding(_deriveBudgetDerivedState());
     }
 
     function sync() external override nonReentrant {
@@ -450,21 +450,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         derivedState.deadlinePassed = deadline != 0 && block.timestamp >= deadline;
     }
 
-    function _canAcceptFunding(
-        BudgetDerivedState memory derivedState,
-        uint256 currentTreasuryBalance
-    ) internal view returns (bool) {
+    function _canAcceptFunding(BudgetDerivedState memory derivedState) internal view returns (bool) {
         if (derivedState.isTerminal) return false;
 
-        if (derivedState.state == BudgetState.Funding) {
-            if (derivedState.fundingWindowEnded) return false;
-        } else if (derivedState.deadlinePassed) {
-            return false;
-        }
-
-        if (runwayCap != 0 && currentTreasuryBalance >= runwayCap) return false;
-
-        return true;
+        if (derivedState.state == BudgetState.Funding) return !derivedState.fundingWindowEnded;
+        return !derivedState.deadlinePassed;
     }
 
     function _clearPendingSuccessAssertion() internal returns (bytes32 clearedAssertionId) {

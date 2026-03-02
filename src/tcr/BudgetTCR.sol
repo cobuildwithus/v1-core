@@ -299,9 +299,52 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address budgetStakeLedger,
         uint256 lambda
     ) internal {
-        // Underwriting disabled => never gate.
+        // NOTE: This is best-effort gating. Any external-call failure should not brick budget sync;
+        // we emit telemetry and either (a) leave recipient state unchanged, or (b) apply the
+        // portion of gating we can do safely.
+
+        // Runway cap is a receive-side cap enforced against the goal-flow "total received" meter.
+        // It is *not* a donation gate.
+        uint256 runwayCap;
+        bool hasRunwayCap;
+        try IBudgetTreasury(budgetTreasury).runwayCap() returns (uint256 cap) {
+            runwayCap = cap;
+            hasRunwayCap = cap != 0;
+        } catch (bytes memory reason) {
+            emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason);
+            runwayCap = 0;
+            hasRunwayCap = false;
+        }
+
+        // Underwriting disabled => only runway cap (if configured) gates goal-flow inflow.
         if (lambda == 0) {
-            try goalFlow.setRecipientEnabled(itemID, true) {} catch (bytes memory reason) {
+            if (!hasRunwayCap) {
+                try goalFlow.setRecipientEnabled(itemID, true) {} catch (bytes memory reason) {
+                    emit BudgetCreditCapEnforcementFailed(
+                        itemID,
+                        budgetTreasury,
+                        IFlow.setRecipientEnabled.selector,
+                        reason
+                    );
+                }
+                return;
+            }
+
+            uint256 received;
+            try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
+                received = totalReceived;
+            } catch (bytes memory reason) {
+                emit BudgetCreditCapEnforcementFailed(
+                    itemID,
+                    budgetTreasury,
+                    IFlow.getTotalReceivedByMember.selector,
+                    reason
+                );
+                return;
+            }
+
+            bool enabled = received < runwayCap;
+            try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
                 emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IFlow.setRecipientEnabled.selector, reason);
             }
             return;
@@ -311,6 +354,40 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         try IBudgetStakeLedger(budgetStakeLedger).budgetTotalAllocatedStake(budgetTreasury) returns (uint256 cov) {
             coverage = cov;
         } catch (bytes memory reason) {
+            // If we can prove the runway cap is exceeded, we can safely disable even when credit-line
+            // enforcement can't proceed.
+            if (hasRunwayCap) {
+                uint256 received;
+                try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
+                    received = totalReceived;
+                } catch (bytes memory reason2) {
+                    emit BudgetCreditCapEnforcementFailed(
+                        itemID,
+                        budgetTreasury,
+                        IFlow.getTotalReceivedByMember.selector,
+                        reason2
+                    );
+                    emit BudgetCreditCapEnforcementFailed(
+                        itemID,
+                        budgetTreasury,
+                        IBudgetStakeLedger.budgetTotalAllocatedStake.selector,
+                        reason
+                    );
+                    return;
+                }
+
+                if (received >= runwayCap) {
+                    try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason3) {
+                        emit BudgetCreditCapEnforcementFailed(
+                            itemID,
+                            budgetTreasury,
+                            IFlow.setRecipientEnabled.selector,
+                            reason3
+                        );
+                    }
+                }
+            }
+
             emit BudgetCreditCapEnforcementFailed(
                 itemID,
                 budgetTreasury,
@@ -324,6 +401,40 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         try IBudgetTreasury(budgetTreasury).executionDuration() returns (uint64 dur) {
             duration = dur;
         } catch (bytes memory reason) {
+            // If we can prove the runway cap is exceeded, we can safely disable even when credit-line
+            // enforcement can't proceed.
+            if (hasRunwayCap) {
+                uint256 received;
+                try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
+                    received = totalReceived;
+                } catch (bytes memory reason2) {
+                    emit BudgetCreditCapEnforcementFailed(
+                        itemID,
+                        budgetTreasury,
+                        IFlow.getTotalReceivedByMember.selector,
+                        reason2
+                    );
+                    emit BudgetCreditCapEnforcementFailed(
+                        itemID,
+                        budgetTreasury,
+                        IBudgetTreasury.executionDuration.selector,
+                        reason
+                    );
+                    return;
+                }
+
+                if (received >= runwayCap) {
+                    try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason3) {
+                        emit BudgetCreditCapEnforcementFailed(
+                            itemID,
+                            budgetTreasury,
+                            IFlow.setRecipientEnabled.selector,
+                            reason3
+                        );
+                    }
+                }
+            }
+
             emit BudgetCreditCapEnforcementFailed(
                 itemID,
                 budgetTreasury,
@@ -333,12 +444,21 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             return;
         }
 
-        uint256 creditLine;
-        if (coverage == 0 || duration == 0) {
-            creditLine = 0;
-        } else {
-            // creditLine = coverage * duration / lambda
-            creditLine = Math.mulDiv(coverage, uint256(duration), lambda);
+        // creditLine = coverage * duration / lambda
+        uint256 creditLine = Math.mulDiv(coverage, uint256(duration), lambda);
+
+        // Combine caps: when both apply, enforce the stricter of runway cap and credit line.
+        uint256 effectiveCap = creditLine;
+        if (effectiveCap != 0 && hasRunwayCap && runwayCap < effectiveCap) {
+            effectiveCap = runwayCap;
+        }
+
+        // A zero effective cap is an unconditional disable and does not require reading `received`.
+        if (effectiveCap == 0) {
+            try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
+                emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IFlow.setRecipientEnabled.selector, reason);
+            }
+            return;
         }
 
         uint256 received;
@@ -354,7 +474,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             return;
         }
 
-        bool enabled = (creditLine != 0) && (received < creditLine);
+        bool enabled = received < effectiveCap;
         try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
             emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IFlow.setRecipientEnabled.selector, reason);
         }
