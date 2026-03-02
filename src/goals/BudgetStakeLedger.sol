@@ -132,6 +132,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
         _budgetByRecipientId[recipientId] = budget;
         info.isTracked = true;
+        if (info.removedAt != 0) info.removedAt = 0;
         if (activatedAt != 0) info.activatedAt = activatedAt;
         _trackedBudgets.add(budget);
 

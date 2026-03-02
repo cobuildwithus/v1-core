@@ -69,6 +69,26 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(info.resolvedOrRemovedAt, 80);
     }
 
+    function test_registerBudget_clearsRemovedAtOnReRegistration() public {
+        uint64 removedAt = uint64(block.timestamp + 100);
+        vm.warp(removedAt);
+        vm.prank(MANAGER);
+        ledger.removeBudget(RECIPIENT);
+
+        IBudgetStakeLedger.BudgetInfoView memory removedInfo = ledger.budgetInfo(address(budget));
+        assertEq(removedInfo.removedAt, removedAt);
+        assertEq(removedInfo.resolvedOrRemovedAt, removedAt);
+
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(budget));
+
+        IBudgetStakeLedger.BudgetInfoView memory reregisteredInfo = ledger.budgetInfo(address(budget));
+        assertTrue(reregisteredInfo.isTracked);
+        assertEq(reregisteredInfo.removedAt, 0);
+        assertEq(reregisteredInfo.resolvedOrRemovedAt, 0);
+        assertFalse(ledger.allTrackedBudgetsResolved());
+    }
+
     function test_registeredBudgetEnumeration_retainsRemovedBudgets() public {
         BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
         vm.prank(MANAGER);
