@@ -40,6 +40,7 @@ interface IBudgetStakeLedger {
     error INVALID_BUDGET_RESOLVED_AT(address budget);
     error INVALID_BUDGET_STATE(address budget);
     error INVALID_GOAL_FLOW(address goalFlow);
+    error GOAL_TERMINAL();
     error BUDGET_ALREADY_REGISTERED();
     error ALLOCATION_DRIFT(address account, address budget, uint256 storedAllocated, uint256 expectedAllocated);
     error TOTAL_ALLOCATED_UNDERFLOW(address budget, uint256 totalAllocated, uint256 attemptedDecrease);

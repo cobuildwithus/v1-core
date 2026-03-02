@@ -114,6 +114,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
         if (budget == address(0)) revert ADDRESS_ZERO();
+        if (IGoalTreasury(goalTreasury).resolved()) revert GOAL_TERMINAL();
         uint64 activatedAt = _validateBudgetForRegistration(budget);
 
         address existing = _budgetByRecipientId[recipientId];

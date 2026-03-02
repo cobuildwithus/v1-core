@@ -139,6 +139,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     error INVALID_PPM(uint32 ppmValue);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();
+    error GOAL_TERMINAL();
 
     function initialize(RegistryConfig calldata registryConfig, DeploymentConfig calldata deploymentConfig) external;
     function activateRegisteredBudget(bytes32 itemID) external returns (bool activated);

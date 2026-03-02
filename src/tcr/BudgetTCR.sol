@@ -117,6 +117,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
+        if (goalTreasury.resolved()) revert GOAL_TERMINAL();
         if (_pendingRemovalFinalizations[itemID]) revert REMOVAL_FINALIZATION_PENDING();
     }
 
@@ -131,6 +132,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     // slither-disable-next-line reentrancy-no-eth
     function activateRegisteredBudget(bytes32 itemID) external override nonReentrant returns (bool activated) {
         if (!_pendingRegistrationActivations[itemID]) revert REGISTRATION_NOT_PENDING();
+        if (goalTreasury.resolved()) revert GOAL_TERMINAL();
         Item storage item = items[itemID];
         if (item.status != Status.Registered) revert ITEM_NOT_REGISTERED();
         if (!_budgetDeployments[itemID].active) {

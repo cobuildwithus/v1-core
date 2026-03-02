@@ -448,6 +448,20 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.addItem(abi.encode(listing));
     }
 
+    function test_addItem_reverts_when_goal_terminal() public {
+        _approveAddCost(requester);
+        goalTreasury.setResolved(true);
+        bytes memory item = abi.encode(_defaultListing());
+        bytes32 itemID = keccak256(item);
+
+        vm.expectRevert(IBudgetTCR.GOAL_TERMINAL.selector);
+        vm.prank(requester);
+        budgetTcr.addItem(item);
+
+        (, IGeneralizedTCR.Status status,) = budgetTcr.getItemInfo(itemID);
+        assertEq(uint8(status), uint8(IGeneralizedTCR.Status.Absent));
+    }
+
     function test_executeRequest_queues_budget_activation_and_activateRegisteredBudget_deploys_stack() public {
         assertEq(goalFlow.recipientAdmin(), address(budgetTcr));
 
@@ -611,6 +625,24 @@ contract BudgetTCRTest is TestUtils {
 
         vm.expectRevert(IBudgetTCR.REGISTRATION_NOT_PENDING.selector);
         budgetTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_goal_terminal() public {
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        goalTreasury.setResolved(true);
+
+        vm.expectRevert(IBudgetTCR.GOAL_TERMINAL.selector);
+        budgetTcr.activateRegisteredBudget(itemID);
+
+        assertTrue(budgetTcr.isRegistrationPending(itemID));
+        assertEq(budgetStakeLedger.registerCallCount(), 0);
+        (address childFlow, bool removed) = goalFlow.recipients(itemID);
+        assertEq(childFlow, address(0));
+        assertFalse(removed);
     }
 
     function test_activateRegisteredBudget_clears_only_target_pending_registration() public {

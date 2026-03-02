@@ -122,6 +122,23 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
     }
 
+    function test_registerBudget_revertsWhenGoalTerminal() public {
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertEq(ledger.registeredBudgetCount(), 1);
+
+        goalTreasury.setResolved(true);
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+
+        vm.expectRevert(IBudgetStakeLedger.GOAL_TERMINAL.selector);
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        assertEq(ledger.trackedBudgetCount(), 1);
+        assertEq(ledger.registeredBudgetCount(), 1);
+        assertEq(ledger.budgetForRecipient(RECIPIENT), address(budget));
+        assertEq(ledger.budgetForRecipient(SECOND_RECIPIENT), address(0));
+    }
+
     function test_checkpointAllocation_sortedMerge_handlesOldSharedAndNewRecipientsDeterministically() public {
         BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
         BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
