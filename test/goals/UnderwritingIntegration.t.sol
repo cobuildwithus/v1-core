@@ -1096,14 +1096,16 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertTrue(treasury.recordHookFunding(100e18));
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), 0);
-        assertEq(flow.targetOutflowRate(), 0);
+        int96 initialTargetRate = treasury.targetFlowRate();
+        assertGt(initialTargetRate, 0);
+        assertEq(flow.targetOutflowRate(), initialTargetRate);
 
         distributionPool.setTotalUnits(40);
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), 4);
-        assertEq(flow.targetOutflowRate(), 4);
+        // Non-zero distribution units should not clamp spend-down target by coverage.
+        assertEq(treasury.targetFlowRate(), initialTargetRate);
+        assertEq(flow.targetOutflowRate(), initialTargetRate);
     }
 
     function test_initialize_revertsWhenBudgetStakeLedgerGoalTreasuryMismatch() public {
@@ -1142,13 +1144,14 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertTrue(treasury.recordHookFunding(100e18));
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), 8);
-        assertEq(flow.targetOutflowRate(), 8);
+        int96 previousAppliedRate = flow.targetOutflowRate();
+        assertGt(previousAppliedRate, 0);
+        assertEq(treasury.targetFlowRate(), previousAppliedRate);
 
-        distributionPool.setTotalUnits(1);
+        distributionPool.setTotalUnits(0);
 
         assertEq(treasury.targetFlowRate(), 0);
-        assertEq(flow.targetOutflowRate(), 8);
+        assertEq(flow.targetOutflowRate(), previousAppliedRate);
 
         treasury.sync();
 

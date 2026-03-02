@@ -11,6 +11,7 @@ import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
 import { BudgetTCRItems } from "./library/BudgetTCRItems.sol";
 import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -19,11 +20,20 @@ import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRou
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
     error BUDGET_TREASURY_MISMATCH();
+
+    /// @notice Emitted when best-effort credit-line enforcement hits an external-call failure.
+    event BudgetCreditCapEnforcementFailed(
+        bytes32 indexed itemID,
+        address indexed budgetTreasury,
+        bytes4 indexed selector,
+        bytes reason
+    );
 
     constructor() {
         _disableInitializers();
@@ -241,6 +251,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function syncBudgetTreasuries(
         bytes32[] calldata itemIDs
     ) external override nonReentrant returns (uint256 attempted, uint256 succeeded) {
+        address budgetStakeLedger = _budgetStakeLedger();
+        uint256 lambda = goalTreasury.coverageLambda();
+
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; i++) {
             bytes32 itemID = itemIDs[i];
@@ -267,6 +280,82 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
             }
             emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury, success);
+
+            _bestEffortEnforceBudgetCreditCap(
+                itemID,
+                deployment.childFlow,
+                budgetTreasury,
+                budgetStakeLedger,
+                lambda
+            );
+        }
+    }
+
+    function _bestEffortEnforceBudgetCreditCap(
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury,
+        address budgetStakeLedger,
+        uint256 lambda
+    ) internal {
+        // Underwriting disabled => never gate.
+        if (lambda == 0) {
+            try goalFlow.setRecipientEnabled(itemID, true) {} catch (bytes memory reason) {
+                emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IFlow.setRecipientEnabled.selector, reason);
+            }
+            return;
+        }
+
+        uint256 coverage;
+        try IBudgetStakeLedger(budgetStakeLedger).budgetTotalAllocatedStake(budgetTreasury) returns (uint256 cov) {
+            coverage = cov;
+        } catch (bytes memory reason) {
+            emit BudgetCreditCapEnforcementFailed(
+                itemID,
+                budgetTreasury,
+                IBudgetStakeLedger.budgetTotalAllocatedStake.selector,
+                reason
+            );
+            return;
+        }
+
+        uint64 duration;
+        try IBudgetTreasury(budgetTreasury).executionDuration() returns (uint64 dur) {
+            duration = dur;
+        } catch (bytes memory reason) {
+            emit BudgetCreditCapEnforcementFailed(
+                itemID,
+                budgetTreasury,
+                IBudgetTreasury.executionDuration.selector,
+                reason
+            );
+            return;
+        }
+
+        uint256 creditLine;
+        if (coverage == 0 || duration == 0) {
+            creditLine = 0;
+        } else {
+            // creditLine = coverage * duration / lambda
+            creditLine = Math.mulDiv(coverage, uint256(duration), lambda);
+        }
+
+        uint256 received;
+        try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
+            received = totalReceived;
+        } catch (bytes memory reason) {
+            emit BudgetCreditCapEnforcementFailed(
+                itemID,
+                budgetTreasury,
+                IFlow.getTotalReceivedByMember.selector,
+                reason
+            );
+            return;
+        }
+
+        bool enabled = (creditLine != 0) && (received < creditLine);
+        try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
+            emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, IFlow.setRecipientEnabled.selector, reason);
         }
     }
 

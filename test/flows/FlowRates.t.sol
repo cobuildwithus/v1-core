@@ -45,6 +45,12 @@ contract FlowRatesTest is FlowTestBase {
         targetFlow.addRecipient(recipientId, recipient, recipientMetadata);
     }
 
+    function _managerRewardDistributionFlowRate(CustomFlow targetFlow) internal view returns (int96) {
+        return ISuperToken(address(superToken)).getFlowDistributionFlowRate(
+            address(targetFlow), targetFlow.managerRewardDistributionPool()
+        );
+    }
+
     function _deployAndFundFlowWithRewardPpmAndParent(uint32 rewardPpm, address parent)
         internal
         returns (CustomFlow deployed)
@@ -83,7 +89,7 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow.setTargetOutflowRate(total);
 
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
+        assertEq(_managerRewardDistributionFlowRate(flow), 100);
         assertEq(
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
         );
@@ -93,7 +99,7 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow25.setTargetOutflowRate(total);
 
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow25), managerRewardPool), 250);
+        assertEq(_managerRewardDistributionFlowRate(flow25), 250);
         assertEq(
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow25), flow25.distributionPool()), 0
         );
@@ -103,7 +109,7 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow100.setTargetOutflowRate(total);
 
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow100), managerRewardPool), 1_000);
+        assertEq(_managerRewardDistributionFlowRate(flow100), 1_000);
         assertEq(
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow100), flow100.distributionPool()),
             0
@@ -157,15 +163,15 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
+        assertEq(_managerRewardDistributionFlowRate(flow), 100);
 
         vm.prank(owner);
         flow.setTargetOutflowRate(2_000);
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 200);
+        assertEq(_managerRewardDistributionFlowRate(flow), 200);
 
         vm.prank(owner);
         flow.setTargetOutflowRate(0);
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 0);
+        assertEq(_managerRewardDistributionFlowRate(flow), 0);
     }
 
     function test_managerRewardFlow_skipsUpdate_whenComputedRewardRateUnchanged() public {
@@ -175,17 +181,22 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
 
-        bytes memory managerUpdateCallData = abi.encodeWithSelector(
-            sf.cfa.updateFlow.selector, ISuperToken(address(superToken)), managerRewardPool, int96(100), new bytes(0)
+        bytes memory managerDistributeCallData = abi.encodeWithSelector(
+            sf.gda.distributeFlow.selector,
+            ISuperToken(address(superToken)),
+            address(flow),
+            flow.managerRewardDistributionPool(),
+            int96(100),
+            new bytes(0)
         );
         bytes memory hostCallData =
-            abi.encodeWithSelector(sf.host.callAgreement.selector, sf.cfa, managerUpdateCallData, new bytes(0));
+            abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, managerDistributeCallData, new bytes(0));
         vm.expectCall(address(sf.host), hostCallData, 0);
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_009);
 
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
+        assertEq(_managerRewardDistributionFlowRate(flow), 100);
         assertEq(
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
         );
@@ -214,7 +225,7 @@ contract FlowRatesTest is FlowTestBase {
         flow.setTargetOutflowRate(1_000);
 
         assertEq(flow.targetOutflowRate(), 1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
+        assertEq(_managerRewardDistributionFlowRate(flow), 100);
         assertEq(
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow), flow.distributionPool()), 0
         );
@@ -226,17 +237,11 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
 
-        bytes memory managerGetFlowCallData = abi.encodeWithSelector(
-            sf.cfa.getFlow.selector, ISuperToken(address(superToken)), address(flow), managerRewardPool
-        );
-        // Only the explicit assertion below should query CFA flow state.
-        vm.expectCall(address(sf.cfa), managerGetFlowCallData, 1);
-
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
 
         assertEq(flow.targetOutflowRate(), 1_000);
-        assertEq(ISuperToken(address(superToken)).getFlowRate(address(flow), managerRewardPool), 100);
+        assertEq(_managerRewardDistributionFlowRate(flow), 100);
     }
 
     function test_managerRewardPoolSetterSelector_isNotExposed() public {
@@ -252,7 +257,7 @@ contract FlowRatesTest is FlowTestBase {
         vm.prank(owner);
         flow333.setTargetOutflowRate(total);
 
-        int96 managerRate = ISuperToken(address(superToken)).getFlowRate(address(flow333), managerRewardPool);
+        int96 managerRate = _managerRewardDistributionFlowRate(flow333);
         int96 distributionRate =
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow333), flow333.distributionPool());
 
@@ -266,7 +271,7 @@ contract FlowRatesTest is FlowTestBase {
 
         distributionRate =
             ISuperToken(address(superToken)).getFlowDistributionFlowRate(address(flow857), flow857.distributionPool());
-        managerRate = ISuperToken(address(superToken)).getFlowRate(address(flow857), managerRewardPool);
+        managerRate = _managerRewardDistributionFlowRate(flow857);
 
         assertEq(managerRate, 6);
         assertEq(distributionRate, 0);

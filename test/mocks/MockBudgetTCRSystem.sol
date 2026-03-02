@@ -28,6 +28,7 @@ contract MockBudgetChildFlow {
     address private immutable _owner;
     address private immutable _parent;
     address private immutable _managerRewardPool;
+    address private immutable _managerRewardDistributionPool;
     address private immutable _strategy;
     uint32 private immutable _managerRewardPoolFlowRatePpm;
 
@@ -44,6 +45,7 @@ contract MockBudgetChildFlow {
         address owner_,
         address parent_,
         address managerRewardPool_,
+        address managerRewardDistributionPool_,
         address strategy_,
         uint32 managerRewardPoolFlowRatePpm_
     ) {
@@ -54,6 +56,7 @@ contract MockBudgetChildFlow {
         _owner = owner_;
         _parent = parent_;
         _managerRewardPool = managerRewardPool_;
+        _managerRewardDistributionPool = managerRewardDistributionPool_;
         _strategy = strategy_;
         _managerRewardPoolFlowRatePpm = managerRewardPoolFlowRatePpm_;
     }
@@ -80,6 +83,10 @@ contract MockBudgetChildFlow {
 
     function managerRewardPool() external view returns (address) {
         return _managerRewardPool;
+    }
+
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return ISuperfluidPool(_managerRewardDistributionPool);
     }
 
     function strategies() external view returns (IAllocationStrategy[] memory s) {
@@ -155,6 +162,7 @@ contract MockGoalFlowForBudgetTCR {
     address private _owner;
     address private _recipientAdmin;
     address private _managerRewardPool;
+    address private _childManagerRewardDistributionPool;
     uint32 private _managerRewardPoolFlowRatePpm;
     ISuperToken private immutable _superToken;
 
@@ -224,6 +232,11 @@ contract MockGoalFlowForBudgetTCR {
         _managerRewardPoolFlowRatePpm = newManagerRewardPoolFlowRatePpm;
     }
 
+    function setChildManagerRewardDistributionPool(address childManagerRewardDistributionPool_) external {
+        if (msg.sender != _owner && msg.sender != _recipientAdmin) revert NOT_OWNER_OR_RECIPIENT_ADMIN();
+        _childManagerRewardDistributionPool = childManagerRewardDistributionPool_;
+    }
+
     function setMemberFlowRate(address member, int96 flowRate) external {
         if (msg.sender != _owner && msg.sender != _recipientAdmin) revert NOT_OWNER_OR_RECIPIENT_ADMIN();
         _memberFlowRates[member] = flowRate;
@@ -259,6 +272,7 @@ contract MockGoalFlowForBudgetTCR {
             address(this),
             address(this),
             childManagerRewardPool,
+            _childManagerRewardDistributionPool,
             strategy,
             childManagerRewardPoolFlowRatePpm
         );
@@ -291,6 +305,7 @@ contract MockGoalTreasuryForBudgetTCR {
     address public budgetStakeLedger;
     address public flow;
     address public stakeVault;
+    uint256 public coverageLambda;
     bool public shouldRevertSync;
     uint256 public syncCallCount;
 
@@ -322,6 +337,10 @@ contract MockGoalTreasuryForBudgetTCR {
 
     function setStakeVault(address stakeVault_) external {
         stakeVault = stakeVault_;
+    }
+
+    function setCoverageLambda(uint256 coverageLambda_) external {
+        coverageLambda = coverageLambda_;
     }
 
     function setShouldRevertSync(bool shouldRevertSync_) external {

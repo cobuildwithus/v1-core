@@ -12,8 +12,11 @@ import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {SuperTokenV1Library} from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 
 contract FlowRecipientsTest is FlowTestBase {
+    using SuperTokenV1Library for ISuperToken;
+
     bytes32 internal constant RECIPIENT_CREATED_SIG =
         keccak256("RecipientCreated(bytes32,(address,uint32,bool,uint8,(string,string,string,string,string)),address)");
     bytes32 internal constant FLOW_RECIPIENT_CREATED_SIG =
@@ -448,7 +451,8 @@ contract FlowRecipientsTest is FlowTestBase {
         vm.prank(manager);
         child.setTargetOutflowRate(1_000);
 
-        (, int96 managerFlowRate,,) = sf.cfa.getFlow(ISuperToken(address(superToken)), childAddr, managerRewardPool);
+        int96 managerFlowRate =
+            ISuperToken(address(superToken)).getFlowDistributionFlowRate(childAddr, child.managerRewardDistributionPool());
         assertEq(managerFlowRate, 250);
     }
 

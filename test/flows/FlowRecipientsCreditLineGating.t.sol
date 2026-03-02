@@ -37,12 +37,14 @@ contract FlowRecipientsCreditLineGatingTest is FlowTestBase {
         assertEq(flow.distributionPool().getUnits(recipientAddrA), 0);
         assertEq(flow.distributionPool().getUnits(recipientAddrB), unitsBHalf);
 
-        uint32[] memory disabledAllocations = new uint32[](2);
+        bytes32[] memory disabledRecipientIds = new bytes32[](1);
+        disabledRecipientIds[0] = recipientA;
+
+        uint32[] memory disabledAllocations = new uint32[](1);
         disabledAllocations[0] = 1_000_000;
-        disabledAllocations[1] = 0;
 
         vm.prank(allocator);
-        flow.allocate(recipientIds, disabledAllocations);
+        flow.allocate(disabledRecipientIds, disabledAllocations);
 
         assertEq(flow.distributionPool().getUnits(recipientAddrA), 0);
         assertEq(flow.distributionPool().getUnits(recipientAddrB), 0);
