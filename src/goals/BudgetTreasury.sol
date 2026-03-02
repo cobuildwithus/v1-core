@@ -186,7 +186,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         }
 
         if (currentState == BudgetState.Funding) {
-            if (block.timestamp <= fundingDeadline) revert FUNDING_WINDOW_NOT_ENDED();
+            if (!_isFundingWindowEnded()) revert FUNDING_WINDOW_NOT_ENDED();
         } else {
             if (TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0))
                 revert SUCCESS_ASSERTION_PENDING();
@@ -224,7 +224,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (msg.sender != successResolver) revert ONLY_SUCCESS_RESOLVER();
         if (_state != BudgetState.Active) revert INVALID_STATE();
         if (successResolutionDisabled) revert SUCCESS_RESOLUTION_DISABLED();
-        if (block.timestamp < fundingDeadline) revert FUNDING_WINDOW_NOT_ENDED();
+        if (!_isFundingWindowEnded()) revert FUNDING_WINDOW_NOT_ENDED();
         if (block.timestamp >= deadline) {
             if (!_reassertGrace.consumeIfActive()) revert BUDGET_DEADLINE_PASSED();
         }
@@ -298,7 +298,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             isResolved: _isTerminalState(_state),
             canAcceptFunding: canAcceptFunding(),
             isSuccessResolutionDisabled: successResolutionDisabled,
-            isFundingWindowEnded: block.timestamp > fundingDeadline,
+            isFundingWindowEnded: _isFundingWindowEnded(),
             hasDeadline: deadlineSet,
             isDeadlinePassed: deadlineSet && block.timestamp >= deadline,
             hasPendingSuccessAssertion: TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0),
@@ -419,11 +419,15 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             stateValue == BudgetState.Expired;
     }
 
+    function _isFundingWindowEnded() internal view returns (bool) {
+        return block.timestamp > fundingDeadline;
+    }
+
     function _deriveBudgetDerivedState() internal view returns (BudgetDerivedState memory derivedState) {
         BudgetState currentState = _state;
         derivedState.state = currentState;
         derivedState.isTerminal = _isTerminalState(currentState);
-        derivedState.fundingWindowEnded = block.timestamp > fundingDeadline;
+        derivedState.fundingWindowEnded = _isFundingWindowEnded();
         derivedState.deadlinePassed = deadline != 0 && block.timestamp >= deadline;
     }
 

@@ -246,6 +246,11 @@ contract BudgetTreasuryTest is Test {
         assertFalse(treasury.canAcceptFunding());
     }
 
+    function test_canAcceptFunding_trueAtFundingDeadlineBoundary() public {
+        vm.warp(treasury.fundingDeadline());
+        assertTrue(treasury.canAcceptFunding());
+    }
+
     function test_canAcceptFunding_trueDuringFunding() public view {
         assertTrue(treasury.canAcceptFunding());
     }
@@ -472,6 +477,16 @@ contract BudgetTreasuryTest is Test {
 
         treasury.sync();
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Funding));
+    }
+
+    function test_sync_fundingBelowThresholdAtFundingDeadlineBoundary_isNoop() public {
+        superToken.mint(address(flow), 10e18);
+
+        vm.warp(treasury.fundingDeadline());
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Funding));
+        assertFalse(treasury.resolved());
     }
 
     function test_sync_fundingBelowThresholdAfterWindow_expires() public {
@@ -2050,6 +2065,18 @@ contract BudgetTreasuryTest is Test {
         assertTrue(terminalStatus.isResolved);
         assertTrue(treasury.resolved());
         assertEq(treasury.resolvedAt(), expectedResolvedAt);
+    }
+
+    function test_lifecycleStatus_fundingWindowBoundary_flipsOnlyAfterDeadlinePlusOne() public {
+        vm.warp(treasury.fundingDeadline());
+        IBudgetTreasury.BudgetLifecycleStatus memory atBoundary = treasury.lifecycleStatus();
+        assertFalse(atBoundary.isFundingWindowEnded);
+        assertTrue(atBoundary.canAcceptFunding);
+
+        vm.warp(treasury.fundingDeadline() + 1);
+        IBudgetTreasury.BudgetLifecycleStatus memory afterBoundary = treasury.lifecycleStatus();
+        assertTrue(afterBoundary.isFundingWindowEnded);
+        assertFalse(afterBoundary.canAcceptFunding);
     }
 
     function _deploy(

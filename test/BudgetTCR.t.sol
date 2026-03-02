@@ -1583,7 +1583,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertGt(treasury.deadline(), treasury.fundingDeadline());
 
-        _warpRoll(treasury.fundingDeadline());
+        _warpRoll(treasury.fundingDeadline() + 1);
 
         bytes32 assertionId = keccak256("pending-budget-success-assertion");
         vm.prank(owner);
