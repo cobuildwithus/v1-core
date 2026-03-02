@@ -17,7 +17,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     using Checkpoints for Checkpoints.Trace224;
 
     struct UserBudgetCheckpoint {
-        uint256 allocatedStake;
         uint64 lastCheckpoint;
     }
 
@@ -186,7 +185,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function userAllocatedStakeOnBudget(address account, address budget) external view override returns (uint256) {
-        return _userBudgetCheckpoints[account][budget].allocatedStake;
+        return _currentUserAllocatedStake(account, budget);
     }
 
     function budgetTotalAllocatedStake(address budget) external view override returns (uint256) {
@@ -206,7 +205,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         address budget
     ) external view override returns (UserBudgetCheckpointView memory checkpoint) {
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
-        checkpoint.allocatedStake = userCheckpoint.allocatedStake;
+        checkpoint.allocatedStake = _currentUserAllocatedStake(account, budget);
         checkpoint.lastCheckpoint = userCheckpoint.lastCheckpoint;
     }
 
@@ -250,7 +249,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         BudgetCheckpoint storage budgetCheckpointData = _budgetCheckpoints[budget];
         UserBudgetCheckpoint storage userCheckpoint = _userBudgetCheckpoints[account][budget];
 
-        uint256 userStoredAllocated = userCheckpoint.allocatedStake;
+        uint256 userStoredAllocated = _currentUserAllocatedStake(account, budget);
         if (userStoredAllocated != oldAllocated) {
             revert ALLOCATION_DRIFT(account, budget, userStoredAllocated, oldAllocated);
         }
@@ -266,16 +265,13 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
             budgetCheckpointData.totalAllocatedStake = totalAllocated - allocatedDecrease;
         }
 
-        userCheckpoint.allocatedStake = newAllocated;
         userCheckpoint.lastCheckpoint = nowTs;
         budgetCheckpointData.lastCheckpoint = nowTs;
 
-        if (newAllocated != oldAllocated) {
-            _userAllocatedStakeCheckpoints[account][budget].push(
-                SafeCast.toUint32(block.number),
-                SafeCast.toUint224(newAllocated)
-            );
-        }
+        _userAllocatedStakeCheckpoints[account][budget].push(
+            SafeCast.toUint32(block.number),
+            SafeCast.toUint224(newAllocated)
+        );
 
         emit AllocationCheckpointed(account, budget, newAllocated, nowTs);
     }
@@ -330,6 +326,10 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     function _effectiveAllocatedStake(uint256 weight, uint32 allocationPpm) internal pure returns (uint256) {
         return FlowUnitMath.effectiveAllocatedStake(weight, allocationPpm, FlowProtocolConstants.PPM_SCALE_UINT256);
+    }
+
+    function _currentUserAllocatedStake(address account, address budget) internal view returns (uint256) {
+        return _userAllocatedStakeCheckpoints[account][budget].latest();
     }
 
     function _validateBudgetForRegistration(address budget) internal view returns (uint64 activatedAt) {
