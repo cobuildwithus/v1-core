@@ -190,6 +190,8 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashComputesAverageCoverageWeightAndIsIdempotent() public {
+        _configureSpendFormulaParams(100_000, 10);
+
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -199,6 +201,10 @@ contract PremiumEscrowTest is Test {
         ledger.setCoverage(ALICE, address(budgetTreasury), 200);
         escrow.checkpoint(ALICE);
 
+        // premiumEarned chosen so spend-formula slash resolves to 30 for D=20 at (ppm=100_000, lambda=10, slashPpm=200_000)
+        premiumToken.mint(address(escrow), 30);
+        escrow.checkpoint(ALICE);
+
         vm.warp(35);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
@@ -206,7 +212,7 @@ contract PremiumEscrowTest is Test {
         uint256 firstSlash = escrow.slash(ALICE);
         uint256 secondSlash = escrow.slash(ALICE);
 
-        // E = 100*(20-10) + 200*(30-20) = 3000; D = 20; avg = 150; slash = avg * 20% = 30.
+        // Equivalent reference: E = 100*(20-10) + 200*(30-20) = 3000; D = 20; avg = 150; slash = avg * 20% = 30.
         assertEq(firstSlash, 30);
         assertEq(secondSlash, 0);
         assertEq(escrow.exposureIntegral(ALICE), 3000);
@@ -218,6 +224,8 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashFairness_withCoverageIncreaseAndDecrease_matchesAverageCoverageTimesSlashPpm() public {
+        _configureSpendFormulaParams(100_000, 10);
+
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
@@ -235,6 +243,10 @@ contract PremiumEscrowTest is Test {
         vm.warp(45);
         escrow.checkpoint(ALICE);
         ledger.setCoverage(ALICE, address(budgetTreasury), 160);
+        escrow.checkpoint(ALICE);
+
+        // premiumEarned chosen so spend-formula slash resolves to 29 for D=60 at (ppm=100_000, lambda=10, slashPpm=200_000)
+        premiumToken.mint(address(escrow), 87);
         escrow.checkpoint(ALICE);
 
         vm.warp(70);
@@ -255,9 +267,15 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashRouterRevert_rollsBackSlashedState_andCanBeRetried() public {
+        _configureSpendFormulaParams(100_000, 10);
+
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
+
+        // premiumEarned chosen so spend-formula slash resolves to 20 for D=10 at (ppm=100_000, lambda=10, slashPpm=200_000)
+        premiumToken.mint(address(escrow), 10);
+        escrow.checkpoint(ALICE);
 
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -312,7 +330,7 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 100);
     }
 
-    function test_slashFallsBackWhenGoalFlowOperatorLookupReverts() public {
+    function test_slashRevertsWhenSpendFormulaParamsAreUnresolved() public {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -325,14 +343,9 @@ contract PremiumEscrowTest is Test {
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
 
-        vm.expectEmit(true, false, false, true, address(escrow));
-        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, false, 0, 100_000, 0, 10, 20, 100, 20);
-        uint256 slashWeight = escrow.slash(ALICE);
-
-        assertEq(slashWeight, 20);
-        assertEq(router.slashCalls(), 1);
-        assertEq(router.lastUnderwriter(), ALICE);
-        assertEq(router.lastWeight(), 20);
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_SPEND_FORMULA_PARAMS.selector, 100_000, 0));
+        escrow.slash(ALICE);
+        assertEq(router.slashCalls(), 0);
     }
 
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
@@ -509,6 +522,13 @@ contract PremiumEscrowTest is Test {
     function _mintEscrowPremiumAndCheckpointBoth(uint256 amount) internal {
         premiumToken.mint(address(escrow), amount);
         _checkpointBoth();
+    }
+
+    function _configureSpendFormulaParams(uint32 premiumPpm, uint256 coverageLambda_) internal {
+        budgetFlow.setManagerRewardPoolFlowRatePpm(premiumPpm);
+        budgetTreasury.setFlow(address(budgetFlow));
+        goalTreasury.setCoverageLambda(coverageLambda_);
+        goalFlow.setFlowOperator(address(goalTreasury));
     }
 }
 

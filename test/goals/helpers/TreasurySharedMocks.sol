@@ -129,6 +129,7 @@ contract SharedMockFlow {
     address private _recipientAdmin;
     address private _flowOperator;
     address private _sweeper;
+    uint32 private _managerRewardPoolFlowRatePpm;
     ISuperfluidPool private _distributionPool;
     mapping(address => int96) private _memberFlowRates;
 
@@ -251,6 +252,14 @@ contract SharedMockFlow {
 
     function setSweeper(address sweeper_) external {
         _sweeper = sweeper_;
+    }
+
+    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        return _managerRewardPoolFlowRatePpm;
+    }
+
+    function setManagerRewardPoolFlowRatePpm(uint32 managerRewardPoolFlowRatePpm_) external {
+        _managerRewardPoolFlowRatePpm = managerRewardPoolFlowRatePpm_;
     }
 
     function setTargetOutflowRate(int96 rate) external {

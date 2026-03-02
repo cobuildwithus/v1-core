@@ -28,6 +28,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error ALREADY_CLOSED();
     error NOT_CLOSED();
     error NOT_SLASHABLE();
+    error UNRESOLVED_SPEND_FORMULA_PARAMS(uint32 premiumPpm, uint256 coverageLambda);
 
     event PremiumIndexed(
         uint256 indexed distributedPremium,
@@ -54,8 +55,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     );
 
     /// @notice Emitted with the inputs used to compute slashing for an underwriter.
-    /// @dev `usedSpendFormula == true` means the spend-proportional formula was applied;
-    ///      otherwise the contract fell back to the legacy exposure-duration formula.
+    /// @dev `usedSpendFormula == false` only on zero-duration/zero-slash-ppm early return paths.
     event UnderwriterSlashCalculated(
         address indexed underwriter,
         bool usedSpendFormula,
@@ -255,40 +255,26 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             return 0;
         }
 
-        // Attempt spend-proportional slashing (primary formula):
+        // Spend-proportional slashing formula:
         //   spendShare = premiumEarned / premiumFraction
         //   avgCoverageEq = spendShare * coverageLambda / duration
         //   rawSlashWeight = avgCoverageEq * budgetSlashPpm
         //   slashWeight = min(rawSlashWeight, peakCoverage)
-        //
-        // If configuration cannot be resolved, fall back to the legacy exposure-duration formula.
 
         (uint32 premiumPpm, uint256 coverageLambda) = _resolveSpendFormulaParams();
-        bool usedSpendFormula = (premiumPpm != 0 && coverageLambda != 0);
+        if (premiumPpm == 0 || coverageLambda == 0) {
+            revert UNRESOLVED_SPEND_FORMULA_PARAMS(premiumPpm, coverageLambda);
+        }
 
         uint256 rawSlashWeight;
         uint256 capWeight = accountState.peakCov;
-
-        if (usedSpendFormula) {
-            // spendShare = premiumEarned * 1e6 / premiumPpm
-            uint256 spendShare = Math.mulDiv(accountState.premiumEarned, _PPM_SCALE, uint256(premiumPpm));
-            // avgCoverageEq = spendShare * coverageLambda / duration
-            uint256 avgCoverageEq = Math.mulDiv(spendShare, coverageLambda, duration);
-            // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
-            rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), _PPM_SCALE);
-            slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
-        } else {
-            // Legacy fallback: slash proportional to time-weighted average coverage.
-            // slashWeight = exposureIntegral * budgetSlashPpm / (duration * 1e6)
-            if (accountState.exposureIntegral != 0) {
-                rawSlashWeight = Math.mulDiv(
-                    accountState.exposureIntegral,
-                    uint256(budgetSlashPpm),
-                    duration * _PPM_SCALE
-                );
-                slashWeight = rawSlashWeight;
-            }
-        }
+        // spendShare = premiumEarned * 1e6 / premiumPpm
+        uint256 spendShare = Math.mulDiv(accountState.premiumEarned, _PPM_SCALE, uint256(premiumPpm));
+        // avgCoverageEq = spendShare * coverageLambda / duration
+        uint256 avgCoverageEq = Math.mulDiv(spendShare, coverageLambda, duration);
+        // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
+        rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), _PPM_SCALE);
+        slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
 
         if (slashWeight != 0) {
             IUnderwriterSlasherRouter(underwriterSlasherRouter).slashUnderwriter(underwriter, slashWeight);
@@ -296,7 +282,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
         emit UnderwriterSlashCalculated(
             underwriter,
-            usedSpendFormula,
+            true,
             accountState.premiumEarned,
             premiumPpm,
             coverageLambda,

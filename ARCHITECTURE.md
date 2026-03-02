@@ -90,12 +90,18 @@ cobuild-protocol/
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` premium entitlement uses a balance-index over live `BudgetStakeLedger` coverage checkpoints (no snapshot-only settlement),
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
-  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes time-weighted
-    slash weight from exposure integral and routes slashing through the per-goal underwriter slasher router.
+  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes
+    spend-proportional slash weight from `premiumEarned`, `managerRewardPoolFlowRatePpm`, `coverageLambda`, and
+    `budgetSlashPpm`, caps by per-underwriter `peakCov`, and routes slashing through the per-goal underwriter slasher router.
+  - slash requires resolvable non-zero spend-formula parameters (`managerRewardPoolFlowRatePpm`, `coverageLambda`);
+    unresolved params revert (no legacy exposure-integral fallback path).
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as StakeVault underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (conversion failures are observable and retained),
   - router upgrades goal token to goal SuperToken and forwards to goal funding path (goal flow/treasury target).
+  - post-goal-resolution stake withdrawals are caller-prepared (not globally gated): each underwriter must run
+    `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` to traverse append-only registered budgets and execute
+    required premium-escrow slashes before `withdrawGoal`/`withdrawCobuild` unlock for that caller.
 - `GoalRevnetSplitHook` is controller-gated and treasury-state derived:
   - If `goalTreasury.canAcceptHookFunding()`, reserved inflow funds the goal flow.
   - If treasury state is `Succeeded` and minting is still open, reserved inflow is processed by the success-settlement burn path.

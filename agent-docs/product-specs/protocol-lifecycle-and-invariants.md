@@ -45,9 +45,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
-- Budget failure slashing semantics are time-weighted and activation-gated:
+- Budget failure slashing semantics are spend-proportional and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
-  - slash weight derives from average coverage over `[activatedAt, resolvedAt]` and applies `budgetSlashPpm`,
+  - slash weight derives from `premiumEarned` with spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`), applies `budgetSlashPpm`, and is capped by per-underwriter `peakCov`,
+  - unresolved spend-formula params revert slash (no exposure-integral fallback mode),
   - slashing is idempotent per underwriter per escrow.
 - Slashed value recycle path is routed and observable:
   - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,

@@ -96,7 +96,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - each budget child flow manager-reward stream is routed to that budget `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` indexes premium against live budget coverage from `BudgetStakeLedger`,
   - premium inflow with zero total coverage is recycled to goal funding via goal flow,
-  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes slash weight from exposure integral and routes slashing through `UnderwriterSlasherRouter`.
+  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes spend-proportional slash weight from premium accrual + spend-formula params, caps by `peakCov`, and routes slashing through `UnderwriterSlasherRouter`.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (failures are observable and retained),
@@ -144,7 +144,11 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` is coverage-only accounting for per-budget allocated stake plus checkpoint history (no points/rent-time accrual subsystem).
 - `PremiumEscrow` checkpoints account coverage, accrues claimable premium from indexed inflows, and recycles orphan premium when coverage is zero.
-- `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` computes per-underwriter slash weight from exposure integral and dispatches to `UnderwriterSlasherRouter`.
+- `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` computes per-underwriter spend-proportional slash weight from premium accrual + spend-formula params, caps by `peakCov`, and dispatches to `UnderwriterSlasherRouter`.
+- Slash requires resolvable non-zero spend-formula params (`managerRewardPoolFlowRatePpm`, `coverageLambda`) and reverts when unresolved.
+- Underwriter withdrawals are caller-prepared post-resolution:
+  - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
+  - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.
 
 6. TCR request/challenge/dispute lifecycle
 - Item add/remove -> challenge window -> dispute creation in arbitrator.
