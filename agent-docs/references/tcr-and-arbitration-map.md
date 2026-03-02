@@ -38,8 +38,12 @@
    - `sweeper`: cloned budget treasury,
    - child manager-reward pool: per-budget premium escrow at configured `budgetPremiumPpm`.
 5. On accepted removal, `BudgetTCR` clears any pending registration and queues pending removal finalization (`BudgetStackRemovalQueued`) so TCR request resolution remains uncoupled from flow calls.
-6. Any caller can run `finalizeRemovedBudget(...)` to remove parent recipient + stake-ledger mapping, then attempt terminal-only budget resolution (`forceFlowRateToZero`, controller-gated `resolveFailure` via `BudgetTCR`).
-7. If terminalization is not yet allowed by treasury deadlines after removal finalization, anyone can retry terminal-only paths via `retryRemovedBudgetResolution(...)`.
+6. Any caller can run `finalizeRemovedBudget(...)` to remove parent recipient + stake-ledger mapping and enforce `forceFlowRateToZero`:
+   - pre-activation removals strict-finalize through controller-gated failure resolution,
+   - activation-locked removals do not auto-force failure.
+7. If a removed budget remains unresolved after finalization, anyone can call `retryRemovedBudgetResolution(...)`:
+   - pre-activation removals retry terminal-only resolution,
+   - activation-locked removals retry spend-stop + treasury `sync()` progression.
 8. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, and deployer implementations.
 9. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
 

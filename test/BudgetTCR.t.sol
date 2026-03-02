@@ -1037,7 +1037,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Failed));
     }
 
-    function test_finalizeRemovedBudget_forceZerosFlowRate_whenBudgetWasActive_strictlyTerminalizes() public {
+    function test_finalizeRemovedBudget_forceZerosFlowRate_whenBudgetWasActive_withoutAutoFailure() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1056,10 +1056,10 @@ contract BudgetTCRTest is TestUtils {
 
         (, bool removed) = goalFlow.recipients(itemID);
         assertTrue(removed);
-        assertTrue(terminallyResolved);
-        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
-        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Failed));
-        assertTrue(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
+        assertFalse(terminallyResolved);
+        assertFalse(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertFalse(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
@@ -1090,6 +1090,50 @@ contract BudgetTCRTest is TestUtils {
         assertEq(budgetStakeLedger.removeCallCount(), 0);
     }
 
+    function test_finalizeRemovedBudget_revertsWhenForceZeroingFails_forActivationLockedRemoval_andPreservesRemovalState()
+        public
+    {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertFalse(treasury.successResolutionDisabled());
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+        assertFalse(treasury.successResolutionDisabled());
+
+        bytes memory revertReason = abi.encodeWithSignature("Error(string)", "FORCE_ZERO_FAILED_ACTIVE");
+        vm.mockCallRevert(
+            budgetTreasury,
+            abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector),
+            revertReason
+        );
+
+        vm.expectRevert(revertReason);
+        budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertTrue(budgetTcr.isRemovalPending(itemID));
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertFalse(removed);
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), budgetTreasury);
+        assertEq(budgetStakeLedger.removeCallCount(), 0);
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertFalse(treasury.successResolutionDisabled());
+
+        vm.expectRevert(IBudgetTCR.STACK_STILL_ACTIVE.selector);
+        vm.prank(makeAddr("keeper"));
+        budgetTcr.retryRemovedBudgetResolution(itemID);
+    }
+
     function test_finalizeRemovedBudget_revertsWhenDisableFails_andPreservesRemovalState() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1113,7 +1157,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(budgetStakeLedger.removeCallCount(), 0);
         assertFalse(IBudgetTreasury(budgetTreasury).resolved());
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Funding));
-        assertFalse(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
+        assertTrue(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
 
         vm.expectRevert(IBudgetTCR.STACK_STILL_ACTIVE.selector);
         vm.prank(makeAddr("keeper"));
@@ -1172,7 +1216,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(budgetStakeLedger.removeCallCount(), 0);
         assertFalse(IBudgetTreasury(budgetTreasury).resolved());
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Funding));
-        assertFalse(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
+        assertTrue(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
 
         vm.expectRevert(IBudgetTCR.STACK_STILL_ACTIVE.selector);
         vm.prank(makeAddr("keeper"));
@@ -1217,6 +1261,35 @@ contract BudgetTCRTest is TestUtils {
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_finalizeRemovedBudget_preActivationRemoval_disallowsActivationBeforeFinalize() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        assertEq(treasury.activatedAt(), 0);
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        assertTrue(treasury.successResolutionDisabled());
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertEq(treasury.activatedAt(), 0);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertTrue(terminallyResolved);
+        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.successResolutionDisabled());
+    }
+
     function test_executeRequest_removal_resolves_failure_after_budget_window() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1244,7 +1317,7 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.retryRemovedBudgetResolution(itemID);
     }
 
-    function test_retryRemovedBudgetResolution_reportsResolvedAfterStrictFinalize() public {
+    function test_retryRemovedBudgetResolution_activationLocked_remainsUnresolvedUntilSyncFinalizes() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1262,23 +1335,58 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.executeRequest(itemID);
 
         bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
-        assertTrue(terminallyResolved);
-        assertTrue(treasury.successResolutionDisabled());
+        assertFalse(terminallyResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
+
+        _warpRoll(treasury.deadline() + 1);
+        vm.prank(makeAddr("keeper"));
+        bool retryResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
+
+        assertTrue(retryResolved);
+        assertFalse(treasury.successResolutionDisabled());
         assertTrue(treasury.resolved());
-        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
+    }
+
+    function test_retryRemovedBudgetResolution_activationLocked_beforeDeadline_returnsFalseWithoutForcingFailure() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertGt(treasury.deadline(), block.timestamp);
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertFalse(terminallyResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
 
         vm.prank(makeAddr("keeper"));
         bool retryResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
 
-        assertTrue(retryResolved);
-        assertTrue(treasury.successResolutionDisabled());
-        assertTrue(treasury.resolved());
-        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertFalse(retryResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
-    function test_retryRemovedBudgetResolution_ignoresForceZeroMockAfterStrictFinalize() public {
+    function test_retryRemovedBudgetResolution_revertsWhenForceZeroingFails_forActivationLockedRemoval() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1292,10 +1400,10 @@ contract BudgetTCRTest is TestUtils {
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
         bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
-        assertTrue(terminallyResolved);
-        assertTrue(treasury.successResolutionDisabled());
-        assertTrue(treasury.resolved());
-        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertFalse(terminallyResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
 
         bytes memory revertReason = abi.encodeWithSignature("Error(string)", "FORCE_ZERO_RETRY_FAILED");
@@ -1306,8 +1414,8 @@ contract BudgetTCRTest is TestUtils {
         );
 
         vm.prank(makeAddr("keeper"));
-        bool retryResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
-        assertTrue(retryResolved);
+        vm.expectRevert(revertReason);
+        budgetTcr.retryRemovedBudgetResolution(itemID);
     }
 
     function test_retryRemovedBudgetResolution_permissionlessReturnsTrue_whenAlreadyResolvedByFinalize() public {
@@ -1348,35 +1456,35 @@ contract BudgetTCRTest is TestUtils {
         assertEq(emittedTerminallyResolved, terminallyResolved);
     }
 
-    function test_retryRemovedBudgetResolution_emitsTerminalizationFailureEvent_whenDisableResolutionReverts() public {
+    function test_retryRemovedBudgetResolution_emitsSyncFailureEvent_whenSyncReverts_forActivationLockedRemoval()
+        public
+    {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        IBudgetTreasury(budgetTreasury).sync();
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
         budgetTcr.finalizeRemovedBudget(itemID);
 
-        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "DISABLE_RETRY_FAILED");
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "SYNC_RETRY_FAILED");
         vm.mockCallRevert(
             budgetTreasury,
-            abi.encodeWithSelector(IBudgetTreasury.disableSuccessResolution.selector),
+            abi.encodeWithSelector(IBudgetTreasury.sync.selector),
             expectedReason
         );
 
         vm.recordLogs();
-        budgetTcr.retryRemovedBudgetResolution(itemID);
+        bool terminallyResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertTrue(
-            _hasBudgetTerminalizationStepFailed(
-                logs,
-                itemID,
-                budgetTreasury,
-                IBudgetTreasury.disableSuccessResolution.selector,
-                expectedReason
-            )
-        );
+        assertFalse(terminallyResolved);
+        assertTrue(_hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IBudgetTreasury.sync.selector, expectedReason));
     }
 
     function test_retryRemovedBudgetResolution_emitsTerminalizationFailureEvent_whenResolveFailureReverts() public {
@@ -1461,7 +1569,7 @@ contract BudgetTCRTest is TestUtils {
         assertFalse(PremiumEscrow(premiumEscrow).closed());
     }
 
-    function test_finalizeRemovedBudget_clearsPendingSuccessAssertion_whenBudgetWasActive() public {
+    function test_finalizeRemovedBudget_keepsPendingSuccessAssertion_whenBudgetWasActive() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1486,11 +1594,11 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.executeRequest(itemID);
 
         bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
-        assertTrue(terminallyResolved);
-        assertTrue(treasury.successResolutionDisabled());
-        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
-        assertTrue(treasury.resolved());
-        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertFalse(terminallyResolved);
+        assertFalse(treasury.successResolutionDisabled());
+        assertEq(treasury.pendingSuccessAssertionId(), assertionId);
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 

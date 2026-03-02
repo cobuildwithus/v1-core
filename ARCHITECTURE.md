@@ -140,7 +140,8 @@ cobuild-protocol/
   - pending success assertions block terminalization only while unresolved.
 - Removed budgets are terminalized via `BudgetTCR` removal flows:
   - removal unregisters the budget from `BudgetStakeLedger` and removes the parent goal-flow recipient,
-  - removal disables budget success resolution and requires terminal treasury resolution through finalize/retry paths.
+  - pre-activation removal disables budget success resolution and strict-finalizes terminal `Failed`,
+  - activation-locked removal enforces spend-stop and preserves normal success/expiry/failure lifecycle progression (no auto-forced failure on removal).
 
 3. Allocation determinism
 - Allocation inputs and witness/commit semantics must remain deterministic and auditable.
@@ -188,7 +189,9 @@ cobuild-protocol/
   - `ParentSynced` (default): parent allocation pipeline computes/applies child sync updates.
   - `ManagerSynced`: parent skips auto-sync; child budget treasury/flow operator owns rate updates.
   - `BudgetTCR` marks newly deployed budget child flows as `ManagerSynced`.
-- `BudgetTCR` exposes permissionless retry for removed-but-unresolved budget terminalization (`retryRemovedBudgetResolution`).
+- `BudgetTCR` exposes permissionless retry for removed-but-unresolved budget progression (`retryRemovedBudgetResolution`):
+  - pre-activation removals retry terminal-only resolution,
+  - activation-locked removals retry spend-stop + treasury sync progression.
 - `BudgetTCR` exposes permissionless best-effort budget treasury batch sync (`syncBudgetTreasuries`):
   - skips undeployed/inactive item IDs,
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.

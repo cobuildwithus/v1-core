@@ -135,6 +135,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (derivedState.isTerminal) return;
 
         if (derivedState.state == BudgetState.Funding) {
+            if (successResolutionDisabled) {
+                _finalize(BudgetState.Failed);
+                return;
+            }
             if (treasuryBalance() >= activationThreshold) {
                 _activateAndSync();
                 if (block.timestamp >= deadline) {

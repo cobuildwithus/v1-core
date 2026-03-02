@@ -69,8 +69,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - success can finalize post-deadline when assertion was initiated pre-deadline, or for budgets via the one-time post-deadline grace reassert.
 - Pending assertions block active-state terminalization races only while unresolved.
 - Accepted budget removals use activation-locked split semantics:
-  - pre-activation removal disables budget success resolution and makes the budget success-ineligible,
-  - post-activation removal stops forward spend/funding while preserving success eligibility if the removed budget later resolves terminal `Succeeded`.
+  - pre-activation removal disables budget success resolution at removal-acceptance and strict-finalizes the budget to terminal `Failed`,
+  - activation-locked removal stops forward spend/funding while preserving success eligibility and does not auto-force `Failed`,
+  - retry progression for removed activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
   - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.

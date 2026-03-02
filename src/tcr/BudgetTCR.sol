@@ -149,7 +149,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            bool activationLocked = _isActivationLockedRemoval(itemID, treasury);
+            bool activationLocked = _isActivationLockedRemoval(treasury);
             if (activationLocked) {
                 // Removal must stop budget spend immediately, but activated removals do not auto-force failure.
                 treasury.forceFlowRateToZero();
@@ -185,13 +185,12 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address budgetTreasury = deployment.budgetTreasury;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            if (!_isActivationLockedRemoval(itemID, treasury)) {
+            if (!_isActivationLockedRemoval(treasury)) {
                 // Pre-activation removals are immediate fail-closed and cannot later become success-eligible.
                 treasury.disableSuccessResolution();
             }
         }
 
-        _removalAcceptedAt[itemID] = uint64(block.timestamp);
         _pendingRemovalFinalizations[itemID] = true;
         emit BudgetStackRemovalQueued(itemID);
     }
@@ -464,16 +463,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function _clearRemovalPendingState(bytes32 itemID) internal {
         _pendingRemovalFinalizations[itemID] = false;
-        _removalAcceptedAt[itemID] = 0;
     }
 
-    function _isActivationLockedRemoval(bytes32 itemID, IBudgetTreasury treasury) internal view returns (bool) {
-        uint64 activatedAt = treasury.activatedAt();
-        if (activatedAt == 0) return false;
-
-        uint64 removalAcceptedAt = _removalAcceptedAt[itemID];
-        if (removalAcceptedAt == 0) return true;
-        return activatedAt <= removalAcceptedAt;
+    function _isActivationLockedRemoval(IBudgetTreasury treasury) internal view returns (bool) {
+        return treasury.activatedAt() != 0;
     }
 
     function _removeRecipientFromGoalFlowIfPresent(

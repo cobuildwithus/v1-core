@@ -169,8 +169,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `StakeVault.goalTreasury` is anchored to that real clone address,
   - treasury initialization happens in `deployBudgetTreasury` after child-flow creation.
 - `BudgetTCR` now performs runtime parent-flow recipient add/remove operations directly.
-- On accepted removal, budget child outflow is force-zeroed immediately; stack terminalization then follows terminal-only retries via `BudgetTCR.retryRemovedBudgetResolution(...)`.
-- On accepted removal, `BudgetTCR` disables budget success resolution only for non-locked/pre-activation removals; activation-locked removals preserve reward-history/success-eligibility paths while still terminalizing through retries.
+- On accepted removal, budget child outflow is force-zeroed immediately and parent-flow funding is detached during finalization.
+- On accepted removal, `BudgetTCR` disables budget success resolution only for non-locked/pre-activation removals; those removals strict-finalize to terminal `Failed`.
+- Activation-locked removals preserve reward-history/success-eligibility and do not auto-force `Failed`; `retryRemovedBudgetResolution(...)` enforces spend-stop and attempts treasury `sync()` progression.
 - `BudgetTCRDeployer` remains `onlyBudgetTCR` and mechanical (`prepareBudgetStack` + `deployBudgetTreasury`).
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Treasury authority reads are standardized:

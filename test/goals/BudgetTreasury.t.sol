@@ -1504,6 +1504,17 @@ contract BudgetTreasuryTest is Test {
         assertTrue(treasury.resolved());
     }
 
+    function test_sync_fromFunding_finalizesFailureWhenSuccessResolutionDisabled() public {
+        vm.prank(owner);
+        treasury.disableSuccessResolution();
+
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertEq(treasury.activatedAt(), 0);
+    }
+
     function test_resolveFailure_revertsWhenAlreadyResolved() public {
         vm.warp(treasury.fundingDeadline() + 1);
         vm.prank(owner);
