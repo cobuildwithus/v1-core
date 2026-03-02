@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { Test } from "forge-std/Test.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -62,6 +63,36 @@ contract PremiumEscrowTest is Test {
             address(router),
             SLASH_PPM
         );
+    }
+
+    function test_initializeRevertsWhenSlashPpmExceedsProtocolScale() public {
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow overflowEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+        uint32 invalidSlashPpm = FlowProtocolConstants.PPM_SCALE + 1;
+
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.INVALID_SLASH_PPM.selector, invalidSlashPpm));
+        overflowEscrow.initialize(
+            address(budgetTreasury),
+            address(ledger),
+            address(goalFlow),
+            address(router),
+            invalidSlashPpm
+        );
+    }
+
+    function test_initializeAllowsSlashPpmAtProtocolScale() public {
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow maxEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+
+        maxEscrow.initialize(
+            address(budgetTreasury),
+            address(ledger),
+            address(goalFlow),
+            address(router),
+            FlowProtocolConstants.PPM_SCALE
+        );
+
+        assertEq(maxEscrow.budgetSlashPpm(), FlowProtocolConstants.PPM_SCALE);
     }
 
     function test_premiumAccrualCoverageIncreaseDecrease_splitsCorrectly() public {
@@ -258,7 +289,7 @@ contract PremiumEscrowTest is Test {
         uint256 expectedExposure = 100 * 10 + 220 * 15 + 40 * 10 + 160 * 25; // 8,700
         uint256 expectedDuration = 60;
         uint256 expectedAverageCoverage = expectedExposure / expectedDuration; // 145
-        uint256 expectedSlashWeight = (expectedAverageCoverage * SLASH_PPM) / 1_000_000; // 29
+        uint256 expectedSlashWeight = (expectedAverageCoverage * SLASH_PPM) / FlowProtocolConstants.PPM_SCALE_UINT256; // 29
 
         assertEq(escrow.exposureIntegral(ALICE), expectedExposure);
         assertEq(slashWeight, expectedSlashWeight);
