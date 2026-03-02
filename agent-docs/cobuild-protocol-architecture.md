@@ -95,7 +95,12 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
   - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
   - recipient gating: `goalFlow.setRecipientEnabled(itemID, enabled)` to force units to zero while over line and restore virtual units on re-enable,
+  - per-item enforcement runs before budget treasury `sync()` in `syncBudgetTreasuries`,
   - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
+- Budget treasury active target flow-rate is composite:
+  - trusted incoming from parent member flow (`max(parent.getMemberFlowRate(child), 0)`),
+  - linear balance spenddown (`treasuryBalance / timeRemaining`),
+  - total target saturates at `int96.max`.
 - Goal and budget treasuries share thin mechanics via `TreasuryBase` (donation ingress wrappers, treasury-balance reads, and flow-zero helper), while retaining separate lifecycle/economic policy logic.
 - Finalization path still triggers flow stop + residual settlement + stake-vault resolution.
 - Underwriting premium/slash routing is hard-cutover:

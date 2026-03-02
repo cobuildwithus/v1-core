@@ -271,16 +271,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
 
             attempted += 1;
-            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            bool success;
-            try treasury.sync() {
-                success = true;
-                succeeded += 1;
-            } catch (bytes memory reason) {
-                emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
-            }
-            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury, success);
-
             _bestEffortEnforceBudgetCreditCap(
                 itemID,
                 deployment.childFlow,
@@ -288,6 +278,15 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 budgetStakeLedger,
                 lambda
             );
+
+            bool success;
+            try IBudgetTreasury(budgetTreasury).sync() {
+                success = true;
+                succeeded += 1;
+            } catch (bytes memory reason) {
+                emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
+            }
+            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury, success);
         }
     }
 

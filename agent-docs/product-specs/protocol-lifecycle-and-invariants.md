@@ -41,10 +41,13 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
   - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
   - recipient gating: over-line disables goal-flow recipient (effective units `0`), under-line re-enables and restores saved virtual units,
+  - per-item enforcement runs before budget treasury `sync()` during `BudgetTCR.syncBudgetTreasuries`,
   - enforcement is best-effort in batch sync; failures emit `BudgetCreditCapEnforcementFailed` and do not abort other items.
-- Budget active flow-rate targeting is parent-member-rate based:
-  - raw budget target is `parentFlow.getMemberFlowRate(address(budgetFlow))` clamped at `>= 0`,
-  - unsolicited third-party inbound streams to the budget flow must not increase budget target rate.
+- Budget active flow-rate targeting is trusted-incoming plus balance-spenddown:
+  - trusted incoming component: `max(parentFlow.getMemberFlowRate(address(budgetFlow)), 0)`,
+  - spenddown component: `treasuryBalance / timeRemaining`,
+  - raw budget target is the sum of both components, saturated to `int96.max`,
+  - unsolicited third-party inbound streams to the budget flow must not increase the trusted incoming component.
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,

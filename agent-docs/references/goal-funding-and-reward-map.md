@@ -40,7 +40,10 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 
 1. Parent funding enters each budget child flow from the goal flow recipient path.
 2. Budgets are deployed as child flows where the budget treasury is child `flowOperator`/`sweeper`, and manager reward stream is routed to per-budget `PremiumEscrow` at `budgetPremiumPpm`.
-3. Budget treasury active target flow-rate is trusted parent member rate only (`parent.getMemberFlowRate(child)`), clamped at `>= 0`.
+3. Budget treasury active target flow-rate is trusted incoming plus balance spenddown:
+   - trusted incoming component: `max(parent.getMemberFlowRate(child), 0)`,
+   - spenddown component: `treasuryBalance / timeRemaining`,
+   - total target is the saturated sum of both components (`int96.max` cap).
 4. Budget treasury is assertion-backed for success and controller-gated for manual failure (`resolveFailure`) under deadline constraints.
 5. Budget finalization is state-first, then best-effort side effects:
    - child outflow stop,

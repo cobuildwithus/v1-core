@@ -19,6 +19,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
+    uint256 private constant INT96_MAX_UINT = uint256(uint96(type(int96).max));
     uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
     uint8 private constant TERMINAL_OP_PREMIUM_ESCROW_CLOSE = 3;
@@ -287,7 +288,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         // slither-disable-next-line incorrect-equality
         if (remaining == 0) return 0;
 
-        return _incomingFlowRate();
+        int96 incomingRate = _incomingFlowRate();
+        int96 spenddownRate = _linearBalanceSpenddownFlowRate(treasuryBalance(), remaining);
+        return _composeTargetFlowRate(incomingRate, spenddownRate);
     }
 
     function lifecycleStatus() external view override returns (BudgetLifecycleStatus memory status) {
@@ -318,6 +321,22 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         int96 parentMemberFlowRate = IFlow(_flow.parent()).getMemberFlowRate(address(_flow));
         if (parentMemberFlowRate <= 0) return 0;
         return parentMemberFlowRate;
+    }
+
+    function _linearBalanceSpenddownFlowRate(uint256 balance, uint256 remaining) internal pure returns (int96) {
+        uint256 rawRate = balance / remaining;
+        if (rawRate > INT96_MAX_UINT) return type(int96).max;
+        return int96(uint96(rawRate));
+    }
+
+    function _composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) internal pure returns (int96) {
+        uint256 incoming = uint256(uint96(incomingRate));
+        if (incoming >= INT96_MAX_UINT) return type(int96).max;
+
+        uint256 spenddown = uint256(uint96(spenddownRate));
+        if (spenddown > INT96_MAX_UINT - incoming) return type(int96).max;
+
+        return int96(uint96(incoming + spenddown));
     }
 
     function _activateAndSync() internal {

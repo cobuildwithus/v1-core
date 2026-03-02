@@ -83,13 +83,16 @@ cobuild-protocol/
     Goal sync proactively caps linear targets with a buffer-derived liquidation-horizon bound when the target is currently
     buffer-affordable, then applies best-effort writes (target, fallback bounded, then zero on persistent write failure).
     Goal sync does not apply coverage-based speed clamping; it only returns zero target when the distribution pool has zero units.
-  - Budget treasury uses pass-through targeting from trusted parent member flow-rate (`parent.getMemberFlowRate(child)`) and applies
-    best-effort writes with buffer-aware fallback semantics.
+  - Budget treasury target is composite:
+    - trusted incoming component from parent member flow-rate (`max(parent.getMemberFlowRate(child), 0)`),
+    - linear balance spenddown component (`treasuryBalance / timeRemaining`),
+    - total target is saturated to `int96.max` and applied with best-effort writes plus buffer-aware fallback semantics.
 - Budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
   - cumulative exposure meter is `goalFlow.getTotalReceivedByMember(childFlow)`,
   - credit line is `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
   - over-limit recipients are disabled (`setRecipientEnabled(..., false)`) so effective pool units are forced to zero,
   - recipients are re-enabled once exposure is back under line after additional coverage credit,
+  - enforcement runs before per-budget treasury `sync()` in each batch iteration so the same cycle observes the updated gate state,
   - enforcement is best-effort per item; external-call failures emit `BudgetCreditCapEnforcementFailed` and batch sync continues.
 - Budget underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
