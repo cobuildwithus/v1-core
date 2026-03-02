@@ -172,6 +172,86 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(ledger.budgetTotalAllocatedStake(address(thirdBudget)), 4 * UNIT_WEIGHT_SCALE);
     }
 
+    function testFuzz_checkpointAllocation_mergePathMatchesReferenceAndDeltaAccounting(
+        uint8 oldMaskSeed,
+        uint8 newMaskSeed,
+        uint96 prevWeightSeed,
+        uint96 newWeightSeed,
+        uint32 oldSeedA,
+        uint32 oldSeedB,
+        uint32 oldSeedC,
+        uint32 newSeedA,
+        uint32 newSeedB,
+        uint32 newSeedC
+    ) public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+
+        vm.startPrank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+        ledger.registerBudget(THIRD_RECIPIENT, address(thirdBudget));
+        vm.stopPrank();
+
+        uint8 oldMask = oldMaskSeed & 0x07;
+        uint8 newMask = newMaskSeed & 0x07;
+        uint256 prevWeight = bound(uint256(prevWeightSeed), 0, 1_000_000 * UNIT_WEIGHT_SCALE);
+        uint256 newWeight = bound(uint256(newWeightSeed), 0, 1_000_000 * UNIT_WEIGHT_SCALE);
+
+        (bytes32[] memory oldRecipientIds, uint32[] memory oldAllocationPpm) =
+            _buildSortedAllocations(oldMask, oldSeedA, oldSeedB, oldSeedC);
+        (bytes32[] memory newRecipientIds, uint32[] memory newAllocationPpm) =
+            _buildSortedAllocations(newMask, newSeedA, newSeedB, newSeedC);
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), prevWeight, oldRecipientIds, oldAllocationPpm
+        );
+
+        uint256 firstBefore = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget));
+        uint256 secondBefore = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget));
+        uint256 thirdBefore = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(thirdBudget));
+
+        uint256 oldFirst = _allocatedForRecipient(prevWeight, oldRecipientIds, oldAllocationPpm, RECIPIENT);
+        uint256 oldSecond = _allocatedForRecipient(prevWeight, oldRecipientIds, oldAllocationPpm, SECOND_RECIPIENT);
+        uint256 oldThird = _allocatedForRecipient(prevWeight, oldRecipientIds, oldAllocationPpm, THIRD_RECIPIENT);
+
+        assertEq(firstBefore, oldFirst);
+        assertEq(secondBefore, oldSecond);
+        assertEq(thirdBefore, oldThird);
+
+        // If this reverts, SortedRecipientMerge-based traversal introduced a false-positive drift.
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT,
+            prevWeight,
+            oldRecipientIds,
+            oldAllocationPpm,
+            newWeight,
+            newRecipientIds,
+            newAllocationPpm
+        );
+
+        uint256 firstAfter = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget));
+        uint256 secondAfter = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget));
+        uint256 thirdAfter = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(thirdBudget));
+
+        uint256 newFirst = _allocatedForRecipient(newWeight, newRecipientIds, newAllocationPpm, RECIPIENT);
+        uint256 newSecond = _allocatedForRecipient(newWeight, newRecipientIds, newAllocationPpm, SECOND_RECIPIENT);
+        uint256 newThird = _allocatedForRecipient(newWeight, newRecipientIds, newAllocationPpm, THIRD_RECIPIENT);
+
+        assertEq(firstAfter, newFirst);
+        assertEq(secondAfter, newSecond);
+        assertEq(thirdAfter, newThird);
+
+        _assertDeltaMatchesReference(firstBefore, firstAfter, oldFirst, newFirst);
+        _assertDeltaMatchesReference(secondBefore, secondAfter, oldSecond, newSecond);
+        _assertDeltaMatchesReference(thirdBefore, thirdAfter, oldThird, newThird);
+
+        assertEq(ledger.budgetTotalAllocatedStake(address(budget)), newFirst);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), newSecond);
+        assertEq(ledger.budgetTotalAllocatedStake(address(thirdBudget)), newThird);
+    }
+
     function test_registerBudget_revertsWhenBudgetIsNotContract() public {
         address noCode = address(0xBEEF);
         vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_NOT_CONTRACT.selector, noCode));
@@ -350,6 +430,87 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(account, prevWeight, ids, allocationPpm, newWeight, ids, allocationPpm);
+    }
+
+    function _buildSortedAllocations(
+        uint8 mask,
+        uint32 seedA,
+        uint32 seedB,
+        uint32 seedC
+    ) internal pure returns (bytes32[] memory recipientIds, uint32[] memory allocationsPpm) {
+        uint256 count;
+        if ((mask & 0x01) != 0) ++count;
+        if ((mask & 0x02) != 0) ++count;
+        if ((mask & 0x04) != 0) ++count;
+
+        recipientIds = new bytes32[](count);
+        allocationsPpm = new uint32[](count);
+        if (count == 0) return (recipientIds, allocationsPpm);
+
+        uint256[] memory raw = new uint256[](count);
+        uint256 cursor;
+        uint256 rawSum;
+
+        if ((mask & 0x01) != 0) {
+            recipientIds[cursor] = RECIPIENT;
+            raw[cursor] = (uint256(seedA) % FULL_ALLOCATION_PPM) + 1;
+            rawSum += raw[cursor];
+            ++cursor;
+        }
+        if ((mask & 0x02) != 0) {
+            recipientIds[cursor] = SECOND_RECIPIENT;
+            raw[cursor] = (uint256(seedB) % FULL_ALLOCATION_PPM) + 1;
+            rawSum += raw[cursor];
+            ++cursor;
+        }
+        if ((mask & 0x04) != 0) {
+            recipientIds[cursor] = THIRD_RECIPIENT;
+            raw[cursor] = (uint256(seedC) % FULL_ALLOCATION_PPM) + 1;
+            rawSum += raw[cursor];
+            ++cursor;
+        }
+
+        uint256 running;
+        for (uint256 i = 0; i + 1 < count; ) {
+            uint256 ppm = (raw[i] * FULL_ALLOCATION_PPM) / rawSum;
+            allocationsPpm[i] = uint32(ppm);
+            running += ppm;
+            unchecked {
+                ++i;
+            }
+        }
+        allocationsPpm[count - 1] = uint32(uint256(FULL_ALLOCATION_PPM) - running);
+    }
+
+    function _allocatedForRecipient(
+        uint256 weight,
+        bytes32[] memory recipientIds,
+        uint32[] memory allocationsPpm,
+        bytes32 recipientId
+    ) internal pure returns (uint256 allocated) {
+        for (uint256 i = 0; i < recipientIds.length; ) {
+            if (recipientIds[i] == recipientId) {
+                uint256 weighted = (weight * allocationsPpm[i]) / FlowProtocolConstants.PPM_SCALE_UINT256;
+                return (weighted / FlowProtocolConstants.UNIT_WEIGHT_SCALE) * FlowProtocolConstants.UNIT_WEIGHT_SCALE;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return 0;
+    }
+
+    function _assertDeltaMatchesReference(
+        uint256 beforeAllocated,
+        uint256 afterAllocated,
+        uint256 oldAllocated,
+        uint256 newAllocated
+    ) internal pure {
+        if (newAllocated >= oldAllocated) {
+            assertEq(afterAllocated - beforeAllocated, newAllocated - oldAllocated);
+        } else {
+            assertEq(beforeAllocated - afterAllocated, oldAllocated - newAllocated);
+        }
     }
 }
 

@@ -379,6 +379,36 @@ contract PremiumEscrowTest is Test {
         assertEq(router.slashCalls(), 0);
     }
 
+    function test_slashRevertsWhenBudgetFlowPremiumRateReadFails_withoutLegacyFallback_andCanRetry() public {
+        _configureSpendFormulaParams(100_000, 10);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        // premiumEarned chosen so spend-formula slash resolves to 20 for D=10 at (ppm=100_000, lambda=10, slashPpm=200_000)
+        premiumToken.mint(address(escrow), 10);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        PremiumEscrowMockBudgetFlowReverting revertingFlow = new PremiumEscrowMockBudgetFlowReverting();
+        budgetTreasury.setFlow(address(revertingFlow));
+
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_SPEND_FORMULA_PARAMS.selector, 0, 10));
+        escrow.slash(ALICE);
+        assertFalse(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+
+        budgetTreasury.setFlow(address(budgetFlow));
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+    }
+
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -629,6 +659,14 @@ contract PremiumEscrowMockBudgetFlow {
 
     function managerRewardPoolFlowRatePpm() external view returns (uint32) {
         return _managerRewardPoolFlowRatePpm;
+    }
+}
+
+contract PremiumEscrowMockBudgetFlowReverting {
+    error MANAGER_REWARD_RATE_READ_REVERT();
+
+    function managerRewardPoolFlowRatePpm() external pure returns (uint32) {
+        revert MANAGER_REWARD_RATE_READ_REVERT();
     }
 }
 
