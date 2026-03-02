@@ -31,6 +31,7 @@ library FlowRecipients {
         address recipientAddress = recipientState.recipient;
         FlowTypes.RecipientType recipientType = recipientState.recipientType;
         recipientsState.recipientExists[recipientAddress] = false;
+        _clearRecipientGatingState(recipientsState, recipientAddress);
 
         recipientState.isRemoved = true;
 
@@ -70,6 +71,7 @@ library FlowRecipients {
 
         uint32 recipientIndexPlusOne = _appendRecipientIndex(recipientsState, recipientId);
         recipientsState.recipientExists[recipient] = true;
+        _clearRecipientGatingState(recipientsState, recipient);
 
         recipientsState.recipients[recipientId] = FlowTypes.FlowRecipient({
             recipientType: FlowTypes.RecipientType.ExternalAccount,
@@ -112,6 +114,15 @@ library FlowRecipients {
         });
 
         recipientsState.recipientExists[recipient] = true;
+        _clearRecipientGatingState(recipientsState, recipient);
+    }
+
+    function _clearRecipientGatingState(
+        FlowTypes.RecipientsState storage recipientsState,
+        address recipient
+    ) private {
+        recipientsState.isRecipientDisabled[recipient] = false;
+        recipientsState.savedUnitsWhenDisabled[recipient] = 0;
     }
 
     /**
