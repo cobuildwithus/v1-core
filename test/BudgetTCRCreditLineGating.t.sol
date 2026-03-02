@@ -120,11 +120,15 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         goalFlow.setRecipientAdmin(address(budgetTcr));
     }
 
-    function test_syncBudgetTreasuries_withLambdaZero_forceEnablesRecipient() public {
+    function test_syncBudgetTreasuries_withLambdaZero_enablesRecipient_whenReceivedBelowRunwayCap() public {
         bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         goalTreasury.setCoverageLambda(0);
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(999e18)
+        );
 
         vm.mockCall(
             address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true), abi.encode()
@@ -140,6 +144,30 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertTrue(budgetTreasury != address(0));
+    }
+
+    function test_syncBudgetTreasuries_withLambdaZero_disablesRecipient_whenReceivedAtRunwayBoundary() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+
+        goalTreasury.setCoverageLambda(0);
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(1_000e18)
+        );
+
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), abi.encode()
+        );
+        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false));
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
     }
 
     function test_syncBudgetTreasuries_disablesRecipient_whenReceivedAtCreditLineBoundary() public {

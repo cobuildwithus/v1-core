@@ -255,9 +255,9 @@ contract BudgetTreasuryTest is Test {
         assertTrue(treasury.canAcceptFunding());
     }
 
-    function test_canAcceptFunding_falseWhenRunwayCapReachedDuringFunding() public {
+    function test_canAcceptFunding_trueWhenRunwayCapReachedDuringFunding() public {
         superToken.mint(address(flow), treasury.runwayCap());
-        assertFalse(treasury.canAcceptFunding());
+        assertTrue(treasury.canAcceptFunding());
     }
 
     function test_donateUnderlyingAndUpgrade_transfersToFlow() public {
@@ -2082,12 +2082,12 @@ contract BudgetTreasuryTest is Test {
         realEscrow.slash(address(0xA11CE));
     }
 
-    function test_canAcceptFunding_falseWhenActiveAndRunwayCapReached() public {
+    function test_canAcceptFunding_trueWhenActiveAndRunwayCapReached() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
 
         superToken.mint(address(flow), treasury.runwayCap());
-        assertFalse(treasury.canAcceptFunding());
+        assertTrue(treasury.canAcceptFunding());
     }
 
     function test_canAcceptFunding_falseAfterFinalized() public {
