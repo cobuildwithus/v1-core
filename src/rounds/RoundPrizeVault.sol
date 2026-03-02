@@ -36,7 +36,6 @@ contract RoundPrizeVault is ReentrancyGuard {
     error LENGTH_MISMATCH();
 
     event OperatorSet(address indexed previousOperator, address indexed newOperator);
-    event EntitlementRecipientSnapshotted(bytes32 indexed submissionId, address indexed recipient);
     event EntitlementSet(bytes32 indexed submissionId, uint256 entitlement);
     event Claimed(bytes32 indexed submissionId, address indexed recipient, uint256 amount);
     event Downgraded(uint256 amount);
@@ -51,8 +50,6 @@ contract RoundPrizeVault is ReentrancyGuard {
     mapping(bytes32 => uint256) public entitlementOf;
     /// @notice Amount already claimed per submission.
     mapping(bytes32 => uint256) public claimedOf;
-    /// @notice Snapshotted payout recipient for a submission.
-    mapping(bytes32 => address) public payoutRecipientOf;
 
     constructor(
         IERC20 underlyingToken_,
@@ -102,10 +99,8 @@ contract RoundPrizeVault is ReentrancyGuard {
 
     /// @notice Claim any unclaimed entitlement for the caller's submission.
     function claim(bytes32 submissionId) external nonReentrant returns (uint256 amount) {
-        address recipient = payoutRecipientOf[submissionId];
-        if (recipient != msg.sender) revert ONLY_SUBMITTER();
-        (, IGeneralizedTCR.Status status) = submissionsTCR.itemManagerAndStatus(submissionId);
-        if (status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
+        address manager = _registeredSubmissionManager(submissionId);
+        if (manager != msg.sender) revert ONLY_SUBMITTER();
 
         uint256 total = entitlementOf[submissionId];
         uint256 already = claimedOf[submissionId];
@@ -120,20 +115,20 @@ contract RoundPrizeVault is ReentrancyGuard {
         emit Claimed(submissionId, msg.sender, amount);
     }
 
-    function _snapshotRecipientIfUnset(bytes32 submissionId, uint256 entitlement) internal {
-        if (entitlement == 0 || payoutRecipientOf[submissionId] != address(0)) return;
-        (address manager, IGeneralizedTCR.Status status) = submissionsTCR.itemManagerAndStatus(submissionId);
-        if (manager == address(0) || status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
-        payoutRecipientOf[submissionId] = manager;
-        emit EntitlementRecipientSnapshotted(submissionId, manager);
-    }
-
     function _setEntitlement(bytes32 submissionId, uint256 entitlement) internal {
         uint256 alreadyClaimed = claimedOf[submissionId];
         if (entitlement < alreadyClaimed) revert ENTITLEMENT_LT_CLAIMED(entitlement, alreadyClaimed);
-        _snapshotRecipientIfUnset(submissionId, entitlement);
+        if (entitlement > 0) {
+            _registeredSubmissionManager(submissionId);
+        }
         entitlementOf[submissionId] = entitlement;
         emit EntitlementSet(submissionId, entitlement);
+    }
+
+    function _registeredSubmissionManager(bytes32 submissionId) internal view returns (address manager) {
+        IGeneralizedTCR.Status status;
+        (manager, status) = submissionsTCR.itemManagerAndStatus(submissionId);
+        if (status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
     }
 
     /// @notice Permissionless helper to downgrade super tokens into underlying tokens.

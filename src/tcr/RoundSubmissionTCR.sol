@@ -18,12 +18,15 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
  *         submit a compact reference to offchain content (e.g., Farcaster cast hash, X tweet id).
  */
 contract RoundSubmissionTCR is GeneralizedTCR {
+    uint256 private constant SUBMISSION_DATA_LENGTH = 96;
+
     /// @dev A compact, chain-agnostic submission reference.
     ///      `source` is an application-defined discriminator (e.g., 0=farcaster, 1=x).
     ///      `postId` is an application-defined identifier (e.g., cast hash, tweet id).
-    struct SubmissionRef {
+    struct Submission {
         uint8 source;
         bytes32 postId;
+        address recipient;
     }
 
     struct RoundConfig {
@@ -94,13 +97,13 @@ contract RoundSubmissionTCR is GeneralizedTCR {
     }
 
     /// @notice Helper for offchain clients to construct the canonical submission payload.
-    function encodeSubmission(SubmissionRef calldata ref) external pure returns (bytes memory) {
-        return abi.encode(ref.source, ref.postId);
+    function encodeSubmission(Submission calldata submission) external pure returns (bytes memory) {
+        return abi.encode(submission.source, submission.postId, submission.recipient);
     }
 
     /// @notice Helper to decode the canonical submission payload.
-    function decodeSubmission(bytes calldata itemData) public pure returns (SubmissionRef memory ref) {
-        (ref.source, ref.postId) = abi.decode(itemData, (uint8, bytes32));
+    function decodeSubmission(bytes calldata itemData) public pure returns (Submission memory submission) {
+        (submission.source, submission.postId, submission.recipient) = abi.decode(itemData, (uint8, bytes32, address));
     }
 
     /// @notice Gas-efficient helper for prize vaults to fetch manager + status without returning item data.
@@ -113,17 +116,22 @@ contract RoundSubmissionTCR is GeneralizedTCR {
 
     /// @inheritdoc GeneralizedTCR
     function _verifyItemData(bytes calldata itemData) internal view override returns (bool valid) {
-        // Enforce the submission window if configured.
-        if (startAt != 0 && block.timestamp < startAt) return false;
-        // `endAt` is inclusive: submissions at exactly `endAt` remain valid.
-        if (endAt != 0 && block.timestamp > endAt) return false;
+        // Canonical encoding: (uint8 source, bytes32 postId, address recipient).
+        // ABI encoding uses 3 words => 96 bytes.
+        if (itemData.length != SUBMISSION_DATA_LENGTH) return false;
 
-        // Canonical encoding: (uint8 source, bytes32 postId).
-        // ABI encoding uses 2 words => 64 bytes.
-        if (itemData.length != 64) return false;
+        Submission memory submission = decodeSubmission(itemData);
+        if (submission.postId == bytes32(0)) return false;
+        if (submission.recipient == address(0)) return false;
 
-        SubmissionRef memory submissionRef = decodeSubmission(itemData);
-        if (submissionRef.postId == bytes32(0)) return false;
+        bytes32 itemID = keccak256(abi.encodePacked(submission.source, submission.postId));
+        // Enforce submission windows only for brand-new item IDs.
+        // Existing item IDs can be corrected and re-added after `endAt`.
+        if (items[itemID].requests.length == 0) {
+            if (startAt != 0 && block.timestamp < startAt) return false;
+            // `endAt` is inclusive: submissions at exactly `endAt` remain valid.
+            if (endAt != 0 && block.timestamp > endAt) return false;
+        }
 
         return true;
     }
@@ -131,7 +139,12 @@ contract RoundSubmissionTCR is GeneralizedTCR {
     /// @inheritdoc GeneralizedTCR
     function _constructNewItemID(bytes calldata itemData) internal pure override returns (bytes32 itemID) {
         // (roundId is implicit because this TCR is deployed per-round)
-        SubmissionRef memory ref = decodeSubmission(itemData);
-        return keccak256(abi.encodePacked(ref.source, ref.postId));
+        Submission memory submission = decodeSubmission(itemData);
+        return keccak256(abi.encodePacked(submission.source, submission.postId));
+    }
+
+    /// @inheritdoc GeneralizedTCR
+    function _deriveItemManager(bytes memory itemData, bytes32, address) internal pure override returns (address manager_) {
+        (, , manager_) = abi.decode(itemData, (uint8, bytes32, address));
     }
 }

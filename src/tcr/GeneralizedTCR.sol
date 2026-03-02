@@ -162,6 +162,18 @@ abstract contract GeneralizedTCR is
     function _assertCanAddItem(bytes32, bytes calldata) internal view virtual {}
 
     /**
+     * @dev Optional extension point for derived registries to customize item manager assignment.
+     *      Default behavior keeps manager equal to the request caller.
+     */
+    function _deriveItemManager(
+        bytes memory,
+        bytes32,
+        address _caller
+    ) internal view virtual returns (address manager_) {
+        return _caller;
+    }
+
+    /**
      * @dev Submit a request to remove an item from the list. Must have approved this contract to transfer at least `removalBaseDeposit` + `arbitrationCost` ERC20 tokens.
      *  @param _itemID The ID of the item to remove.
      *  @param _evidence A link to an evidence using its URI. Ignored if not provided.
@@ -411,16 +423,20 @@ abstract contract GeneralizedTCR is
         Item storage item = items[_itemID];
 
         // Using `length` instead of `length - 1` as index because a new request will be added.
-        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(_itemID, item.requests.length)));
-        if (item.requests.length == 0) {
+        uint256 requestIndex = item.requests.length;
+        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(_itemID, requestIndex)));
+        bool isFirstRequest = requestIndex == 0;
+        if (isFirstRequest || item.status == Status.Absent) {
+            address manager_ = _deriveItemManager(_item, _itemID, msg.sender);
             item.data = _item;
-            item.manager = msg.sender;
-            itemList.push(_itemID);
-            itemIDtoIndex[_itemID] = itemList.length - 1;
+            item.manager = manager_;
+
+            if (isFirstRequest) {
+                itemList.push(_itemID);
+                itemIDtoIndex[_itemID] = itemList.length - 1;
+            }
 
             emit ItemSubmitted(_itemID, msg.sender, evidenceGroupID, item.data);
-        } else if (item.status == Status.Absent) {
-            item.manager = msg.sender;
         }
 
         Request storage request = item.requests.push();
