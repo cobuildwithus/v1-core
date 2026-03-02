@@ -288,6 +288,45 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(conversionTerminal.payCallCount(), 1);
     }
 
+    function test_bridgeCoverageCoverageExitBeforeActivation_postActivationSpendYieldsZeroSlash() public {
+        uint256 initialCoverage = 100e18;
+        uint64 activatedAt = 10;
+        uint64 closedAt = 30;
+        uint256 postActivationPremium = 25e18;
+
+        // Underwriter covers during funding.
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), initialCoverage);
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.userCov(ALICE), initialCoverage);
+        assertEq(escrow.peakCov(ALICE), initialCoverage);
+
+        // Coverage exits before activation, so execution runs uncovered.
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 0);
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.userCov(ALICE), 0);
+        assertEq(escrow.totalCoverage(), 0);
+
+        vm.warp(activatedAt);
+        budgetTreasury.setActivatedAt(activatedAt);
+
+        // Post-activation premium inflow while total coverage is zero is recycled, not accrued.
+        goalSuperToken.mint(address(escrow), postActivationPremium);
+        escrow.checkpoint(ALICE);
+        assertEq(goalSuperToken.balanceOf(address(goalFlow)), postActivationPremium);
+        assertEq(escrow.premiumEarned(ALICE), 0);
+        assertEq(escrow.claimable(ALICE), 0);
+
+        vm.warp(closedAt);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, activatedAt, closedAt);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, 0);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(escrow.peakCov(ALICE), initialCoverage);
+    }
+
     function test_goalResolvedBeforeBudgetClose_withdrawBlocked_thenSlashStillCutsPrincipal() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
