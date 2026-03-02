@@ -7,6 +7,7 @@ import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { FlowUnitMath } from "../library/FlowUnitMath.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
+import { SortedRecipientMerge } from "../library/SortedRecipientMerge.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -29,17 +30,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         bool isTracked;
         uint64 removedAt;
         uint64 activatedAt;
-    }
-
-    struct AllocationMergeContext {
-        address account;
-        uint256 prevWeight;
-        bytes32[] prevRecipientIds;
-        uint32[] prevScaled;
-        uint256 newWeight;
-        bytes32[] newRecipientIds;
-        uint32[] newScaled;
-        uint64 nowTs;
     }
 
     address public immutable override goalTreasury;
@@ -97,15 +87,15 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         address account,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevScaled,
+        uint32[] calldata prevAllocationPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newScaled
+        uint32[] calldata newAllocationPpm
     ) external override onlyGoalFlow {
         if (IGoalTreasury(goalTreasury).resolved()) return;
         if (account == address(0)) revert ADDRESS_ZERO();
-        if (prevRecipientIds.length != prevScaled.length) revert INVALID_CHECKPOINT_DATA();
-        if (newRecipientIds.length != newScaled.length) revert INVALID_CHECKPOINT_DATA();
+        if (prevRecipientIds.length != prevAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
+        if (newRecipientIds.length != newAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
 
         if (prevWeight != newWeight) {
             _userAllocationWeightCheckpoints[account].push(
@@ -113,17 +103,16 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
                 SafeCast.toUint224(newWeight)
             );
         }
-        AllocationMergeContext memory ctx = AllocationMergeContext({
-            account: account,
-            prevWeight: prevWeight,
-            prevRecipientIds: prevRecipientIds,
-            prevScaled: prevScaled,
-            newWeight: newWeight,
-            newRecipientIds: newRecipientIds,
-            newScaled: newScaled,
-            nowTs: uint64(block.timestamp)
-        });
-        _checkpointAllocationMemory(ctx);
+        _checkpointAllocationCalldata(
+            account,
+            prevWeight,
+            prevRecipientIds,
+            prevAllocationPpm,
+            newWeight,
+            newRecipientIds,
+            newAllocationPpm,
+            uint64(block.timestamp)
+        );
     }
 
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
@@ -291,83 +280,41 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         emit AllocationCheckpointed(account, budget, newAllocated, nowTs);
     }
 
-    function _checkpointAllocationMemory(AllocationMergeContext memory ctx) internal {
-        uint256 oldLen = ctx.prevRecipientIds.length;
-        uint256 newLen = ctx.newRecipientIds.length;
-        uint256 oldIndex;
-        uint256 newIndex;
-
-        while (oldIndex < oldLen || newIndex < newLen) {
-            bytes32 oldRecipientId =
-                oldIndex < oldLen ? ctx.prevRecipientIds[oldIndex] : bytes32(type(uint256).max);
-            bytes32 newRecipientId =
-                newIndex < newLen ? ctx.newRecipientIds[newIndex] : bytes32(type(uint256).max);
-
-            bytes32 recipientId;
-            bool hasOld;
-            bool hasNew;
-            uint256 oldScaledIndex;
-            uint256 newScaledIndex;
-
-            if (oldRecipientId == newRecipientId) {
-                recipientId = oldRecipientId;
-                hasOld = true;
-                hasNew = true;
-                oldScaledIndex = oldIndex;
-                newScaledIndex = newIndex;
-                unchecked {
-                    ++oldIndex;
-                    ++newIndex;
-                }
-            } else if (uint256(oldRecipientId) < uint256(newRecipientId)) {
-                recipientId = oldRecipientId;
-                hasOld = true;
-                oldScaledIndex = oldIndex;
-                unchecked {
-                    ++oldIndex;
-                }
-            } else {
-                recipientId = newRecipientId;
-                hasNew = true;
-                newScaledIndex = newIndex;
-                unchecked {
-                    ++newIndex;
-                }
-            }
-
-            _processMergeStep(
-                ctx,
-                recipientId,
-                hasOld,
-                hasNew,
-                oldScaledIndex,
-                newScaledIndex
-            );
-        }
-    }
-
-    function _processMergeStep(
-        AllocationMergeContext memory ctx,
-        bytes32 recipientId,
-        bool hasOld,
-        bool hasNew,
-        uint256 oldScaledIndex,
-        uint256 newScaledIndex
+    function _checkpointAllocationCalldata(
+        address account,
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm,
+        uint64 nowTs
     ) internal {
-        address budget = _budgetByRecipientId[recipientId];
-        if (budget == address(0)) return;
+        uint256 oldLen = prevRecipientIds.length;
+        uint256 newLen = newRecipientIds.length;
 
-        uint256 oldAllocated;
-        uint256 newAllocated;
-        if (hasOld) {
-            oldAllocated = _effectiveAllocatedStake(ctx.prevWeight, ctx.prevScaled[oldScaledIndex]);
-        }
-        if (hasNew) {
-            newAllocated = _effectiveAllocatedStake(ctx.newWeight, ctx.newScaled[newScaledIndex]);
-        }
-        if (oldAllocated == newAllocated) return;
+        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
+            prevRecipientIds,
+            newRecipientIds,
+            SortedRecipientMerge.Precondition.AssumeSorted
+        );
 
-        _checkpointBudgetAllocation(ctx.account, budget, oldAllocated, newAllocated, ctx.nowTs);
+        while (SortedRecipientMerge.hasNext(mergeCursor, oldLen, newLen)) {
+            (SortedRecipientMerge.Step memory step, SortedRecipientMerge.Cursor memory nextCursor) =
+                SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            mergeCursor = nextCursor;
+
+            address budget = _budgetByRecipientId[step.recipientId];
+            if (budget == address(0)) continue;
+
+            uint256 oldAllocated =
+                step.hasOld ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex]) : 0;
+            uint256 newAllocated =
+                step.hasNew ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex]) : 0;
+            if (oldAllocated == newAllocated) continue;
+
+            _checkpointBudgetAllocation(account, budget, oldAllocated, newAllocated, nowTs);
+        }
     }
 
     function _boundedEndExclusive(
@@ -381,8 +328,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         }
     }
 
-    function _effectiveAllocatedStake(uint256 weight, uint32 scaled) internal pure returns (uint256) {
-        return FlowUnitMath.effectiveAllocatedStake(weight, scaled, FlowProtocolConstants.PPM_SCALE_UINT256);
+    function _effectiveAllocatedStake(uint256 weight, uint32 allocationPpm) internal pure returns (uint256) {
+        return FlowUnitMath.effectiveAllocatedStake(weight, allocationPpm, FlowProtocolConstants.PPM_SCALE_UINT256);
     }
 
     function _validateBudgetForRegistration(address budget) internal view returns (uint64 activatedAt) {

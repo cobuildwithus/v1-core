@@ -29,6 +29,10 @@ contract StakeVaultTest is Test {
     bytes32 internal constant JUROR_OPTED_IN_EVENT_TOPIC =
         keccak256("JurorOptedIn(address,uint256,uint256,uint256,address)");
     bytes32 internal constant JUROR_DELEGATE_SET_EVENT_TOPIC = keccak256("JurorDelegateSet(address,address)");
+    bytes32 internal constant JUROR_SLASHED_EVENT_TOPIC =
+        keccak256("JurorSlashed(address,uint256,uint256,uint256,uint256,address)");
+    bytes32 internal constant UNDERWRITER_SLASHED_EVENT_TOPIC =
+        keccak256("UnderwriterSlashed(address,uint256,uint256,uint256,uint256,address)");
     event AllocationSyncFailed(address indexed account, address indexed target, bytes4 indexed selector, bytes reason);
     event UnderwriterSlashed(
         address indexed underwriter,
@@ -1346,6 +1350,58 @@ contract StakeVaultTest is Test {
         assertEq(vault.totalWeight(), 135e18);
     }
 
+    function test_slashJurorStake_zeroRequestedWeight_isNoOp() public {
+        vm.startPrank(alice);
+        vault.depositGoal(100e18);
+        vault.depositCobuild(50e18);
+        vault.optInAsJuror(60e18, 20e18, address(0));
+        vm.stopPrank();
+
+        vault.setJurorSlasher(address(this));
+
+        uint256 goalBefore = vault.stakedGoalOf(alice);
+        uint256 cobuildBefore = vault.stakedCobuildOf(alice);
+        uint256 lockedGoalBefore = vault.jurorLockedGoalOf(alice);
+        uint256 lockedCobuildBefore = vault.jurorLockedCobuildOf(alice);
+        uint256 jurorWeightBefore = vault.jurorWeightOf(alice);
+        uint256 weightBefore = vault.weightOf(alice);
+        uint256 totalWeightBefore = vault.totalWeight();
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vm.recordLogs();
+        vault.slashJurorStake(alice, 0, slashRecipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(vault.stakedGoalOf(alice), goalBefore);
+        assertEq(vault.stakedCobuildOf(alice), cobuildBefore);
+        assertEq(vault.jurorLockedGoalOf(alice), lockedGoalBefore);
+        assertEq(vault.jurorLockedCobuildOf(alice), lockedCobuildBefore);
+        assertEq(vault.jurorWeightOf(alice), jurorWeightBefore);
+        assertEq(vault.weightOf(alice), weightBefore);
+        assertEq(vault.totalWeight(), totalWeightBefore);
+        assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
+        assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
+        assertEq(_countLogsByTopic(logs, JUROR_SLASHED_EVENT_TOPIC), 0);
+    }
+
+    function test_slashJurorStake_zeroCurrentStake_isNoOp() public {
+        vault.setJurorSlasher(address(this));
+
+        uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
+        uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
+
+        vm.recordLogs();
+        vault.slashJurorStake(alice, 15e18, slashRecipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
+        assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
+        assertEq(vault.weightOf(alice), 0);
+        assertEq(vault.totalWeight(), 0);
+        assertEq(_countLogsByTopic(logs, JUROR_SLASHED_EVENT_TOPIC), 0);
+    }
+
     function test_setUnderwriterSlasher_and_slashUnderwriterStake_proportionalAcrossAssets() public {
         vm.startPrank(alice);
         vault.depositGoal(100e18);
@@ -1407,7 +1463,9 @@ contract StakeVaultTest is Test {
         uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
+        vm.recordLogs();
         vault.slashUnderwriterStake(alice, 0, slashRecipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(vault.stakedGoalOf(alice), goalBefore);
         assertEq(vault.stakedCobuildOf(alice), cobuildBefore);
@@ -1418,6 +1476,7 @@ contract StakeVaultTest is Test {
         assertEq(vault.totalWeight(), totalWeightBefore);
         assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
         assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
+        assertEq(_countLogsByTopic(logs, UNDERWRITER_SLASHED_EVENT_TOPIC), 0);
     }
 
     function test_slashUnderwriterStake_zeroCurrentStake_isNoOp() public {
@@ -1426,12 +1485,15 @@ contract StakeVaultTest is Test {
         uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
+        vm.recordLogs();
         vault.slashUnderwriterStake(alice, 15e18, slashRecipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(goalToken.balanceOf(slashRecipient), collectorGoalBefore);
         assertEq(cobuildToken.balanceOf(slashRecipient), collectorCobuildBefore);
         assertEq(vault.weightOf(alice), 0);
         assertEq(vault.totalWeight(), 0);
+        assertEq(_countLogsByTopic(logs, UNDERWRITER_SLASHED_EVENT_TOPIC), 0);
     }
 
     function test_slashUnderwriterStake_maxRequestedWeight_clampsToDerivedStakeWeight_andKeepsAggregateInSync() public {

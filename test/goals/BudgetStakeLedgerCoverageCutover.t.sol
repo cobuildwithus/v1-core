@@ -6,14 +6,16 @@ import { Test } from "forge-std/Test.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetStakeLedgerCoverageCutoverTest is Test {
     bytes32 internal constant RECIPIENT = bytes32(uint256(1));
     bytes32 internal constant SECOND_RECIPIENT = bytes32(uint256(2));
+    bytes32 internal constant THIRD_RECIPIENT = bytes32(uint256(3));
     address internal constant ACCOUNT = address(0xA11CE);
     address internal constant MANAGER = address(0xB0B);
     address internal constant PIPELINE = address(0xCAFE);
-    uint32 internal constant FULL_SCALED = 1_000_000;
+    uint32 internal constant FULL_ALLOCATION_PPM = FlowProtocolConstants.PPM_SCALE;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
 
     BudgetStakeLedgerCoverageGoalFlow internal goalFlow;
@@ -120,15 +122,95 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
     }
 
+    function test_checkpointAllocation_sortedMerge_handlesOldSharedAndNewRecipientsDeterministically() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+
+        vm.startPrank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+        ledger.registerBudget(THIRD_RECIPIENT, address(thirdBudget));
+        vm.stopPrank();
+
+        bytes32[] memory oldRecipientIds = new bytes32[](2);
+        oldRecipientIds[0] = RECIPIENT;
+        oldRecipientIds[1] = SECOND_RECIPIENT;
+
+        uint32[] memory oldAllocationPpm = new uint32[](2);
+        oldAllocationPpm[0] = 500_000;
+        oldAllocationPpm[1] = 500_000;
+
+        bytes32[] memory newRecipientIds = new bytes32[](2);
+        newRecipientIds[0] = SECOND_RECIPIENT;
+        newRecipientIds[1] = THIRD_RECIPIENT;
+
+        uint32[] memory newAllocationPpm = new uint32[](2);
+        newAllocationPpm[0] = 500_000;
+        newAllocationPpm[1] = 500_000;
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), 10 * UNIT_WEIGHT_SCALE, oldRecipientIds, oldAllocationPpm
+        );
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT,
+            10 * UNIT_WEIGHT_SCALE,
+            oldRecipientIds,
+            oldAllocationPpm,
+            8 * UNIT_WEIGHT_SCALE,
+            newRecipientIds,
+            newAllocationPpm
+        );
+
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget)), 0);
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 4 * UNIT_WEIGHT_SCALE);
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(thirdBudget)), 4 * UNIT_WEIGHT_SCALE);
+
+        assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), 4 * UNIT_WEIGHT_SCALE);
+        assertEq(ledger.budgetTotalAllocatedStake(address(thirdBudget)), 4 * UNIT_WEIGHT_SCALE);
+    }
+
+    function test_checkpointAllocation_revertsOnAllocationDrift() public {
+        _checkpointSingle(ACCOUNT, 0, 10 * UNIT_WEIGHT_SCALE);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = RECIPIENT;
+
+        uint32[] memory allocationPpm = new uint32[](1);
+        allocationPpm[0] = FULL_ALLOCATION_PPM;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetStakeLedger.ALLOCATION_DRIFT.selector,
+                ACCOUNT,
+                address(budget),
+                10 * UNIT_WEIGHT_SCALE,
+                9 * UNIT_WEIGHT_SCALE
+            )
+        );
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT,
+            9 * UNIT_WEIGHT_SCALE,
+            ids,
+            allocationPpm,
+            8 * UNIT_WEIGHT_SCALE,
+            ids,
+            allocationPpm
+        );
+    }
+
     function _checkpointSingle(address account, uint256 prevWeight, uint256 newWeight) internal {
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = RECIPIENT;
 
-        uint32[] memory scaled = new uint32[](1);
-        scaled[0] = FULL_SCALED;
+        uint32[] memory allocationPpm = new uint32[](1);
+        allocationPpm[0] = FULL_ALLOCATION_PPM;
 
         vm.prank(address(goalFlow));
-        ledger.checkpointAllocation(account, prevWeight, ids, scaled, newWeight, ids, scaled);
+        ledger.checkpointAllocation(account, prevWeight, ids, allocationPpm, newWeight, ids, allocationPpm);
     }
 }
 
