@@ -66,14 +66,12 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         return _userAllocationWeightCheckpoints[account].upperLookupRecent(SafeCast.toUint32(blockNumber));
     }
 
-    modifier onlyGoalFlow() {
+    /// @notice Restricts calls to the goal flow or that flow's configured allocation pipeline.
+    modifier onlyGoalFlowOrPipeline() {
         address goalFlow = _requireGoalFlow();
-        if (msg.sender == goalFlow) {
-            _;
-            return;
+        if (msg.sender != goalFlow && msg.sender != IFlow(goalFlow).allocationPipeline()) {
+            revert ONLY_GOAL_FLOW_OR_PIPELINE();
         }
-
-        if (msg.sender != IFlow(goalFlow).allocationPipeline()) revert ONLY_GOAL_FLOW();
         _;
     }
 
@@ -90,7 +88,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
-    ) external override onlyGoalFlow {
+    ) external override onlyGoalFlowOrPipeline {
         if (IGoalTreasury(goalTreasury).resolved()) return;
         if (account == address(0)) revert ADDRESS_ZERO();
         if (prevRecipientIds.length != prevAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
@@ -333,50 +331,94 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     function _validateBudgetForRegistration(address budget) internal view returns (uint64 activatedAt) {
-        if (budget.code.length == 0) revert INVALID_BUDGET();
+        if (budget.code.length == 0) revert INVALID_BUDGET_NOT_CONTRACT(budget);
 
-        address goalFlow = _goalFlow();
-        if (goalFlow == address(0)) revert INVALID_BUDGET();
+        address goalFlow = _requireGoalFlow();
 
         IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
-        address budgetFlow;
+        address budgetFlow = _readBudgetFlow(budgetTreasury, budget);
+        _requireBudgetFlowParent(goalFlow, budgetFlow);
+
+        if (_readExecutionDuration(budgetTreasury, budget) == 0) revert INVALID_BUDGET_EXECUTION_DURATION(budget);
+        if (_readFundingDeadline(budgetTreasury, budget) == 0) revert INVALID_BUDGET_FUNDING_DEADLINE(budget);
+
+        activatedAt = _readActivatedAt(budgetTreasury, budget);
+        _requireResolvedAtReadable(budgetTreasury, budget);
+        _requireStateReadable(budgetTreasury, budget);
+    }
+
+    function _readBudgetFlow(
+        IBudgetTreasury budgetTreasury,
+        address budget
+    ) internal view returns (address budgetFlow) {
         try budgetTreasury.flow() returns (address budgetFlow_) {
             budgetFlow = budgetFlow_;
         } catch {
-            revert INVALID_BUDGET();
+            revert INVALID_BUDGET_FLOW_READ(budget);
         }
-        if (budgetFlow == address(0) || budgetFlow.code.length == 0) revert INVALID_BUDGET();
+        if (budgetFlow == address(0) || budgetFlow.code.length == 0) {
+            revert INVALID_BUDGET_FLOW(budget, budgetFlow);
+        }
+    }
 
-        try IFlow(budgetFlow).parent() returns (address parentFlow) {
-            if (parentFlow != goalFlow) revert INVALID_BUDGET();
+    function _requireBudgetFlowParent(address goalFlow, address budgetFlow) internal view {
+        address parentFlow;
+        try IFlow(budgetFlow).parent() returns (address parentFlow_) {
+            parentFlow = parentFlow_;
         } catch {
-            revert INVALID_BUDGET();
+            revert INVALID_BUDGET_PARENT_READ(budgetFlow);
         }
+        if (parentFlow != goalFlow) {
+            revert INVALID_BUDGET_PARENT_MISMATCH(budgetFlow, goalFlow, parentFlow);
+        }
+    }
 
+    function _readExecutionDuration(
+        IBudgetTreasury budgetTreasury,
+        address budget
+    ) internal view returns (uint64 executionDuration) {
         try budgetTreasury.executionDuration() returns (uint64 executionDuration_) {
-            if (executionDuration_ == 0) revert INVALID_BUDGET();
+            executionDuration = executionDuration_;
         } catch {
-            revert INVALID_BUDGET();
+            revert INVALID_BUDGET_EXECUTION_DURATION(budget);
         }
+    }
 
+    function _readFundingDeadline(
+        IBudgetTreasury budgetTreasury,
+        address budget
+    ) internal view returns (uint64 fundingDeadline) {
         try budgetTreasury.fundingDeadline() returns (uint64 fundingDeadline_) {
-            if (fundingDeadline_ == 0) revert INVALID_BUDGET();
+            fundingDeadline = fundingDeadline_;
         } catch {
-            revert INVALID_BUDGET();
+            revert INVALID_BUDGET_FUNDING_DEADLINE(budget);
         }
+    }
 
+    function _readActivatedAt(
+        IBudgetTreasury budgetTreasury,
+        address budget
+    ) internal view returns (uint64 activatedAt) {
         try budgetTreasury.activatedAt() returns (uint64 activatedAt_) {
             activatedAt = activatedAt_;
         } catch {
-            revert INVALID_BUDGET();
+            revert INVALID_BUDGET_ACTIVATED_AT(budget);
         }
+    }
 
-        try budgetTreasury.resolvedAt() returns (uint64) {} catch {
-            revert INVALID_BUDGET();
+    function _requireResolvedAtReadable(IBudgetTreasury budgetTreasury, address budget) internal view {
+        try budgetTreasury.resolvedAt() returns (uint64) {
+            // No-op: registration only validates read-success for this field.
+        } catch {
+            revert INVALID_BUDGET_RESOLVED_AT(budget);
         }
+    }
 
-        try budgetTreasury.state() returns (IBudgetTreasury.BudgetState) {} catch {
-            revert INVALID_BUDGET();
+    function _requireStateReadable(IBudgetTreasury budgetTreasury, address budget) internal view {
+        try budgetTreasury.state() returns (IBudgetTreasury.BudgetState) {
+            // No-op: registration only validates read-success for this field.
+        } catch {
+            revert INVALID_BUDGET_STATE(budget);
         }
     }
 

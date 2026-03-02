@@ -26,10 +26,19 @@ interface IBudgetStakeLedger {
     }
 
     error ADDRESS_ZERO();
-    error ONLY_GOAL_FLOW();
+    error ONLY_GOAL_FLOW_OR_PIPELINE();
     error ONLY_BUDGET_REGISTRY_MANAGER();
     error INVALID_CHECKPOINT_DATA();
-    error INVALID_BUDGET();
+    error INVALID_BUDGET_NOT_CONTRACT(address budget);
+    error INVALID_BUDGET_FLOW_READ(address budget);
+    error INVALID_BUDGET_FLOW(address budget, address budgetFlow);
+    error INVALID_BUDGET_PARENT_READ(address budgetFlow);
+    error INVALID_BUDGET_PARENT_MISMATCH(address budgetFlow, address expectedParent, address actualParent);
+    error INVALID_BUDGET_EXECUTION_DURATION(address budget);
+    error INVALID_BUDGET_FUNDING_DEADLINE(address budget);
+    error INVALID_BUDGET_ACTIVATED_AT(address budget);
+    error INVALID_BUDGET_RESOLVED_AT(address budget);
+    error INVALID_BUDGET_STATE(address budget);
     error INVALID_GOAL_FLOW(address goalFlow);
     error BUDGET_ALREADY_REGISTERED();
     error ALLOCATION_DRIFT(address account, address budget, uint256 storedAllocated, uint256 expectedAllocated);
@@ -51,10 +60,10 @@ interface IBudgetStakeLedger {
         address account,
         uint256 prevWeight,
         bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevScaled,
+        uint32[] calldata prevAllocationPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newScaled
+        uint32[] calldata newAllocationPpm
     ) external;
 
     function registerBudget(bytes32 recipientId, address budget) external;

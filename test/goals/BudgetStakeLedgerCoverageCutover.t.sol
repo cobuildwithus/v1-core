@@ -172,6 +172,145 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(ledger.budgetTotalAllocatedStake(address(thirdBudget)), 4 * UNIT_WEIGHT_SCALE);
     }
 
+    function test_registerBudget_revertsWhenBudgetIsNotContract() public {
+        address noCode = address(0xBEEF);
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_NOT_CONTRACT.selector, noCode));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, noCode);
+    }
+
+    function test_registerBudget_revertsWhenGoalFlowIsMissing() public {
+        goalTreasury.setFlow(address(0));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_GOAL_FLOW.selector, address(0)));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetFlowReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnFlowRead(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_FLOW_READ.selector, address(secondBudget))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetFlowIsInvalid() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setFlow(address(0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_FLOW.selector, address(secondBudget), address(0))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetParentReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(
+            address(new BudgetStakeLedgerCoverageFlowWithoutParent())
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_PARENT_READ.selector, secondBudget.flow())
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetParentDoesNotMatchGoalFlow() public {
+        BudgetStakeLedgerCoverageBudgetFlow wrongParentFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(0xDEAD));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(
+            address(wrongParentFlow)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetStakeLedger.INVALID_BUDGET_PARENT_MISMATCH.selector,
+                address(wrongParentFlow),
+                address(goalFlow),
+                address(0xDEAD)
+            )
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenExecutionDurationInvalid() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setExecutionDuration(0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_EXECUTION_DURATION.selector, address(secondBudget))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenExecutionDurationReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnExecutionDurationRead(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_EXECUTION_DURATION.selector, address(secondBudget))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenFundingDeadlineInvalid() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setFundingDeadline(0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_FUNDING_DEADLINE.selector, address(secondBudget))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenFundingDeadlineReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnFundingDeadlineRead(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_FUNDING_DEADLINE.selector, address(secondBudget))
+        );
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenActivatedAtReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnActivatedAtRead(true);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_ACTIVATED_AT.selector, address(secondBudget)));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenResolvedAtReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnResolvedAtRead(true);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_RESOLVED_AT.selector, address(secondBudget)));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenStateReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnStateRead(true);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_STATE.selector, address(secondBudget)));
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
     function test_checkpointAllocation_revertsOnAllocationDrift() public {
         _checkpointSingle(ACCOUNT, 0, 10 * UNIT_WEIGHT_SCALE);
 
@@ -265,19 +404,102 @@ contract BudgetStakeLedgerCoverageBudgetFlow {
     }
 }
 
+contract BudgetStakeLedgerCoverageFlowWithoutParent {}
+
 contract BudgetStakeLedgerCoverageBudgetTreasury {
-    address public flow;
-    uint64 public resolvedAt;
-    uint64 public activatedAt;
-    uint64 public executionDuration = 1 days;
-    uint64 public fundingDeadline = type(uint64).max;
-    IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Funding;
+    address private _flow;
+    uint64 private _resolvedAt;
+    uint64 private _activatedAt;
+    uint64 private _executionDuration = 1 days;
+    uint64 private _fundingDeadline = type(uint64).max;
+    IBudgetTreasury.BudgetState private _state = IBudgetTreasury.BudgetState.Funding;
+
+    bool private _revertOnFlowRead;
+    bool private _revertOnExecutionDurationRead;
+    bool private _revertOnFundingDeadlineRead;
+    bool private _revertOnActivatedAtRead;
+    bool private _revertOnResolvedAtRead;
+    bool private _revertOnStateRead;
 
     constructor(address flow_) {
-        flow = flow_;
+        _flow = flow_;
+    }
+
+    function flow() external view returns (address) {
+        if (_revertOnFlowRead) revert("FLOW_READ_FAILED");
+        return _flow;
+    }
+
+    function resolvedAt() external view returns (uint64) {
+        if (_revertOnResolvedAtRead) revert("RESOLVED_AT_READ_FAILED");
+        return _resolvedAt;
+    }
+
+    function activatedAt() external view returns (uint64) {
+        if (_revertOnActivatedAtRead) revert("ACTIVATED_AT_READ_FAILED");
+        return _activatedAt;
+    }
+
+    function executionDuration() external view returns (uint64) {
+        if (_revertOnExecutionDurationRead) revert("EXECUTION_DURATION_READ_FAILED");
+        return _executionDuration;
+    }
+
+    function fundingDeadline() external view returns (uint64) {
+        if (_revertOnFundingDeadlineRead) revert("FUNDING_DEADLINE_READ_FAILED");
+        return _fundingDeadline;
+    }
+
+    function state() external view returns (IBudgetTreasury.BudgetState) {
+        if (_revertOnStateRead) revert("STATE_READ_FAILED");
+        return _state;
+    }
+
+    function setFlow(address flow_) external {
+        _flow = flow_;
     }
 
     function setResolvedAt(uint64 resolvedAt_) external {
-        resolvedAt = resolvedAt_;
+        _resolvedAt = resolvedAt_;
+    }
+
+    function setActivatedAt(uint64 activatedAt_) external {
+        _activatedAt = activatedAt_;
+    }
+
+    function setExecutionDuration(uint64 executionDuration_) external {
+        _executionDuration = executionDuration_;
+    }
+
+    function setFundingDeadline(uint64 fundingDeadline_) external {
+        _fundingDeadline = fundingDeadline_;
+    }
+
+    function setState(IBudgetTreasury.BudgetState state_) external {
+        _state = state_;
+    }
+
+    function setRevertOnFlowRead(bool enabled) external {
+        _revertOnFlowRead = enabled;
+    }
+
+    function setRevertOnExecutionDurationRead(bool enabled) external {
+        _revertOnExecutionDurationRead = enabled;
+    }
+
+    function setRevertOnFundingDeadlineRead(bool enabled) external {
+        _revertOnFundingDeadlineRead = enabled;
+    }
+
+    function setRevertOnActivatedAtRead(bool enabled) external {
+        _revertOnActivatedAtRead = enabled;
+    }
+
+    function setRevertOnResolvedAtRead(bool enabled) external {
+        _revertOnResolvedAtRead = enabled;
+    }
+
+    function setRevertOnStateRead(bool enabled) external {
+        _revertOnStateRead = enabled;
     }
 }
