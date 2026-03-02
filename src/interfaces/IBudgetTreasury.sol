@@ -5,6 +5,7 @@ import { ITreasuryAuthority } from "./ITreasuryAuthority.sol";
 import { ITreasuryDonations } from "./ITreasuryDonations.sol";
 import { ISuccessAssertionTreasury } from "./ISuccessAssertionTreasury.sol";
 import { ITreasuryFlowRateSyncEvents } from "./ITreasuryFlowRateSyncEvents.sol";
+import { TreasurySuccessAssertions } from "src/goals/library/TreasurySuccessAssertions.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 interface IBudgetTreasury is
@@ -99,6 +100,10 @@ interface IBudgetTreasury is
     event StateTransition(BudgetState previousState, BudgetState newState);
     event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
     event SuccessAssertionCleared(bytes32 indexed assertionId);
+    event SuccessAssertionResolutionFailClosed(
+        bytes32 indexed assertionId,
+        TreasurySuccessAssertions.FailClosedReason indexed reason
+    );
     event SuccessResolutionDisabled();
     event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
 

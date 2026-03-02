@@ -453,12 +453,19 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             return true;
         }
 
-        (bool assertionResolved, bool assertionTruthful) = _successAssertions.pendingSuccessAssertionResolution(
-            pendingAssertionId,
-            successResolver,
-            successAssertionLiveness,
-            successAssertionBond
-        );
+        (
+            bool assertionResolved,
+            bool assertionTruthful,
+            TreasurySuccessAssertions.FailClosedReason failClosedReason
+        ) = _successAssertions.pendingSuccessAssertionResolutionWithReason(
+                pendingAssertionId,
+                successResolver,
+                successAssertionLiveness,
+                successAssertionBond
+            );
+        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        }
         if (!assertionResolved) return false;
 
         if (assertionTruthful) {
