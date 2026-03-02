@@ -74,6 +74,7 @@ interface IGoalTreasury is
     error DEADLINE_NOT_DERIVABLE();
     error INVALID_BUDGET_PREMIUM_PPM(uint256 ppm);
     error INVALID_BUDGET_SLASH_PPM(uint256 ppm);
+    error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm, uint256 coverageLambda);
     error STAKE_VAULT_GOAL_MISMATCH(address expected, address actual);
     error BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address expected, address actual);
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
