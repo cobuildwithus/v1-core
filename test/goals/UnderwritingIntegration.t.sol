@@ -13,7 +13,9 @@ import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import {TreasurySuccessAssertions} from "src/goals/library/TreasurySuccessAssertions.sol";
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
@@ -40,6 +42,7 @@ import {
 } from "test/goals/helpers/TreasurySharedMocks.sol";
 import {
     TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
     TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
@@ -1179,6 +1182,108 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertTrue(treasury.reassertGraceUsed());
     }
 
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_emitsFailClosedTelemetry()
+        public
+    {
+        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig =
+            new UnderwritingRevertingOptimisticOracleResolverConfig(
+                IERC20(address(underlyingToken)),
+                successResolverConfig.escalationManager(),
+                successResolverConfig.domainId()
+            );
+        GoalTreasury unresolvedConfigTreasury = _deployGoalTreasuryWithResolver(address(revertingResolverConfig));
+
+        distributionPool.setTotalUnits(40);
+        _activateGoal(unresolvedConfigTreasury);
+
+        bytes32 assertionId = keccak256("goal-assertion-config-read-failure");
+        vm.prank(address(revertingResolverConfig));
+        unresolvedConfigTreasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(unresolvedConfigTreasury.deadline());
+
+        vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
+        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.ResolverConfigOracleReadFailed
+        );
+        vm.expectEmit(true, false, false, false, address(unresolvedConfigTreasury));
+        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
+        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+
+        unresolvedConfigTreasury.sync();
+
+        _assertGoalFailClosedGraceState(unresolvedConfigTreasury);
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAddressZero_emitsFailClosedTelemetry() public {
+        TreasuryMockUmaResolverConfig zeroOracleResolverConfig = new TreasuryMockUmaResolverConfig(
+            OptimisticOracleV3Interface(address(0)),
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
+        GoalTreasury zeroOracleTreasury = _deployGoalTreasuryWithResolver(address(zeroOracleResolverConfig));
+
+        distributionPool.setTotalUnits(40);
+        _activateGoal(zeroOracleTreasury);
+
+        bytes32 assertionId = keccak256("goal-assertion-oracle-zero-address");
+        vm.prank(address(zeroOracleResolverConfig));
+        zeroOracleTreasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(zeroOracleTreasury.deadline());
+
+        vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
+        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAddressZero
+        );
+        vm.expectEmit(true, false, false, false, address(zeroOracleTreasury));
+        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
+        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+
+        zeroOracleTreasury.sync();
+
+        _assertGoalFailClosedGraceState(zeroOracleTreasury);
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAssertionReadFailure_emitsFailClosedTelemetry()
+        public
+    {
+        UnderwritingRevertingGetAssertionOracle revertingOracle = new UnderwritingRevertingGetAssertionOracle();
+        TreasuryMockUmaResolverConfig revertingAssertionReadResolver = new TreasuryMockUmaResolverConfig(
+            OptimisticOracleV3Interface(address(revertingOracle)),
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
+        GoalTreasury unresolvedAssertionReadTreasury =
+            _deployGoalTreasuryWithResolver(address(revertingAssertionReadResolver));
+
+        distributionPool.setTotalUnits(40);
+        _activateGoal(unresolvedAssertionReadTreasury);
+
+        bytes32 assertionId = keccak256("goal-assertion-oracle-read-failure");
+        vm.prank(address(revertingAssertionReadResolver));
+        unresolvedAssertionReadTreasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(unresolvedAssertionReadTreasury.deadline());
+
+        vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
+        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAssertionReadFailed
+        );
+        vm.expectEmit(true, false, false, false, address(unresolvedAssertionReadTreasury));
+        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
+        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+
+        unresolvedAssertionReadTreasury.sync();
+
+        _assertGoalFailClosedGraceState(unresolvedAssertionReadTreasury);
+    }
+
     function test_initialize_rulesetsDirectoryRevertAndHookInvalid_surfacesDiagnosticReason() public {
         UnderwritingMockRulesetsDirectoryReverting revertingRulesets = new UnderwritingMockRulesetsDirectoryReverting();
         revertingRulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
@@ -1250,11 +1355,38 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     }
 
     function _activateGoal() internal {
+        _activateGoal(treasury);
+    }
+
+    function _activateGoal(GoalTreasury targetTreasury) internal {
         superToken.mint(address(flow), 100e18);
         vm.prank(address(hook));
-        assertTrue(treasury.recordHookFunding(100e18));
-        treasury.sync();
-        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertTrue(targetTreasury.recordHookFunding(100e18));
+        targetTreasury.sync();
+        assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+    }
+
+    function _deployGoalTreasuryWithResolver(address resolver) internal returns (GoalTreasury candidateTreasury) {
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        budgetStakeLedger.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.successResolver = resolver;
+
+        candidateTreasury = new GoalTreasury(address(this), config);
+    }
+
+    function _assertGoalFailClosedGraceState(GoalTreasury targetTreasury) internal view {
+        assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(targetTreasury.resolved());
+        assertEq(targetTreasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(targetTreasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(targetTreasury.reassertGraceUsed());
+        assertEq(targetTreasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
     }
 
     function _defaultGoalConfig(address rulesetsAddr, address hookAddr, address budgetStakeLedgerAddr)
@@ -1280,6 +1412,32 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             successOracleSpecHash: keccak256("goal-oracle-spec"),
             successAssertionPolicyHash: keccak256("goal-assertion-policy")
         });
+    }
+}
+
+contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySuccessResolverConfig {
+    IERC20 public immutable override assertionCurrency;
+    address public immutable override escalationManager;
+    bytes32 public immutable override domainId;
+
+    error OPTIMISTIC_ORACLE_REVERT();
+
+    constructor(IERC20 assertionCurrency_, address escalationManager_, bytes32 domainId_) {
+        assertionCurrency = assertionCurrency_;
+        escalationManager = escalationManager_;
+        domainId = domainId_;
+    }
+
+    function optimisticOracle() external pure returns (OptimisticOracleV3Interface) {
+        revert OPTIMISTIC_ORACLE_REVERT();
+    }
+}
+
+contract UnderwritingRevertingGetAssertionOracle {
+    error GET_ASSERTION_REVERT();
+
+    function getAssertion(bytes32) external pure returns (OptimisticOracleV3Interface.Assertion memory) {
+        revert GET_ASSERTION_REVERT();
     }
 }
 

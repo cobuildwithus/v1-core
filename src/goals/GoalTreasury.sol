@@ -24,6 +24,7 @@ import { GoalSpendPatterns } from "./library/GoalSpendPatterns.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
+import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
 contract GoalTreasury is IGoalTreasury, TreasuryBase {
@@ -611,33 +612,39 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function _tryFinalizePostDeadline() internal returns (bool) {
         bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
-        if (pendingAssertionId == bytes32(0)) {
-            if (_reassertGrace.isActive()) return false;
-            _finalize(GoalState.Expired);
-            return true;
-        }
+        bool assertionResolved;
+        bool assertionTruthful;
 
-        (
-            bool assertionResolved,
-            bool assertionTruthful,
-            TreasurySuccessAssertions.FailClosedReason failClosedReason
-        ) = _successAssertions.pendingSuccessAssertionResolutionWithReason(
+        if (pendingAssertionId != bytes32(0)) {
+            TreasurySuccessAssertions.FailClosedReason failClosedReason;
+            (assertionResolved, assertionTruthful, failClosedReason) = _successAssertions
+                .pendingSuccessAssertionResolutionWithReason(
                 pendingAssertionId,
                 successResolver,
                 successAssertionLiveness,
                 successAssertionBond
             );
-        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+            if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+                emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+            }
         }
-        if (!assertionResolved) return false;
 
-        if (assertionTruthful) {
+        TreasuryPostDeadlineFinalize.Decision decision = TreasuryPostDeadlineFinalize.decide(
+            TreasuryPostDeadlineFinalize.Inputs({
+                pendingAssertionId: pendingAssertionId,
+                reassertGraceActive: _reassertGrace.isActive(),
+                assertionResolved: assertionResolved,
+                assertionTruthful: assertionTruthful,
+                reassertGraceUsed: _reassertGrace.used
+            })
+        );
+
+        if (decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
+        if (decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
             _finalize(GoalState.Succeeded);
             return true;
         }
-
-        if (!_reassertGrace.used) {
+        if (decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             if (clearedAssertionId != bytes32(0)) {
                 try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch (
