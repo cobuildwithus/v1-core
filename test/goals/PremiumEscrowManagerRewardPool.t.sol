@@ -9,6 +9,14 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
+interface IPremiumEscrowManagerRewardPoolTransferHook {
+    function onPremiumTokenReceived(address from, uint256 amount) external;
+}
+
+interface IPremiumEscrowCheckpointEntrypoint {
+    function checkpoint(address account) external;
+}
+
 contract PremiumEscrowManagerRewardPoolTest is Test {
     uint32 internal constant SLASH_PPM = 200_000;
 
@@ -141,6 +149,26 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         assertEq(escrow.premiumEarned(ALICE), 70e18);
     }
 
+    function test_checkpoint_connectedPool_orphanRecycleHandlesReentrantTokenHook() public {
+        PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(pool));
+
+        pool.setTotalAmountReceivedByMember(address(escrow), 25e18);
+        premiumToken.mint(address(escrow), 25e18);
+        premiumToken.setTransferHookEnabled(true);
+
+        goalFlow.setReentryCheckpoint(address(escrow), ALICE);
+        goalFlow.setReenterOnTokenReceive(true);
+
+        escrow.checkpoint(ALICE);
+
+        assertTrue(goalFlow.reentered());
+        assertEq(premiumToken.balanceOf(address(goalFlow)), 25e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(escrow.accountedManagerRewardReceived(), 25e18);
+    }
+
     function test_checkpoint_withoutConnectedPool_keepsLegacyBalanceDeltaAccounting() public {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
@@ -157,6 +185,22 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         assertEq(claimed, 60e18);
         assertEq(escrow.accountedBalance(), 0);
         assertEq(premiumToken.balanceOf(ALICE), 60e18);
+    }
+
+    function test_checkpoint_withoutConnectedPool_orphanRecycleHandlesPreTransferReentrantTokenHook() public {
+        premiumToken.mint(address(escrow), 25e18);
+        premiumToken.setTransferHookEnabled(true);
+        premiumToken.setTransferHookBeforeTransfer(true);
+
+        goalFlow.setReentryCheckpoint(address(escrow), ALICE);
+        goalFlow.setReenterOnTokenReceive(true);
+
+        escrow.checkpoint(ALICE);
+
+        assertTrue(goalFlow.reentered());
+        assertEq(premiumToken.balanceOf(address(goalFlow)), 25e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(escrow.accountedBalance(), 0);
     }
 
     function test_burnOnGoalFailure_connectedPool_sweepsEscrowBalanceAndSettlesLateResidual() public {
@@ -215,6 +259,8 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
 
 contract PremiumEscrowMockSuperToken is ERC20 {
     address internal _host;
+    bool internal _transferHookEnabled;
+    bool internal _transferHookBeforeTransfer;
 
     constructor(address host_) ERC20("PremiumToken", "PRM") {
         _host = host_;
@@ -222,6 +268,25 @@ contract PremiumEscrowMockSuperToken is ERC20 {
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
+    }
+
+    function setTransferHookEnabled(bool enabled) external {
+        _transferHookEnabled = enabled;
+    }
+
+    function setTransferHookBeforeTransfer(bool enabled) external {
+        _transferHookBeforeTransfer = enabled;
+    }
+
+    function transfer(address to, uint256 value) public override returns (bool) {
+        if (_transferHookEnabled && _transferHookBeforeTransfer && to.code.length != 0) {
+            IPremiumEscrowManagerRewardPoolTransferHook(to).onPremiumTokenReceived(_msgSender(), value);
+        }
+        bool success = super.transfer(to, value);
+        if (_transferHookEnabled && !_transferHookBeforeTransfer && to.code.length != 0) {
+            IPremiumEscrowManagerRewardPoolTransferHook(to).onPremiumTokenReceived(_msgSender(), value);
+        }
+        return success;
     }
 
     function getHost() external view returns (address) {
@@ -333,9 +398,13 @@ contract PremiumEscrowManagerRewardPoolMockBudgetTreasury {
     }
 }
 
-contract PremiumEscrowManagerRewardPoolMockGoalFlow {
+contract PremiumEscrowManagerRewardPoolMockGoalFlow is IPremiumEscrowManagerRewardPoolTransferHook {
     ISuperToken internal _superToken;
     address internal _flowOperator;
+    address internal _reentryEscrow;
+    address internal _reentryAccount;
+    bool internal _reenterOnTokenReceive;
+    bool internal _reentered;
 
     constructor(address superToken_) {
         _superToken = ISuperToken(superToken_);
@@ -351,6 +420,29 @@ contract PremiumEscrowManagerRewardPoolMockGoalFlow {
 
     function setFlowOperator(address flowOperator_) external {
         _flowOperator = flowOperator_;
+    }
+
+    function setReentryCheckpoint(address escrow_, address account_) external {
+        _reentryEscrow = escrow_;
+        _reentryAccount = account_;
+        _reentered = false;
+    }
+
+    function setReenterOnTokenReceive(bool enabled) external {
+        _reenterOnTokenReceive = enabled;
+        if (!enabled) _reentered = false;
+    }
+
+    function reentered() external view returns (bool) {
+        return _reentered;
+    }
+
+    function onPremiumTokenReceived(address, uint256) external override {
+        if (msg.sender != address(_superToken)) return;
+        if (!_reenterOnTokenReceive || _reentered || _reentryEscrow == address(0)) return;
+
+        _reentered = true;
+        IPremiumEscrowCheckpointEntrypoint(_reentryEscrow).checkpoint(_reentryAccount);
     }
 }
 
