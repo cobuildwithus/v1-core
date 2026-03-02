@@ -1213,6 +1213,42 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         );
     }
 
+    function test_initialize_cobuildDirectoryRevertAndHookInvalid_surfacesDiagnosticReason() public {
+        UnderwritingMockRulesetsDirectoryReverting revertingRulesets = new UnderwritingMockRulesetsDirectoryReverting();
+        revertingRulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
+        revertingRulesets.setWeight(GOAL_REVNET_ID, 1e18);
+
+        UnderwritingMockHook invalidHook = new UnderwritingMockHook(UnderwritingMockDirectory(address(0)));
+        SharedMockUnderlying cobuildToken = new SharedMockUnderlying();
+
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        stakeVault.setCobuildToken(IERC20(address(cobuildToken)));
+        budgetStakeLedger.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+
+        bytes memory expectedReason = abi.encode(
+            address(revertingRulesets),
+            DIRECTORY_FAILURE_REVERT,
+            abi.encodeWithSignature("Error(string)", "RULESETS_DIRECTORY_REVERT"),
+            address(invalidHook),
+            DIRECTORY_FAILURE_INVALID,
+            bytes("")
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON.selector,
+                address(cobuildToken),
+                expectedReason
+            )
+        );
+        new GoalTreasury(
+            address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
+        );
+    }
+
     function _activateGoal() internal {
         superToken.mint(address(flow), 100e18);
         vm.prank(address(hook));

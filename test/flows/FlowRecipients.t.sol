@@ -23,6 +23,7 @@ contract FlowRecipientsTest is FlowTestBase {
     bytes32 internal constant FLOW_INITIALIZED_SIG = keccak256(
         "FlowInitialized(address,address,address,address,address,address,address,address,address,uint32,address)"
     );
+    bytes32 internal constant TARGET_OUTFLOW_REFRESH_FAILED_SIG = keccak256("TargetOutflowRefreshFailed(int96,bytes)");
 
     function _isChildFlow(address childAddr) internal view returns (bool) {
         address[] memory children = flow.getChildFlows();
@@ -208,8 +209,10 @@ contract FlowRecipientsTest is FlowTestBase {
 
         _mockDistributionRefreshFailure(900, bytes("remove-refresh-failed"));
 
+        vm.recordLogs();
         vm.prank(manager);
         flow.removeRecipient(recipientId);
+        _assertTargetOutflowRefreshFailed(vm.getRecordedLogs(), 1_000, bytes("remove-refresh-failed"));
 
         FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
         assertEq(r.isRemoved, true);
@@ -239,8 +242,10 @@ contract FlowRecipientsTest is FlowTestBase {
 
         _mockDistributionRefreshFailure(900, bytes("remove-refresh-failed"));
 
+        vm.recordLogs();
         vm.prank(manager);
         flow.removeRecipient(recipientId);
+        _assertTargetOutflowRefreshFailed(vm.getRecordedLogs(), 1_000, bytes("remove-refresh-failed"));
 
         FlowTypes.FlowRecipient memory r = flow.getRecipientById(recipientId);
         assertEq(r.isRemoved, true);
@@ -277,8 +282,10 @@ contract FlowRecipientsTest is FlowTestBase {
         flow.setTargetOutflowRate(1_000);
         _mockDistributionRefreshFailure(900, bytes("bulk-remove-refresh-failed"));
 
+        vm.recordLogs();
         vm.prank(manager);
         flow.bulkRemoveRecipients(ids);
+        _assertTargetOutflowRefreshFailed(vm.getRecordedLogs(), 1_000, bytes("bulk-remove-refresh-failed"));
 
         assertEq(flow.recipientExists(recipients[0]), false);
         assertEq(flow.recipientExists(recipients[1]), false);
@@ -305,8 +312,10 @@ contract FlowRecipientsTest is FlowTestBase {
 
         _mockDistributionRefreshFailure(900, bytes("bulk-remove-refresh-failed"));
 
+        vm.recordLogs();
         vm.prank(manager);
         flow.bulkRemoveRecipients(ids);
+        _assertTargetOutflowRefreshFailed(vm.getRecordedLogs(), 1_000, bytes("bulk-remove-refresh-failed"));
 
         assertEq(flow.recipientExists(recipients[0]), false);
         assertEq(flow.recipientExists(recipients[1]), false);
@@ -786,6 +795,24 @@ contract FlowRecipientsTest is FlowTestBase {
         bytes memory hostCallData =
             abi.encodeWithSelector(sf.host.callAgreement.selector, sf.gda, distributeCallData, new bytes(0));
         vm.mockCallRevert(address(sf.host), hostCallData, reason);
+    }
+
+    function _assertTargetOutflowRefreshFailed(Vm.Log[] memory logs, int96 expectedRate, bytes memory expectedReason)
+        internal
+        view
+    {
+        for (uint256 i = 0; i < logs.length; ++i) {
+            Vm.Log memory log_ = logs[i];
+            if (log_.emitter != address(flow) || log_.topics.length == 0) continue;
+            if (log_.topics[0] != TARGET_OUTFLOW_REFRESH_FAILED_SIG) continue;
+
+            (int96 rate, bytes memory reason) = abi.decode(log_.data, (int96, bytes));
+            assertEq(rate, expectedRate);
+            assertEq(reason, expectedReason);
+            return;
+        }
+
+        assertTrue(false, "TARGET_OUTFLOW_REFRESH_FAILED_MISSING");
     }
 }
 
