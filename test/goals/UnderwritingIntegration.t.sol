@@ -41,6 +41,9 @@ import {
 contract UnderwritingPremiumSlashIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 77;
     uint32 internal constant BUDGET_SLASH_PPM = 200_000; // 20%
+    uint32 internal constant BUDGET_PREMIUM_PPM = 100_000;
+    uint256 internal constant COVERAGE_LAMBDA = 10;
+    uint256 internal constant TARGET_SLASH_WEIGHT = 20e18;
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant PREMIUM_RECIPIENT = address(0xB0B);
@@ -65,7 +68,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
     PremiumEscrow internal escrow;
     UnderwritingMockBudgetStakeLedger internal budgetStakeLedger;
     UnderwritingMockBudgetTreasury internal budgetTreasury;
+    UnderwritingMockBudgetFlow internal budgetFlow;
     UnderwritingMockGoalFlow internal goalFlow;
+    UnderwritingMockGoalTreasuryResolutionReporter internal goalTreasury;
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
@@ -118,7 +123,13 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
         budgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
+        budgetFlow = new UnderwritingMockBudgetFlow();
+        budgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        budgetTreasury.setFlow(address(budgetFlow));
         goalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
+        goalTreasury = new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(budgetStakeLedger));
+        goalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
+        goalFlow.setFlowOperator(address(goalTreasury));
 
         PremiumEscrow implementation = new PremiumEscrow();
         escrow = PremiumEscrow(Clones.clone(address(implementation)));
@@ -156,6 +167,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow.checkpoint(ALICE);
 
         vm.warp(30);
+        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
@@ -183,6 +195,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow.checkpoint(ALICE);
 
         vm.warp(30);
+        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
@@ -206,6 +219,46 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
         assertEq(goalToken.balanceOf(address(router)), 0);
         assertGt(cobuildToken.balanceOf(address(router)), 0);
+    }
+
+    function test_failedBudgetAfterActivation_whenSpendParamsUnresolved_revertsAndCanRetryAfterParamsRestore() public {
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
+
+        vm.warp(10);
+        budgetTreasury.setActivatedAt(10);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(30);
+        _fundEscrowForTargetSlash(escrow, 10, 30, TARGET_SLASH_WEIGHT);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
+
+        uint256 stakedGoalBefore = stakeVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBefore = stakeVault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        goalFlow.setFlowOperator(address(0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_SPEND_FORMULA_PARAMS.selector, BUDGET_PREMIUM_PPM, 0)
+        );
+        escrow.slash(ALICE);
+
+        assertFalse(escrow.slashed(ALICE));
+        assertEq(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
+        assertEq(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
+        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(conversionTerminal.payCallCount(), 0);
+
+        goalFlow.setFlowOperator(address(goalTreasury));
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, TARGET_SLASH_WEIGHT);
+        assertTrue(escrow.slashed(ALICE));
+        assertLt(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
+        assertLt(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(conversionTerminal.payCallCount(), 1);
     }
 
     function test_goalResolvedBeforeBudgetClose_withdrawBlocked_thenSlashStillCutsPrincipal() public {
@@ -243,6 +296,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(budgetClosedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -298,6 +352,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
 
         vm.warp(budgetClosedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -349,6 +404,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         _expectWithdrawLocked(delayedVault);
 
         vm.warp(budgetClosedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -505,6 +561,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertFalse(delayedBudgetTreasury.isReassertGraceActive());
 
         uint64 budgetClosedAt = uint64(block.timestamp);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -548,6 +605,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
 
         vm.warp(budgetClosedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.close(IBudgetTreasury.BudgetState.Failed, budgetActivatedAt, budgetClosedAt);
         delayedBudgetTreasury.setResolvedAt(budgetClosedAt, IBudgetTreasury.BudgetState.Failed);
@@ -607,6 +665,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 stakedCobuildBeforePrepare = delayedVault.stakedCobuildOf(ALICE);
 
         vm.warp(budgetClosedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, budgetActivatedAt, budgetClosedAt, TARGET_SLASH_WEIGHT);
         delayedBudgetTreasury.resolveFailure();
 
         assertTrue(delayedBudgetTreasury.resolved());
@@ -690,7 +749,12 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedVault.setUnderwriterSlasher(address(delayedRouter));
 
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
+        UnderwritingMockBudgetFlow delayedBudgetFlow = new UnderwritingMockBudgetFlow();
+        delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        delayedBudgetTreasury.setFlow(address(delayedBudgetFlow));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
+        delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
+        delayedGoalFlow.setFlowOperator(address(delayedGoalTreasury));
         delayedBudgetStakeLedger.registerBudget(address(delayedBudgetTreasury));
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -732,7 +796,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         delayedGoalTreasury =
             new UnderwritingMockGoalTreasuryResolutionReporter(address(this), predictedBudgetStakeLedger);
+        delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
         delayedGoalTreasury.setFlow(address(delayedGoalFlow));
+        delayedGoalFlow.setFlowOperator(address(delayedGoalTreasury));
         delayedBudgetStakeLedger = new BudgetStakeLedger(address(delayedGoalTreasury));
 
         delayedVault = new StakeVault(
@@ -768,6 +834,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
         delayedBudgetFlow.setParent(address(delayedGoalFlow));
+        delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
 
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         delayedBudgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
@@ -856,6 +923,20 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
         assertEq(goalToken.balanceOf(ALICE), 0);
         assertEq(cobuildToken.balanceOf(ALICE), 0);
+    }
+
+    function _fundEscrowForTargetSlash(
+        PremiumEscrow escrow_,
+        uint64 activatedAt_,
+        uint64 closedAt_,
+        uint256 targetSlashWeight
+    )
+        internal
+    {
+        uint256 duration = uint256(closedAt_ - activatedAt_);
+        uint256 premiumNeeded =
+            (targetSlashWeight * duration * uint256(BUDGET_PREMIUM_PPM)) / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
+        goalSuperToken.mint(address(escrow_), premiumNeeded);
     }
 }
 
@@ -1108,6 +1189,7 @@ contract UnderwritingMockBudgetTreasury {
     uint64 public pendingSuccessAssertionAt;
     uint64 public reassertGraceDeadline;
     bool public reassertGraceUsed;
+    address public flow;
 
     constructor(ISuperToken superToken_) {
         _superToken = superToken_;
@@ -1119,6 +1201,10 @@ contract UnderwritingMockBudgetTreasury {
 
     function setPremiumEscrow(address premiumEscrow_) external {
         premiumEscrow = premiumEscrow_;
+    }
+
+    function setFlow(address flow_) external {
+        flow = flow_;
     }
 
     function setActivatedAt(uint64 activatedAt_) external {
@@ -1163,6 +1249,7 @@ contract UnderwritingMockBudgetTreasury {
 
 contract UnderwritingMockGoalFlow {
     ISuperToken internal immutable _superToken;
+    address internal _flowOperator;
 
     constructor(ISuperToken superToken_) {
         _superToken = superToken_;
@@ -1171,6 +1258,14 @@ contract UnderwritingMockGoalFlow {
     function superToken() external view returns (ISuperToken) {
         return _superToken;
     }
+
+    function flowOperator() external view returns (address) {
+        return _flowOperator;
+    }
+
+    function setFlowOperator(address flowOperator_) external {
+        _flowOperator = flowOperator_;
+    }
 }
 
 contract UnderwritingMockGoalTreasuryResolutionReporter {
@@ -1178,6 +1273,7 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
     address public immutable authority;
     address public immutable budgetStakeLedger;
     address public flow;
+    uint256 public coverageLambda;
 
     constructor(address authority_, address budgetStakeLedger_) {
         authority = authority_;
@@ -1190,6 +1286,22 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
 
     function setFlow(address flow_) external {
         flow = flow_;
+    }
+
+    function setCoverageLambda(uint256 coverageLambda_) external {
+        coverageLambda = coverageLambda_;
+    }
+}
+
+contract UnderwritingMockBudgetFlow {
+    uint32 internal _managerRewardPoolFlowRatePpm;
+
+    function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
+        _managerRewardPoolFlowRatePpm = ppm_;
+    }
+
+    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        return _managerRewardPoolFlowRatePpm;
     }
 }
 
