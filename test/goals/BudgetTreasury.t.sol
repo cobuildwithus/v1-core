@@ -366,11 +366,12 @@ contract BudgetTreasuryTest is Test {
         );
 
         superToken.mint(address(flow), 2_000_000e18);
-        _setIncomingFlowRate(2_000);
+        int96 incomingRate = 2_000;
+        _setIncomingFlowRate(incomingRate);
         flow.setMaxSafeFlowRate(1_000);
 
         uncappedTreasury.sync();
-        assertEq(flow.targetOutflowRate(), 2_000);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(uncappedTreasury, incomingRate));
     }
 
     function test_sync_fundingActivation_ignoresZeroFlowMaxSafeRateHint() public {
@@ -382,11 +383,12 @@ contract BudgetTreasuryTest is Test {
         );
 
         superToken.mint(address(flow), 2_000_000e18);
-        _setIncomingFlowRate(2_000);
+        int96 incomingRate = 2_000;
+        _setIncomingFlowRate(incomingRate);
         flow.setMaxSafeFlowRate(0);
 
         uncappedTreasury.sync();
-        assertEq(flow.targetOutflowRate(), 2_000);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(uncappedTreasury, incomingRate));
     }
 
     function test_sync_fundingActivation_ignoresNegativeFlowMaxSafeRateHint() public {
@@ -398,11 +400,12 @@ contract BudgetTreasuryTest is Test {
         );
 
         superToken.mint(address(flow), 2_000_000e18);
-        _setIncomingFlowRate(2_000);
+        int96 incomingRate = 2_000;
+        _setIncomingFlowRate(incomingRate);
         flow.setMaxSafeFlowRate(-1);
 
         uncappedTreasury.sync();
-        assertEq(flow.targetOutflowRate(), 2_000);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(uncappedTreasury, incomingRate));
     }
 
     function test_sync_fundingActivation_clampsToBufferAffordableRateWhenCFAHostConfigured() public {
@@ -432,7 +435,8 @@ contract BudgetTreasuryTest is Test {
 
     function test_sync_afterFundingDeadline_withThresholdReached_activates() public {
         superToken.mint(address(flow), 300e18);
-        _setIncomingFlowRate(50);
+        int96 incomingRate = 50;
+        _setIncomingFlowRate(incomingRate);
 
         _warpPastFundingDeadline(treasury);
         treasury.sync();
@@ -441,7 +445,7 @@ contract BudgetTreasuryTest is Test {
         assertFalse(treasury.resolved());
         assertGt(treasury.deadline(), treasury.fundingDeadline());
         assertEq(treasury.activatedAt(), treasury.fundingDeadline() + 1);
-        assertEq(flow.targetOutflowRate(), 50);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(treasury, incomingRate));
     }
 
     function test_sync_firstCallAfterExecutionWindowWithThresholdReached_finalizesExpired() public {
@@ -546,12 +550,13 @@ contract BudgetTreasuryTest is Test {
         assertNotEq(flow.targetOutflowRate(), initialRate);
     }
 
-    function test_sync_active_parentZeroMemberRate_forcesZeroOutflowEvenWhenNetFlowSpoofed() public {
+    function test_sync_active_parentZeroMemberRate_keepsBalanceSpenddownOutflowEvenWhenNetFlowSpoofed() public {
         superToken.mint(address(flow), 500e18);
 
-        _setIncomingFlowRate(40);
+        int96 initialIncomingRate = 40;
+        _setIncomingFlowRate(initialIncomingRate);
         treasury.sync();
-        assertEq(flow.targetOutflowRate(), 40);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(treasury, initialIncomingRate));
 
         _setIncomingFlowRate(0);
         vm.prank(outsider);
@@ -559,22 +564,27 @@ contract BudgetTreasuryTest is Test {
         vm.prank(outsider);
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), 0);
-        assertEq(flow.targetOutflowRate(), 0);
+        int96 expectedSpenddownOnlyRate = _expectedTargetFlowRateWithIncoming(treasury, 0);
+        assertGt(expectedSpenddownOnlyRate, 0);
+        assertEq(treasury.targetFlowRate(), expectedSpenddownOnlyRate);
+        assertEq(flow.targetOutflowRate(), expectedSpenddownOnlyRate);
     }
 
-    function test_sync_active_parentNegativeMemberRate_clampsTargetToZero() public {
+    function test_sync_active_parentNegativeMemberRate_clampsIncomingToZeroButKeepsBalanceSpenddown() public {
         superToken.mint(address(flow), 500e18);
 
-        _setIncomingFlowRate(40);
+        int96 initialIncomingRate = 40;
+        _setIncomingFlowRate(initialIncomingRate);
         treasury.sync();
-        assertEq(flow.targetOutflowRate(), 40);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(treasury, initialIncomingRate));
 
         _setIncomingFlowRate(-25);
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), 0);
-        assertEq(flow.targetOutflowRate(), 0);
+        int96 expectedClampedIncomingRate = _expectedTargetFlowRateWithIncoming(treasury, 0);
+        assertGt(expectedClampedIncomingRate, 0);
+        assertEq(treasury.targetFlowRate(), expectedClampedIncomingRate);
+        assertEq(flow.targetOutflowRate(), expectedClampedIncomingRate);
     }
 
     function test_sync_active_permissionlessSpoofedNetFlowDoesNotAffectTrustedParentRate() public {
@@ -583,22 +593,23 @@ contract BudgetTreasuryTest is Test {
         int96 trustedIncoming = 40;
         _setIncomingFlowRate(trustedIncoming);
         treasury.sync();
-        assertEq(flow.targetOutflowRate(), trustedIncoming);
+        assertEq(flow.targetOutflowRate(), _expectedTargetFlowRateWithIncoming(treasury, trustedIncoming));
 
         vm.prank(outsider);
         flow.setNetFlowRate(type(int96).max - flow.targetOutflowRate());
         vm.prank(outsider);
         treasury.sync();
 
-        assertEq(treasury.targetFlowRate(), trustedIncoming);
-        assertEq(flow.targetOutflowRate(), trustedIncoming);
+        int96 expectedTrustedRate = _expectedTargetFlowRateWithIncoming(treasury, trustedIncoming);
+        assertEq(treasury.targetFlowRate(), expectedTrustedRate);
+        assertEq(flow.targetOutflowRate(), expectedTrustedRate);
     }
 
     function test_sync_activeNoRateChange_reappliesCachedTargetOutflow() public {
         superToken.mint(address(flow), 100e18);
         _setIncomingFlowRate(80);
         treasury.sync();
-        _setIncomingFlowRate(flow.targetOutflowRate());
+        _setIncomingFlowRate(80);
 
         uint256 callCountBefore = flow.setFlowRateCallCount();
         treasury.sync();
@@ -610,7 +621,7 @@ contract BudgetTreasuryTest is Test {
         _setIncomingFlowRate(80);
         treasury.sync();
         int96 flowRateBefore = flow.targetOutflowRate();
-        _setIncomingFlowRate(flowRateBefore);
+        _setIncomingFlowRate(80);
 
         flow.setShouldRevertSetFlowRate(true);
         uint256 callCountBefore = flow.setFlowRateCallCount();
@@ -1673,6 +1684,44 @@ contract BudgetTreasuryTest is Test {
         assertEq(uncappedTreasury.targetFlowRate(), type(int96).max);
     }
 
+    function test_targetFlowRate_capsAtInt96Max_whenSpenddownRateAloneExceedsInt96Max() public {
+        BudgetTreasury shortExecutionTreasury = _deploy(
+            uint64(block.timestamp + 3 days),
+            uint64(1 days),
+            1,
+            0
+        );
+
+        superToken.mint(address(flow), 1);
+        shortExecutionTreasury.sync();
+        vm.warp(shortExecutionTreasury.deadline() - 1);
+
+        _setIncomingFlowRate(0);
+        superToken.mint(address(flow), uint256(uint96(type(int96).max)) + 1);
+
+        assertEq(shortExecutionTreasury.timeRemaining(), 1);
+        assertEq(shortExecutionTreasury.targetFlowRate(), type(int96).max);
+    }
+
+    function test_targetFlowRate_capsAtInt96Max_whenIncomingPlusSpenddownOverflows() public {
+        BudgetTreasury shortExecutionTreasury = _deploy(
+            uint64(block.timestamp + 3 days),
+            uint64(1 days),
+            1,
+            0
+        );
+
+        superToken.mint(address(flow), 1);
+        shortExecutionTreasury.sync();
+        vm.warp(shortExecutionTreasury.deadline() - 1);
+
+        _setIncomingFlowRate(type(int96).max - 1);
+        superToken.mint(address(flow), 2);
+
+        assertEq(shortExecutionTreasury.timeRemaining(), 1);
+        assertEq(shortExecutionTreasury.targetFlowRate(), type(int96).max);
+    }
+
     function test_targetFlowRate_zeroWhenNotActive() public view {
         assertEq(treasury.targetFlowRate(), 0);
     }
@@ -1684,14 +1733,14 @@ contract BudgetTreasuryTest is Test {
         assertEq(treasury.targetFlowRate(), 0);
     }
 
-    function test_targetFlowRate_matchesIncomingFlow() public {
+    function test_targetFlowRate_matchesIncomingPlusBalanceSpenddown() public {
         superToken.mint(address(flow), 150e18);
         treasury.sync();
 
         int96 expectedIncoming = 40;
         _setIncomingFlowRate(expectedIncoming);
 
-        assertEq(treasury.targetFlowRate(), expectedIncoming);
+        assertEq(treasury.targetFlowRate(), _expectedTargetFlowRateWithIncoming(treasury, expectedIncoming));
     }
 
     function test_sync_fromActive_beforeDeadline_keepsActive() public {
@@ -1810,6 +1859,7 @@ contract BudgetTreasuryTest is Test {
         superToken.mint(address(flow), 100e18);
         _setIncomingFlowRate(100);
         treasury.sync();
+        int96 flowRateBefore = flow.targetOutflowRate();
         flow.setShouldRevertSetFlowRate(true);
 
         vm.warp(treasury.deadline());
@@ -1819,7 +1869,7 @@ contract BudgetTreasuryTest is Test {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(treasury.resolved());
         assertEq(treasury.resolvedAt(), uint64(block.timestamp));
-        assertEq(flow.targetOutflowRate(), 100);
+        assertEq(flow.targetOutflowRate(), flowRateBefore);
     }
 
     function test_finalize_keepsTerminalStateWhenFlowRateReadFails() public {
@@ -2212,6 +2262,22 @@ contract BudgetTreasuryTest is Test {
 
     function _setIncomingFlowRate(int96 incomingFlowRate) internal {
         parentFlow.setMemberFlowRate(address(flow), incomingFlowRate);
+    }
+
+    function _expectedTargetFlowRateWithIncoming(BudgetTreasury target, int96 incomingFlowRate) internal view returns (int96) {
+        if (target.state() != IBudgetTreasury.BudgetState.Active) return 0;
+
+        uint256 remaining = target.timeRemaining();
+        if (remaining == 0) return 0;
+
+        uint256 int96Max = uint256(uint96(type(int96).max));
+        uint256 incoming = incomingFlowRate <= 0 ? 0 : uint256(uint96(incomingFlowRate));
+        if (incoming >= int96Max) return type(int96).max;
+
+        uint256 spenddown = target.treasuryBalance() / remaining;
+        if (spenddown > int96Max - incoming) return type(int96).max;
+
+        return int96(uint96(incoming + spenddown));
     }
 }
 

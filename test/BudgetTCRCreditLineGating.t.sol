@@ -32,8 +32,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 contract BudgetTCRCreditLineGatingTest is TestUtils {
+    bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
+        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,bytes4,bytes)");
+    bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG =
+        keccak256("BudgetTreasuryBatchSyncAttempted(bytes32,address,bool)");
+
     event BudgetCreditCapEnforcementFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
@@ -196,6 +202,48 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         vm.prank(makeAddr("keeper"));
         budgetTcr.syncBudgetTreasuries(itemIDs);
+    }
+
+    function test_syncBudgetTreasuries_enforcesCreditCapBeforeBudgetSync() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "ORDER_CHECK");
+
+        goalTreasury.setCoverageLambda(10);
+        vm.mockCallRevert(
+            address(budgetStakeLedger),
+            abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
+            reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        uint256 missingLogIdx = type(uint256).max;
+        uint256 enforcementLogIdx = missingLogIdx;
+        uint256 syncAttemptLogIdx = missingLogIdx;
+        for (uint256 i = 0; i < entries.length; i++) {
+            Vm.Log memory logEntry = entries[i];
+            if (logEntry.emitter != address(budgetTcr)) continue;
+            if (logEntry.topics.length < 2) continue;
+            if (logEntry.topics[0] == BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG && logEntry.topics[1] == itemID) {
+                if (enforcementLogIdx == missingLogIdx) enforcementLogIdx = i;
+            }
+            if (logEntry.topics[0] == BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG && logEntry.topics[1] == itemID) {
+                if (syncAttemptLogIdx == missingLogIdx) syncAttemptLogIdx = i;
+            }
+        }
+
+        assertTrue(enforcementLogIdx != missingLogIdx);
+        assertTrue(syncAttemptLogIdx != missingLogIdx);
+        assertLt(enforcementLogIdx, syncAttemptLogIdx);
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
     }
 
     function _approveAddCost(address who) internal returns (uint256 addCost) {
