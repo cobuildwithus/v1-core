@@ -8,6 +8,7 @@ import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import { TreasurySuccessAssertions } from "src/goals/library/TreasurySuccessAssertions.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
@@ -30,6 +31,7 @@ contract BudgetTreasuryTest is Test {
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     uint32 internal constant REAL_ESCROW_BUDGET_SLASH_PPM = 200_000;
     uint8 internal constant TERMINAL_OP_PARENT_PRUNE = 4;
+    uint8 internal constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
     event FlowRateSyncManualInterventionRequired(
         address indexed flow, int96 targetRate, int96 fallbackRate, int96 currentRate
     );
@@ -852,6 +854,11 @@ contract BudgetTreasuryTest is Test {
         );
 
         vm.warp(finalizeCleanupTreasury.deadline());
+        vm.expectEmit(true, false, false, true, address(finalizeCleanupTreasury));
+        emit IBudgetTreasury.TerminalSideEffectFailed(
+            TERMINAL_OP_ASSERTION_FINALIZE,
+            abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
+        );
         finalizeCleanupTreasury.sync();
 
         assertEq(finalizeCleanupTreasury.pendingSuccessAssertionId(), bytes32(0));
@@ -905,6 +912,10 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(unresolvedConfigTreasury.deadline());
 
+        vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
+        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.ResolverConfigOracleReadFailed
+        );
         vm.expectEmit(true, false, false, false, address(unresolvedConfigTreasury));
         emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
@@ -945,6 +956,10 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(zeroOracleTreasury.deadline());
 
+        vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
+        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAddressZero
+        );
         vm.expectEmit(true, false, false, false, address(zeroOracleTreasury));
         emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
@@ -986,6 +1001,10 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(unresolvedAssertionReadTreasury.deadline());
 
+        vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
+        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+            assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAssertionReadFailed
+        );
         vm.expectEmit(true, false, false, false, address(unresolvedAssertionReadTreasury));
         emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
