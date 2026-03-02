@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -20,6 +21,7 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
     PremiumEscrowManagerRewardPoolMockBudgetStakeLedger internal ledger;
     PremiumEscrowManagerRewardPoolMockBudgetTreasury internal budgetTreasury;
     PremiumEscrowManagerRewardPoolMockGoalFlow internal goalFlow;
+    PremiumEscrowManagerRewardPoolMockGoalTreasury internal goalTreasury;
     PremiumEscrowManagerRewardPoolMockRouter internal router;
     PremiumEscrow internal escrow;
 
@@ -30,6 +32,8 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         ledger = new PremiumEscrowManagerRewardPoolMockBudgetStakeLedger();
         budgetTreasury = new PremiumEscrowManagerRewardPoolMockBudgetTreasury(address(premiumToken), CONTROLLER);
         goalFlow = new PremiumEscrowManagerRewardPoolMockGoalFlow(address(premiumToken));
+        goalTreasury = new PremiumEscrowManagerRewardPoolMockGoalTreasury();
+        goalFlow.setFlowOperator(address(goalTreasury));
         router = new PremiumEscrowManagerRewardPoolMockRouter();
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -152,6 +156,29 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         assertEq(claimed, 60e18);
         assertEq(escrow.accountedBalance(), 0);
         assertEq(premiumToken.balanceOf(ALICE), 60e18);
+    }
+
+    function test_burnOnGoalFailure_connectedPool_sweepsEscrowBalanceAndSettlesLateResidual() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+
+        PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(pool));
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+        premiumToken.mint(address(escrow), 45e18);
+
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
+        uint256 accountedBalanceBefore = escrow.accountedBalance();
+
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 45e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 45e18);
+        assertEq(escrow.accountedBalance(), accountedBalanceBefore);
+        assertEq(goalTreasury.settleLateResidualCalls(), 1);
     }
 }
 
@@ -277,6 +304,7 @@ contract PremiumEscrowManagerRewardPoolMockBudgetTreasury {
 
 contract PremiumEscrowManagerRewardPoolMockGoalFlow {
     ISuperToken internal _superToken;
+    address internal _flowOperator;
 
     constructor(address superToken_) {
         _superToken = ISuperToken(superToken_);
@@ -284,6 +312,31 @@ contract PremiumEscrowManagerRewardPoolMockGoalFlow {
 
     function superToken() external view returns (ISuperToken) {
         return _superToken;
+    }
+
+    function flowOperator() external view returns (address) {
+        return _flowOperator;
+    }
+
+    function setFlowOperator(address flowOperator_) external {
+        _flowOperator = flowOperator_;
+    }
+}
+
+contract PremiumEscrowManagerRewardPoolMockGoalTreasury {
+    IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
+    uint256 public settleLateResidualCalls;
+
+    function setState(IGoalTreasury.GoalState state_) external {
+        _state = state_;
+    }
+
+    function state() external view returns (IGoalTreasury.GoalState) {
+        return _state;
+    }
+
+    function settleLateResidual() external {
+        settleLateResidualCalls += 1;
     }
 }
 

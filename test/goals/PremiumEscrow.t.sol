@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { Test } from "forge-std/Test.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -42,6 +43,8 @@ contract PremiumEscrowTest is Test {
             address(router),
             SLASH_PPM
         );
+
+        goalFlow.setFlowOperator(address(goalTreasury));
     }
 
     function test_initializeRevertsWhenSuperTokenMismatch() public {
@@ -193,6 +196,73 @@ contract PremiumEscrowTest is Test {
 
         assertEq(thirdClaim, 25e18);
         assertEq(premiumToken.balanceOf(ALICE), 75e18);
+    }
+
+    function test_claimRevertsWhenGoalStateIsNotSucceeded() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Active);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.GOAL_NOT_SUCCEEDED.selector, IGoalTreasury.GoalState.Active)
+        );
+        vm.prank(ALICE);
+        escrow.claim(ALICE);
+    }
+
+    function test_claimRevertsWhenGoalTreasuryUnavailable() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
+
+        goalFlow.setFlowOperator(address(0));
+
+        vm.expectRevert(PremiumEscrow.GOAL_TREASURY_UNAVAILABLE.selector);
+        vm.prank(ALICE);
+        escrow.claim(ALICE);
+    }
+
+    function test_burnOnGoalFailureSweepsEscrowBalanceAndSettlesLateResidualBestEffort() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 50e18);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 50e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 50e18);
+        assertEq(goalTreasury.settleLateResidualCalls(), 1);
+    }
+
+    function test_burnOnGoalFailureRequiresExpiredGoalState() public {
+        goalTreasury.setState(IGoalTreasury.GoalState.Succeeded);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.GOAL_NOT_EXPIRED.selector, IGoalTreasury.GoalState.Succeeded)
+        );
+        escrow.burnOnGoalFailure();
+    }
+
+    function test_burnOnGoalFailureRevertsWhenGoalTreasuryUnavailable() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 25e18);
+
+        goalFlow.setFlowOperator(address(0));
+
+        vm.expectRevert(PremiumEscrow.GOAL_TREASURY_UNAVAILABLE.selector);
+        escrow.burnOnGoalFailure();
+    }
+
+    function test_burnOnGoalFailureSwallowSettleLateResidualRevert() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 25e18);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+        goalTreasury.setRevertSettleLateResidual(true);
+
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 25e18);
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(goalTreasury.settleLateResidualCalls(), 0);
     }
 
     function test_exposureIntegralTracksPiecewiseCoverageAndClampsOnClose() public {
@@ -585,6 +655,13 @@ contract PremiumEscrowTest is Test {
         _checkpointBoth();
     }
 
+    function _setCoverageAndCheckpointClaimable(address account, uint256 coverage, uint256 premiumAmount) internal {
+        ledger.setCoverage(account, address(budgetTreasury), coverage);
+        escrow.checkpoint(account);
+        premiumToken.mint(address(escrow), premiumAmount);
+        escrow.checkpoint(account);
+    }
+
     function _configureSpendFormulaParams(uint32 premiumPpm, uint256 coverageLambda_) internal {
         budgetFlow.setManagerRewardPoolFlowRatePpm(premiumPpm);
         budgetTreasury.setFlow(address(budgetFlow));
@@ -701,6 +778,11 @@ contract PremiumEscrowMockGoalFlow {
 
 contract PremiumEscrowMockGoalTreasury {
     uint256 internal _coverageLambda;
+    IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
+    bool internal _revertSettleLateResidual;
+    uint256 public settleLateResidualCalls;
+
+    error SETTLE_LATE_RESIDUAL_REVERT();
 
     function setCoverageLambda(uint256 coverageLambda_) external {
         _coverageLambda = coverageLambda_;
@@ -708,6 +790,23 @@ contract PremiumEscrowMockGoalTreasury {
 
     function coverageLambda() external view returns (uint256) {
         return _coverageLambda;
+    }
+
+    function setState(IGoalTreasury.GoalState state_) external {
+        _state = state_;
+    }
+
+    function state() external view returns (IGoalTreasury.GoalState) {
+        return _state;
+    }
+
+    function setRevertSettleLateResidual(bool shouldRevert_) external {
+        _revertSettleLateResidual = shouldRevert_;
+    }
+
+    function settleLateResidual() external {
+        if (_revertSettleLateResidual) revert SETTLE_LATE_RESIDUAL_REVERT();
+        settleLateResidualCalls += 1;
     }
 }
 
