@@ -13,6 +13,7 @@ import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
@@ -37,6 +38,10 @@ import {
     SharedMockSuperToken,
     SharedMockUnderlying
 } from "test/goals/helpers/TreasurySharedMocks.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfigWithFinalize
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract UnderwritingPremiumSlashIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 77;
@@ -942,7 +947,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
 contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 9001;
+    bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
+    uint8 internal constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
+    uint8 internal constant DIRECTORY_FAILURE_INVALID = 1;
+    uint8 internal constant DIRECTORY_FAILURE_REVERT = 2;
 
     SharedMockUnderlying internal underlyingToken;
     SharedMockSuperToken internal superToken;
@@ -956,6 +965,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     UnderwritingMockController internal controller;
     UnderwritingMockHook internal hook;
     UnderwritingMockBudgetStakeLedger internal budgetStakeLedger;
+    TreasuryMockOptimisticOracleV3 internal assertionOracle;
+    TreasuryMockUmaResolverConfigWithFinalize internal successResolverConfig;
 
     GoalTreasury internal treasury;
 
@@ -982,6 +993,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         controller = new UnderwritingMockController(tokens);
         hook = new UnderwritingMockHook(directory);
         budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
+        assertionOracle = new TreasuryMockOptimisticOracleV3();
+        successResolverConfig = new TreasuryMockUmaResolverConfigWithFinalize(
+            OptimisticOracleV3Interface(address(assertionOracle)),
+            IERC20(address(underlyingToken)),
+            address(0xA11CE),
+            keccak256("goal-test-domain")
+        );
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
@@ -996,27 +1014,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         flow.setFlowOperator(predictedTreasury);
         flow.setSweeper(predictedTreasury);
 
-        treasury = new GoalTreasury(
-            address(this),
-            IGoalTreasury.GoalConfig({
-                flow: address(flow),
-                stakeVault: address(stakeVault),
-                budgetStakeLedger: address(budgetStakeLedger),
-                hook: address(hook),
-                goalRulesets: address(rulesets),
-                goalRevnetId: GOAL_REVNET_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                coverageLambda: 10,
-                budgetPremiumPpm: 0,
-                budgetSlashPpm: 0,
-                successResolver: address(this),
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("goal-oracle-spec"),
-                successAssertionPolicyHash: keccak256("goal-assertion-policy")
-            })
-        );
+        treasury =
+            new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
     }
 
     function test_sync_clampsOutflowUntilCoverageIncreases() public {
@@ -1053,27 +1052,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 IGoalTreasury.BUDGET_STAKE_LEDGER_GOAL_MISMATCH.selector, predictedTreasury, mismatchedGoalTreasury
             )
         );
-        new GoalTreasury(
-            address(this),
-            IGoalTreasury.GoalConfig({
-                flow: address(flow),
-                stakeVault: address(stakeVault),
-                budgetStakeLedger: address(mismatchedLedger),
-                hook: address(hook),
-                goalRulesets: address(rulesets),
-                goalRevnetId: GOAL_REVNET_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                coverageLambda: 10,
-                budgetPremiumPpm: 0,
-                budgetSlashPpm: 0,
-                successResolver: address(this),
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("goal-oracle-spec"),
-                successAssertionPolicyHash: keccak256("goal-assertion-policy")
-            })
-        );
+        new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(mismatchedLedger)));
     }
 
     function test_initialize_revertsWhenBudgetStakeLedgerHasNoCode() public {
@@ -1085,27 +1064,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         address invalidLedger = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, invalidLedger));
-        new GoalTreasury(
-            address(this),
-            IGoalTreasury.GoalConfig({
-                flow: address(flow),
-                stakeVault: address(stakeVault),
-                budgetStakeLedger: invalidLedger,
-                hook: address(hook),
-                goalRulesets: address(rulesets),
-                goalRevnetId: GOAL_REVNET_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                coverageLambda: 10,
-                budgetPremiumPpm: 0,
-                budgetSlashPpm: 0,
-                successResolver: address(this),
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("goal-oracle-spec"),
-                successAssertionPolicyHash: keccak256("goal-assertion-policy")
-            })
-        );
+        new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
     }
 
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
@@ -1171,6 +1130,120 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
         assertEq(controller.lastBurnAmount(), residual);
         assertEq(controller.lastBurnMemoHash(), TERMINAL_BURN_MEMO_HASH);
+    }
+
+    function test_sync_falseAssertionFinalizeCleanupRevert_emitsTerminalSideEffectFailed() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+
+        bytes32 assertionId = keccak256("goal-finalize-cleanup-assertion");
+        vm.prank(address(successResolverConfig));
+        treasury.registerSuccessAssertion(assertionId);
+
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: address(successResolverConfig),
+                    escalationManager: successResolverConfig.escalationManager()
+                }),
+                asserter: address(successResolverConfig),
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: false,
+                domainId: successResolverConfig.domainId(),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: address(successResolverConfig),
+                disputer: address(0)
+            })
+        );
+
+        successResolverConfig.setShouldRevertFinalize(true);
+
+        vm.warp(treasury.deadline());
+        vm.expectEmit(true, false, false, true, address(treasury));
+        emit IGoalTreasury.TerminalSideEffectFailed(
+            TERMINAL_OP_ASSERTION_FINALIZE,
+            abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
+        );
+        treasury.sync();
+
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+        assertTrue(treasury.reassertGraceUsed());
+    }
+
+    function test_initialize_rulesetsDirectoryRevertAndHookInvalid_surfacesDiagnosticReason() public {
+        UnderwritingMockRulesetsDirectoryReverting revertingRulesets = new UnderwritingMockRulesetsDirectoryReverting();
+        revertingRulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
+        revertingRulesets.setWeight(GOAL_REVNET_ID, 1e18);
+
+        UnderwritingMockHook invalidHook = new UnderwritingMockHook(UnderwritingMockDirectory(address(0)));
+
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        budgetStakeLedger.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+
+        bytes memory expectedReason = abi.encode(
+            address(revertingRulesets),
+            DIRECTORY_FAILURE_REVERT,
+            abi.encodeWithSignature("Error(string)", "RULESETS_DIRECTORY_REVERT"),
+            address(invalidHook),
+            DIRECTORY_FAILURE_INVALID,
+            bytes("")
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON.selector,
+                address(underlyingToken),
+                expectedReason
+            )
+        );
+        new GoalTreasury(
+            address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
+        );
+    }
+
+    function _activateGoal() internal {
+        superToken.mint(address(flow), 100e18);
+        vm.prank(address(hook));
+        assertTrue(treasury.recordHookFunding(100e18));
+        treasury.sync();
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
+    }
+
+    function _defaultGoalConfig(address rulesetsAddr, address hookAddr, address budgetStakeLedgerAddr)
+        internal
+        view
+        returns (IGoalTreasury.GoalConfig memory config)
+    {
+        config = IGoalTreasury.GoalConfig({
+            flow: address(flow),
+            stakeVault: address(stakeVault),
+            budgetStakeLedger: budgetStakeLedgerAddr,
+            hook: hookAddr,
+            goalRulesets: rulesetsAddr,
+            goalRevnetId: GOAL_REVNET_ID,
+            minRaiseDeadline: uint64(block.timestamp + 3 days),
+            minRaise: 100e18,
+            coverageLambda: 10,
+            budgetPremiumPpm: 0,
+            budgetSlashPpm: 0,
+            successResolver: address(successResolverConfig),
+            successAssertionLiveness: uint64(1 days),
+            successAssertionBond: 10e18,
+            successOracleSpecHash: keccak256("goal-oracle-spec"),
+            successAssertionPolicyHash: keccak256("goal-assertion-policy")
+        });
     }
 }
 
@@ -1352,7 +1425,7 @@ contract UnderwritingMockRulesets {
         _directory = directory_;
     }
 
-    function DIRECTORY() external view returns (IJBDirectory) {
+    function DIRECTORY() external view virtual returns (IJBDirectory) {
         return _directory;
     }
 
@@ -1404,6 +1477,12 @@ contract UnderwritingMockRulesets {
         if (rulesetId == pair.base.id) return pair.base;
         if (rulesetId == pair.terminal.id) return pair.terminal;
         return ruleset;
+    }
+}
+
+contract UnderwritingMockRulesetsDirectoryReverting is UnderwritingMockRulesets {
+    function DIRECTORY() external pure override returns (IJBDirectory) {
+        revert("RULESETS_DIRECTORY_REVERT");
     }
 }
 
