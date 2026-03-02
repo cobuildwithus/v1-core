@@ -17,7 +17,9 @@ contract PremiumEscrowTest is Test {
     PremiumEscrowMockToken internal premiumToken;
     PremiumEscrowMockBudgetStakeLedger internal ledger;
     PremiumEscrowMockBudgetTreasury internal budgetTreasury;
+    PremiumEscrowMockBudgetFlow internal budgetFlow;
     PremiumEscrowMockGoalFlow internal goalFlow;
+    PremiumEscrowMockGoalTreasury internal goalTreasury;
     PremiumEscrowMockRouter internal router;
     PremiumEscrow internal escrow;
 
@@ -25,7 +27,9 @@ contract PremiumEscrowTest is Test {
         premiumToken = new PremiumEscrowMockToken();
         ledger = new PremiumEscrowMockBudgetStakeLedger();
         budgetTreasury = new PremiumEscrowMockBudgetTreasury(address(premiumToken));
+        budgetFlow = new PremiumEscrowMockBudgetFlow();
         goalFlow = new PremiumEscrowMockGoalFlow(address(premiumToken));
+        goalTreasury = new PremiumEscrowMockGoalTreasury();
         router = new PremiumEscrowMockRouter();
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -275,6 +279,39 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 20);
     }
 
+    function test_slashUsesSpendFormula_andCapsAtPeakCoverage() public {
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+
+        premiumToken.mint(address(escrow), 120);
+        escrow.checkpoint(ALICE);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 60);
+        escrow.checkpoint(ALICE);
+
+        assertEq(escrow.premiumEarned(ALICE), 120);
+        assertEq(escrow.peakCov(ALICE), 100);
+
+        budgetFlow.setManagerRewardPoolFlowRatePpm(100_000);
+        budgetTreasury.setFlow(address(budgetFlow));
+        goalTreasury.setCoverageLambda(10);
+        goalFlow.setFlowOperator(address(goalTreasury));
+
+        budgetTreasury.setActivatedAt(10);
+        vm.warp(30);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
+
+        vm.expectEmit(true, false, false, true, address(escrow));
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 120, 100_000, 10, 20, 120, 100, 100);
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, 100);
+        assertEq(router.slashCalls(), 1);
+        assertEq(router.lastUnderwriter(), ALICE);
+        assertEq(router.lastWeight(), 100);
+    }
+
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -486,6 +523,7 @@ contract PremiumEscrowMockBudgetStakeLedger {
 contract PremiumEscrowMockBudgetTreasury {
     ISuperToken internal _superToken;
     uint64 public activatedAt;
+    address internal _flow;
 
     constructor(address superToken_) {
         _superToken = ISuperToken(superToken_);
@@ -498,10 +536,31 @@ contract PremiumEscrowMockBudgetTreasury {
     function setActivatedAt(uint64 activatedAt_) external {
         activatedAt = activatedAt_;
     }
+
+    function setFlow(address flow_) external {
+        _flow = flow_;
+    }
+
+    function flow() external view returns (address) {
+        return _flow;
+    }
+}
+
+contract PremiumEscrowMockBudgetFlow {
+    uint32 internal _managerRewardPoolFlowRatePpm;
+
+    function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
+        _managerRewardPoolFlowRatePpm = ppm_;
+    }
+
+    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        return _managerRewardPoolFlowRatePpm;
+    }
 }
 
 contract PremiumEscrowMockGoalFlow {
     ISuperToken internal _superToken;
+    address internal _flowOperator;
 
     constructor(address superToken_) {
         _superToken = ISuperToken(superToken_);
@@ -509,6 +568,26 @@ contract PremiumEscrowMockGoalFlow {
 
     function superToken() external view returns (ISuperToken) {
         return _superToken;
+    }
+
+    function setFlowOperator(address flowOperator_) external {
+        _flowOperator = flowOperator_;
+    }
+
+    function flowOperator() external view returns (address) {
+        return _flowOperator;
+    }
+}
+
+contract PremiumEscrowMockGoalTreasury {
+    uint256 internal _coverageLambda;
+
+    function setCoverageLambda(uint256 coverageLambda_) external {
+        _coverageLambda = coverageLambda_;
+    }
+
+    function coverageLambda() external view returns (uint256) {
+        return _coverageLambda;
     }
 }
 
