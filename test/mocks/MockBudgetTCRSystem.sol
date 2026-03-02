@@ -306,6 +306,7 @@ contract MockGoalTreasuryForBudgetTCR {
     address public flow;
     address public stakeVault;
     uint256 public coverageLambda;
+    bool public resolved;
     bool public shouldRevertSync;
     uint256 public syncCallCount;
 
@@ -341,6 +342,10 @@ contract MockGoalTreasuryForBudgetTCR {
 
     function setCoverageLambda(uint256 coverageLambda_) external {
         coverageLambda = coverageLambda_;
+    }
+
+    function setResolved(bool resolved_) external {
+        resolved = resolved_;
     }
 
     function setShouldRevertSync(bool shouldRevertSync_) external {
