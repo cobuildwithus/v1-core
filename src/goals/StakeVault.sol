@@ -18,17 +18,17 @@ import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { TokenTransfers } from "../library/TokenTransfers.sol";
 import { StakeVaultJurorMath } from "./library/StakeVaultJurorMath.sol";
 import { StakeVaultSlashMath } from "./library/StakeVaultSlashMath.sol";
 
 contract StakeVault is IStakeVault, ReentrancyGuard {
-    using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace224;
+    using TokenTransfers for IERC20;
 
     uint64 public constant JUROR_EXIT_DELAY = 7 days;
     string public constant STRATEGY_KEY = "StakeVault";
@@ -798,19 +798,13 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal {
-        uint256 vaultBalanceBefore = token.balanceOf(address(this));
-        token.safeTransferFrom(from, address(this), amount);
-        uint256 received = token.balanceOf(address(this)) - vaultBalanceBefore;
+        uint256 received = token.safeTransferFromReceived(from, address(this), amount);
         if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
     }
 
     function _safeTransferExact(IERC20 token, address to, uint256 amount) internal {
-        uint256 vaultBalanceBefore = token.balanceOf(address(this));
-        uint256 recipientBalanceBefore = token.balanceOf(to);
-        token.safeTransfer(to, amount);
-        uint256 spent = vaultBalanceBefore - token.balanceOf(address(this));
+        (uint256 spent, uint256 received) = token.safeTransferSpentAndReceived(to, amount);
         if (spent != amount) revert TRANSFER_AMOUNT_MISMATCH();
-        uint256 received = token.balanceOf(to) - recipientBalanceBefore;
         if (received != amount) revert TRANSFER_AMOUNT_MISMATCH();
     }
 }

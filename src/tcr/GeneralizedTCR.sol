@@ -19,6 +19,7 @@ import { ArbitrationCostExtraData } from "./utils/ArbitrationCostExtraData.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
 import { GeneralizedTCRStorageV1 } from "./storage/GeneralizedTCRStorageV1.sol";
 import { TCRRounds } from "./library/TCRRounds.sol";
+import { TokenTransfers } from "../library/TokenTransfers.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -40,6 +41,7 @@ abstract contract GeneralizedTCR is
     using CappedMath for uint256;
     using SafeERC20 for IERC20;
     using TCRRounds for GeneralizedTCRStorageV1.Round;
+    using TokenTransfers for IERC20;
 
     error NON_UPGRADEABLE();
 
@@ -484,9 +486,7 @@ abstract contract GeneralizedTCR is
 
     // Returns the actual amount received by this contract.
     function _safeTransferFromReceived(address from, uint256 amount) internal returns (uint256 received) {
-        uint256 balanceBefore = erc20.balanceOf(address(this));
-        erc20.safeTransferFrom(from, address(this), amount);
-        received = erc20.balanceOf(address(this)) - balanceBefore;
+        received = erc20.safeTransferFromReceived(from, address(this), amount);
     }
 
     function _handleSubmissionDepositOnResolution(
