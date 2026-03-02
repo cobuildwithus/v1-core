@@ -16,10 +16,7 @@ contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
 
     function test_setArbitrator_has_no_direct_setter() public {
         ERC20VotesArbitrator arbImpl2 = new ERC20VotesArbitrator();
-        bytes memory arbInit2 = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), address(tcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory arbInit2 = _defaultArbitratorInitData(owner, address(token), address(tcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         ERC20VotesArbitrator newArb = ERC20VotesArbitrator(_deployProxy(address(arbImpl2), arbInit2));
 
         address initialArbitrator = address(tcr.arbitrator());
@@ -39,10 +36,7 @@ contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
 
     function test_initialize_reverts_when_arbitrator_arbitrable_mismatch() public {
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), address(0xBEEF), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory arbInit = _defaultArbitratorInitData(owner, address(token), address(0xBEEF), votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         ERC20VotesArbitrator mismatched = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         MockGeneralizedTCR tcrImpl = new MockGeneralizedTCR();
 

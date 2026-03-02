@@ -60,70 +60,49 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         vm.expectRevert(IERC20VotesArbitrator.INVALID_INVALID_ROUND_REWARD_SINK.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (address(0), address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(address(0), address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
         );
 
         // INVALID_ARBITRABLE_ADDRESS
         vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRABLE_ADDRESS.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(0), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(0), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
         );
 
         // INVALID_VOTING_TOKEN_ADDRESS
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_TOKEN_ADDRESS.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(0), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(0), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
         );
 
         // INVALID_VOTING_PERIOD
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_PERIOD.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), minVotingPeriod - 1, votingDelay, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), minVotingPeriod - 1, votingDelay, revealPeriod, arbitrationCost)
         );
 
         // INVALID_VOTING_DELAY
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_DELAY.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, minVotingDelay - 1, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, minVotingDelay - 1, revealPeriod, arbitrationCost)
         );
 
         // INVALID_REVEAL_PERIOD
         vm.expectRevert(IERC20VotesArbitrator.INVALID_REVEAL_PERIOD.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, votingDelay, minRevealPeriod - 1, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, minRevealPeriod - 1, arbitrationCost)
         );
 
         // INVALID_ARBITRATION_COST
         vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, minArbitrationCost - 1)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, minArbitrationCost - 1)
         );
     }
 
@@ -137,37 +116,25 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_PERIOD.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), maxVotingPeriod + 1, votingDelay, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), maxVotingPeriod + 1, votingDelay, revealPeriod, arbitrationCost)
         );
 
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_DELAY.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, maxVotingDelay + 1, revealPeriod, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, maxVotingDelay + 1, revealPeriod, arbitrationCost)
         );
 
         vm.expectRevert(IERC20VotesArbitrator.INVALID_REVEAL_PERIOD.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, votingDelay, maxRevealPeriod + 1, arbitrationCost)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, maxRevealPeriod + 1, arbitrationCost)
         );
 
         vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, maxArbitrationCost + 1)
-            )
+            _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, maxArbitrationCost + 1)
         );
     }
 
@@ -178,9 +145,7 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_TOKEN_COMPATIBILITY.selector);
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (
+            _defaultArbitratorInitData(
                     owner,
                     address(nonErc20Votes),
                     address(arbitrable),
@@ -189,16 +154,13 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
                     revealPeriod,
                     arbitrationCost
                 )
-            )
         );
 
         MockVotesToken6Decimals token6 = new MockVotesToken6Decimals("Six Decimals Votes", "SIX");
         vm.expectRevert(abi.encodeWithSelector(IERC20VotesArbitrator.INVALID_VOTING_TOKEN_DECIMALS.selector, 6));
         _deployProxy(
             address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initialize,
-                (
+            _defaultArbitratorInitData(
                     owner,
                     address(token6),
                     address(arbitrable),
@@ -207,7 +169,6 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
                     revealPeriod,
                     arbitrationCost
                 )
-            )
         );
     }
 
@@ -265,7 +226,7 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
 
         ERC20VotesArbitrator configured =
             ERC20VotesArbitrator(
-                _deployProxy(address(impl), abi.encodeCall(ERC20VotesArbitrator.initializeWithConfig, (cfg)))
+                _deployProxy(address(impl), _arbitratorInitData(cfg))
             );
 
         assertEq(configured.wrongOrMissedSlashBps(), 321);
@@ -289,7 +250,7 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         });
 
         vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_ADDRESS.selector);
-        _deployProxy(address(impl), abi.encodeCall(ERC20VotesArbitrator.initializeWithConfig, (cfg)));
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
     }
 
     function test_initialize_config_sets_stake_vault_and_fixed_budget_context() public {
@@ -312,7 +273,7 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
 
         ERC20VotesArbitrator configured =
             ERC20VotesArbitrator(
-                _deployProxy(address(impl), abi.encodeCall(ERC20VotesArbitrator.initializeWithConfig, (cfg)))
+                _deployProxy(address(impl), _arbitratorInitData(cfg))
             );
 
         assertEq(configured.stakeVault(), stakeVault_);
@@ -340,62 +301,28 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         });
 
         vm.expectRevert(IERC20VotesArbitrator.INVALID_FIXED_BUDGET_CONTEXT.selector);
-        _deployProxy(address(impl), abi.encodeCall(ERC20VotesArbitrator.initializeWithConfig, (cfg)));
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
     }
 
-    function test_initializeWithStakeVaultAndBudgetScopeAndSlashConfig_maps_wrapper_params() public {
+    function test_initialize_config_with_default_helper_uses_default_slash_values() public {
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
         (address stakeVault_, address budgetTreasury_) = _deployValidFixedBudgetContext();
-
-        ERC20VotesArbitrator configured = ERC20VotesArbitrator(
-            _deployProxy(
-                address(impl),
-                abi.encodeCall(
-                    ERC20VotesArbitrator.initializeWithStakeVaultAndBudgetScopeAndSlashConfig,
-                    (
-                        owner,
-                        address(token),
-                        address(arbitrable),
-                        votingPeriod,
-                        votingDelay,
-                        revealPeriod,
-                        arbitrationCost,
-                        stakeVault_,
-                        budgetTreasury_,
-                        444,
-                        222
-                    )
-                )
-            )
+        IERC20VotesArbitrator.InitConfig memory cfg = _defaultArbitratorInitConfig(
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
         );
-
-        assertEq(configured.stakeVault(), stakeVault_);
-        assertEq(configured.fixedBudgetTreasury(), budgetTreasury_);
-        assertEq(configured.wrongOrMissedSlashBps(), 444);
-        assertEq(configured.slashCallerBountyBps(), 222);
-    }
-
-    function test_initializeWithStakeVaultAndBudgetScope_uses_default_slash_values() public {
-        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
-        (address stakeVault_, address budgetTreasury_) = _deployValidFixedBudgetContext();
+        cfg.stakeVault = stakeVault_;
+        cfg.fixedBudgetTreasury = budgetTreasury_;
 
         ERC20VotesArbitrator configured = ERC20VotesArbitrator(
             _deployProxy(
                 address(impl),
-                abi.encodeCall(
-                    ERC20VotesArbitrator.initializeWithStakeVaultAndBudgetScope,
-                    (
-                        owner,
-                        address(token),
-                        address(arbitrable),
-                        votingPeriod,
-                        votingDelay,
-                        revealPeriod,
-                        arbitrationCost,
-                        stakeVault_,
-                        budgetTreasury_
-                    )
-                )
+                _arbitratorInitData(cfg)
             )
         );
 
@@ -407,56 +334,33 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
 
     function test_initialize_accepts_explicit_slash_config_and_reverts_on_caps() public {
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        IERC20VotesArbitrator.InitConfig memory cfg = _defaultArbitratorInitConfig(
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
 
+        cfg.wrongOrMissedSlashBps = 321;
+        cfg.slashCallerBountyBps = 123;
         ERC20VotesArbitrator configured = ERC20VotesArbitrator(
-            _deployProxy(
-                address(impl),
-                abi.encodeCall(
-                    ERC20VotesArbitrator.initializeWithSlashConfig,
-                    (owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost, 321, 123)
-                )
-            )
+            _deployProxy(address(impl), _arbitratorInitData(cfg))
         );
         assertEq(configured.wrongOrMissedSlashBps(), 321);
         assertEq(configured.slashCallerBountyBps(), 123);
 
+        cfg.wrongOrMissedSlashBps = 10_001;
+        cfg.slashCallerBountyBps = 0;
         vm.expectRevert(IERC20VotesArbitrator.INVALID_WRONG_OR_MISSED_SLASH_BPS.selector);
-        _deployProxy(
-            address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initializeWithSlashConfig,
-                (
-                    owner,
-                    address(token),
-                    address(arbitrable),
-                    votingPeriod,
-                    votingDelay,
-                    revealPeriod,
-                    arbitrationCost,
-                    10_001,
-                    0
-                )
-            )
-        );
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
 
+        cfg.wrongOrMissedSlashBps = 10_000;
+        cfg.slashCallerBountyBps = 501;
         vm.expectRevert(IERC20VotesArbitrator.INVALID_SLASH_CALLER_BOUNTY_BPS.selector);
-        _deployProxy(
-            address(impl),
-            abi.encodeCall(
-                ERC20VotesArbitrator.initializeWithSlashConfig,
-                (
-                    owner,
-                    address(token),
-                    address(arbitrable),
-                    votingPeriod,
-                    votingDelay,
-                    revealPeriod,
-                    arbitrationCost,
-                    10_000,
-                    501
-                )
-            )
-        );
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
     }
 
     function test_setters_onlyArbitrable_and_ranges() public {

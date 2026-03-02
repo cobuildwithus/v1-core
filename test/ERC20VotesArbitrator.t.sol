@@ -89,10 +89,7 @@ abstract contract ERC20VotesArbitratorTestBase is TestUtils {
 
         // Deploy arbitrator behind ERC1967Proxy (constructor uses initializer pattern).
         ArbitratorHarness impl = new ArbitratorHarness();
-        bytes memory initData = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory initData = _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         arb = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
 
         arbitrable.setArbitrator(arb);

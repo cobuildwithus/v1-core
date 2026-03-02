@@ -6,8 +6,61 @@ import "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {IERC20VotesArbitrator} from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 
 abstract contract TestUtils is Test {
+    function _defaultArbitratorInitConfig(
+        address invalidRoundRewardsSink,
+        address votingToken,
+        address arbitrable,
+        uint256 votingPeriod,
+        uint256 votingDelay,
+        uint256 revealPeriod,
+        uint256 arbitrationCost
+    ) internal pure returns (IERC20VotesArbitrator.InitConfig memory cfg) {
+        cfg = IERC20VotesArbitrator.InitConfig({
+            invalidRoundRewardsSink: invalidRoundRewardsSink,
+            votingToken: votingToken,
+            arbitrable: arbitrable,
+            votingPeriod: votingPeriod,
+            votingDelay: votingDelay,
+            revealPeriod: revealPeriod,
+            arbitrationCost: arbitrationCost,
+            stakeVault: address(0),
+            fixedBudgetTreasury: address(0),
+            wrongOrMissedSlashBps: 50,
+            slashCallerBountyBps: 100
+        });
+    }
+
+    function _arbitratorInitData(
+        IERC20VotesArbitrator.InitConfig memory config
+    ) internal pure returns (bytes memory initData) {
+        initData = abi.encodeCall(ERC20VotesArbitrator.initializeWithConfig, (config));
+    }
+
+    function _defaultArbitratorInitData(
+        address invalidRoundRewardsSink,
+        address votingToken,
+        address arbitrable,
+        uint256 votingPeriod,
+        uint256 votingDelay,
+        uint256 revealPeriod,
+        uint256 arbitrationCost
+    ) internal pure returns (bytes memory initData) {
+        initData = _arbitratorInitData(
+            _defaultArbitratorInitConfig(
+                invalidRoundRewardsSink,
+                votingToken,
+                arbitrable,
+                votingPeriod,
+                votingDelay,
+                revealPeriod,
+                arbitrationCost
+            )
+        );
+    }
+
     function _voteHash(
         ERC20VotesArbitrator arb,
         uint256 disputeId,

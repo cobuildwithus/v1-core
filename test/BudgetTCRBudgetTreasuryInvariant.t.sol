@@ -164,9 +164,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
             )
         );
 
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (
+        bytes memory arbInit = _defaultArbitratorInitData(
                 owner,
                 address(depositToken),
                 tcrInstance,
@@ -174,8 +172,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
                 votingDelay,
                 revealPeriod,
                 arbitrationCost
-            )
-        );
+            );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         arbitrator = ERC20VotesArbitrator(arbProxy);

@@ -127,9 +127,7 @@ contract BudgetTCRTest is TestUtils {
         stackDeployer = address(new BudgetTCRDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (
+        bytes memory arbInit = _defaultArbitratorInitData(
                 owner,
                 address(depositToken),
                 tcrInstance,
@@ -137,8 +135,7 @@ contract BudgetTCRTest is TestUtils {
                 votingDelay,
                 revealPeriod,
                 arbitrationCost
-            )
-        );
+            );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         arbitrator = ERC20VotesArbitrator(arbProxy);
@@ -559,9 +556,7 @@ contract BudgetTCRTest is TestUtils {
         address freshStackDeployer = address(new BudgetTCRDeployer());
         BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation);
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
-        bytes memory freshArbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (
+        bytes memory freshArbInit = _defaultArbitratorInitData(
                 owner,
                 address(depositToken),
                 address(freshTcr),
@@ -569,8 +564,7 @@ contract BudgetTCRTest is TestUtils {
                 votingDelay,
                 revealPeriod,
                 arbitrationCost
-            )
-        );
+            );
         address freshArbProxy = _deployProxy(address(freshArbImpl), freshArbInit);
 
         deploymentConfig.stackDeployer = freshStackDeployer;

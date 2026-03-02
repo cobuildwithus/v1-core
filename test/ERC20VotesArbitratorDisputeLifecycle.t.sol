@@ -140,9 +140,7 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         MockArbitrable arbitrable2 = new MockArbitrable(IERC20(address(tokenWithNoSupplySnapshots)));
 
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
-        bytes memory initData = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (
+        bytes memory initData = _defaultArbitratorInitData(
                 owner,
                 address(tokenWithNoSupplySnapshots),
                 address(arbitrable2),
@@ -150,8 +148,7 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
                 votingDelay,
                 revealPeriod,
                 arbitrationCost
-            )
-        );
+            );
         ERC20VotesArbitrator arb2 = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
 
         arbitrable2.setArbitrator(arb2);

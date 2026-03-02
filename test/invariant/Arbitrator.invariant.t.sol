@@ -129,10 +129,7 @@ contract ERC20VotesArbitratorInvariantTest is StdInvariant, TestUtils {
         arbitrable = new MockArbitrable(token);
 
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
-        bytes memory initData = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory initData = _defaultArbitratorInitData(owner, address(token), address(arbitrable), votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         arb = ERC20VotesArbitrator(_deployProxy(address(impl), initData));
 
         arbitrable.setArbitrator(arb);

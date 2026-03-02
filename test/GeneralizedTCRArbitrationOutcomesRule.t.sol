@@ -57,10 +57,7 @@ contract GeneralizedTCRArbitrationOutcomesRuleTest is GeneralizedTCRTestBase {
         address arbProxyAddr = vm.computeCreateAddress(address(this), nonce);
         address tcrProxyAddr = vm.computeCreateAddress(address(this), nonce + 1);
 
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory arbInit = _defaultArbitratorInitData(owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         ERC20VotesArbitrator hookArb = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         assertEq(address(hookArb), arbProxyAddr);
 
@@ -339,10 +336,7 @@ contract GeneralizedTCRArbitrationOutcomesRuleTest is GeneralizedTCRTestBase {
         address arbProxyAddr = vm.computeCreateAddress(address(this), nonce);
         address tcrProxyAddr = vm.computeCreateAddress(address(this), nonce + 1);
 
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory arbInit = _defaultArbitratorInitData(owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         ERC20VotesArbitrator localArb = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         assertEq(address(localArb), arbProxyAddr);
 

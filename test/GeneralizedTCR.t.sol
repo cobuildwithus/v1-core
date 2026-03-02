@@ -110,10 +110,7 @@ abstract contract GeneralizedTCRTestBase is TestUtils {
         address tcrProxyAddr = vm.computeCreateAddress(address(this), nonce + 1);
 
         // Deploy arbitrator proxy first, initialized with arbitrable = future tcr proxy address.
-        bytes memory arbInit = abi.encodeCall(
-            ERC20VotesArbitrator.initialize,
-            (owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost)
-        );
+        bytes memory arbInit = _defaultArbitratorInitData(owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost);
         arb = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         assertEq(address(arb), arbProxyAddr);
 
