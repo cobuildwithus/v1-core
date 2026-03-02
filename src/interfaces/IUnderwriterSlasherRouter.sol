@@ -50,4 +50,7 @@ interface IUnderwriterSlasherRouter {
     function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external;
     function slashUnderwriter(address underwriter, uint256 weight) external;
     function retryForwarding() external returns (uint256 forwardedSuperTokenAmount);
+    function retryConversionAndForward()
+        external
+        returns (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount);
 }

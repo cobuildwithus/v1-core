@@ -27,4 +27,13 @@ contract MockUnderwriterSlasherRouter is IUnderwriterSlasherRouter {
     function retryForwarding() external pure override returns (uint256 forwardedSuperTokenAmount) {
         return 0;
     }
+
+    function retryConversionAndForward()
+        external
+        pure
+        override
+        returns (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount)
+    {
+        return (0, 0);
+    }
 }
