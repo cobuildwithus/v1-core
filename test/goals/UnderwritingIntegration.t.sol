@@ -376,6 +376,82 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(slashWeight, 0);
     }
 
+    function test_goalResolvedBeforeBudgetActivation_prepareAllowsWithdrawWithCurrentCoverageOnly() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+
+        (
+            StakeVault delayedVault,
+            ,
+            PremiumEscrow delayedEscrow,
+            ,
+            UnderwritingMockBudgetTreasury delayedBudgetTreasury,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), 0);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertFalse(delayedEscrow.slashed(ALICE));
+        assertEq(delayedVault.stakedGoalOf(ALICE), goalStake);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), cobuildStake);
+
+        vm.startPrank(ALICE);
+        delayedVault.withdrawGoal(goalStake, ALICE);
+        delayedVault.withdrawCobuild(cobuildStake, ALICE);
+        vm.stopPrank();
+
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+    }
+
+    function test_goalResolvedBeforeBudgetActivation_withEscrowCheckpointedExposure_prepareRemainsBlocked() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+
+        (
+            StakeVault delayedVault,
+            ,
+            PremiumEscrow delayedEscrow,
+            ,
+            UnderwritingMockBudgetTreasury delayedBudgetTreasury,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), 0);
+        delayedEscrow.checkpoint(ALICE);
+        assertEq(delayedEscrow.userCov(ALICE), budgetCoverage);
+        assertEq(delayedEscrow.exposureIntegral(ALICE), 0);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+    }
+
     function test_goalResolvedDuringReassertGraceDelay_withdrawBlocked_thenSlashStillCutsPrincipal() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;

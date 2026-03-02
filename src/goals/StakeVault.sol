@@ -239,6 +239,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         emit GoalResolved();
     }
 
+    // Intentionally not `nonReentrant`: this path may call `premiumEscrow.slash(...)`,
+    // which can route back into `slashUnderwriterStake(...)` (guarded by `nonReentrant`).
     function prepareUnderwriterWithdrawal(
         uint256 maxBudgets
     ) external override returns (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) {
@@ -751,20 +753,28 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         IPremiumEscrow premiumEscrow = IPremiumEscrow(premiumEscrowAddress);
 
         uint256 currentCoverage = budgetStakeLedger.userAllocatedStakeOnBudget(underwriter, budget);
-        bool hasExposure = currentCoverage != 0
-            || premiumEscrow.userCov(underwriter) != 0
-            || premiumEscrow.exposureIntegral(underwriter) != 0;
+        bool hasCurrentCoverage = currentCoverage != 0;
+        uint256 userCov = premiumEscrow.userCov(underwriter);
+        uint256 exposureIntegral = premiumEscrow.exposureIntegral(underwriter);
+        bool hasEscrowExposure = userCov != 0 || exposureIntegral != 0;
+        uint64 activatedAt = budgetTreasury.activatedAt();
 
         if (!budgetTreasury.resolved()) {
-            if (hasExposure) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+            // Nuanced unresolved handling:
+            // - block unresolved budgets when the caller has activation-window/current exposure signals,
+            // - allow unresolved pre-activation budgets with only current allocation to avoid unnecessary lockups.
+            if ((activatedAt != 0 && hasCurrentCoverage) || hasEscrowExposure) {
+                revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
+            }
             return;
         }
 
         IBudgetTreasury.BudgetState state = budgetTreasury.state();
-        bool slashRequired = budgetTreasury.activatedAt() != 0
-            && (state == IBudgetTreasury.BudgetState.Failed || state == IBudgetTreasury.BudgetState.Expired);
+        bool slashRequired =
+            activatedAt != 0 && (state == IBudgetTreasury.BudgetState.Failed || state == IBudgetTreasury.BudgetState.Expired);
+        bool hasSlashableExposure = hasCurrentCoverage || hasEscrowExposure;
 
-        if (!slashRequired || !hasExposure) return;
+        if (!slashRequired || !hasSlashableExposure) return;
 
         premiumEscrow.slash(underwriter);
     }

@@ -49,8 +49,8 @@
 - TCR challenge and timeout semantics should remain explicit and test-backed.
 
 5. Child-sync and premium-checkpoint downstream failures
-- Parent allocation commits must remain live when downstream child-sync or premium-checkpoint calls fail.
-- Failures must emit explicit observability events and remain permissionlessly repairable.
+- Parent allocation commits remain live when downstream child-sync calls fail; failures stay observable and permissionlessly repairable.
+- Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
 
 ## Verification Matrix
 

@@ -89,7 +89,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Access-control and governance boundaries are explicit and test-backed.
 - Funds-transfer paths must remain deterministic and fail-safe.
-- Allocation-driven premium escrow checkpointing is best-effort and must emit explicit failure observability events while allocation commits continue.
+- Allocation-driven premium escrow checkpointing is consensus-critical and fail-closed; allocation commits revert on checkpoint failure.
 - External hooks and strategies should not silently invalidate core invariants.
 
 ## Breaking-Change Policy

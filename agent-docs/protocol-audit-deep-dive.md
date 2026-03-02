@@ -38,7 +38,7 @@ The protocol has three coupled subsystems:
 - `Flow.sol`: canonical stream engine and custody point for treasury-linked SuperToken balances.
 - `CustomFlow.sol`: concrete flow entrypoint using the Flow core.
 - `FlowRates.sol`: max-safe rate math and flow-rate buffer calculations.
-- `GoalFlowAllocationLedgerPipeline.sol`: optional post-commit checkpointing/validation for goal allocation modes.
+- `GoalFlowAllocationLedgerPipeline.sol`: optional post-commit goal-ledger checkpointing mode; child sync is best-effort, premium checkpointing is fail-closed.
 
 ### Goal/Budget domain
 
@@ -193,7 +193,8 @@ Budget treasury flow-rate policy:
 Flow system behavior:
 
 - `Flow` streams through Superfluid pools and updates recipient/member units from committed allocations.
-- Child allocation sync and premium-checkpoint side effects run through `GoalFlowAllocationLedgerPipeline` and are best-effort with emitted outcomes.
+- Child allocation sync runs through `GoalFlowAllocationLedgerPipeline` as best-effort with emitted outcomes.
+- Premium-escrow checkpointing in the same pipeline is consensus-critical and fail-closed (allocation commits revert on checkpoint failure).
 
 ### 3) Terminal settlement
 
@@ -269,7 +270,7 @@ Juror locks:
 6. Underwriter withdrawal preparation accounting and caller isolation.
 7. Arbitrator slash routing, invalid-round sink behavior, and one-shot withdrawal semantics.
 8. Submission deposit strategy behavior in TCR (fail-closed surface).
-9. Child sync + premium checkpoint best-effort observability and repair-path liveness.
+9. Child sync best-effort observability/repair liveness plus fail-closed premium-checkpoint invariants.
 
 ## Practical audit sequence
 
