@@ -22,6 +22,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
     uint8 private constant TERMINAL_OP_PREMIUM_ESCROW_CLOSE = 3;
     uint8 private constant TERMINAL_OP_PARENT_PRUNE = 4;
+    uint8 private constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -65,7 +66,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         controller = _requireNonZeroController(initialController);
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         address premiumEscrow_ = config.premiumEscrow;
-        if (premiumEscrow_ == address(0) || premiumEscrow_.code.length == 0) revert ADDRESS_ZERO();
+        if (premiumEscrow_ == address(0)) revert ADDRESS_ZERO();
+        if (premiumEscrow_.code.length == 0) revert NOT_A_CONTRACT(premiumEscrow_);
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
             config.successAssertionLiveness == 0 ||
@@ -467,7 +469,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch {}
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch (
+                    bytes memory reason
+                ) {
+                    emit TerminalSideEffectFailed(TERMINAL_OP_ASSERTION_FINALIZE, reason);
+                }
             }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;

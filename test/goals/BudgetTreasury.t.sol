@@ -88,6 +88,15 @@ contract BudgetTreasuryTest is Test {
         candidate.initialize(owner, config);
     }
 
+    function test_initialize_revertsWhenPremiumEscrowHasNoCode() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.premiumEscrow = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.NOT_A_CONTRACT.selector, config.premiumEscrow));
+        candidate.initialize(owner, config);
+    }
+
     function test_initialize_revertsOnImplementation() public {
         BudgetTreasury implementation = new BudgetTreasury();
 

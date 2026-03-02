@@ -40,6 +40,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
     uint8 private constant TERMINAL_OP_DEFERRED_SETTLE = 3;
     uint8 private constant TERMINAL_OP_STAKE_VAULT_RESOLVE = 4;
+    uint8 private constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
+    uint8 private constant DIRECTORY_FAILURE_NONE = 0;
+    uint8 private constant DIRECTORY_FAILURE_INVALID = 1;
+    uint8 private constant DIRECTORY_FAILURE_REVERT = 2;
 
     GoalState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -115,7 +119,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (initialOwner == address(0)) revert ADDRESS_ZERO();
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
-        if (config.budgetStakeLedger == address(0) || config.budgetStakeLedger.code.length == 0) revert ADDRESS_ZERO();
+        if (config.budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
+        if (config.budgetStakeLedger.code.length == 0) revert NOT_A_CONTRACT(config.budgetStakeLedger);
         if (config.hook == address(0)) revert ADDRESS_ZERO();
         if (config.goalRulesets == address(0)) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
@@ -635,7 +640,11 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (!_reassertGrace.used) {
             bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
             if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch {}
+                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch (
+                    bytes memory reason
+                ) {
+                    emit TerminalSideEffectFailed(TERMINAL_OP_ASSERTION_FINALIZE, reason);
+                }
             }
             _tryActivateReassertGrace(clearedAssertionId);
             return false;
@@ -811,8 +820,14 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     ) internal view returns (uint256) {
         if (address(configuredCobuildToken) == address(0)) return 0;
 
-        IJBDirectory directory = _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
+        (IJBDirectory directory, bytes memory directoryFailureReason) =
+            _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
         if (address(directory) == address(0)) {
+            if (directoryFailureReason.length != 0) {
+                revert COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
+                    address(configuredCobuildToken), directoryFailureReason
+                );
+            }
             revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
         }
 
@@ -858,8 +873,14 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(configuredGoalToken), underlyingToken);
         }
 
-        IJBDirectory directory = _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
+        (IJBDirectory directory, bytes memory directoryFailureReason) =
+            _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
         if (address(directory) == address(0)) {
+            if (directoryFailureReason.length != 0) {
+                revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
+                    address(configuredGoalToken), directoryFailureReason
+                );
+            }
             revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(configuredGoalToken));
         }
 
@@ -900,27 +921,46 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function _resolveRevnetDirectory(
         IJBRulesets configuredGoalRulesets,
         address configuredHook
-    ) private view returns (IJBDirectory directory) {
+    ) private view returns (IJBDirectory directory, bytes memory failureReason) {
+        uint8 rulesetsFailure = DIRECTORY_FAILURE_NONE;
+        bytes memory rulesetsFailureReason;
+        uint8 hookFailure = DIRECTORY_FAILURE_NONE;
+        bytes memory hookFailureReason;
+
         // Prefer rulesets as the canonical source so treasury init does not depend on hook init ordering.
         try IJBControlled(address(configuredGoalRulesets)).DIRECTORY() returns (IJBDirectory rulesetsDirectory) {
             if (address(rulesetsDirectory) != address(0) && address(rulesetsDirectory).code.length != 0) {
-                return rulesetsDirectory;
+                return (rulesetsDirectory, bytes(""));
             }
-        } catch {
-            // Fall back to the hook directory when rulesets does not expose DIRECTORY.
+            rulesetsFailure = DIRECTORY_FAILURE_INVALID;
+        } catch (bytes memory reason) {
+            rulesetsFailure = DIRECTORY_FAILURE_REVERT;
+            rulesetsFailureReason = reason;
         }
 
         try IGoalRevnetHookDirectoryReader(configuredHook).directory() returns (IJBDirectory hookDirectory) {
             if (address(hookDirectory) != address(0) && address(hookDirectory).code.length != 0) {
-                return hookDirectory;
+                return (hookDirectory, bytes(""));
             }
-        } catch {}
+            hookFailure = DIRECTORY_FAILURE_INVALID;
+        } catch (bytes memory reason) {
+            hookFailure = DIRECTORY_FAILURE_REVERT;
+            hookFailureReason = reason;
+        }
 
-        return IJBDirectory(address(0));
+        failureReason = abi.encode(
+            address(configuredGoalRulesets),
+            rulesetsFailure,
+            rulesetsFailureReason,
+            configuredHook,
+            hookFailure,
+            hookFailureReason
+        );
+        return (IJBDirectory(address(0)), failureReason);
     }
 
     function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
-        IJBDirectory directory = _resolveRevnetDirectory(goalRulesets, _hook);
+        (IJBDirectory directory,) = _resolveRevnetDirectory(goalRulesets, _hook);
         if (address(directory) == address(0)) revert INVALID_REVNET_CONTROLLER(address(0));
 
         address controller = address(directory.controllerOf(revnetId));

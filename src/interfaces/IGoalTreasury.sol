@@ -65,6 +65,7 @@ interface IGoalTreasury is
     }
 
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error INVALID_DEADLINES();
     error ONLY_HOOK();
     error INVALID_STATE();
@@ -78,9 +79,11 @@ interface IGoalTreasury is
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
     error GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address expected, address actual);
     error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address goalToken);
+    error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address goalToken, bytes reason);
     error GOAL_TOKEN_REVNET_MISMATCH(address goalToken, uint256 expectedRevnetId, uint256 actualRevnetId);
     error INVALID_REVNET_CONTROLLER(address controller);
     error COBUILD_REVNET_ID_NOT_DERIVABLE(address cobuildToken);
+    error COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address cobuildToken, bytes reason);
     error ONLY_SUCCESS_RESOLVER();
     error SUCCESS_ASSERTION_ALREADY_PENDING(bytes32 assertionId);
     error SUCCESS_ASSERTION_NOT_PENDING();

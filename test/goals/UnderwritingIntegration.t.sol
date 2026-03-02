@@ -1076,6 +1076,38 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         );
     }
 
+    function test_initialize_revertsWhenBudgetStakeLedgerHasNoCode() public {
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+
+        address invalidLedger = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, invalidLedger));
+        new GoalTreasury(
+            address(this),
+            IGoalTreasury.GoalConfig({
+                flow: address(flow),
+                stakeVault: address(stakeVault),
+                budgetStakeLedger: invalidLedger,
+                hook: address(hook),
+                goalRulesets: address(rulesets),
+                goalRevnetId: GOAL_REVNET_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                coverageLambda: 10,
+                budgetPremiumPpm: 0,
+                budgetSlashPpm: 0,
+                successResolver: address(this),
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("goal-oracle-spec"),
+                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            })
+        );
+    }
+
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
         distributionPool.setTotalUnits(80);
 

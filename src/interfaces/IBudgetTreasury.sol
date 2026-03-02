@@ -56,6 +56,7 @@ interface IBudgetTreasury is
     }
 
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error INVALID_DEADLINES();
     error INVALID_EXECUTION_DURATION();
     error INVALID_THRESHOLDS(uint256 activationThreshold, uint256 runwayCap);
