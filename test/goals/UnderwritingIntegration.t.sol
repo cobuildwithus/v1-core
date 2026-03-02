@@ -9,7 +9,9 @@ import {StakeVault} from "src/goals/StakeVault.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
@@ -27,6 +29,7 @@ import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ISuperToken, ISuperfluidPool} from
     "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
@@ -971,6 +974,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     TreasuryMockOptimisticOracleV3 internal assertionOracle;
     TreasuryMockUmaResolverConfigWithFinalize internal successResolverConfig;
 
+    GoalTreasury internal goalTreasuryImplementation;
     GoalTreasury internal treasury;
 
     function setUp() public {
@@ -1011,14 +1015,47 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         directory.setController(GOAL_REVNET_ID, address(controller));
         tokens.setProjectIdOf(address(underlyingToken), GOAL_REVNET_ID);
 
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
-        budgetStakeLedger.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
+        goalTreasuryImplementation = new GoalTreasury();
+        treasury = _cloneGoalTreasuryWithPredictedAddress();
+        treasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
+    }
 
-        treasury =
-            new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
+    function test_goalTreasuryImplementation_initializeRevertsInvalidInitialization() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        goalTreasuryImplementation.initialize(
+            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger))
+        );
+    }
+
+    function test_goalRevnetSplitHookImplementation_initializeRevertsInvalidInitialization() public {
+        GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        splitHookImplementation.initialize(
+            IJBDirectory(address(directory)),
+            IGoalTreasury(address(treasury)),
+            IFlow(address(flow)),
+            GOAL_REVNET_ID
+        );
+    }
+
+    function test_goalRevnetSplitHookCloneInitialize_setsCriticalState() public {
+        GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
+        GoalRevnetSplitHook splitHookClone = GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
+
+        splitHookClone.initialize(
+            IJBDirectory(address(directory)),
+            IGoalTreasury(address(treasury)),
+            IFlow(address(flow)),
+            GOAL_REVNET_ID
+        );
+
+        assertEq(address(splitHookClone.directory()), address(directory));
+        assertEq(address(splitHookClone.goalTreasury()), address(treasury));
+        assertEq(address(splitHookClone.flow()), address(flow));
+        assertEq(address(splitHookClone.superToken()), address(superToken));
+        assertEq(splitHookClone.underlyingToken(), address(underlyingToken));
+        assertEq(splitHookClone.goalRevnetId(), GOAL_REVNET_ID);
     }
 
     function test_sync_clampsOutflowUntilCoverageIncreases() public {
@@ -1041,11 +1078,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     function test_initialize_revertsWhenBudgetStakeLedgerGoalTreasuryMismatch() public {
         UnderwritingMockBudgetStakeLedger mismatchedLedger = new UnderwritingMockBudgetStakeLedger();
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
+        address predictedTreasury = address(candidateTreasury);
 
         address mismatchedGoalTreasury = address(0xBEEF);
         mismatchedLedger.setGoalTreasury(mismatchedGoalTreasury);
@@ -1055,19 +1090,18 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 IGoalTreasury.BUDGET_STAKE_LEDGER_GOAL_MISMATCH.selector, predictedTreasury, mismatchedGoalTreasury
             )
         );
-        new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(mismatchedLedger)));
+        candidateTreasury.initialize(
+            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(mismatchedLedger))
+        );
     }
 
     function test_initialize_revertsWhenBudgetStakeLedgerHasNoCode() public {
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
         address invalidLedger = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, invalidLedger));
-        new GoalTreasury(address(this), _defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
+        candidateTreasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
     }
 
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
@@ -1290,12 +1324,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         revertingRulesets.setWeight(GOAL_REVNET_ID, 1e18);
 
         UnderwritingMockHook invalidHook = new UnderwritingMockHook(UnderwritingMockDirectory(address(0)));
-
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
-        budgetStakeLedger.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
         bytes memory expectedReason = abi.encode(
             address(revertingRulesets),
@@ -1313,7 +1342,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 expectedReason
             )
         );
-        new GoalTreasury(
+        candidateTreasury.initialize(
             address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
@@ -1325,13 +1354,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         UnderwritingMockHook invalidHook = new UnderwritingMockHook(UnderwritingMockDirectory(address(0)));
         SharedMockUnderlying cobuildToken = new SharedMockUnderlying();
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
         stakeVault.setCobuildToken(IERC20(address(cobuildToken)));
-        budgetStakeLedger.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
 
         bytes memory expectedReason = abi.encode(
             address(revertingRulesets),
@@ -1349,7 +1374,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 expectedReason
             )
         );
-        new GoalTreasury(
+        candidateTreasury.initialize(
             address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
@@ -1367,17 +1392,22 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     }
 
     function _deployGoalTreasuryWithResolver(address resolver) internal returns (GoalTreasury candidateTreasury) {
-        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
-        stakeVault.setGoalTreasury(predictedTreasury);
-        budgetStakeLedger.setGoalTreasury(predictedTreasury);
-        flow.setFlowOperator(predictedTreasury);
-        flow.setSweeper(predictedTreasury);
+        candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.successResolver = resolver;
 
-        candidateTreasury = new GoalTreasury(address(this), config);
+        candidateTreasury.initialize(address(this), config);
+    }
+
+    function _cloneGoalTreasuryWithPredictedAddress() internal returns (GoalTreasury candidateTreasury) {
+        address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        stakeVault.setGoalTreasury(predictedTreasury);
+        budgetStakeLedger.setGoalTreasury(predictedTreasury);
+        flow.setFlowOperator(predictedTreasury);
+        flow.setSweeper(predictedTreasury);
+        candidateTreasury = GoalTreasury(Clones.clone(address(goalTreasuryImplementation)));
     }
 
     function _assertGoalFailClosedGraceState(GoalTreasury targetTreasury) internal view {
