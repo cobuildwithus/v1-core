@@ -7,15 +7,15 @@ import { IJBSplitHook } from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { TokenTransfers } from "../library/TokenTransfers.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 // slither-disable-next-line locked-ether
 contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
-    using SafeERC20 for IERC20;
+    using TokenTransfers for IERC20;
 
     error ADDRESS_ZERO();
     error NOT_A_CONTRACT(address account);
@@ -52,18 +52,7 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
 
     uint256 private constant RESERVED_TOKENS_GROUP_ID = 1;
 
-    constructor(IJBDirectory directory_, IGoalTreasury goalTreasury_, IFlow flow_, uint256 goalRevnetId_) {
-        if (
-            address(directory_) == address(0) &&
-            address(goalTreasury_) == address(0) &&
-            address(flow_) == address(0) &&
-            goalRevnetId_ == 0
-        ) {
-            _disableInitializers();
-            return;
-        }
-
-        _initialize(directory_, goalTreasury_, flow_, goalRevnetId_);
+    constructor() {
         _disableInitializers();
     }
 
@@ -161,9 +150,7 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
 
     function _safeTransferToGoalTreasuryExact(IERC20 sourceToken, uint256 amount) internal {
         _requireHookBalance(sourceToken, amount);
-        uint256 treasuryBalanceBefore = sourceToken.balanceOf(address(goalTreasury));
-        sourceToken.safeTransfer(address(goalTreasury), amount);
-        uint256 received = sourceToken.balanceOf(address(goalTreasury)) - treasuryBalanceBefore;
+        uint256 received = sourceToken.safeTransferReceived(address(goalTreasury), amount);
         if (received != amount) revert SOURCE_TOKEN_AMOUNT_MISMATCH(amount, received);
     }
 

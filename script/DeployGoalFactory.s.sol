@@ -5,12 +5,9 @@ import "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
-import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
-import {IFlow} from "src/interfaces/IFlow.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
@@ -63,11 +60,9 @@ contract DeployGoalFactory is DeployScript {
         address fakeUmaEscalationManager = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
         bytes32 fakeUmaDomainId = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
-        IGoalTreasury.GoalConfig memory emptyGoalConfig;
-        GoalTreasury goalTreasuryImpl = new GoalTreasury(address(0), emptyGoalConfig);
+        GoalTreasury goalTreasuryImpl = new GoalTreasury();
         CustomFlow flowImpl = new CustomFlow();
-        GoalRevnetSplitHook splitHookImpl =
-            new GoalRevnetSplitHook(IJBDirectory(address(0)), IGoalTreasury(address(0)), IFlow(address(0)), 0);
+        GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
         BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer();
         BudgetTCR budgetTcrImpl = new BudgetTCR();

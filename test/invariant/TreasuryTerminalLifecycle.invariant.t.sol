@@ -371,6 +371,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalDirectory.setController(PROJECT_ID, address(goalController));
         goalTokens.setProjectIdOf(address(goalUnderlying), PROJECT_ID);
 
+        GoalTreasury goalTreasuryImplementation = new GoalTreasury();
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
         goalBudgetStakeLedger = new TreasuryTerminalInvariantBudgetStakeLedger();
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
@@ -378,7 +379,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalBudgetStakeLedger.setGoalTreasury(predictedGoalTreasury);
         goalFlow.setFlowOperator(predictedGoalTreasury);
         goalFlow.setSweeper(predictedGoalTreasury);
-        goalTreasury = new GoalTreasury(
+        goalTreasury = GoalTreasury(Clones.clone(address(goalTreasuryImplementation)));
+        goalTreasury.initialize(
             address(this),
             IGoalTreasury.GoalConfig({
                 flow: address(goalFlow),
