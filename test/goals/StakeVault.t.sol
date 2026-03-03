@@ -1557,6 +1557,26 @@ contract StakeVaultTest is Test {
         assertEq(vault.jurorWeightOf(alice), 15e18);
     }
 
+    function test_finalizeJurorExit_afterJurorSlash_clampsToRemainingLockedGoal() public {
+        vm.startPrank(alice);
+        vault.depositGoal(100e18);
+        vault.optInAsJuror(100e18, 0, address(0));
+        vault.requestJurorExit(100e18, 0);
+        vm.stopPrank();
+
+        vault.setJurorSlasher(address(this));
+        vault.slashJurorStake(alice, 30e18, slashRecipient);
+
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(alice);
+        vault.finalizeJurorExit();
+
+        assertEq(vault.stakedGoalOf(alice), 40e18);
+        assertEq(vault.jurorLockedGoalOf(alice), 0);
+        assertEq(vault.jurorWeightOf(alice), 0);
+        assertEq(vault.totalJurorWeight(), 0);
+    }
+
     function test_regression_postResolutionJurorLock_canExitAndWithdraw() public {
         vm.startPrank(alice);
         vault.depositGoal(100e18);
