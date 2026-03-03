@@ -15,10 +15,10 @@ import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrat
 import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
 import { IERC20Votes } from "./interfaces/IERC20Votes.sol";
 import { CappedMath } from "./utils/CappedMath.sol";
-import { ArbitrationCostExtraData } from "./utils/ArbitrationCostExtraData.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
 import { GeneralizedTCRStorageV1 } from "./storage/GeneralizedTCRStorageV1.sol";
 import { TCRRounds } from "./library/TCRRounds.sol";
+import { GeneralizedTCRRuntimeLib } from "./library/GeneralizedTCRRuntimeLib.sol";
 import { TokenTransfers } from "../library/TokenTransfers.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -286,17 +286,7 @@ abstract contract GeneralizedTCR is
         if (block.timestamp - request.submissionTime <= challengePeriod) revert CHALLENGE_PERIOD_MUST_PASS();
         if (request.disputed) revert REQUEST_MUST_NOT_BE_DISPUTED();
 
-        Status requestType = item.status;
-
-        if (item.status == Status.RegistrationRequested) {
-            item.status = Status.Registered;
-        } else if (item.status == Status.ClearingRequested) {
-            item.status = Status.Absent;
-        } else {
-            revert MUST_BE_A_REQUEST();
-        }
-
-        request.ruling = Party.Requester;
+        Status requestType = GeneralizedTCRRuntimeLib.applyUnchallengedStatusChange(item);
         _handleSubmissionDepositOnResolution(_itemID, requestType, request);
 
         if (item.status == Status.Registered) {
@@ -409,71 +399,52 @@ abstract contract GeneralizedTCR is
     function _requestStatusChange(bytes memory _item, bytes32 _itemID, uint256 _baseDeposit) internal {
         Item storage item = items[_itemID];
 
-        // Using `length` instead of `length - 1` as index because a new request will be added.
-        uint256 requestIndex = item.requests.length;
-        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(_itemID, requestIndex)));
-        bool isFirstRequest = requestIndex == 0;
-        if (isFirstRequest || item.status == Status.Absent) {
-            address manager_ = _deriveItemManager(_item, _itemID, msg.sender);
-            item.data = _item;
-            item.manager = manager_;
+        uint256 requestIndexBefore = item.requests.length;
+        bool shouldUpdateItem = requestIndexBefore == 0 || item.status == Status.Absent;
+        address manager_ = shouldUpdateItem ? _deriveItemManager(_item, _itemID, msg.sender) : address(0);
 
-            if (isFirstRequest) {
-                itemList.push(_itemID);
-                itemIDtoIndex[_itemID] = itemList.length - 1;
-            }
-
-            emit ItemSubmitted(_itemID, msg.sender, evidenceGroupID, item.data);
+        GeneralizedTCRRuntimeLib.OpenRequestResult memory openResult = GeneralizedTCRRuntimeLib.openRequest(
+            item,
+            itemList,
+            itemIDtoIndex,
+            _itemID,
+            _item,
+            shouldUpdateItem,
+            manager_,
+            msg.sender,
+            arbitrator,
+            arbitratorExtraData,
+            challengePeriodDuration,
+            disputeTimeout,
+            submissionChallengeBaseDeposit,
+            removalChallengeBaseDeposit,
+            _baseDeposit
+        );
+        if (shouldUpdateItem) {
+            emit ItemSubmitted(_itemID, msg.sender, openResult.evidenceGroupID, item.data);
         }
 
-        Request storage request = item.requests.push();
-        if (item.status == Status.Absent) {
-            item.status = Status.RegistrationRequested;
-            request.metaEvidenceID = 0;
-        } else if (item.status == Status.Registered) {
-            item.status = Status.ClearingRequested;
-            request.metaEvidenceID = 1;
-        }
-
-        request.parties[uint256(Party.Requester)] = msg.sender;
-        request.submissionTime = block.timestamp;
-        request.arbitrator = arbitrator;
-        bytes memory baseExtraData = arbitratorExtraData;
-
-        Round storage round = request.rounds.push();
-
-        bool isRegistrationRequest = item.status == Status.RegistrationRequested;
-        uint256 arbitrationCost = request.arbitrator.arbitrationCost(baseExtraData);
-
-        // Snapshot parameters at submission time.
-        request.challengePeriodDuration = challengePeriodDuration;
-        request.disputeTimeout = disputeTimeout;
-        request.arbitrationCost = arbitrationCost;
-        request.challengeBaseDeposit = isRegistrationRequest
-            ? submissionChallengeBaseDeposit
-            : removalChallengeBaseDeposit;
-        request.arbitratorExtraData = ArbitrationCostExtraData.encode(arbitrationCost, baseExtraData);
-
-        uint256 totalCost = isRegistrationRequest ? arbitrationCost : arbitrationCost.addCap(_baseDeposit);
-        _contribute(round, Party.Requester, msg.sender, totalCost, totalCost);
-        if (round.amountPaid[uint256(Party.Requester)] < totalCost) revert MUST_FULLY_FUND_YOUR_SIDE();
+        Request storage request = item.requests[openResult.requestIndex];
+        Round storage round = request.rounds[0];
+        _contribute(round, Party.Requester, msg.sender, openResult.totalCost, openResult.totalCost);
+        if (round.amountPaid[uint256(Party.Requester)] < openResult.totalCost) revert MUST_FULLY_FUND_YOUR_SIDE();
         round.hasPaid[uint256(Party.Requester)] = true;
 
         // Collect the separated submission deposit for registration requests.
-        if (isRegistrationRequest) {
+        if (openResult.isRegistrationRequest) {
             _collectSubmissionDeposit(_itemID, msg.sender, _baseDeposit);
         }
 
         emit ItemStatusChange(
             _itemID,
-            item.requests.length - 1,
+            openResult.requestIndex,
             request.rounds.length - 1,
             request.disputed,
             false,
             item.status
         );
-        emit RequestSubmitted(_itemID, item.requests.length - 1, item.status);
-        emit RequestEvidenceGroupID(_itemID, item.requests.length - 1, evidenceGroupID);
+        emit RequestSubmitted(_itemID, openResult.requestIndex, item.status);
+        emit RequestEvidenceGroupID(_itemID, openResult.requestIndex, openResult.evidenceGroupID);
     }
 
     function _collectSubmissionDeposit(bytes32 itemID, address payer, uint256 amount) internal {
@@ -497,40 +468,13 @@ abstract contract GeneralizedTCR is
         Status requestType,
         Request storage request
     ) internal {
-        uint256 deposit = submissionDeposits[itemID];
-        if (deposit == 0) return;
-
-        ISubmissionDepositStrategy strategy = submissionDepositStrategy;
-        (ISubmissionDepositStrategy.DepositAction action, address recipient) = strategy.getSubmissionDepositAction(
-            itemID,
-            requestType,
-            request.ruling,
-            items[itemID].manager,
-            request.parties[uint256(Party.Requester)],
-            request.parties[uint256(Party.Challenger)],
-            deposit
+        GeneralizedTCRRuntimeLib.DepositResolution memory resolution = GeneralizedTCRRuntimeLib.resolveSubmissionDeposit(
+            submissionDeposits, items, itemID, submissionDepositStrategy, requestType, request
         );
+        if (!resolution.shouldTransfer) return;
 
-        if (
-            action != ISubmissionDepositStrategy.DepositAction.Hold &&
-            action != ISubmissionDepositStrategy.DepositAction.Transfer
-        ) {
-            revert INVALID_SUBMISSION_DEPOSIT_ACTION();
-        }
-        if (action == ISubmissionDepositStrategy.DepositAction.Hold && items[itemID].status == Status.Absent) {
-            revert INVALID_SUBMISSION_DEPOSIT_ACTION();
-        }
-        if (action == ISubmissionDepositStrategy.DepositAction.Transfer && recipient == address(0)) {
-            revert INVALID_SUBMISSION_DEPOSIT_RECIPIENT();
-        }
-
-        if (action == ISubmissionDepositStrategy.DepositAction.Hold) return;
-
-        // CEI: clear before transfer
-        delete submissionDeposits[itemID];
-
-        erc20.safeTransfer(recipient, deposit);
-        emit SubmissionDepositTransferred(itemID, recipient, deposit, requestType, request.ruling);
+        erc20.safeTransfer(resolution.recipient, resolution.amount);
+        emit SubmissionDepositTransferred(itemID, resolution.recipient, resolution.amount, requestType, request.ruling);
     }
 
     function _ensureArbitratorTokenMatches(IArbitrator _arbitrator, IVotes _votingToken) internal view {
@@ -608,26 +552,7 @@ abstract contract GeneralizedTCR is
         Item storage item = items[itemID];
         Request storage request = item.requests[item.requests.length - 1];
 
-        Status requestType = item.status;
-
-        Party winner = Party(_ruling);
-        bool executed = false;
-
-        if (winner == Party.Requester) {
-            // Execute Request.
-            if (item.status == Status.RegistrationRequested) {
-                item.status = Status.Registered;
-                executed = true;
-            } else if (item.status == Status.ClearingRequested) {
-                item.status = Status.Absent;
-                executed = true;
-            }
-        } else {
-            if (item.status == Status.RegistrationRequested) item.status = Status.Absent;
-            else if (item.status == Status.ClearingRequested) item.status = Status.Registered;
-        }
-
-        request.ruling = Party(_ruling);
+        (Status requestType, bool executed) = GeneralizedTCRRuntimeLib.applyRulingStatus(item, _ruling);
         _handleSubmissionDepositOnResolution(itemID, requestType, request);
 
         if (executed) {
@@ -795,7 +720,7 @@ abstract contract GeneralizedTCR is
         )
     {
         Request storage request = items[_itemID].requests[_request];
-        requestType = _requestTypeFromMetaEvidence(request.metaEvidenceID);
+        requestType = GeneralizedTCRRuntimeLib.requestTypeFromMetaEvidence(request.metaEvidenceID);
         challengePeriodDuration_ = request.challengePeriodDuration;
         disputeTimeout_ = request.disputeTimeout;
         arbitrationCost_ = request.arbitrationCost;
@@ -819,37 +744,7 @@ abstract contract GeneralizedTCR is
             bool canExecuteTimeout
         )
     {
-        Item storage item = items[_itemID];
-        if (_request >= item.requests.length) {
-            return (RequestPhase.None, 0, 0, IArbitrator.DisputeStatus.Waiting, false, false, false);
-        }
-
-        Request storage request = item.requests[_request];
-        challengeDeadline = request.submissionTime.addCap(request.challengePeriodDuration);
-        arbitratorStatus = IArbitrator.DisputeStatus.Waiting;
-
-        if (request.resolved) {
-            arbitratorStatus = request.disputed ? IArbitrator.DisputeStatus.Solved : IArbitrator.DisputeStatus.Waiting;
-            phase = RequestPhase.Resolved;
-            return (phase, challengeDeadline, 0, arbitratorStatus, false, false, false);
-        }
-
-        if (!request.disputed) {
-            canChallenge = block.timestamp <= challengeDeadline;
-            canExecuteRequest = block.timestamp > challengeDeadline;
-            phase = canExecuteRequest ? RequestPhase.UnchallengedExecutable : RequestPhase.ChallengePeriod;
-            return (phase, challengeDeadline, 0, arbitratorStatus, canChallenge, canExecuteRequest, false);
-        }
-
-        arbitratorStatus = request.arbitrator.disputeStatus(request.disputeID);
-        timeoutAt = challengeDeadline.addCap(request.disputeTimeout);
-        canExecuteTimeout =
-            request.disputeTimeout != 0 &&
-            block.timestamp > timeoutAt &&
-            arbitratorStatus == IArbitrator.DisputeStatus.Solved;
-        phase = arbitratorStatus == IArbitrator.DisputeStatus.Solved
-            ? RequestPhase.DisputeSolvedAwaitingExecution
-            : RequestPhase.DisputePending;
+        return GeneralizedTCRRuntimeLib.getRequestState(items, _itemID, _request);
     }
 
     /**
@@ -872,7 +767,4 @@ abstract contract GeneralizedTCR is
         return (round.amountPaid, round.hasPaid, round.feeRewards);
     }
 
-    function _requestTypeFromMetaEvidence(uint256 metaEvidenceID) internal pure returns (Status requestType) {
-        return metaEvidenceID % 2 == 0 ? Status.RegistrationRequested : Status.ClearingRequested;
-    }
 }
