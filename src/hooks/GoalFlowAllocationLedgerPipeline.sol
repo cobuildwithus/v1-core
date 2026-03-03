@@ -16,6 +16,11 @@ import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
  * @dev Bind one pipeline instance to one ledger via constructor (ledger may be zero to disable all behavior).
  */
 contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
+    enum ChildSyncDebtWriteMode {
+        OpenAndClear,
+        ClearOnly
+    }
+
     struct ChildSyncDebtView {
         bool exists;
         address childFlow;
@@ -153,7 +158,8 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint32[] calldata prevAllocationsPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsPpm
+        uint32[] calldata newAllocationsPpm,
+        IAllocationPipeline.CommitKind commitKind
     ) external override {
         // Use the caller as canonical flow identity so a strategy cannot spoof another flow.
         // GoalFlowLedgerMode then validates ledger/stake-vault wiring against this flow address.
@@ -169,7 +175,9 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
             newWeight
         );
         if (!shouldCheckpoint) return;
-        if (_allocationCompositionChanged(prevRecipientIds, prevAllocationsPpm, newRecipientIds, newAllocationsPpm)) {
+        bool compositionChanged =
+            _allocationCompositionChanged(prevRecipientIds, prevAllocationsPpm, newRecipientIds, newAllocationsPpm);
+        if (compositionChanged) {
             _revertIfAccountHasChildSyncDebt(account);
         }
 
@@ -186,7 +194,14 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         if (changedBudgetTreasuries.length == 0) return;
 
         _checkpointPremiumEscrows(account, changedBudgetTreasuries);
-        _executeAndEmitChildSync(account, changedBudgetTreasuries, flow, strategy, allocationKey);
+        _executeAndEmitChildSync(
+            account,
+            changedBudgetTreasuries,
+            flow,
+            strategy,
+            allocationKey,
+            _debtWriteModeForCommitKind(commitKind)
+        );
     }
 
     function _prepareCommittedCheckpoint(
@@ -249,7 +264,8 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         address[] memory changedBudgetTreasuries,
         address parentFlow,
         address parentStrategy,
-        uint256 parentAllocationKey
+        uint256 parentAllocationKey,
+        ChildSyncDebtWriteMode debtWriteMode
     ) private {
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = GoalFlowLedgerMode.buildChildSyncActions(
             account,
@@ -259,7 +275,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions = GoalFlowLedgerMode.executeChildSyncBestEffort(
             actions
         );
-        _applyChildSyncDebtPolicy(account, ledgerExecutions);
+        _applyChildSyncDebtPolicy(account, ledgerExecutions, debtWriteMode);
         _emitChildSyncExecutions(ledgerExecutions, parentFlow, parentStrategy, parentAllocationKey);
     }
 
@@ -401,40 +417,36 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
 
     function _applyChildSyncDebtPolicy(
         address account,
-        GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions
+        GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions,
+        ChildSyncDebtWriteMode debtWriteMode
     ) private {
         uint256 executionCount = ledgerExecutions.length;
         for (uint256 i = 0; i < executionCount; ) {
             GoalFlowLedgerMode.ChildSyncExecution memory execution = ledgerExecutions[i];
             address budgetTreasury = execution.budgetTreasury;
-            if (budgetTreasury == address(0)) {
-                unchecked {
-                    ++i;
-                }
-                continue;
-            }
-
-            if (execution.skipReason == _CHILD_SYNC_DEBT_REASON_GAS_BUDGET) {
-                _openChildSyncDebt(
-                    account,
-                    budgetTreasury,
-                    execution.childFlow,
-                    execution.childStrategy,
-                    execution.allocationKey,
-                    execution.skipReason
-                );
-            } else if (execution.attempted) {
-                if (execution.success) {
+            if (budgetTreasury != address(0)) {
+                if (execution.attempted && execution.success) {
                     _clearChildSyncDebt(account, budgetTreasury, execution.childFlow, _CHILD_SYNC_DEBT_REASON_SYNCED);
-                } else {
-                    _openChildSyncDebt(
-                        account,
-                        budgetTreasury,
-                        execution.childFlow,
-                        execution.childStrategy,
-                        execution.allocationKey,
-                        _CHILD_SYNC_DEBT_REASON_SYNC_FAILED
-                    );
+                } else if (debtWriteMode != ChildSyncDebtWriteMode.ClearOnly) {
+                    if (execution.skipReason == _CHILD_SYNC_DEBT_REASON_GAS_BUDGET) {
+                        _openChildSyncDebt(
+                            account,
+                            budgetTreasury,
+                            execution.childFlow,
+                            execution.childStrategy,
+                            execution.allocationKey,
+                            execution.skipReason
+                        );
+                    } else if (execution.attempted) {
+                        _openChildSyncDebt(
+                            account,
+                            budgetTreasury,
+                            execution.childFlow,
+                            execution.childStrategy,
+                            execution.allocationKey,
+                            _CHILD_SYNC_DEBT_REASON_SYNC_FAILED
+                        );
+                    }
                 }
             }
 
@@ -442,6 +454,15 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                 ++i;
             }
         }
+    }
+
+    function _debtWriteModeForCommitKind(
+        IAllocationPipeline.CommitKind commitKind
+    ) private pure returns (ChildSyncDebtWriteMode debtWriteMode) {
+        return
+            commitKind == IAllocationPipeline.CommitKind.MaintenanceSync
+                ? ChildSyncDebtWriteMode.ClearOnly
+                : ChildSyncDebtWriteMode.OpenAndClear;
     }
 
     function _isChildSyncDebtClearSkipReason(bytes32 skipReason) private pure returns (bool) {
