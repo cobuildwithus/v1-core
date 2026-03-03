@@ -269,6 +269,12 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
             assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
             assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
+            assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
+            assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
+            assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
+            assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
+            assertTrue(_stringContains(artifact, "ERC20VotesArbitratorImpl: 0x"));
+            assertTrue(_stringContains(artifact, "BudgetTCRDeployerImpl: 0x"));
             assertTrue(
                 _stringContains(
                     artifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))

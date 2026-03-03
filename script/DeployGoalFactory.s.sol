@@ -32,6 +32,9 @@ contract DeployGoalFactory is DeployScript {
     address internal goalTreasuryImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
+    address internal budgetTcrImplOut;
+    address internal erc20VotesArbitratorImplOut;
+    address internal budgetTcrDeployerImplOut;
 
     address internal budgetTcrFactoryOut;
     address internal defaultSubmissionDepositStrategyOut;
@@ -109,6 +112,9 @@ contract DeployGoalFactory is DeployScript {
         goalTreasuryImplOut = address(goalTreasuryImpl);
         customFlowImplOut = address(flowImpl);
         splitHookImplOut = address(splitHookImpl);
+        budgetTcrImplOut = address(budgetTcrImpl);
+        erc20VotesArbitratorImplOut = address(arbitratorImpl);
+        budgetTcrDeployerImplOut = address(stackDeployerImpl);
 
         budgetTcrFactoryOut = address(budgetTcrFactory);
         defaultSubmissionDepositStrategyOut = address(depositStrategy);
@@ -131,6 +137,9 @@ contract DeployGoalFactory is DeployScript {
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
+        console2.log("BudgetTCR impl:", budgetTcrImplOut);
+        console2.log("ERC20VotesArbitrator impl:", erc20VotesArbitratorImplOut);
+        console2.log("BudgetTCRDeployer impl:", budgetTcrDeployerImplOut);
         console2.log("--- BudgetTCR stack ---");
         console2.log("BudgetTCRFactory:", budgetTcrFactoryOut);
         console2.log("DepositStrategy:", defaultSubmissionDepositStrategyOut);
@@ -154,6 +163,9 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
+        _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);
+        _writeAddressLine(filePath, "ERC20VotesArbitratorImpl", erc20VotesArbitratorImplOut);
+        _writeAddressLine(filePath, "BudgetTCRDeployerImpl", budgetTcrDeployerImplOut);
 
         _writeAddressLine(filePath, "BudgetTCRFactory", budgetTcrFactoryOut);
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
