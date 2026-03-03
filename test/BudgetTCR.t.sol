@@ -218,6 +218,18 @@ contract BudgetTCRTest is TestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initialize_reverts_when_allocation_mechanism_admin_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        registryConfig.allocationMechanismAdmin = address(0);
+
+        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_goal_rulesets_is_zero() public {
         (
             BudgetTCR freshTcr,

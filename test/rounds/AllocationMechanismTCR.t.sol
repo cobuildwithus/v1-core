@@ -37,7 +37,6 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
     bytes public lastArbitratorExtraData;
     string public lastRegistrationMetaEvidence;
     string public lastClearingMetaEvidence;
-    address public lastSubmissionTcrGovernor;
     uint256 public lastSubmissionBaseDeposit;
     uint256 public lastRemovalBaseDeposit;
     uint256 public lastSubmissionChallengeBaseDeposit;
@@ -70,7 +69,6 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
         lastArbitratorExtraData = cfg.tcrConfig.arbitratorExtraData;
         lastRegistrationMetaEvidence = cfg.tcrConfig.registrationMetaEvidence;
         lastClearingMetaEvidence = cfg.tcrConfig.clearingMetaEvidence;
-        lastSubmissionTcrGovernor = cfg.tcrConfig.governor;
         lastSubmissionBaseDeposit = cfg.tcrConfig.submissionBaseDeposit;
         lastRemovalBaseDeposit = cfg.tcrConfig.removalBaseDeposit;
         lastSubmissionChallengeBaseDeposit = cfg.tcrConfig.submissionChallengeBaseDeposit;
@@ -130,7 +128,7 @@ contract AllocationMechanismTCRTest is Test {
     RoundTestArbitrator internal mechanismArbitrator;
 
     address internal roundOperator = address(0x0F00);
-    address internal governor = address(0xBEEF);
+    address internal factoryManager = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal constant MOCK_DISTRIBUTION_POOL = address(0xD157);
     address internal constant MOCK_SUPERFLUID_HOST = address(0xF0057);
@@ -223,7 +221,6 @@ contract AllocationMechanismTCRTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "round-reg",
                 clearingMetaEvidence: "round-clr",
-                governor: governor,
                 submissionBaseDeposit: 1e18,
                 removalBaseDeposit: 0,
                 submissionChallengeBaseDeposit: 0,
@@ -272,7 +269,7 @@ contract AllocationMechanismTCRTest is Test {
             arbitratorExtraData: "",
             registrationMetaEvidence: "mech-reg",
             clearingMetaEvidence: "mech-clr",
-            governor: governor,
+            factoryManager: factoryManager,
             votingToken: IVotes(address(underlying)),
             submissionBaseDeposit: 0,
             submissionDepositStrategy: mechanismDepositStrategy,
@@ -343,6 +340,29 @@ contract AllocationMechanismTCRTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
         mechanism2.initialize(address(budgetTreasury), alice, mechanismTcrCfg);
+    }
+
+    function test_initialize_revertsWhenFactoryManagerIsZero() public {
+        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
+        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
+            IVotes(address(underlying)),
+            address(mechanism2),
+            1,
+            1,
+            1,
+            ARBITRATION_COST
+        );
+
+        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
+        mechanismTcrCfg.factoryManager = address(0);
+
+        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        mechanism2.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
+    }
+
+    function test_initialize_setsFactoryManager() public view {
+        assertEq(mechanism.factoryManager(), factoryManager);
     }
 
     function test_verifyItemData_rejectsBadMetadata() public {
@@ -443,28 +463,28 @@ contract AllocationMechanismTCRTest is Test {
         assertTrue(mechanism.mechanismFactoryAllowed(address(roundFactory)));
     }
 
-    function test_setMechanismFactoryAllowed_onlyGovernor() public {
+    function test_setMechanismFactoryAllowed_onlyFactoryManager() public {
         address altFactory = address(new RoundFactory());
 
         vm.prank(alice);
-        vm.expectRevert(AllocationMechanismTCR.ONLY_GOVERNOR.selector);
+        vm.expectRevert(AllocationMechanismTCR.ONLY_FACTORY_MANAGER.selector);
         mechanism.setMechanismFactoryAllowed(altFactory, true);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(altFactory, true);
         assertTrue(mechanism.mechanismFactoryAllowed(altFactory));
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(altFactory, false);
         assertFalse(mechanism.mechanismFactoryAllowed(altFactory));
     }
 
     function test_setMechanismFactoryAllowed_revertsForZeroOrNonContractWhenAllowing() public {
-        vm.prank(governor);
+        vm.prank(factoryManager);
         vm.expectRevert(abi.encodeWithSignature("ADDRESS_ZERO()"));
         mechanism.setMechanismFactoryAllowed(address(0), true);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
         mechanism.setMechanismFactoryAllowed(alice, true);
     }
@@ -503,7 +523,7 @@ contract AllocationMechanismTCRTest is Test {
         });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -541,7 +561,7 @@ contract AllocationMechanismTCRTest is Test {
         });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -555,7 +575,6 @@ contract AllocationMechanismTCRTest is Test {
                 arbitratorExtraData: hex"deadbeef",
                 registrationMetaEvidence: "custom-round-reg",
                 clearingMetaEvidence: "custom-round-clr",
-                governor: address(0x1111),
                 submissionBaseDeposit: 123,
                 removalBaseDeposit: 456,
                 submissionChallengeBaseDeposit: 789,
@@ -585,7 +604,6 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(mockFactory.lastStartAt(), listing.startAt);
         assertEq(mockFactory.lastEndAt(), listing.endAt);
         assertEq(mockFactory.lastRoundOperator(), cfg.roundOperator);
-        assertEq(mockFactory.lastSubmissionTcrGovernor(), cfg.tcrConfig.governor);
         assertEq(mockFactory.lastSubmissionBaseDeposit(), cfg.tcrConfig.submissionBaseDeposit);
         assertEq(mockFactory.lastRemovalBaseDeposit(), cfg.tcrConfig.removalBaseDeposit);
         assertEq(mockFactory.lastSubmissionChallengeBaseDeposit(), cfg.tcrConfig.submissionChallengeBaseDeposit);
@@ -618,7 +636,7 @@ contract AllocationMechanismTCRTest is Test {
         });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -657,7 +675,7 @@ contract AllocationMechanismTCRTest is Test {
         });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -710,7 +728,7 @@ contract AllocationMechanismTCRTest is Test {
     function test_activateMechanism_revertsWhenListingFactoryIsNoLongerAllowlisted() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -723,7 +741,7 @@ contract AllocationMechanismTCRTest is Test {
         _warpPastChallengePeriod();
         mechanism.executeRequest(itemId);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), false);
 
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.FACTORY_NOT_ALLOWED.selector, address(mockFactory)));
@@ -747,7 +765,7 @@ contract AllocationMechanismTCRTest is Test {
         });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -771,7 +789,7 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenListingAlreadyEndedBeforeActivation() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
@@ -795,7 +813,7 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenListingExpiredUnderfundedBeforeActivation() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        vm.prank(governor);
+        vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(

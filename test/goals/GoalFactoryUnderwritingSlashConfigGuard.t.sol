@@ -35,6 +35,33 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         );
     }
 
+    function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(address(0x1001)),
+            ISuperfluid(address(0x1002)),
+            BudgetTCRFactory(address(0x1003)),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(defaultSubmissionDepositStrategy),
+            address(0),
+            address(0x1005)
+        );
+    }
+
+    function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
+        assertEq(factory.DEFAULT_ALLOCATION_MECHANISM_ADMIN(), address(0x1004));
+    }
+
     function test_deployGoal_revertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
         p.underwriting.coverageLambda = 10;

@@ -230,6 +230,44 @@ contract RoundFactoryTest is Test {
         assertEq(arb.stakeVault(), address(stakeVault));
     }
 
+    function test_createRoundForBudget_wiresSubmissionConfig_and_governor_surface_is_absent() public {
+        bytes memory arbitratorExtraData = hex"1234beef";
+        RoundFactory.SubmissionTcrConfig memory tcrConfig = RoundFactory.SubmissionTcrConfig({
+            arbitratorExtraData: arbitratorExtraData,
+            registrationMetaEvidence: "ipfs://custom-reg",
+            clearingMetaEvidence: "ipfs://custom-clear",
+            submissionBaseDeposit: 11e18,
+            removalBaseDeposit: 22e18,
+            submissionChallengeBaseDeposit: 33e18,
+            removalChallengeBaseDeposit: 44e18,
+            challengePeriodDuration: 3 days
+        });
+
+        RoundFactory.DeployedRound memory deployed = factory.createRoundForBudget(
+            keccak256("round-custom"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({ startAt: uint64(block.timestamp + 10), endAt: uint64(block.timestamp + 90 days) }),
+            roundOperator,
+            tcrConfig,
+            _dummyArbConfig()
+        );
+
+        RoundSubmissionTCR tcr = RoundSubmissionTCR(deployed.submissionTCR);
+        assertEq(tcr.arbitratorExtraData(), arbitratorExtraData);
+        assertEq(tcr.registrationMetaEvidence(), tcrConfig.registrationMetaEvidence);
+        assertEq(tcr.clearingMetaEvidence(), tcrConfig.clearingMetaEvidence);
+        assertEq(tcr.submissionBaseDeposit(), tcrConfig.submissionBaseDeposit);
+        assertEq(tcr.removalBaseDeposit(), tcrConfig.removalBaseDeposit);
+        assertEq(tcr.submissionChallengeBaseDeposit(), tcrConfig.submissionChallengeBaseDeposit);
+        assertEq(tcr.removalChallengeBaseDeposit(), tcrConfig.removalChallengeBaseDeposit);
+        assertEq(tcr.challengePeriodDuration(), tcrConfig.challengePeriodDuration);
+        assertEq(address(tcr.submissionDepositStrategy()), deployed.depositStrategy);
+
+        (bool success, bytes memory revertData) = deployed.submissionTCR.call(abi.encodeWithSignature("governor()"));
+        assertFalse(success);
+        assertEq(revertData.length, 0);
+    }
+
     function test_budgetScopedVotingPower_isProportionalToAllocatedStake() public {
         RoundFactory.DeployedRound memory deployed = _deployRound(keccak256("round-2"));
 
