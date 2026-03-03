@@ -113,7 +113,7 @@ contract GoalFactory {
         address goalSuperToken;
         address goalTreasury;
         address goalFlow;
-        address goalStakeVault;
+        address stakeVault;
         address budgetStakeLedger;
         address splitHook;
         address budgetTCR;
@@ -248,7 +248,7 @@ contract GoalFactory {
             goalSuperToken: address(core.goalSuperToken),
             goalTreasury: address(core.goalTreasury),
             goalFlow: address(core.goalFlow),
-            goalStakeVault: address(core.stakeVault),
+            stakeVault: address(core.stakeVault),
             budgetStakeLedger: address(core.budgetStakeLedger),
             splitHook: address(core.splitHook),
             budgetTCR: tcrStack.budgetTCR,

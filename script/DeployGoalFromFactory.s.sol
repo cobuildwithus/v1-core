@@ -19,7 +19,7 @@ contract DeployGoalFromFactory is DeployScript {
     address internal goalSuperTokenOut;
     address internal goalTreasuryOut;
     address internal goalFlowOut;
-    address internal goalStakeVaultOut;
+    address internal stakeVaultOut;
     address internal budgetStakeLedgerOut;
     address internal splitHookOut;
     address internal budgetTcrOut;
@@ -163,7 +163,7 @@ contract DeployGoalFromFactory is DeployScript {
         goalSuperTokenOut = out.goalSuperToken;
         goalTreasuryOut = out.goalTreasury;
         goalFlowOut = out.goalFlow;
-        goalStakeVaultOut = out.goalStakeVault;
+        stakeVaultOut = out.stakeVault;
         budgetStakeLedgerOut = out.budgetStakeLedger;
         splitHookOut = out.splitHook;
         budgetTcrOut = out.budgetTCR;
@@ -177,7 +177,7 @@ contract DeployGoalFromFactory is DeployScript {
         console2.log("goalSuperToken:", goalSuperTokenOut);
         console2.log("goalTreasury:", goalTreasuryOut);
         console2.log("goalFlow:", goalFlowOut);
-        console2.log("goalStakeVault:", goalStakeVaultOut);
+        console2.log("stakeVault:", stakeVaultOut);
         console2.log("budgetStakeLedger:", budgetStakeLedgerOut);
         console2.log("splitHook:", splitHookOut);
         console2.log("budgetTCR:", budgetTcrOut);
@@ -199,7 +199,7 @@ contract DeployGoalFromFactory is DeployScript {
         _writeAddressLine(filePath, "goalSuperToken", goalSuperTokenOut);
         _writeAddressLine(filePath, "goalTreasury", goalTreasuryOut);
         _writeAddressLine(filePath, "goalFlow", goalFlowOut);
-        _writeAddressLine(filePath, "goalStakeVault", goalStakeVaultOut);
+        _writeAddressLine(filePath, "stakeVault", stakeVaultOut);
         _writeAddressLine(filePath, "budgetStakeLedger", budgetStakeLedgerOut);
         _writeAddressLine(filePath, "splitHook", splitHookOut);
         _writeAddressLine(filePath, "budgetTCR", budgetTcrOut);

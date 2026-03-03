@@ -359,7 +359,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("goalSuperToken: ", vm.toString(address(0x2)))));
             assertTrue(_stringContains(artifact, string.concat("goalTreasury: ", vm.toString(address(0x3)))));
             assertTrue(_stringContains(artifact, string.concat("goalFlow: ", vm.toString(address(0x4)))));
-            assertTrue(_stringContains(artifact, string.concat("goalStakeVault: ", vm.toString(address(0x5)))));
+            assertTrue(_stringContains(artifact, string.concat("stakeVault: ", vm.toString(address(0x5)))));
+            assertFalse(_stringContains(artifact, "goalStakeVault:"));
             assertTrue(_stringContains(artifact, string.concat("budgetStakeLedger: ", vm.toString(address(0x6)))));
             assertTrue(_stringContains(artifact, string.concat("splitHook: ", vm.toString(address(0x8)))));
             assertTrue(_stringContains(artifact, string.concat("budgetTCR: ", vm.toString(address(0x9)))));
@@ -422,7 +423,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             out.goalSuperToken = address(0x2);
             out.goalTreasury = address(0x3);
             out.goalFlow = address(0x4);
-            out.goalStakeVault = address(0x5);
+            out.stakeVault = address(0x5);
             out.budgetStakeLedger = address(0x6);
             out.splitHook = address(0x8);
             out.budgetTCR = address(0x9);
