@@ -3,29 +3,18 @@ pragma solidity ^0.8.34;
 
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
-import { IBudgetTCRStackDeployer } from "./interfaces/IBudgetTCRStackDeployer.sol";
-import { IArbitrator } from "./interfaces/IArbitrator.sol";
-import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
-import { AllocationMechanismTCR } from "./AllocationMechanismTCR.sol";
 import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
-import { BudgetTCRItems } from "./library/BudgetTCRItems.sol";
 import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
+import { BudgetTCRStackActions } from "./library/BudgetTCRStackActions.sol";
+import { BudgetTCRCreditCapActions } from "./library/BudgetTCRCreditCapActions.sol";
+import { BudgetTCRTerminalActions } from "./library/BudgetTCRTerminalActions.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IPremiumEscrow } from "src/interfaces/IPremiumEscrow.sol";
-import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
-    error BUDGET_TREASURY_MISMATCH();
 
     constructor() {
         _disableInitializers();
@@ -144,7 +133,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address childFlow = deployment.childFlow;
         address budgetTreasury = deployment.budgetTreasury;
         if (!deployment.active) {
-            _clearRemovalPendingState(itemID);
+            _pendingRemovalFinalizations[itemID] = false;
             emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, false, true);
             return true;
         }
@@ -155,11 +144,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            bool activationLocked = _isActivationLockedRemoval(treasury);
-            if (activationLocked) {
+            if (treasury.activatedAt() != 0) {
                 // Removal must stop budget spend immediately, but activated removals do not auto-force failure.
                 treasury.forceFlowRateToZero();
-                terminallyResolved = _resolved(treasury);
+                terminallyResolved = treasury.resolved();
             } else {
                 treasury.disableSuccessResolution();
                 if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
@@ -167,13 +155,13 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         }
 
         deployment.active = false;
-        _clearRemovalPendingState(itemID);
+        _pendingRemovalFinalizations[itemID] = false;
         emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, removedFromParent, terminallyResolved);
     }
 
     // slither-disable-next-line reentrancy-no-eth
     function _onItemRegistered(bytes32 itemID, bytes memory) internal override {
-        _clearRemovalPendingState(itemID);
+        _pendingRemovalFinalizations[itemID] = false;
         _pendingRegistrationActivations[itemID] = true;
         emit BudgetStackActivationQueued(itemID);
     }
@@ -184,14 +172,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         if (!deployment.active) {
-            _clearRemovalPendingState(itemID);
+            _pendingRemovalFinalizations[itemID] = false;
             return;
         }
 
         address budgetTreasury = deployment.budgetTreasury;
         if (budgetTreasury != address(0)) {
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            if (!_isActivationLockedRemoval(treasury)) {
+            if (treasury.activatedAt() == 0) {
                 // Pre-activation removals are immediate fail-closed and cannot later become success-eligible.
                 treasury.disableSuccessResolution();
             }
@@ -212,12 +200,12 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
         if (!treasury.successResolutionDisabled()) {
             treasury.forceFlowRateToZero();
-            if (!_resolved(treasury)) {
+            if (!treasury.resolved()) {
                 try treasury.sync() {} catch (bytes memory reason) {
                     emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
                 }
             }
-            terminallyResolved = _resolved(treasury);
+            terminallyResolved = treasury.resolved();
         } else {
             terminallyResolved = _resolveBudgetTerminalStateBestEffort(itemID, treasury);
         }
@@ -234,7 +222,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (deployment.budgetTreasury != budgetTreasury) revert ITEM_NOT_DEPLOYED();
 
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-        if (!_resolved(treasury)) revert ITEM_NOT_TERMINAL();
+        if (!treasury.resolved()) revert ITEM_NOT_TERMINAL();
 
         address childFlow = deployment.childFlow;
         removedFromParent = _removeRecipientFromGoalFlowIfPresent(itemID, childFlow);
@@ -292,201 +280,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address budgetStakeLedger,
         uint256 lambda
     ) internal {
-        // NOTE: This is best-effort gating. Any external-call failure should not brick budget sync;
-        // we emit telemetry and either (a) leave recipient state unchanged, or (b) apply the
-        // portion of gating we can do safely.
-
-        // Runway cap is a receive-side cap enforced against the goal-flow "total received" meter.
-        // It is *not* a donation gate.
-        uint256 runwayCap;
-        bool hasRunwayCap;
-        try IBudgetTreasury(budgetTreasury).runwayCap() returns (uint256 cap) {
-            runwayCap = cap;
-            hasRunwayCap = cap != 0;
-        } catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
-            );
-            runwayCap = 0;
-            hasRunwayCap = false;
-        }
-
-        // Underwriting disabled => only runway cap (if configured) gates goal-flow inflow.
-        if (lambda == 0) {
-            if (!hasRunwayCap) {
-                try goalFlow.setRecipientEnabled(itemID, true) {} catch (bytes memory reason) {
-                    _emitBudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        address(goalFlow),
-                        IFlow.setRecipientEnabled.selector,
-                        reason
-                    );
-                }
-                return;
-            }
-
-            uint256 received;
-            try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-                received = totalReceived;
-            } catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID,
-                    budgetTreasury,
-                    address(goalFlow),
-                    IFlow.getTotalReceivedByMember.selector,
-                    reason
-                );
-                return;
-            }
-
-            bool enabled = received < runwayCap;
-            try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
-                );
-            }
-            return;
-        }
-
-        uint256 coverage;
-        try IBudgetStakeLedger(budgetStakeLedger).budgetTotalAllocatedStake(budgetTreasury) returns (uint256 cov) {
-            coverage = cov;
-        } catch (bytes memory reason) {
-            // If we can prove the runway cap is exceeded, we can safely disable even when credit-line
-            // enforcement can't proceed.
-            if (hasRunwayCap) {
-                if (!_bestEffortDisableRecipientWhenRunwayExceeded(itemID, budgetTreasury, childFlow, runwayCap)) {
-                    _emitBudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        budgetStakeLedger,
-                        IBudgetStakeLedger.budgetTotalAllocatedStake.selector,
-                        reason
-                    );
-                    return;
-                }
-            }
-
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                budgetStakeLedger,
-                IBudgetStakeLedger.budgetTotalAllocatedStake.selector,
-                reason
-            );
-            return;
-        }
-
-        uint64 duration;
-        try IBudgetTreasury(budgetTreasury).executionDuration() returns (uint64 dur) {
-            duration = dur;
-        } catch (bytes memory reason) {
-            // If we can prove the runway cap is exceeded, we can safely disable even when credit-line
-            // enforcement can't proceed.
-            if (hasRunwayCap) {
-                if (!_bestEffortDisableRecipientWhenRunwayExceeded(itemID, budgetTreasury, childFlow, runwayCap)) {
-                    _emitBudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        budgetTreasury,
-                        IBudgetTreasury.executionDuration.selector,
-                        reason
-                    );
-                    return;
-                }
-            }
-
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                budgetTreasury,
-                IBudgetTreasury.executionDuration.selector,
-                reason
-            );
-            return;
-        }
-
-        // creditLine = coverage * duration / lambda
-        uint256 creditLine = Math.mulDiv(coverage, uint256(duration), lambda);
-
-        // Combine caps: when both apply, enforce the stricter of runway cap and credit line.
-        uint256 effectiveCap = creditLine;
-        if (effectiveCap != 0 && hasRunwayCap && runwayCap < effectiveCap) {
-            effectiveCap = runwayCap;
-        }
-
-        // A zero effective cap is an unconditional disable and does not require reading `received`.
-        if (effectiveCap == 0) {
-            try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
-                );
-            }
-            return;
-        }
-
-        uint256 received;
-        try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-            received = totalReceived;
-        } catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                address(goalFlow),
-                IFlow.getTotalReceivedByMember.selector,
-                reason
-            );
-            return;
-        }
-
-        bool enabled = received < effectiveCap;
-        try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
-            );
-        }
-    }
-
-    function _bestEffortDisableRecipientWhenRunwayExceeded(
-        bytes32 itemID,
-        address budgetTreasury,
-        address childFlow,
-        uint256 runwayCap
-    ) internal returns (bool checked) {
-        uint256 received;
-        try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-            received = totalReceived;
-        } catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                address(goalFlow),
-                IFlow.getTotalReceivedByMember.selector,
-                reason
-            );
-            return false;
-        }
-
-        if (received >= runwayCap) {
-            try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
-                );
-            }
-        }
-
-        return true;
-    }
-
-    function _emitBudgetCreditCapEnforcementFailed(
-        bytes32 itemID,
-        address budgetTreasury,
-        address callTarget,
-        bytes4 selector,
-        bytes memory reason
-    ) internal {
-        emit BudgetCreditCapEnforcementFailed(itemID, budgetTreasury, callTarget, selector, reason);
+        BudgetTCRCreditCapActions.bestEffortEnforceBudgetCreditCap(
+            goalFlow,
+            itemID,
+            childFlow,
+            budgetTreasury,
+            budgetStakeLedger,
+            lambda
+        );
     }
 
     function _budgetStakeLedger() internal view returns (address ledger) {
@@ -495,196 +296,25 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function _deployBudgetStack(bytes32 itemID, bytes memory item) internal {
-        if (_budgetDeployments[itemID].active) revert STACK_ALREADY_ACTIVE();
-
-        BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
-        address budgetStakeLedger = _budgetStakeLedger();
-        IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(stackDeployer);
-        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            goalToken,
-            cobuildToken,
-            goalRulesets,
-            goalRevnetId,
-            paymentTokenDecimals,
-            budgetStakeLedger,
-            address(goalFlow),
-            underwriterSlasherRouter,
-            budgetSlashPpm,
-            itemID
-        );
-
-        IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
-        childStrategies[0] = IAllocationStrategy(prepared.strategy);
-        address budgetTreasury = prepared.budgetTreasury;
-        address premiumEscrow = prepared.premiumEscrow;
-        address allocationMechanism = Clones.clone(deployer.allocationMechanismTcrImplementation());
-
-        (, address childFlow) = goalFlow.addFlowRecipient(
-            itemID,
-            listing.metadata,
-            allocationMechanism,
-            budgetTreasury,
-            budgetTreasury,
-            premiumEscrow,
-            budgetPremiumPpm,
-            childStrategies
-        );
-
-        deployer.registerChildFlowRecipient(itemID, childFlow);
-
-        emit BudgetStackDeployed(itemID, childFlow, budgetTreasury, prepared.strategy);
-
-        address deployedBudgetTreasury = deployer.deployBudgetTreasury(
-            budgetTreasury,
-            premiumEscrow,
-            childFlow,
-            budgetStakeLedger,
-            address(goalFlow),
-            underwriterSlasherRouter,
-            budgetSlashPpm,
-            listing,
-            budgetSuccessResolver,
-            oracleValidationBounds.liveness,
-            oracleValidationBounds.bondAmount
-        );
-
-        address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
-        if (managerRewardDistributionPool == address(0)) revert MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
-        IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
-        if (deployedBudgetTreasury != budgetTreasury) {
-            revert BUDGET_TREASURY_MISMATCH();
-        }
-        _itemIdByBudgetTreasury[budgetTreasury] = itemID;
-        IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
-        IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
-        address allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
-            deployer,
-            allocationMechanism,
-            budgetTreasury
-        );
-        emit BudgetAllocationMechanismDeployed(
-            itemID,
-            allocationMechanism,
-            allocationMechanismArbitrator,
-            deployer.roundFactory()
-        );
-
-        _budgetDeployments[itemID] = BudgetDeployment({
-            childFlow: childFlow,
-            budgetTreasury: budgetTreasury,
-            allocationMechanism: allocationMechanism,
-            strategy: prepared.strategy,
-            active: true
-        });
-    }
-
-    function _initializeBudgetAllocationMechanism(
-        IBudgetTCRStackDeployer deployer,
-        address allocationMechanism,
-        address budgetTreasury
-    ) internal returns (address mechanismArbitrator) {
-        IArbitrator.ArbitratorParams memory arbParams = arbitrator.getArbitratorParamsForFactory();
-        mechanismArbitrator = Clones.clone(deployer.allocationMechanismArbitratorImplementation());
-
-        IERC20VotesArbitrator(mechanismArbitrator).initializeWithConfig(
-            IERC20VotesArbitrator.InitConfig({
-                invalidRoundRewardsSink: IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink(),
-                votingToken: address(erc20),
-                arbitrable: allocationMechanism,
-                votingPeriod: arbParams.votingPeriod,
-                votingDelay: arbParams.votingDelay,
-                revealPeriod: arbParams.revealPeriod,
-                arbitrationCost: arbParams.arbitrationCost,
-                stakeVault: goalTreasury.stakeVault(),
-                fixedBudgetTreasury: budgetTreasury,
-                wrongOrMissedSlashBps: arbParams.wrongOrMissedSlashBps,
-                slashCallerBountyBps: arbParams.slashCallerBountyBps
-            })
-        );
-
-        AllocationMechanismTCR(allocationMechanism).initialize(
-            budgetTreasury,
-            deployer.roundFactory(),
-            _mechanismRegistryConfig(mechanismArbitrator)
-        );
-    }
-
-    function _mechanismRegistryConfig(
-        address mechanismArbitrator
-    ) internal view returns (AllocationMechanismTCR.RegistryConfig memory cfg) {
-        cfg = AllocationMechanismTCR.RegistryConfig({
-            arbitrator: IArbitrator(mechanismArbitrator),
-            arbitratorExtraData: arbitratorExtraData,
-            registrationMetaEvidence: registrationMetaEvidence,
-            clearingMetaEvidence: clearingMetaEvidence,
-            factoryManager: allocationMechanismAdmin,
-            votingToken: IVotes(address(erc20)),
-            submissionBaseDeposit: submissionBaseDeposit,
-            submissionDepositStrategy: submissionDepositStrategy,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration
-        });
+        BudgetTCRStackActions.deployBudgetStack(_budgetDeployments, _itemIdByBudgetTreasury, itemID, item);
     }
 
     function _resolveBudgetTerminalStateBestEffort(bytes32 itemID, IBudgetTreasury treasury) internal returns (bool) {
-        if (_resolved(treasury)) return true;
-
-        // Spend-stop is mandatory before any best-effort resolution step and may still revert.
-        treasury.forceFlowRateToZero();
-        if (_resolved(treasury)) return true;
-
-        try treasury.resolveFailure() {} catch (bytes memory reason) {
-            emit BudgetTerminalizationStepFailed(
-                itemID,
-                address(treasury),
-                IBudgetTreasury.resolveFailure.selector,
-                reason
-            );
-        }
-        return _resolved(treasury);
+        return BudgetTCRTerminalActions.resolveBudgetTerminalStateBestEffort(itemID, treasury);
     }
 
     function _resolveBudgetTerminalStateStrict(IBudgetTreasury treasury) internal returns (bool) {
-        if (_resolved(treasury)) return true;
-
-        // Do not allow removal to complete unless spend is actually stopped.
-        treasury.forceFlowRateToZero();
-        if (_resolved(treasury)) return true;
-
-        treasury.resolveFailure();
-        return _resolved(treasury);
-    }
-
-    function _resolved(IBudgetTreasury treasury) internal view returns (bool resolved_) {
-        return treasury.resolved();
-    }
-
-    function _clearRemovalPendingState(bytes32 itemID) internal {
-        _pendingRemovalFinalizations[itemID] = false;
-    }
-
-    function _isActivationLockedRemoval(IBudgetTreasury treasury) internal view returns (bool) {
-        return treasury.activatedAt() != 0;
+        return BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury);
     }
 
     function _removeRecipientFromGoalFlowIfPresent(
         bytes32 itemID,
         address childFlow
     ) internal returns (bool) {
-        if (childFlow == address(0) || !goalFlow.recipientExists(childFlow)) return false;
-
-        goalFlow.removeRecipient(itemID);
-        return true;
+        return BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(goalFlow, itemID, childFlow);
     }
 
     function _trySyncGoalTreasury(bytes32 itemID, address budgetTreasury) internal returns (bool) {
-        try goalTreasury.sync() {
-            return true;
-        } catch (bytes memory reason) {
-            emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IGoalTreasury.sync.selector, reason);
-            return false;
-        }
+        return BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
     }
 }
