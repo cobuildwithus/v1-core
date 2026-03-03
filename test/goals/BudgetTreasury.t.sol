@@ -13,6 +13,7 @@ import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
+    SharedMockSuperfluidPool,
     SharedMockSuperToken,
     SharedMockUnderlying
 } from "test/goals/helpers/TreasurySharedMocks.sol";
@@ -22,7 +23,8 @@ import {
     TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperToken, ISuperfluidPool } from
+    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -68,7 +70,9 @@ contract BudgetTreasuryTest is Test {
         superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
         parentFlow = new SharedMockFlow(ISuperToken(address(superToken)));
+        SharedMockSuperfluidPool managerRewardDistributionPool = new SharedMockSuperfluidPool();
         flow.setParent(address(parentFlow));
+        flow.setManagerRewardDistributionPool(ISuperfluidPool(address(managerRewardDistributionPool)));
         flow.setMaxSafeFlowRate(type(int96).max);
         budgetTreasuryImplementation = new BudgetTreasury();
         premiumEscrow = address(new BudgetTreasuryMockPremiumEscrow());

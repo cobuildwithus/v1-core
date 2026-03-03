@@ -137,6 +137,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         budgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
         budgetFlow = new UnderwritingMockBudgetFlow();
         budgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        SharedMockSuperfluidPool managerRewardPool = new SharedMockSuperfluidPool();
+        budgetFlow.setManagerRewardDistributionPool(address(managerRewardPool));
         budgetTreasury.setFlow(address(budgetFlow));
         goalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
         goalTreasury = new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(budgetStakeLedger));
@@ -161,8 +163,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
 
         escrow.checkpoint(ALICE);
-        goalSuperToken.mint(address(escrow), 45e18);
+        _distributeEscrowPremium(escrow, 45e18);
         escrow.checkpoint(ALICE);
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 0, 20);
 
         vm.prank(ALICE);
         uint256 claimed = escrow.claim(PREMIUM_RECIPIENT);
@@ -175,8 +180,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
 
         escrow.checkpoint(ALICE);
-        goalSuperToken.mint(address(escrow), 45e18);
+        _distributeEscrowPremium(escrow, 45e18);
         escrow.checkpoint(ALICE);
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 0, 20);
 
         goalTreasury.setState(IGoalTreasury.GoalState.Active);
 
@@ -311,7 +319,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         budgetTreasury.setActivatedAt(activatedAt);
 
         // Post-activation premium inflow while total coverage is zero is recycled, not accrued.
-        goalSuperToken.mint(address(escrow), postActivationPremium);
+        _distributeEscrowPremium(escrow, postActivationPremium);
         escrow.checkpoint(ALICE);
         assertEq(goalSuperToken.balanceOf(address(goalFlow)), postActivationPremium);
         assertEq(escrow.premiumEarned(ALICE), 0);
@@ -818,6 +826,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
         UnderwritingMockBudgetFlow delayedBudgetFlow = new UnderwritingMockBudgetFlow();
         delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        delayedBudgetFlow.setManagerRewardDistributionPool(address(new SharedMockSuperfluidPool()));
         delayedBudgetTreasury.setFlow(address(delayedBudgetFlow));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
         delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
@@ -902,6 +911,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
         delayedBudgetFlow.setParent(address(delayedGoalFlow));
         delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        delayedBudgetFlow.setManagerRewardDistributionPool(ISuperfluidPool(address(new SharedMockSuperfluidPool())));
 
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         delayedBudgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
@@ -1004,6 +1014,13 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
         require(ok, "_fundEscrowForTargetSlash: setTotalReceivedByMember failed");
         escrow_.checkpoint(ALICE);
+    }
+
+    function _distributeEscrowPremium(PremiumEscrow escrow_, uint256 amount) internal {
+        SharedMockSuperfluidPool(address(escrow_.managerRewardPool())).increaseTotalAmountReceivedByMember(
+            address(escrow_), amount
+        );
+        goalSuperToken.mint(address(escrow_), amount);
     }
 }
 
@@ -1778,6 +1795,7 @@ contract UnderwritingMockGoalTreasuryResolutionReporter {
 
 contract UnderwritingMockBudgetFlow {
     uint32 internal _managerRewardPoolFlowRatePpm;
+    address internal _managerRewardDistributionPool;
 
     function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
         _managerRewardPoolFlowRatePpm = ppm_;
@@ -1785,6 +1803,14 @@ contract UnderwritingMockBudgetFlow {
 
     function managerRewardPoolFlowRatePpm() external view returns (uint32) {
         return _managerRewardPoolFlowRatePpm;
+    }
+
+    function setManagerRewardDistributionPool(address pool_) external {
+        _managerRewardDistributionPool = pool_;
+    }
+
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return ISuperfluidPool(_managerRewardDistributionPool);
     }
 }
 

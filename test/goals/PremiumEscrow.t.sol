@@ -8,7 +8,8 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperToken, ISuperfluidPool } from
+    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract PremiumEscrowTest is Test {
     uint32 internal constant SLASH_PPM = 200_000; // 20%
@@ -20,6 +21,7 @@ contract PremiumEscrowTest is Test {
     PremiumEscrowMockBudgetStakeLedger internal ledger;
     PremiumEscrowMockBudgetTreasury internal budgetTreasury;
     PremiumEscrowMockBudgetFlow internal budgetFlow;
+    PremiumEscrowMockPool internal managerRewardPool;
     PremiumEscrowMockGoalFlow internal goalFlow;
     PremiumEscrowMockGoalTreasury internal goalTreasury;
     PremiumEscrowMockRouter internal router;
@@ -30,6 +32,8 @@ contract PremiumEscrowTest is Test {
         ledger = new PremiumEscrowMockBudgetStakeLedger();
         budgetTreasury = new PremiumEscrowMockBudgetTreasury(address(premiumToken));
         budgetFlow = new PremiumEscrowMockBudgetFlow();
+        managerRewardPool = new PremiumEscrowMockPool();
+        budgetFlow.setManagerRewardDistributionPool(address(managerRewardPool));
         goalFlow = new PremiumEscrowMockGoalFlow(address(premiumToken));
         goalTreasury = new PremiumEscrowMockGoalTreasury();
         router = new PremiumEscrowMockRouter();
@@ -175,7 +179,7 @@ contract PremiumEscrowTest is Test {
     function test_premiumIndexUsesOldTotalCoverageOnCheckpoint() public {
         _setCoverageAndCheckpointBoth(100, 100);
 
-        premiumToken.mint(address(escrow), 200e18);
+        _distributePremium(200e18);
 
         // Coverage change is already written in ledger before checkpoint.
         ledger.setCoverage(ALICE, address(budgetTreasury), 0);
@@ -190,7 +194,7 @@ contract PremiumEscrowTest is Test {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
-        premiumToken.mint(address(escrow), 50e18);
+        _distributePremium(50e18);
 
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -206,7 +210,7 @@ contract PremiumEscrowTest is Test {
         assertEq(premiumToken.balanceOf(ALICE), 50e18);
 
         uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
-        premiumToken.mint(address(escrow), 25e18);
+        _distributePremium(25e18);
         vm.prank(ALICE);
         uint256 thirdClaim = escrow.claim(ALICE);
 
@@ -303,7 +307,7 @@ contract PremiumEscrowTest is Test {
         goalTreasury.setState(IGoalTreasury.GoalState.Expired);
 
         uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
-        premiumToken.mint(address(escrow), 33e18);
+        _distributePremium(33e18);
 
         uint256 amount = escrow.burnOnGoalFailure();
 
@@ -481,7 +485,7 @@ contract PremiumEscrowTest is Test {
         _setGoalFlowReceipts(1200);
         escrow.checkpoint(ALICE);
 
-        premiumToken.mint(address(escrow), 120);
+        _distributePremium(120);
         escrow.checkpoint(ALICE);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 60);
@@ -551,6 +555,60 @@ contract PremiumEscrowTest is Test {
         assertEq(router.slashCalls(), 1);
     }
 
+    function test_slashRevertsWhenCoverageLambdaReadReverts_andCanRetryAfterRestore() public {
+        _configureCoverageLambda(10);
+        budgetTreasury.setExecutionDuration(10);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
+        _setGoalFlowReceipts(100);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        goalTreasury.setRevertCoverageLambda(true);
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
+        escrow.slash(ALICE);
+        assertFalse(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+
+        goalTreasury.setRevertCoverageLambda(false);
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+    }
+
+    function test_slashIgnoresManagerRewardPoolFlowRatePpmReadRevert_characterization() public {
+        _configureCoverageLambda(10);
+        budgetTreasury.setExecutionDuration(10);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        // Slash path does not depend on managerRewardPoolFlowRatePpm() reads.
+        budgetFlow.setRevertManagerRewardPoolFlowRateRead(true);
+
+        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
+        _setGoalFlowReceipts(100);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+    }
+
     function test_slashRevertsWhenBudgetWasNeverActivated() public {
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -607,7 +665,7 @@ contract PremiumEscrowTest is Test {
     function test_closeCheckpointsPendingPremiumBeforeFreeze() public {
         _setCoverageAndCheckpointBoth(100, 100);
 
-        premiumToken.mint(address(escrow), 200e18);
+        _distributePremium(200e18);
 
         vm.warp(20);
         vm.prank(address(budgetTreasury));
@@ -650,7 +708,7 @@ contract PremiumEscrowTest is Test {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
-        premiumToken.mint(address(escrow), 100e18);
+        _distributePremium(100e18);
         escrow.checkpoint(ALICE);
         assertEq(escrow.claimable(ALICE), 100e18);
 
@@ -664,10 +722,9 @@ contract PremiumEscrowTest is Test {
         uint256 firstClaim = escrow.claim(ALICE);
         assertEq(firstClaim, 40e18);
         assertEq(escrow.claimable(ALICE), 60e18);
-        assertEq(escrow.accountedBalance(), 0);
 
         uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
-        premiumToken.mint(address(escrow), 60e18);
+        _distributePremium(60e18);
 
         vm.prank(ALICE);
         uint256 secondClaim = escrow.claim(ALICE);
@@ -789,12 +846,11 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_orphanPremiumIsRecycledWhenCoverageIsZero() public {
-        premiumToken.mint(address(escrow), 77e18);
+        _distributePremium(77e18);
         escrow.checkpoint(ALICE);
 
         assertEq(premiumToken.balanceOf(address(escrow)), 0);
         assertEq(premiumToken.balanceOf(address(goalFlow)), 77e18);
-        assertEq(escrow.accountedBalance(), 0);
     }
 
     function _checkpointBoth() internal {
@@ -809,15 +865,20 @@ contract PremiumEscrowTest is Test {
     }
 
     function _mintEscrowPremiumAndCheckpointBoth(uint256 amount) internal {
-        premiumToken.mint(address(escrow), amount);
+        _distributePremium(amount);
         _checkpointBoth();
     }
 
     function _setCoverageAndCheckpointClaimable(address account, uint256 coverage, uint256 premiumAmount) internal {
         ledger.setCoverage(account, address(budgetTreasury), coverage);
         escrow.checkpoint(account);
-        premiumToken.mint(address(escrow), premiumAmount);
+        _distributePremium(premiumAmount);
         escrow.checkpoint(account);
+    }
+
+    function _distributePremium(uint256 amount) internal {
+        managerRewardPool.increaseTotalAmountReceivedByMember(address(escrow), amount);
+        premiumToken.mint(address(escrow), amount);
     }
 
     function _configureCoverageLambda(uint256 coverageLambda_) internal {
@@ -894,22 +955,31 @@ contract PremiumEscrowMockBudgetTreasury {
 }
 
 contract PremiumEscrowMockBudgetFlow {
+    error MANAGER_REWARD_RATE_READ_REVERT();
+
     uint32 internal _managerRewardPoolFlowRatePpm;
+    address internal _managerRewardDistributionPool;
+    bool internal _revertManagerRewardPoolFlowRateRead;
 
     function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
         _managerRewardPoolFlowRatePpm = ppm_;
     }
 
     function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+        if (_revertManagerRewardPoolFlowRateRead) revert MANAGER_REWARD_RATE_READ_REVERT();
         return _managerRewardPoolFlowRatePpm;
     }
-}
 
-contract PremiumEscrowMockBudgetFlowReverting {
-    error MANAGER_REWARD_RATE_READ_REVERT();
+    function setRevertManagerRewardPoolFlowRateRead(bool shouldRevert) external {
+        _revertManagerRewardPoolFlowRateRead = shouldRevert;
+    }
 
-    function managerRewardPoolFlowRatePpm() external pure returns (uint32) {
-        revert MANAGER_REWARD_RATE_READ_REVERT();
+    function setManagerRewardDistributionPool(address pool_) external {
+        _managerRewardDistributionPool = pool_;
+    }
+
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return ISuperfluidPool(_managerRewardDistributionPool);
     }
 }
 
@@ -955,8 +1025,10 @@ contract PremiumEscrowMockGoalTreasury {
     uint256 internal _coverageLambda;
     IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
     bool internal _revertSettleLateResidual;
+    bool internal _revertCoverageLambda;
     uint256 public settleLateResidualCalls;
 
+    error COVERAGE_LAMBDA_REVERT();
     error SETTLE_LATE_RESIDUAL_REVERT();
 
     function setCoverageLambda(uint256 coverageLambda_) external {
@@ -964,7 +1036,12 @@ contract PremiumEscrowMockGoalTreasury {
     }
 
     function coverageLambda() external view returns (uint256) {
+        if (_revertCoverageLambda) revert COVERAGE_LAMBDA_REVERT();
         return _coverageLambda;
+    }
+
+    function setRevertCoverageLambda(bool shouldRevert_) external {
+        _revertCoverageLambda = shouldRevert_;
     }
 
     function setState(IGoalTreasury.GoalState state_) external {
@@ -982,6 +1059,18 @@ contract PremiumEscrowMockGoalTreasury {
     function settleLateResidual() external {
         if (_revertSettleLateResidual) revert SETTLE_LATE_RESIDUAL_REVERT();
         settleLateResidualCalls += 1;
+    }
+}
+
+contract PremiumEscrowMockPool {
+    mapping(address => uint256) internal _totalAmountReceivedByMember;
+
+    function increaseTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalAmountReceivedByMember[member] += amount;
+    }
+
+    function getTotalAmountReceivedByMember(address member) external view returns (uint256) {
+        return _totalAmountReceivedByMember[member];
     }
 }
 
