@@ -756,7 +756,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         bool hasCurrentCoverage = currentCoverage != 0;
         uint256 userCov = premiumEscrow.userCov(underwriter);
         uint256 exposureIntegral = premiumEscrow.exposureIntegral(underwriter);
-        bool hasEscrowExposure = userCov != 0 || exposureIntegral != 0;
+        uint256 creditDrawn = premiumEscrow.creditDrawn(underwriter);
+        bool hasEscrowExposure = userCov != 0 || exposureIntegral != 0 || creditDrawn != 0;
         uint64 activatedAt = budgetTreasury.activatedAt();
 
         if (!budgetTreasury.resolved()) {
@@ -776,7 +777,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         if (!slashRequired || !hasSlashableExposure) return;
 
-        premiumEscrow.slash(underwriter);
+        try premiumEscrow.slash(underwriter) {} catch {
+            budgetTreasury.retryTerminalSideEffects();
+            premiumEscrow.slash(underwriter);
+        }
     }
 
     function _requireBudgetStakeLedger() private view returns (address budgetStakeLedger) {
