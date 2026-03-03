@@ -219,6 +219,42 @@ contract TreasuryFlowRateSyncBranchCoverageTest is Test {
         assertEq(flow.refreshCallCount(), 0);
     }
 
+    function test_applyCappedFlowRate_refreshRevert_withIntermittentTargetReadRevert_returnsSafelyAndEmitsManualEvent()
+        public
+    {
+        flow.setTargetOutflowRateForTest(25);
+        superToken.setBalance(1);
+        cfa.setMaxRate(50);
+        flow.setRevertRefresh(true);
+        flow.setArmTargetReadRevertOnRefreshRevert(true);
+
+        vm.expectEmit(true, false, false, true, address(harness));
+        emit FlowRateSyncManualInterventionRequired(address(flow), 25, 25, 25);
+        int96 applied = harness.applyCappedFlowRate(IFlow(address(flow)), 25);
+
+        assertEq(applied, 25);
+        flow.setRevertTargetOutflowRateRead(false);
+        assertEq(flow.targetOutflowRate(), 25);
+    }
+
+    function test_applyLinearSpendDownWithFallback_refreshRevert_withIntermittentTargetReadRevert_returnsSafelyAndEmitsManualEvent()
+        public
+    {
+        flow.setTargetOutflowRateForTest(30);
+        superToken.setBalance(1);
+        cfa.setMaxRate(100);
+        flow.setRevertRefresh(true);
+        flow.setArmTargetReadRevertOnRefreshRevert(true);
+
+        vm.expectEmit(true, false, false, true, address(harness));
+        emit FlowRateSyncManualInterventionRequired(address(flow), 30, 30, 30);
+        int96 applied = harness.applyLinearSpendDownWithFallback(IFlow(address(flow)), 30, 1_000_000, 1);
+
+        assertEq(applied, 30);
+        flow.setRevertTargetOutflowRateRead(false);
+        assertEq(flow.targetOutflowRate(), 30);
+    }
+
     function test_applyCappedFlowRate_fallsBackWhenTargetWriteReverts() public {
         flow.setTargetOutflowRateForTest(10);
         superToken.setBalance(1);
@@ -387,6 +423,8 @@ contract TreasuryFlowRateSyncMockFlow {
     bool private _revertAllWrites;
     bool private _revertNonZeroWrites;
     bool private _revertRefresh;
+    bool private _revertTargetOutflowRateRead;
+    bool private _armTargetReadRevertOnRefreshRevert;
     uint256 private _refreshCallCount;
 
     mapping(int96 => bool) private _revertOnRate;
@@ -415,11 +453,20 @@ contract TreasuryFlowRateSyncMockFlow {
         _revertRefresh = shouldRevert;
     }
 
+    function setRevertTargetOutflowRateRead(bool shouldRevert) external {
+        _revertTargetOutflowRateRead = shouldRevert;
+    }
+
+    function setArmTargetReadRevertOnRefreshRevert(bool shouldArm) external {
+        _armTargetReadRevertOnRefreshRevert = shouldArm;
+    }
+
     function refreshCallCount() external view returns (uint256) {
         return _refreshCallCount;
     }
 
     function targetOutflowRate() external view returns (int96) {
+        if (_revertTargetOutflowRateRead) revert("targetOutflowRate");
         return _targetOutflowRate;
     }
 
@@ -432,7 +479,13 @@ contract TreasuryFlowRateSyncMockFlow {
 
     function refreshTargetOutflowRate() external {
         _refreshCallCount += 1;
-        if (_revertRefresh) revert("refreshTargetOutflowRate");
+        if (_revertRefresh) {
+            if (_armTargetReadRevertOnRefreshRevert) {
+                _revertTargetOutflowRateRead = true;
+                _armTargetReadRevertOnRefreshRevert = false;
+            }
+            revert("refreshTargetOutflowRate");
+        }
     }
 
     function superToken() external view returns (ISuperToken) {

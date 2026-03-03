@@ -133,6 +133,64 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertTrue(ledger.allTrackedBudgetsResolved());
     }
 
+    function test_registerBudget_afterHistoricalUntrackedAllocation_bootstrapPreventsAllocationDriftDeadlock() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+
+        // Simulate historical allocation while recipient is still unregistered in ledger.
+        _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 0, 10 * UNIT_WEIGHT_SCALE);
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 0);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), 0);
+
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        // Bootstrap tracked accounting from zero, then deallocation should remain drift-free.
+        _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 0, 10 * UNIT_WEIGHT_SCALE);
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 10 * UNIT_WEIGHT_SCALE);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), 10 * UNIT_WEIGHT_SCALE);
+
+        _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 10 * UNIT_WEIGHT_SCALE, 0);
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 0);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), 0);
+    }
+
+    function test_registerBudget_afterHistoricalUntrackedAllocation_withoutBootstrapRevertsAllocationDrift() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 0, 10 * UNIT_WEIGHT_SCALE);
+
+        vm.prank(MANAGER);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = SECOND_RECIPIENT;
+
+        uint32[] memory allocationPpm = new uint32[](1);
+        allocationPpm[0] = FULL_ALLOCATION_PPM;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetStakeLedger.ALLOCATION_DRIFT.selector,
+                ACCOUNT,
+                address(secondBudget),
+                0,
+                10 * UNIT_WEIGHT_SCALE
+            )
+        );
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT,
+            10 * UNIT_WEIGHT_SCALE,
+            ids,
+            allocationPpm,
+            8 * UNIT_WEIGHT_SCALE,
+            ids,
+            allocationPpm
+        );
+
+        assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 0);
+        assertEq(ledger.budgetTotalAllocatedStake(address(secondBudget)), 0);
+    }
+
     function test_checkpointAllocation_noopsAfterGoalResolved() public {
         goalTreasury.setResolved(true);
 
@@ -459,8 +517,17 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function _checkpointSingle(address account, uint256 prevWeight, uint256 newWeight) internal {
+        _checkpointSingleForRecipient(account, RECIPIENT, prevWeight, newWeight);
+    }
+
+    function _checkpointSingleForRecipient(
+        address account,
+        bytes32 recipientId,
+        uint256 prevWeight,
+        uint256 newWeight
+    ) internal {
         bytes32[] memory ids = new bytes32[](1);
-        ids[0] = RECIPIENT;
+        ids[0] = recipientId;
 
         uint32[] memory allocationPpm = new uint32[](1);
         allocationPpm[0] = FULL_ALLOCATION_PPM;

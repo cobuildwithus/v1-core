@@ -17,6 +17,8 @@ contract PremiumEscrowTest is Test {
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
 
+    PremiumEscrowMockHost internal host;
+    PremiumEscrowMockGDA internal gda;
     PremiumEscrowMockToken internal premiumToken;
     PremiumEscrowMockBudgetStakeLedger internal ledger;
     PremiumEscrowMockBudgetTreasury internal budgetTreasury;
@@ -28,7 +30,9 @@ contract PremiumEscrowTest is Test {
     PremiumEscrow internal escrow;
 
     function setUp() public {
-        premiumToken = new PremiumEscrowMockToken();
+        gda = new PremiumEscrowMockGDA();
+        host = new PremiumEscrowMockHost(address(gda));
+        premiumToken = new PremiumEscrowMockToken(address(host));
         ledger = new PremiumEscrowMockBudgetStakeLedger();
         budgetTreasury = new PremiumEscrowMockBudgetTreasury(address(premiumToken));
         budgetFlow = new PremiumEscrowMockBudgetFlow();
@@ -50,12 +54,14 @@ contract PremiumEscrowTest is Test {
             address(router),
             SLASH_PPM
         );
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(managerRewardPool));
 
         goalFlow.setFlowOperator(address(goalTreasury));
     }
 
     function test_initializeRevertsWhenSuperTokenMismatch() public {
-        PremiumEscrowMockToken otherToken = new PremiumEscrowMockToken();
+        PremiumEscrowMockToken otherToken = new PremiumEscrowMockToken(address(host));
         PremiumEscrowMockBudgetTreasury mismatchedBudgetTreasury = new PremiumEscrowMockBudgetTreasury(address(otherToken));
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -526,20 +532,7 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashRevertsWhenCoverageLambdaUnresolvable_andCanRetry() public {
-        _configureCoverageLambda(10);
-        budgetTreasury.setExecutionDuration(10);
-
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        budgetTreasury.setActivatedAt(10);
-
-        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
-        _setGoalFlowReceipts(100);
-        escrow.checkpoint(ALICE);
-
-        vm.warp(20);
-        vm.prank(address(budgetTreasury));
-        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+        _prepareStandardFailedSlashScenario();
 
         goalFlow.setRevertFlowOperator(true);
 
@@ -556,20 +549,7 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashRevertsWhenCoverageLambdaReadReverts_andCanRetryAfterRestore() public {
-        _configureCoverageLambda(10);
-        budgetTreasury.setExecutionDuration(10);
-
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        budgetTreasury.setActivatedAt(10);
-
-        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
-        _setGoalFlowReceipts(100);
-        escrow.checkpoint(ALICE);
-
-        vm.warp(20);
-        vm.prank(address(budgetTreasury));
-        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+        _prepareStandardFailedSlashScenario();
 
         goalTreasury.setRevertCoverageLambda(true);
         vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
@@ -584,24 +564,27 @@ contract PremiumEscrowTest is Test {
         assertEq(router.slashCalls(), 1);
     }
 
-    function test_slashIgnoresManagerRewardPoolFlowRatePpmReadRevert_characterization() public {
-        _configureCoverageLambda(10);
-        budgetTreasury.setExecutionDuration(10);
+    function test_slashRevertsWhenGoalTreasuryOperatorHasNoCode_andCanRetryAfterRestore() public {
+        _prepareStandardFailedSlashScenario();
 
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-        budgetTreasury.setActivatedAt(10);
+        goalFlow.setFlowOperator(address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
+        escrow.slash(ALICE);
+        assertFalse(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+
+        goalFlow.setFlowOperator(address(goalTreasury));
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+    }
+
+    function test_slashIgnoresManagerRewardPoolFlowRatePpmReadRevert_characterization() public {
+        _prepareStandardFailedSlashScenario();
 
         // Slash path does not depend on managerRewardPoolFlowRatePpm() reads.
         budgetFlow.setRevertManagerRewardPoolFlowRateRead(true);
-
-        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
-        _setGoalFlowReceipts(100);
-        escrow.checkpoint(ALICE);
-
-        vm.warp(20);
-        vm.prank(address(budgetTreasury));
-        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
 
         uint256 slashWeight = escrow.slash(ALICE);
         assertEq(slashWeight, 20);
@@ -876,6 +859,23 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(account);
     }
 
+    function _prepareStandardFailedSlashScenario() internal {
+        _configureCoverageLambda(10);
+        budgetTreasury.setExecutionDuration(10);
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
+        _setGoalFlowReceipts(100);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+    }
+
     function _distributePremium(uint256 amount) internal {
         managerRewardPool.increaseTotalAmountReceivedByMember(address(escrow), amount);
         premiumToken.mint(address(escrow), amount);
@@ -893,10 +893,52 @@ contract PremiumEscrowTest is Test {
 }
 
 contract PremiumEscrowMockToken is ERC20 {
-    constructor() ERC20("PremiumToken", "PRM") { }
+    address internal _host;
+
+    constructor(address host_) ERC20("PremiumToken", "PRM") {
+        _host = host_;
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
+    }
+
+    function getHost() external view returns (address) {
+        return _host;
+    }
+}
+
+contract PremiumEscrowMockHost {
+    address internal _gda;
+
+    constructor(address gda_) {
+        _gda = gda_;
+    }
+
+    function getAgreementClass(bytes32) external view returns (address) {
+        return _gda;
+    }
+
+    function callAgreement(address agreementClass, bytes calldata callData, bytes calldata)
+        external
+        returns (bytes memory returnedData)
+    {
+        (bool success, bytes memory data) = agreementClass.call(callData);
+        require(success, "callAgreement failed");
+        return data;
+    }
+}
+
+contract PremiumEscrowMockGDA {
+    address internal _lastConnectedPool;
+
+    function connectPool(ISuperfluidPool pool, bytes calldata) external returns (bytes memory) {
+        _lastConnectedPool = address(pool);
+        return bytes("");
+    }
+
+    function lastConnectedPool() external view returns (address) {
+        return _lastConnectedPool;
     }
 }
 
@@ -951,6 +993,10 @@ contract PremiumEscrowMockBudgetTreasury {
 
     function flow() external view returns (address) {
         return _flow;
+    }
+
+    function controller() external pure returns (address) {
+        return address(0);
     }
 }
 
