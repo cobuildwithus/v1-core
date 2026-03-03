@@ -434,9 +434,22 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(debt.allocationKey, parentKey);
         assertEq(debt.reason, bytes32("SYNC_FAILED"));
 
+        FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropChildFlow secondChildFlow =
+            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
+
         uint256 checkpointsBefore = ledger.checkpointCallCount();
         bytes[][] memory allocationData = _parentAllocationData();
-        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+        bytes32[] memory recipientIds = new bytes32[](2);
+        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        recipientIds[1] = SECOND_BUDGET_RECIPIENT_ID;
+
+        uint32[] memory scaled = new uint32[](2);
+        scaled[0] = HALF_SCALED;
+        scaled[1] = HALF_SCALED;
         _setWeights(30e18);
         _allocateWithPrevStateForStrategyExpectRevert(
             allocator,
@@ -460,6 +473,57 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         _setWeights(30e18);
         _allocateParentSingleRecipient();
+    }
+
+    function test_syncAllocationForAccount_weightOnlyCommit_proceedsEvenWhenChildSyncDebtExists() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        _allocateParentSingleRecipient();
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(40e18, FULL_SCALED));
+
+        uint256 checkpointsBefore = ledger.checkpointCallCount();
+        _setWeights(20e18);
+        vm.prank(allocator);
+        flow.syncAllocationForAccount(allocator);
+
+        // Debt can remain open while child sync keeps failing, but parent weight sync must still apply.
+        assertEq(ledger.checkpointCallCount(), checkpointsBefore + 1);
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(20e18, FULL_SCALED));
+    }
+
+    function test_allocate_weightOnlyCommit_underDebt_proceedsAndClearsWhenChildSyncRecovers() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        _allocateParentSingleRecipient();
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+
+        _setWeights(20e18);
+        _allocateParentSingleRecipient();
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(20e18, FULL_SCALED));
+        assertEq(childFlow.syncCallCount(), 0);
+
+        childFlow.setRevertSync(false);
+        _setWeights(10e18);
+        _allocateParentSingleRecipient();
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(10e18, FULL_SCALED));
+        assertEq(childFlow.syncCallCount(), 1);
     }
 
     function test_repairChildSyncDebt_clearsWhenChildCommitMissing() public {

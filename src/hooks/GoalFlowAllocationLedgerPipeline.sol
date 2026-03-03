@@ -169,7 +169,9 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
             newWeight
         );
         if (!shouldCheckpoint) return;
-        _revertIfAccountHasChildSyncDebt(account);
+        if (_allocationCompositionChanged(prevRecipientIds, prevAllocationsPpm, newRecipientIds, newAllocationsPpm)) {
+            _revertIfAccountHasChildSyncDebt(account);
+        }
 
         address[] memory changedBudgetTreasuries = _checkpointAndDetectBudgetDeltas(
             ledger,
@@ -444,6 +446,29 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
 
     function _isChildSyncDebtClearSkipReason(bytes32 skipReason) private pure returns (bool) {
         return skipReason == _CHILD_SYNC_SKIP_TARGET_UNAVAILABLE || skipReason == _CHILD_SYNC_SKIP_NO_COMMITMENT;
+    }
+
+    function _allocationCompositionChanged(
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationsPpm,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationsPpm
+    ) private pure returns (bool changed) {
+        uint256 prevLength = prevRecipientIds.length;
+        if (prevLength != prevAllocationsPpm.length) return true;
+        uint256 newLength = newRecipientIds.length;
+        if (newLength != newAllocationsPpm.length) return true;
+        if (prevLength != newLength) return true;
+
+        for (uint256 i = 0; i < prevLength; ) {
+            if (prevRecipientIds[i] != newRecipientIds[i]) return true;
+            if (prevAllocationsPpm[i] != newAllocationsPpm[i]) return true;
+            unchecked {
+                ++i;
+            }
+        }
+
+        return false;
     }
 
     function _revertIfAccountHasChildSyncDebt(address account) private view {
