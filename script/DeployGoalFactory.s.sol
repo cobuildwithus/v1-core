@@ -198,7 +198,7 @@ contract DeployGoalFactory is DeployScript {
             string(abi.encodePacked("deploys/", deploymentName(), ".", vm.toString(chainId), ".txt"));
         string memory artifact = vm.readFile(canonicalFilePath);
 
-        _overwriteFile(LATEST_IMPLEMENTATIONS_FILE, artifact);
+        vm.writeFile(LATEST_IMPLEMENTATIONS_FILE, artifact);
         console2.log("Latest implementation artifact written:", LATEST_IMPLEMENTATIONS_FILE);
 
         vm.createDir(HISTORY_DIR, true);
@@ -213,10 +213,6 @@ contract DeployGoalFactory is DeployScript {
         }
         vm.writeFile(snapshotFilePath, artifact);
         console2.log("Implementation snapshot written:", snapshotFilePath);
-    }
-
-    function _overwriteFile(string memory path, string memory data) internal {
-        vm.writeFile(path, data);
     }
 
     function _snapshotFilePath(uint256 unixTimeMs, uint256 collisionIndex) internal view returns (string memory) {

@@ -11,83 +11,30 @@ import { ISuperfluid } from
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 
 contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
+    address internal constant REV_DEPLOYER = address(0x1001);
+    address internal constant SUPERFLUID_HOST = address(0x1002);
+    address internal constant BUDGET_TCR_FACTORY = address(0x1003);
+    address internal constant DEFAULT_ALLOCATION_MECHANISM_ADMIN = address(0x1004);
+    address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
+
     GoalFactory internal factory;
 
     function setUp() public {
-        MockToken cobuildToken = new MockToken();
-        DummyContract goalTreasuryImpl = new DummyContract();
-        DummyContract flowImpl = new DummyContract();
-        DummyContract splitHookImpl = new DummyContract();
-        DummyContract premiumEscrowImpl = new DummyContract();
-        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
-
-        factory = new GoalFactory(
-            IREVDeployer(address(0x1001)),
-            ISuperfluid(address(0x1002)),
-            BudgetTCRFactory(address(0x1003)),
-            address(cobuildToken),
-            1,
-            address(goalTreasuryImpl),
-            address(flowImpl),
-            address(splitHookImpl),
-            address(premiumEscrowImpl),
-            address(defaultSubmissionDepositStrategy),
-            address(0x1004),
-            address(0x1005)
-        );
+        factory = _newFactory(address(new DummyContract()), DEFAULT_ALLOCATION_MECHANISM_ADMIN);
     }
 
     function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
-        MockToken cobuildToken = new MockToken();
-        DummyContract goalTreasuryImpl = new DummyContract();
-        DummyContract flowImpl = new DummyContract();
-        DummyContract splitHookImpl = new DummyContract();
-        DummyContract premiumEscrowImpl = new DummyContract();
-        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
-
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
-        new GoalFactory(
-            IREVDeployer(address(0x1001)),
-            ISuperfluid(address(0x1002)),
-            BudgetTCRFactory(address(0x1003)),
-            address(cobuildToken),
-            1,
-            address(goalTreasuryImpl),
-            address(flowImpl),
-            address(splitHookImpl),
-            address(premiumEscrowImpl),
-            address(defaultSubmissionDepositStrategy),
-            address(0),
-            address(0x1005)
-        );
+        _newFactory(address(new DummyContract()), address(0));
     }
 
     function test_constructor_revertsWhenPremiumEscrowImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
-        DummyContract goalTreasuryImpl = new DummyContract();
-        DummyContract flowImpl = new DummyContract();
-        DummyContract splitHookImpl = new DummyContract();
-        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
-
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
-        new GoalFactory(
-            IREVDeployer(address(0x1001)),
-            ISuperfluid(address(0x1002)),
-            BudgetTCRFactory(address(0x1003)),
-            address(cobuildToken),
-            1,
-            address(goalTreasuryImpl),
-            address(flowImpl),
-            address(splitHookImpl),
-            address(0),
-            address(defaultSubmissionDepositStrategy),
-            address(0x1004),
-            address(0x1005)
-        );
+        _newFactory(address(0), DEFAULT_ALLOCATION_MECHANISM_ADMIN);
     }
 
     function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
-        assertEq(factory.DEFAULT_ALLOCATION_MECHANISM_ADMIN(), address(0x1004));
+        assertEq(factory.DEFAULT_ALLOCATION_MECHANISM_ADMIN(), DEFAULT_ALLOCATION_MECHANISM_ADMIN);
     }
 
     function test_deployGoal_revertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
@@ -150,6 +97,29 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             tagline: "tagline",
             url: "https://example.com"
         });
+    }
+
+    function _newFactory(address premiumEscrowImpl, address allocationMechanismAdmin) internal returns (GoalFactory) {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        return new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            premiumEscrowImpl,
+            address(defaultSubmissionDepositStrategy),
+            allocationMechanismAdmin,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
     }
 }
 
