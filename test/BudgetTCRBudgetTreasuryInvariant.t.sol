@@ -32,6 +32,10 @@ import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
+contract BudgetTCRInvariantPremiumEscrowConnectMock {
+    function connectManagerRewardPool(address) external { }
+}
+
 contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
@@ -45,7 +49,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
         strategy = address(0x2222222222222222222222222222222222222222);
-        premiumEscrow = address(0x3333333333333333333333333333333333333333);
+        premiumEscrow = address(new BudgetTCRInvariantPremiumEscrowConnectMock());
         _roundFactory = address(new RoundFactory());
         _mechanismTcrImplementation = address(new AllocationMechanismTCR());
         _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());

@@ -27,6 +27,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error ONLY_BUDGET_CONTROL();
     error INVALID_MANAGER_REWARD_POOL(address pool);
     error MANAGER_REWARD_POOL_ALREADY_SET(address currentPool);
+    error MANAGER_REWARD_POOL_NOT_CONNECTED();
     error POOL_CONNECT_FAILED();
     error INVALID_CLOSE_STATE(IBudgetTreasury.BudgetState state);
     error INVALID_CLOSE_WINDOW(uint64 activatedAt, uint64 closedAt);
@@ -112,10 +113,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     uint256 public premiumIndex;
     /// @notice Cumulative goal-flow credit (receipts by the budget flow) indexed per unit coverage.
     uint256 public creditIndex;
-    uint256 public accountedBalance;
     /// @notice Cumulative goal-flow receipts already accounted for credit indexing.
     uint256 public accountedGoalReceived;
-    /// @notice Optional manager reward distribution pool used as canonical premium inflow source.
+    /// @notice Manager reward distribution pool used as canonical premium inflow source.
     ISuperfluidPool public managerRewardPool;
     /// @notice Cumulative manager-reward receipts already accounted for indexing/recycling.
     uint256 public accountedManagerRewardReceived;
@@ -271,10 +271,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (amount == 0) return 0;
 
         accountState.claimable = claimableAmount - amount;
-        if (address(managerRewardPool) == address(0)) {
-            accountedBalance = amount > accountedBalance ? 0 : accountedBalance - amount;
-        }
-
         premiumToken.safeTransfer(to, amount);
         emit Claimed(msg.sender, to, amount);
     }
@@ -341,12 +337,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         }
 
         // Rebaseline receipt accounting so future checkpoints do not attempt to recycle already-swept dust.
-        ISuperfluidPool managerRewardDistributionPool = managerRewardPool;
-        if (address(managerRewardDistributionPool) != address(0)) {
-            accountedManagerRewardReceived = managerRewardDistributionPool.getTotalAmountReceivedByMember(address(this));
-        } else {
-            accountedBalance = premiumToken.balanceOf(address(this));
-        }
+        accountedManagerRewardReceived = _managerRewardPoolOrRevert().getTotalAmountReceivedByMember(address(this));
     }
 
     function slash(address underwriter) external override nonReentrant returns (uint256 slashWeight) {
@@ -545,11 +536,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
     function _checkpointGlobal() internal {
         _checkpointGlobalGoalFlowReceipts();
-        if (address(managerRewardPool) != address(0)) {
-            _checkpointGlobalFromManagerRewardPool();
-        } else {
-            _checkpointGlobalFromBalance();
-        }
+        _checkpointGlobalFromManagerRewardPool();
     }
 
     function _checkpointGlobalGoalFlowReceipts() internal {
@@ -592,7 +579,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     }
 
     function _checkpointGlobalFromManagerRewardPool() internal {
-        uint256 totalReceived = managerRewardPool.getTotalAmountReceivedByMember(address(this));
+        uint256 totalReceived = _managerRewardPoolOrRevert().getTotalAmountReceivedByMember(address(this));
         uint256 previousAccounted = accountedManagerRewardReceived;
 
         // Defensive clamp in case cumulative receipt accounting ever moves backwards.
@@ -624,37 +611,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         emit PremiumIndexed(distributed, oldTotalCoverage, indexDelta, premiumIndex);
     }
 
-    function _checkpointGlobalFromBalance() internal {
-        uint256 currentBalance = premiumToken.balanceOf(address(this));
-        uint256 previousAccounted = accountedBalance;
-
-        if (currentBalance < previousAccounted) {
-            accountedBalance = currentBalance;
-            previousAccounted = currentBalance;
-        }
-        if (currentBalance == previousAccounted) return;
-
-        uint256 incoming = currentBalance - previousAccounted;
-        uint256 oldTotalCoverage = totalCoverage;
-
-        if (oldTotalCoverage == 0) {
-            // Lock baseline before transfer so reentrant callbacks cannot reprocess
-            // the same orphan balance delta under non-standard token hook ordering.
-            accountedBalance = currentBalance;
-            premiumToken.safeTransfer(goalFlow, incoming);
-            accountedBalance = premiumToken.balanceOf(address(this));
-            emit OrphanPremiumRecycled(goalFlow, incoming);
-            return;
-        }
-
-        uint256 indexDelta = Math.mulDiv(incoming, _INDEX_SCALE, oldTotalCoverage);
-        if (indexDelta == 0) return;
-
-        uint256 distributed = Math.mulDiv(indexDelta, oldTotalCoverage, _INDEX_SCALE);
-        premiumIndex += indexDelta;
-        accountedBalance = previousAccounted + distributed;
-
-        emit PremiumIndexed(distributed, oldTotalCoverage, indexDelta, premiumIndex);
+    function _managerRewardPoolOrRevert() internal view returns (ISuperfluidPool pool) {
+        pool = managerRewardPool;
+        if (address(pool) == address(0)) revert MANAGER_REWARD_POOL_NOT_CONNECTED();
     }
 
     function _executionStart() internal view returns (uint64) {

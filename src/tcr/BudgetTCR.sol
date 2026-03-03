@@ -540,9 +540,8 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         );
 
         address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
-        if (managerRewardDistributionPool != address(0)) {
-            IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
-        }
+        if (managerRewardDistributionPool == address(0)) revert MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
+        IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
         if (deployedBudgetTreasury != budgetTreasury) {
             revert BUDGET_TREASURY_MISMATCH();
         }

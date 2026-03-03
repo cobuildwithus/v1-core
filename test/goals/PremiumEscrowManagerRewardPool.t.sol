@@ -45,6 +45,9 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         goalFlow.setFlowOperator(address(goalTreasury));
         router = new PremiumEscrowManagerRewardPoolMockRouter();
 
+        // Set flow before initialize so budgetFlow gets cached.
+        budgetTreasury.setFlow(address(goalFlow));
+
         PremiumEscrow implementation = new PremiumEscrow();
         escrow = PremiumEscrow(Clones.clone(address(implementation)));
         escrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM);
@@ -114,15 +117,19 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         escrow.connectManagerRewardPool(address(pool));
     }
 
-    function test_checkpoint_connectedPool_ignoresDirectTransfersAndIndexesOnlyPoolDelta() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+    function test_checkpoint_revertsWhenManagerRewardPoolNotConnected() public {
+        vm.expectRevert(PremiumEscrow.MANAGER_REWARD_POOL_NOT_CONNECTED.selector);
         escrow.checkpoint(ALICE);
+    }
 
+    function test_checkpoint_connectedPool_ignoresDirectTransfersAndIndexesOnlyPoolDelta() public {
         PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
         pool.setTotalAmountReceivedByMember(address(escrow), 20e18);
 
         vm.prank(address(budgetTreasury));
         escrow.connectManagerRewardPool(address(pool));
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
 
         // Direct transfers after connection must not affect premium indexing.
         premiumToken.mint(address(escrow), 100e18);
@@ -169,71 +176,33 @@ contract PremiumEscrowManagerRewardPoolTest is Test {
         assertEq(escrow.accountedManagerRewardReceived(), 25e18);
     }
 
-    function test_checkpoint_withoutConnectedPool_keepsLegacyBalanceDeltaAccounting() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-
-        premiumToken.mint(address(escrow), 60e18);
-        escrow.checkpoint(ALICE);
-
-        assertEq(escrow.claimable(ALICE), 60e18);
-        assertEq(escrow.accountedBalance(), 60e18);
-
-        vm.prank(ALICE);
-        uint256 claimed = escrow.claim(ALICE);
-
-        assertEq(claimed, 60e18);
-        assertEq(escrow.accountedBalance(), 0);
-        assertEq(premiumToken.balanceOf(ALICE), 60e18);
-    }
-
-    function test_checkpoint_withoutConnectedPool_orphanRecycleHandlesPreTransferReentrantTokenHook() public {
-        premiumToken.mint(address(escrow), 25e18);
-        premiumToken.setTransferHookEnabled(true);
-        premiumToken.setTransferHookBeforeTransfer(true);
-
-        goalFlow.setReentryCheckpoint(address(escrow), ALICE);
-        goalFlow.setReenterOnTokenReceive(true);
-
-        escrow.checkpoint(ALICE);
-
-        assertTrue(goalFlow.reentered());
-        assertEq(premiumToken.balanceOf(address(goalFlow)), 25e18);
-        assertEq(premiumToken.balanceOf(address(escrow)), 0);
-        assertEq(escrow.accountedBalance(), 0);
-    }
-
     function test_burnOnGoalFailure_connectedPool_sweepsEscrowBalanceAndSettlesLateResidual() public {
-        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
-        escrow.checkpoint(ALICE);
-
         PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
         vm.prank(address(budgetTreasury));
         escrow.connectManagerRewardPool(address(pool));
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
 
         goalTreasury.setState(IGoalTreasury.GoalState.Expired);
         premiumToken.mint(address(escrow), 45e18);
 
         uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
-        uint256 accountedBalanceBefore = escrow.accountedBalance();
 
         uint256 amount = escrow.burnOnGoalFailure();
 
         assertEq(amount, 45e18);
         assertEq(premiumToken.balanceOf(address(escrow)), 0);
         assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 45e18);
-        assertEq(escrow.accountedBalance(), accountedBalanceBefore);
         assertEq(goalTreasury.settleLateResidualCalls(), 1);
     }
 
     function test_burnOnGoalFailure_connectedPool_roundingDust_doesNotBrickLaterCloseCheckpoint() public {
-        // Use a non-divisible incoming amount to create manager-pool accounting dust.
-        ledger.setCoverage(ALICE, address(budgetTreasury), 3);
-        escrow.checkpoint(ALICE);
-
         PremiumEscrowManagerRewardPoolMockPool pool = new PremiumEscrowManagerRewardPoolMockPool();
         vm.prank(address(budgetTreasury));
         escrow.connectManagerRewardPool(address(pool));
+        // Use a non-divisible incoming amount to create manager-pool accounting dust.
+        ledger.setCoverage(ALICE, address(budgetTreasury), 3);
+        escrow.checkpoint(ALICE);
 
         pool.setTotalAmountReceivedByMember(address(escrow), 5);
         premiumToken.mint(address(escrow), 5);
@@ -375,6 +344,7 @@ contract PremiumEscrowManagerRewardPoolMockBudgetTreasury {
     ISuperToken internal _superToken;
     address internal _controller;
     uint64 internal _activatedAt;
+    address internal _flow;
 
     constructor(address superToken_, address controller_) {
         _superToken = ISuperToken(superToken_);
@@ -396,11 +366,20 @@ contract PremiumEscrowManagerRewardPoolMockBudgetTreasury {
     function setActivatedAt(uint64 activatedAt_) external {
         _activatedAt = activatedAt_;
     }
+
+    function setFlow(address flow_) external {
+        _flow = flow_;
+    }
+
+    function flow() external view returns (address) {
+        return _flow;
+    }
 }
 
 contract PremiumEscrowManagerRewardPoolMockGoalFlow is IPremiumEscrowManagerRewardPoolTransferHook {
     ISuperToken internal _superToken;
     address internal _flowOperator;
+    address internal _managerRewardDistributionPool;
     address internal _reentryEscrow;
     address internal _reentryAccount;
     bool internal _reenterOnTokenReceive;
@@ -420,6 +399,14 @@ contract PremiumEscrowManagerRewardPoolMockGoalFlow is IPremiumEscrowManagerRewa
 
     function setFlowOperator(address flowOperator_) external {
         _flowOperator = flowOperator_;
+    }
+
+    function setManagerRewardDistributionPool(address pool_) external {
+        _managerRewardDistributionPool = pool_;
+    }
+
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return ISuperfluidPool(_managerRewardDistributionPool);
     }
 
     function setReentryCheckpoint(address escrow_, address account_) external {
@@ -443,6 +430,10 @@ contract PremiumEscrowManagerRewardPoolMockGoalFlow is IPremiumEscrowManagerRewa
 
         _reentered = true;
         IPremiumEscrowCheckpointEntrypoint(_reentryEscrow).checkpoint(_reentryAccount);
+    }
+
+    function getTotalReceivedByMember(address) external pure returns (uint256) {
+        return 0;
     }
 }
 

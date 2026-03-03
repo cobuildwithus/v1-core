@@ -56,16 +56,32 @@ contract SharedMockSuperToken is ERC20 {
 
 contract SharedMockSuperfluidHost {
     bytes32 private constant CFA_V1_TYPE = keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1");
+    bytes32 private constant GDA_V1_TYPE = keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1");
 
     address private _cfa;
+    address private _gda;
 
     function setCFA(address cfa_) external {
         _cfa = cfa_;
     }
 
+    function setGDA(address gda_) external {
+        _gda = gda_;
+    }
+
     function getAgreementClass(bytes32 agreementType) external view returns (address agreementClass) {
         if (agreementType == CFA_V1_TYPE) return _cfa;
+        if (agreementType == GDA_V1_TYPE) return _gda;
         return address(0);
+    }
+
+    function callAgreement(address agreementClass, bytes calldata callData, bytes calldata)
+        external
+        returns (bytes memory returnedData)
+    {
+        (bool success, bytes memory data) = agreementClass.call(callData);
+        require(success, "callAgreement failed");
+        return data;
     }
 }
 
@@ -82,6 +98,15 @@ contract SharedMockCFA {
         uint256 int96Max = uint256(uint96(type(int96).max));
         if (rate > int96Max) rate = int96Max;
         return int96(int256(rate));
+    }
+}
+
+contract SharedMockGDA {
+    address public lastConnectedPool;
+
+    function connectPool(ISuperfluidPool pool, bytes calldata) external returns (bytes memory) {
+        lastConnectedPool = address(pool);
+        return bytes("");
     }
 }
 
@@ -131,6 +156,7 @@ contract SharedMockFlow {
     address private _sweeper;
     uint32 private _managerRewardPoolFlowRatePpm;
     ISuperfluidPool private _distributionPool;
+    ISuperfluidPool private _managerRewardDistributionPool;
     mapping(address => int96) private _memberFlowRates;
 
     uint256 public setFlowRateCallCount;
@@ -218,8 +244,16 @@ contract SharedMockFlow {
         return _distributionPool;
     }
 
+    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+        return _managerRewardDistributionPool;
+    }
+
     function setDistributionPool(ISuperfluidPool distributionPool_) external {
         _distributionPool = distributionPool_;
+    }
+
+    function setManagerRewardDistributionPool(ISuperfluidPool managerRewardDistributionPool_) external {
+        _managerRewardDistributionPool = managerRewardDistributionPool_;
     }
 
     function setMemberFlowRate(address memberAddr, int96 flowRate) external {
@@ -302,10 +336,21 @@ contract SharedMockFlow {
         lastSweepTo = to;
         lastSweepAmount = swept;
     }
+
+    mapping(address => uint256) private _totalReceivedByMember;
+
+    function setTotalReceivedByMember(address member, uint256 amount) external {
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalReceivedByMember(address member) external view returns (uint256) {
+        return _totalReceivedByMember[member];
+    }
 }
 
 contract SharedMockSuperfluidPool {
     uint128 private _totalUnits;
+    mapping(address => uint256) private _totalAmountReceivedByMember;
 
     function setTotalUnits(uint128 totalUnits_) external {
         _totalUnits = totalUnits_;
@@ -313,6 +358,18 @@ contract SharedMockSuperfluidPool {
 
     function getTotalUnits() external view returns (uint128) {
         return _totalUnits;
+    }
+
+    function setTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalAmountReceivedByMember[member] = amount;
+    }
+
+    function increaseTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalAmountReceivedByMember[member] += amount;
+    }
+
+    function getTotalAmountReceivedByMember(address member) external view returns (uint256) {
+        return _totalAmountReceivedByMember[member];
     }
 }
 

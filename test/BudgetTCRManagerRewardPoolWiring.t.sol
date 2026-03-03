@@ -138,21 +138,15 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         assertEq(wiringEscrow.lastConnectedPool(), distributionPool);
     }
 
-    function test_activateRegisteredBudget_skipsPremiumEscrowConnect_whenChildManagerRewardDistributionPoolIsZero() public {
+    function test_activateRegisteredBudget_reverts_whenChildManagerRewardDistributionPoolIsZero() public {
         _approveAddCost(requester);
         bytes32 itemID = _submitListing(requester, _defaultListing());
 
         _warpRoll(block.timestamp + challengePeriodDuration + 1);
         budgetTcr.executeRequest(itemID);
 
+        vm.expectRevert(IBudgetTCR.MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED.selector);
         budgetTcr.activateRegisteredBudget(itemID);
-
-        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
-        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
-        BudgetTCRWiringPremiumEscrowMock wiringEscrow = BudgetTCRWiringPremiumEscrowMock(premiumEscrow);
-
-        assertEq(wiringEscrow.connectCalls(), 0);
-        assertEq(wiringEscrow.lastConnectedPool(), address(0));
     }
 
     function _approveAddCost(address who) internal returns (uint256 addCost) {

@@ -11,10 +11,58 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
 contract MockBudgetTCRSuperToken is ERC20 {
-    constructor() ERC20("Budget Super Token", "BST") {}
+    address private immutable _host;
+
+    constructor() ERC20("Budget Super Token", "BST") {
+        MockBudgetTCRSuperTokenGDA gda = new MockBudgetTCRSuperTokenGDA();
+        _host = address(new MockBudgetTCRSuperTokenHost(address(gda)));
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
+    }
+
+    function getHost() external view returns (address host) {
+        return _host;
+    }
+}
+
+contract MockBudgetTCRSuperTokenHost {
+    address private immutable _gda;
+
+    constructor(address gda_) {
+        _gda = gda_;
+    }
+
+    function getAgreementClass(bytes32) external view returns (address) {
+        return _gda;
+    }
+
+    function callAgreement(address agreementClass, bytes calldata callData, bytes calldata)
+        external
+        returns (bytes memory returnedData)
+    {
+        (bool success, bytes memory data) = agreementClass.call(callData);
+        require(success, "callAgreement failed");
+        return data;
+    }
+}
+
+contract MockBudgetTCRSuperTokenGDA {
+    function connectPool(ISuperfluidPool, bytes calldata) external pure returns (bytes memory) {
+        return bytes("");
+    }
+}
+
+contract MockBudgetTCRDistributionPool {
+    mapping(address => uint256) private _totalAmountReceivedByMember;
+
+    function setTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalAmountReceivedByMember[member] = amount;
+    }
+
+    function getTotalAmountReceivedByMember(address member) external view returns (uint256) {
+        return _totalAmountReceivedByMember[member];
     }
 }
 
@@ -174,6 +222,7 @@ contract MockGoalFlowForBudgetTCR {
         _owner = owner_;
         _recipientAdmin = recipientAdmin_;
         _managerRewardPool = managerRewardPool_;
+        _childManagerRewardDistributionPool = address(new MockBudgetTCRDistributionPool());
         _superToken = superToken_;
     }
 

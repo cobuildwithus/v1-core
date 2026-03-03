@@ -38,6 +38,7 @@ import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
     SharedMockCFA,
     SharedMockFlow,
+    SharedMockGDA,
     SharedMockStakeVault,
     SharedMockSuperfluidHost,
     SharedMockSuperfluidPool,
@@ -88,6 +89,12 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         goalToken = new MockVotesToken("Goal", "GOAL");
         cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
         goalSuperToken = new SharedMockSuperToken(address(goalToken));
+        SharedMockSuperfluidHost host = new SharedMockSuperfluidHost();
+        SharedMockCFA cfa = new SharedMockCFA();
+        cfa.setDepositPerFlowRate(0);
+        host.setCFA(address(cfa));
+        host.setGDA(address(new SharedMockGDA()));
+        goalSuperToken.setHost(address(host));
 
         rulesets = new UnderwritingMockRulesets();
         directory = new UnderwritingMockDirectory();
@@ -155,6 +162,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             BUDGET_SLASH_PPM
         );
         budgetTreasury.setPremiumEscrow(address(escrow));
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(managerRewardPool));
 
         router.setAuthorizedPremiumEscrow(address(escrow), true);
     }
@@ -826,7 +835,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
         UnderwritingMockBudgetFlow delayedBudgetFlow = new UnderwritingMockBudgetFlow();
         delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
-        delayedBudgetFlow.setManagerRewardDistributionPool(address(new SharedMockSuperfluidPool()));
+        SharedMockSuperfluidPool delayedManagerRewardPool = new SharedMockSuperfluidPool();
+        delayedBudgetFlow.setManagerRewardDistributionPool(address(delayedManagerRewardPool));
         delayedBudgetTreasury.setFlow(address(delayedBudgetFlow));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
         delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
@@ -843,6 +853,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             BUDGET_SLASH_PPM
         );
         delayedBudgetTreasury.setPremiumEscrow(address(delayedEscrow));
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.connectManagerRewardPool(address(delayedManagerRewardPool));
         delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
         delayedBudgetStakeLedger.setCoverage(ALICE, address(delayedBudgetTreasury), budgetCoverage);
     }
@@ -911,7 +923,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
         delayedBudgetFlow.setParent(address(delayedGoalFlow));
         delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
-        delayedBudgetFlow.setManagerRewardDistributionPool(ISuperfluidPool(address(new SharedMockSuperfluidPool())));
+        SharedMockSuperfluidPool delayedManagerRewardPool = new SharedMockSuperfluidPool();
+        delayedBudgetFlow.setManagerRewardDistributionPool(ISuperfluidPool(address(delayedManagerRewardPool)));
 
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         delayedBudgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
@@ -946,6 +959,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             address(delayedRouter),
             BUDGET_SLASH_PPM
         );
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.connectManagerRewardPool(address(delayedManagerRewardPool));
 
         delayedBudgetStakeLedger.registerBudget(budgetRecipientId, address(delayedBudgetTreasury));
 
@@ -1678,6 +1693,10 @@ contract UnderwritingMockBudgetTreasury {
 
     function setFlow(address flow_) external {
         flow = flow_;
+    }
+
+    function controller() external pure returns (address) {
+        return address(0);
     }
 
     function setExecutionDuration(uint64 executionDuration_) external {

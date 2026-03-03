@@ -13,6 +13,7 @@ import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
+    SharedMockGDA,
     SharedMockSuperfluidPool,
     SharedMockSuperToken,
     SharedMockUnderlying
@@ -67,6 +68,7 @@ contract BudgetTreasuryTest is Test {
         SharedMockCFA cfa = new SharedMockCFA();
         cfa.setDepositPerFlowRate(1);
         host.setCFA(address(cfa));
+        host.setGDA(address(new SharedMockGDA()));
         superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
         parentFlow = new SharedMockFlow(ISuperToken(address(superToken)));
@@ -2179,6 +2181,9 @@ contract BudgetTreasuryTest is Test {
             address(slasherRouterMock),
             REAL_ESCROW_BUDGET_SLASH_PPM
         );
+        address rewardPool = address(flow.managerRewardDistributionPool());
+        vm.prank(address(deployedTreasury));
+        deployedEscrow.connectManagerRewardPool(rewardPool);
     }
 
     function _defaultBudgetConfig() internal view returns (IBudgetTreasury.BudgetConfig memory config) {
