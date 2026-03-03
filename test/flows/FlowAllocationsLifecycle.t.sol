@@ -366,6 +366,26 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         flow.syncAllocationForAccount(allocator);
     }
 
+    function test_syncAllocationForAccount_existingCommit_withoutCachedWeight_reverts() public {
+        uint256 key = _allocatorKey();
+        (bytes32[] memory ids, uint32[] memory scaled, address recipient) = _setupSingleRecipientAllocation(key);
+
+        assertEq(_allocWeightPlusOne(key), DEFAULT_WEIGHT + 1);
+        _clearAllocWeightCache(key);
+        assertEq(_allocWeightPlusOne(key), 0);
+
+        // Keep strategy weight unchanged to prove prior-state validation still runs before no-op early-exit.
+        strategy.setWeight(key, DEFAULT_WEIGHT);
+
+        vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
+        vm.prank(other);
+        flow.syncAllocationForAccount(allocator);
+
+        assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
+        assertEq(_allocWeightPlusOne(key), 0);
+        assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
+    }
+
     function test_syncAllocation_noCommit_withStoredSnapshot_revertsStaleClearNoCommitment() public {
         uint256 key = 95;
         _addRecipient(bytes32(uint256(1)), address(0x111));
