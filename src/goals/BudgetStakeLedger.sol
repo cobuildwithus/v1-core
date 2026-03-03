@@ -31,7 +31,10 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         uint64 activatedAt;
     }
 
-    address public immutable override goalTreasury;
+    address public override goalTreasury;
+    bool private _initialized;
+
+    error ALREADY_INITIALIZED();
 
     mapping(address => mapping(address => UserBudgetCheckpoint)) private _userBudgetCheckpoints;
     mapping(address => BudgetCheckpoint) private _budgetCheckpoints;
@@ -45,7 +48,17 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     mapping(address => Checkpoints.Trace224) private _userAllocationWeightCheckpoints;
 
     constructor(address goalTreasury_) {
+        _initialize(goalTreasury_);
+    }
+
+    function initialize(address goalTreasury_) external {
+        _initialize(goalTreasury_);
+    }
+
+    function _initialize(address goalTreasury_) internal {
+        if (_initialized) revert ALREADY_INITIALIZED();
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
+        _initialized = true;
         goalTreasury = goalTreasury_;
     }
 
@@ -296,17 +309,21 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
         );
 
         while (SortedRecipientMerge.hasNext(mergeCursor, oldLen, newLen)) {
-            (SortedRecipientMerge.Step memory step, SortedRecipientMerge.Cursor memory nextCursor) =
-                SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            (
+                SortedRecipientMerge.Step memory step,
+                SortedRecipientMerge.Cursor memory nextCursor
+            ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
             mergeCursor = nextCursor;
 
             address budget = _budgetByRecipientId[step.recipientId];
             if (budget == address(0)) continue;
 
-            uint256 oldAllocated =
-                step.hasOld ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex]) : 0;
-            uint256 newAllocated =
-                step.hasNew ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex]) : 0;
+            uint256 oldAllocated = step.hasOld
+                ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex])
+                : 0;
+            uint256 newAllocated = step.hasNew
+                ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex])
+                : 0;
             if (oldAllocated == newAllocated) continue;
 
             _checkpointBudgetAllocation(account, budget, oldAllocated, newAllocated, nowTs);

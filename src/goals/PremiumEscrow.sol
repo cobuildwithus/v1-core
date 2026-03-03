@@ -394,11 +394,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         // avgCoverageEq = creditDrawn * coverageLambda / duration
         uint256 avgCoverageEq = Math.mulDiv(accountState.creditDrawn, coverageLambda, duration);
         // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
-        rawSlashWeight = Math.mulDiv(
-            avgCoverageEq,
-            uint256(budgetSlashPpm),
-            FlowProtocolConstants.PPM_SCALE_UINT256
-        );
+        rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), FlowProtocolConstants.PPM_SCALE_UINT256);
         slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
 
         if (slashWeight != 0) {

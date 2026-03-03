@@ -75,9 +75,15 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         ISuperToken goalSuperToken_,
         address goalFundingTarget_
     ) internal pure returns (bool) {
-        return address(stakeVault_) == address(0) && authority_ == address(0) && address(directory_) == address(0)
-            && goalRevnetId_ == 0 && address(goalToken_) == address(0) && address(cobuildToken_) == address(0)
-            && address(goalSuperToken_) == address(0) && goalFundingTarget_ == address(0);
+        return
+            address(stakeVault_) == address(0) &&
+            authority_ == address(0) &&
+            address(directory_) == address(0) &&
+            goalRevnetId_ == 0 &&
+            address(goalToken_) == address(0) &&
+            address(cobuildToken_) == address(0) &&
+            address(goalSuperToken_) == address(0) &&
+            goalFundingTarget_ == address(0);
     }
 
     function initialize(
@@ -167,8 +173,10 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         uint256 goalSlashedAmount = goalToken.balanceOf(address(this)) - goalBefore;
         uint256 cobuildSlashedAmount = cobuildToken.balanceOf(address(this)) - cobuildBefore;
 
-        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) =
-            _convertAndForwardGoalBalance(premiumEscrow, underwriter);
+        (uint256 convertedGoalAmount, uint256 forwardedSuperTokenAmount) = _convertAndForwardGoalBalance(
+            premiumEscrow,
+            underwriter
+        );
 
         emit UnderwriterSlashRouted(
             premiumEscrow,
@@ -188,7 +196,10 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         forwardedSuperTokenAmount = _upgradeAndForwardGoalBalance(address(0), address(0));
 
         emit GoalSuperTokenForwardingRetried(
-            msg.sender, goalBalanceBefore, superTokenBalanceBefore, forwardedSuperTokenAmount
+            msg.sender,
+            goalBalanceBefore,
+            superTokenBalanceBefore,
+            forwardedSuperTokenAmount
         );
     }
 
@@ -258,7 +269,7 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         if (goalBalance != 0) {
             goalToken.forceApprove(address(goalSuperToken), 0);
             goalToken.forceApprove(address(goalSuperToken), goalBalance);
-            try goalSuperToken.upgrade(goalBalance) { } catch (bytes memory reason) {
+            try goalSuperToken.upgrade(goalBalance) {} catch (bytes memory reason) {
                 emit GoalSuperTokenUpgradeFailed(premiumEscrow, underwriter, goalBalance, reason);
             }
             goalToken.forceApprove(address(goalSuperToken), 0);
@@ -273,7 +284,9 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
                         underwriter,
                         forwardedSuperTokenAmount,
                         abi.encodeWithSelector(
-                            SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector, goalFundingTarget, forwardedSuperTokenAmount
+                            SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector,
+                            goalFundingTarget,
+                            forwardedSuperTokenAmount
                         )
                     );
                     return 0;

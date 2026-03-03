@@ -470,7 +470,12 @@ abstract contract GeneralizedTCR is
         Request storage request
     ) internal {
         GeneralizedTCRLifecycle.DepositResolution memory resolution = GeneralizedTCRLifecycle.resolveSubmissionDeposit(
-            submissionDeposits, items, itemID, submissionDepositStrategy, requestType, request
+            submissionDeposits,
+            items,
+            itemID,
+            submissionDepositStrategy,
+            requestType,
+            request
         );
         if (!resolution.shouldTransfer) return;
 
@@ -767,5 +772,4 @@ abstract contract GeneralizedTCR is
         Round storage round = request.rounds[_round];
         return (round.amountPaid, round.hasPaid, round.feeRewards);
     }
-
 }

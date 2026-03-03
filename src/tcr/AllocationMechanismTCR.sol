@@ -400,7 +400,11 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     }
 
     function _isValidFundingPolicy(MechanismListing memory listing) internal pure returns (bool) {
-        if (listing.maxBudgetFunding != 0 && listing.minBudgetFunding != 0 && listing.maxBudgetFunding < listing.minBudgetFunding) {
+        if (
+            listing.maxBudgetFunding != 0 &&
+            listing.minBudgetFunding != 0 &&
+            listing.maxBudgetFunding < listing.minBudgetFunding
+        ) {
             return false;
         }
         if (listing.fundingDeadline != 0 && listing.minBudgetFunding == 0) return false;
@@ -472,7 +476,10 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         }
     }
 
-    function _isExpiredUnderfunded(MechanismListing memory listing, uint256 totalReceived) internal view returns (bool) {
+    function _isExpiredUnderfunded(
+        MechanismListing memory listing,
+        uint256 totalReceived
+    ) internal view returns (bool) {
         return
             listing.fundingDeadline != 0 &&
             listing.minBudgetFunding != 0 &&

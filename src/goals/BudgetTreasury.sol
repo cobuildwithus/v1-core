@@ -468,8 +468,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             TreasuryPostDeadlineFinalize.Decision decision,
             TreasurySuccessAssertions.FailClosedReason failClosedReason
         ) = TreasuryPostDeadlineFinalize.evaluate(
-            _successAssertions, _reassertGrace, successResolver, successAssertionLiveness, successAssertionBond
-        );
+                _successAssertions,
+                _reassertGrace,
+                successResolver,
+                successAssertionLiveness,
+                successAssertionBond
+            );
 
         if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
             emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);

@@ -64,6 +64,9 @@ library GeneralizedTCRRequestState {
     function requestTypeFromMetaEvidence(
         uint256 metaEvidenceID
     ) external pure returns (IGeneralizedTCR.Status requestType) {
-        return metaEvidenceID % 2 == 0 ? IGeneralizedTCR.Status.RegistrationRequested : IGeneralizedTCR.Status.ClearingRequested;
+        return
+            metaEvidenceID % 2 == 0
+                ? IGeneralizedTCR.Status.RegistrationRequested
+                : IGeneralizedTCR.Status.ClearingRequested;
     }
 }

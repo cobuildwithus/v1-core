@@ -132,7 +132,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
         if (config.budgetSlashPpm != 0 && (config.budgetPremiumPpm == 0 || config.coverageLambda == 0)) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(
-                config.budgetPremiumPpm, config.budgetSlashPpm, config.coverageLambda
+                config.budgetPremiumPpm,
+                config.budgetSlashPpm,
+                config.coverageLambda
             );
         }
 
@@ -219,12 +221,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function processHookSplit(
         address sourceToken,
         uint256 sourceAmount
-    )
-        external
-        override
-        nonReentrant
-        returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
-    {
+    ) external override nonReentrant returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) {
         if (msg.sender != _hook) revert ONLY_HOOK();
         if (!_isHookSourceToken(sourceToken)) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
         if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0);
@@ -242,11 +239,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
 
         if (path == HookSplitPath.TerminalSettlement) {
-            (superTokenAmount, burnAmount) = _processTerminalSettlement(
-                derivedState.state,
-                sourceToken,
-                sourceAmount
-            );
+            (superTokenAmount, burnAmount) = _processTerminalSettlement(derivedState.state, sourceToken, sourceAmount);
             return (HookSplitAction.TerminalSettled, superTokenAmount, burnAmount);
         }
 
@@ -580,8 +573,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             TreasuryPostDeadlineFinalize.Decision decision,
             TreasurySuccessAssertions.FailClosedReason failClosedReason
         ) = TreasuryPostDeadlineFinalize.evaluate(
-            _successAssertions, _reassertGrace, successResolver, successAssertionLiveness, successAssertionBond
-        );
+                _successAssertions,
+                _reassertGrace,
+                successResolver,
+                successAssertionLiveness,
+                successAssertionBond
+            );
 
         if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
             emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
@@ -661,10 +658,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         emit HookDeferredFundingSettled(finalState, deferred, burnAmount);
     }
 
-    function _settleSuperTokenAmount(
-        GoalState finalState,
-        uint256 settled
-    ) internal returns (uint256 burnAmount) {
+    function _settleSuperTokenAmount(GoalState finalState, uint256 settled) internal returns (uint256 burnAmount) {
         if (settled == 0) return 0;
 
         IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
@@ -680,10 +674,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
     }
 
-    function _settleSuccessHookSplit(
-        address sourceToken,
-        uint256 sourceAmount
-    ) internal returns (uint256 burnAmount) {
+    function _settleSuccessHookSplit(address sourceToken, uint256 sourceAmount) internal returns (uint256 burnAmount) {
         burnAmount = sourceAmount;
 
         if (burnAmount != 0) {
@@ -775,8 +766,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     ) internal view returns (uint256) {
         if (address(configuredCobuildToken) == address(0)) return 0;
 
-        (IJBDirectory directory, bytes memory directoryFailureReason) =
-            _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
+        (IJBDirectory directory, bytes memory directoryFailureReason) = _resolveRevnetDirectory(
+            configuredGoalRulesets,
+            configuredHook
+        );
         if (address(directory) == address(0)) {
             revert COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address(configuredCobuildToken), directoryFailureReason);
         }
@@ -823,12 +816,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(configuredGoalToken), underlyingToken);
         }
 
-        (IJBDirectory directory, bytes memory directoryFailureReason) =
-            _resolveRevnetDirectory(configuredGoalRulesets, configuredHook);
+        (IJBDirectory directory, bytes memory directoryFailureReason) = _resolveRevnetDirectory(
+            configuredGoalRulesets,
+            configuredHook
+        );
         if (address(directory) == address(0)) {
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(
-                address(configuredGoalToken), directoryFailureReason
-            );
+            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address(configuredGoalToken), directoryFailureReason);
         }
 
         _requireTokenMatchesRevnetId(directory, configuredGoalRevnetId, configuredGoalToken);
@@ -907,7 +900,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
-        (IJBDirectory directory,) = _resolveRevnetDirectory(goalRulesets, _hook);
+        (IJBDirectory directory, ) = _resolveRevnetDirectory(goalRulesets, _hook);
         if (address(directory) == address(0)) revert INVALID_REVNET_CONTROLLER(address(0));
 
         address controller = address(directory.controllerOf(revnetId));

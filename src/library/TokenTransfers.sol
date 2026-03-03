@@ -31,7 +31,12 @@ library TokenTransfers {
 
         token.safeTransfer(to, amount);
 
-        spent = _checkedDecreaseDelta(address(token), address(this), senderBalanceBefore, token.balanceOf(address(this)));
+        spent = _checkedDecreaseDelta(
+            address(token),
+            address(this),
+            senderBalanceBefore,
+            token.balanceOf(address(this))
+        );
         received = _checkedIncreaseDelta(address(token), to, recipientBalanceBefore, token.balanceOf(to));
     }
 

@@ -155,8 +155,6 @@ interface IBudgetTCR is IGeneralizedTCR {
     function isRegistrationPending(bytes32 itemId) external view returns (bool pending);
     function isRemovalPending(bytes32 itemId) external view returns (bool pending);
     function retryRemovedBudgetResolution(bytes32 itemID) external returns (bool terminallyResolved);
-    function pruneTerminalBudget(address budgetTreasury)
-        external
-        returns (bool removedFromParent, bool goalSynced);
+    function pruneTerminalBudget(address budgetTreasury) external returns (bool removedFromParent, bool goalSynced);
     function syncBudgetTreasuries(bytes32[] calldata itemIDs) external returns (uint256 attempted, uint256 succeeded);
 }

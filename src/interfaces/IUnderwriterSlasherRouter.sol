@@ -31,10 +31,16 @@ interface IUnderwriterSlasherRouter {
         uint256 forwardedSuperTokenAmount
     );
     event GoalSuperTokenUpgradeFailed(
-        address indexed premiumEscrow, address indexed underwriter, uint256 goalAmount, bytes reason
+        address indexed premiumEscrow,
+        address indexed underwriter,
+        uint256 goalAmount,
+        bytes reason
     );
     event GoalSuperTokenForwardingFailed(
-        address indexed premiumEscrow, address indexed underwriter, uint256 superTokenAmount, bytes reason
+        address indexed premiumEscrow,
+        address indexed underwriter,
+        uint256 superTokenAmount,
+        bytes reason
     );
     event GoalSuperTokenForwardingRetried(
         address indexed caller,

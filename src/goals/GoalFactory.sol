@@ -34,6 +34,8 @@ contract GoalFactory {
     address public immutable GOAL_TREASURY_IMPL;
     address public immutable FLOW_IMPL;
     address public immutable SPLIT_HOOK_IMPL;
+    address public immutable BUDGET_STAKE_LEDGER_IMPL;
+    address public immutable GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL;
     address public immutable PREMIUM_ESCROW_IMPL;
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
 
@@ -143,6 +145,8 @@ contract GoalFactory {
         address goalTreasuryImpl,
         address flowImpl,
         address splitHookImpl,
+        address budgetStakeLedgerImpl,
+        address goalFlowAllocationLedgerPipelineImpl,
         address premiumEscrowImpl,
         address underwriterSlasherRouterImpl,
         address defaultSubmissionDepositStrategy,
@@ -156,6 +160,8 @@ contract GoalFactory {
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
         if (splitHookImpl == address(0)) revert ADDRESS_ZERO();
+        if (budgetStakeLedgerImpl == address(0)) revert ADDRESS_ZERO();
+        if (goalFlowAllocationLedgerPipelineImpl == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
@@ -164,6 +170,10 @@ contract GoalFactory {
         if (goalTreasuryImpl.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryImpl);
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
         if (splitHookImpl.code.length == 0) revert NOT_A_CONTRACT(splitHookImpl);
+        if (budgetStakeLedgerImpl.code.length == 0) revert NOT_A_CONTRACT(budgetStakeLedgerImpl);
+        if (goalFlowAllocationLedgerPipelineImpl.code.length == 0) {
+            revert NOT_A_CONTRACT(goalFlowAllocationLedgerPipelineImpl);
+        }
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
@@ -181,6 +191,8 @@ contract GoalFactory {
         GOAL_TREASURY_IMPL = goalTreasuryImpl;
         FLOW_IMPL = flowImpl;
         SPLIT_HOOK_IMPL = splitHookImpl;
+        BUDGET_STAKE_LEDGER_IMPL = budgetStakeLedgerImpl;
+        GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL = goalFlowAllocationLedgerPipelineImpl;
         PREMIUM_ESCROW_IMPL = premiumEscrowImpl;
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
 
@@ -205,17 +217,19 @@ contract GoalFactory {
         }
 
         if (
-            p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE
-                || p.underwriting.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE
+            p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
+            p.underwriting.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE
         ) {
             revert INVALID_SCALE();
         }
         if (
-            p.underwriting.budgetSlashPpm != 0
-                && (p.underwriting.budgetPremiumPpm == 0 || p.underwriting.coverageLambda == 0)
+            p.underwriting.budgetSlashPpm != 0 &&
+            (p.underwriting.budgetPremiumPpm == 0 || p.underwriting.coverageLambda == 0)
         ) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(
-                p.underwriting.budgetPremiumPpm, p.underwriting.budgetSlashPpm, p.underwriting.coverageLambda
+                p.underwriting.budgetPremiumPpm,
+                p.underwriting.budgetSlashPpm,
+                p.underwriting.coverageLambda
             );
         }
 
@@ -310,6 +324,8 @@ contract GoalFactory {
                     flowImpl: FLOW_IMPL,
                     superfluidHost: SUPERFLUID_HOST,
                     budgetTcrFactory: address(BUDGET_TCR_FACTORY),
+                    budgetStakeLedgerImpl: BUDGET_STAKE_LEDGER_IMPL,
+                    goalFlowAllocationLedgerPipelineImpl: GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL,
                     cobuildToken: COBUILD_TOKEN,
                     cobuildDecimals: COBUILD_DECIMALS,
                     goalRevnetId: revnet.goalRevnetId,
@@ -344,8 +360,9 @@ contract GoalFactory {
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address predictedBudgetTCR
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        UnderwriterSlasherRouter underwriterSlasherRouter =
-            UnderwriterSlasherRouter(Clones.clone(UNDERWRITER_SLASHER_ROUTER_IMPL));
+        UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
+            Clones.clone(UNDERWRITER_SLASHER_ROUTER_IMPL)
+        );
         underwriterSlasherRouter.initialize(
             IStakeVault(address(core.stakeVault)),
             predictedBudgetTCR,

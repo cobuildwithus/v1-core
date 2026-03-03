@@ -40,7 +40,10 @@ interface IStakeVault {
     event CobuildWithdrawn(address indexed user, address indexed to, uint256 amount);
     event GoalResolved();
     event UnderwriterWithdrawalPrepared(
-        address indexed underwriter, uint256 nextBudgetIndex, uint256 budgetCount, bool complete
+        address indexed underwriter,
+        uint256 nextBudgetIndex,
+        uint256 budgetCount,
+        bool complete
     );
     event JurorOptedIn(address indexed juror, uint256 goalAmount, uint256 weightDelta, address indexed delegate);
     event JurorExitRequested(address indexed juror, uint256 goalAmount, uint64 requestedAt, uint64 availableAt);

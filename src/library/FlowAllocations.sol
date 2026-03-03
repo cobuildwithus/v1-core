@@ -321,8 +321,11 @@ library FlowAllocations {
     }
 
     function _computedUnits(uint256 weight, uint32 allocationPpm) internal pure returns (uint128) {
-        uint256 units =
-            FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, FlowProtocolConstants.PPM_SCALE_UINT256);
+        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(
+            weight,
+            allocationPpm,
+            FlowProtocolConstants.PPM_SCALE_UINT256
+        );
         if (units > type(uint128).max) revert IFlow.OVERFLOW();
         return uint128(units);
     }

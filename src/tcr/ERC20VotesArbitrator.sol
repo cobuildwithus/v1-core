@@ -101,7 +101,8 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         if (arbitrationCost_ < MIN_ARBITRATION_COST || arbitrationCost_ > MAX_ARBITRATION_COST) {
             revert INVALID_ARBITRATION_COST();
         }
-        if (wrongOrMissedSlashBps_ > FlowProtocolConstants.BPS_SCALE_UINT256) revert INVALID_WRONG_OR_MISSED_SLASH_BPS();
+        if (wrongOrMissedSlashBps_ > FlowProtocolConstants.BPS_SCALE_UINT256)
+            revert INVALID_WRONG_OR_MISSED_SLASH_BPS();
         if (slashCallerBountyBps_ > MAX_SLASH_CALLER_BOUNTY_BPS) revert INVALID_SLASH_CALLER_BOUNTY_BPS();
         __ReentrancyGuard_init();
 

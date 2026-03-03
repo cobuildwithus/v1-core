@@ -117,10 +117,7 @@ library FlowRecipients {
         _clearRecipientGatingState(recipientsState, recipient);
     }
 
-    function _clearRecipientGatingState(
-        FlowTypes.RecipientsState storage recipientsState,
-        address recipient
-    ) private {
+    function _clearRecipientGatingState(FlowTypes.RecipientsState storage recipientsState, address recipient) private {
         recipientsState.isRecipientDisabled[recipient] = false;
         recipientsState.savedUnitsWhenDisabled[recipient] = 0;
     }

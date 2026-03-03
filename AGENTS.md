@@ -37,8 +37,8 @@ If instructions still conflict after applying this order, ask the user before ac
 - Run completion workflow subagent passes before final handoff for non-trivial code changes: `simplify` -> `test-coverage-audit` -> `task-finish-review` (see `agent-docs/operations/completion-workflow.md`).
 - Docs-only changes must skip completion workflow subagent passes (`simplify`, `test-coverage-audit`, `task-finish-review`) unless the user explicitly asks to run them.
 - Other clearly small, low-risk changes (for example comment-only edits or narrowly scoped mechanical updates with no behavior change) may skip completion workflow subagent passes.
-- Always keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current for every coding task (single-agent and multi-agent): claim scope before first edit, list planned symbol add/rename/delete work, and remove your entry when done.
-- Any spawned subagent that may review or edit code must check `COORDINATION_LEDGER.md` first and must not overwrite/revert work owned by another active entry.
+- COORDINATION_LEDGER hard gate for every coding task (single-agent and multi-agent): before any code change, add or update your active entry in `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` with scope and planned symbol add/rename/delete work; do not edit code, generate code, or apply patches until that entry exists; if you cannot update the ledger first, stop and escalate; keep the entry current as scope changes, and remove your entry when done.
+- Any spawned subagent that may review or edit code must read `COORDINATION_LEDGER.md`, follow the same hard gate before making code changes, and must not overwrite/revert work owned by another active entry.
 - Spawned subagents must not run repository verification/build/test commands by default (for example `pnpm -s verify:required`, `pnpm -s verify:required:ci`, `pnpm -s verify:required:full`, `pnpm test`, `pnpm build`, `forge test`); parent agents own those runs and execute them during completion workflow passes (`simplify`, `test-coverage-audit`, `task-finish-review`) or when explicitly delegated.
 - Release ownership is user-operated: do not run release/version-bump/publish flows (including tag-push release triggers) unless the user explicitly asks in the current turn.
 - Never lower CI coverage minimums without explicit user approval in the current chat; keep both `COVERAGE_LINES_MIN` and `COVERAGE_BRANCHES_MIN` at `85` or higher.
@@ -65,7 +65,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - If you generate temporary files for testing or exploration (for example scratch JSON outputs, archives, or local metadata), remove them before handoff so they are not committed.
 - If unrelated breakage appears in files you did not touch, keep working on your scoped changes; only take ownership of fixing it when your edits caused it or the user explicitly asks.
 - Do not introduce "break compile now, fix later" phases during shared work.
-- Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current: claim scope before coding, list planned symbol add/rename/delete work, and remove your entry when done.
+- For coding tasks, follow the COORDINATION_LEDGER hard gate above before making any code change.
 - When a change can affect compilation (especially interface, signature, or struct changes), update all affected contracts/interfaces/call sites in the same change set so the tree stays compiling.
 - For multi-file or high-risk work, add an execution plan in `agent-docs/exec-plans/active/`.
 - For architecture-significant code changes, update matching docs in `agent-docs/` and `agent-docs/index.md`.

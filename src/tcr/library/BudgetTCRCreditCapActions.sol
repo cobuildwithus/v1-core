@@ -30,7 +30,11 @@ library BudgetTCRCreditCapActions {
             hasRunwayCap = cap != 0;
         } catch (bytes memory reason) {
             _emitBudgetCreditCapEnforcementFailed(
-                itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
+                itemID,
+                budgetTreasury,
+                budgetTreasury,
+                IBudgetTreasury.runwayCap.selector,
+                reason
             );
         }
 
@@ -65,7 +69,11 @@ library BudgetTCRCreditCapActions {
             bool enabled = received < runwayCap;
             try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
                 _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
+                    itemID,
+                    budgetTreasury,
+                    address(goalFlow),
+                    IFlow.setRecipientEnabled.selector,
+                    reason
                 );
             }
             return;
@@ -76,7 +84,15 @@ library BudgetTCRCreditCapActions {
             coverage = cov;
         } catch (bytes memory reason) {
             if (hasRunwayCap) {
-                if (!_bestEffortDisableRecipientWhenRunwayExceeded(goalFlow, itemID, budgetTreasury, childFlow, runwayCap)) {
+                if (
+                    !_bestEffortDisableRecipientWhenRunwayExceeded(
+                        goalFlow,
+                        itemID,
+                        budgetTreasury,
+                        childFlow,
+                        runwayCap
+                    )
+                ) {
                     _emitBudgetCreditCapEnforcementFailed(
                         itemID,
                         budgetTreasury,
@@ -103,7 +119,15 @@ library BudgetTCRCreditCapActions {
             duration = dur;
         } catch (bytes memory reason) {
             if (hasRunwayCap) {
-                if (!_bestEffortDisableRecipientWhenRunwayExceeded(goalFlow, itemID, budgetTreasury, childFlow, runwayCap)) {
+                if (
+                    !_bestEffortDisableRecipientWhenRunwayExceeded(
+                        goalFlow,
+                        itemID,
+                        budgetTreasury,
+                        childFlow,
+                        runwayCap
+                    )
+                ) {
                     _emitBudgetCreditCapEnforcementFailed(
                         itemID,
                         budgetTreasury,
@@ -135,7 +159,11 @@ library BudgetTCRCreditCapActions {
         if (effectiveCap == 0) {
             try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
                 _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
+                    itemID,
+                    budgetTreasury,
+                    address(goalFlow),
+                    IFlow.setRecipientEnabled.selector,
+                    reason
                 );
             }
             return;
@@ -158,7 +186,11 @@ library BudgetTCRCreditCapActions {
         bool enabledForEffectiveCap = receivedForEffectiveCap < effectiveCap;
         try goalFlow.setRecipientEnabled(itemID, enabledForEffectiveCap) {} catch (bytes memory reason) {
             _emitBudgetCreditCapEnforcementFailed(
-                itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
+                itemID,
+                budgetTreasury,
+                address(goalFlow),
+                IFlow.setRecipientEnabled.selector,
+                reason
             );
         }
     }
@@ -187,7 +219,11 @@ library BudgetTCRCreditCapActions {
         if (received >= runwayCap) {
             try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
                 _emitBudgetCreditCapEnforcementFailed(
-                    itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
+                    itemID,
+                    budgetTreasury,
+                    address(goalFlow),
+                    IFlow.setRecipientEnabled.selector,
+                    reason
                 );
             }
         }

@@ -19,10 +19,7 @@ library BudgetTCRTerminalActions {
         bytes reason
     );
 
-    function resolveBudgetTerminalStateBestEffort(
-        bytes32 itemID,
-        IBudgetTreasury treasury
-    ) external returns (bool) {
+    function resolveBudgetTerminalStateBestEffort(bytes32 itemID, IBudgetTreasury treasury) external returns (bool) {
         if (treasury.resolved()) return true;
 
         treasury.forceFlowRateToZero();
@@ -72,5 +69,4 @@ library BudgetTCRTerminalActions {
             return false;
         }
     }
-
 }

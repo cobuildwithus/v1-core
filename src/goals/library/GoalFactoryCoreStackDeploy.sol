@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import { ISuperfluid, ISuperToken, ISuperTokenFactory } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
@@ -29,6 +30,8 @@ library GoalFactoryCoreStackDeploy {
         address flowImpl;
         ISuperfluid superfluidHost;
         address budgetTcrFactory;
+        address budgetStakeLedgerImpl;
+        address goalFlowAllocationLedgerPipelineImpl;
         address cobuildToken;
         uint8 cobuildDecimals;
         uint256 goalRevnetId;
@@ -88,10 +91,13 @@ library GoalFactoryCoreStackDeploy {
             request.cobuildDecimals
         );
 
-        out.budgetStakeLedger = new BudgetStakeLedger(address(out.goalTreasury));
-        GoalFlowAllocationLedgerPipeline allocationPipeline = new GoalFlowAllocationLedgerPipeline(
-            address(out.budgetStakeLedger)
+        out.budgetStakeLedger = BudgetStakeLedger(Clones.clone(request.budgetStakeLedgerImpl));
+        out.budgetStakeLedger.initialize(address(out.goalTreasury));
+
+        GoalFlowAllocationLedgerPipeline allocationPipeline = GoalFlowAllocationLedgerPipeline(
+            Clones.clone(request.goalFlowAllocationLedgerPipelineImpl)
         );
+        allocationPipeline.initialize(address(out.budgetStakeLedger));
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
 

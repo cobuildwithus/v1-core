@@ -42,12 +42,12 @@ library TreasuryPostDeadlineFinalize {
         if (pendingAssertionId != bytes32(0)) {
             (assertionResolved, assertionTruthful, failClosedReason) = TreasurySuccessAssertions
                 .pendingSuccessAssertionResolutionWithReason(
-                successAssertions,
-                pendingAssertionId,
-                successResolver,
-                successAssertionLiveness,
-                successAssertionBond
-            );
+                    successAssertions,
+                    pendingAssertionId,
+                    successResolver,
+                    successAssertionLiveness,
+                    successAssertionBond
+                );
         }
 
         decision = decide(

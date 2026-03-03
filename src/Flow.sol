@@ -95,8 +95,14 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
         Config storage cfg = _cfgStorage();
         RecipientsState storage recipientsState = _recipientsStorage();
-        address recipientAddress =
-            FlowRecipients.addRecipient(recipientsState, _recipientId, _recipient, _metadata, address(this), cfg.managerRewardPool);
+        address recipientAddress = FlowRecipients.addRecipient(
+            recipientsState,
+            _recipientId,
+            _recipient,
+            _metadata,
+            address(this),
+            cfg.managerRewardPool
+        );
 
         emit RecipientCreated(_recipientId, recipientsState.recipients[_recipientId], msg.sender);
 

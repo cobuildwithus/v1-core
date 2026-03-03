@@ -149,8 +149,9 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (amount > staked - _jurorLockedGoal[msg.sender]) revert JUROR_WITHDRAWAL_LOCKED();
 
         uint256 accountGoalStakeWeight = _accountGoalStakeWeight[msg.sender];
-        uint256 weightReduction =
-            amount == staked ? accountGoalStakeWeight : Math.mulDiv(accountGoalStakeWeight, amount, staked);
+        uint256 weightReduction = amount == staked
+            ? accountGoalStakeWeight
+            : Math.mulDiv(accountGoalStakeWeight, amount, staked);
 
         _stakedGoal[msg.sender] = staked - amount;
         _accountGoalStakeWeight[msg.sender] = accountGoalStakeWeight - weightReduction;
@@ -588,15 +589,11 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         return _underwriterWithdrawalPrepareCursor[underwriter];
     }
 
-    function underwriterWithdrawalPreparedForResolvedAt(
-        address underwriter
-    ) external view override returns (uint64) {
+    function underwriterWithdrawalPreparedForResolvedAt(address underwriter) external view override returns (uint64) {
         return _underwriterWithdrawalPreparedForResolvedAt[underwriter];
     }
 
-    function underwriterWithdrawalPreparedBudgetCount(
-        address underwriter
-    ) external view override returns (uint256) {
+    function underwriterWithdrawalPreparedBudgetCount(address underwriter) external view override returns (uint256) {
         return _underwriterWithdrawalPreparedBudgetCount[underwriter];
     }
 
@@ -779,8 +776,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         }
 
         IBudgetTreasury.BudgetState state = budgetTreasury.state();
-        bool slashRequired =
-            activatedAt != 0 && (state == IBudgetTreasury.BudgetState.Failed || state == IBudgetTreasury.BudgetState.Expired);
+        bool slashRequired = activatedAt != 0 &&
+            (state == IBudgetTreasury.BudgetState.Failed || state == IBudgetTreasury.BudgetState.Expired);
         bool hasSlashableExposure = hasCurrentCoverage || hasEscrowExposure;
 
         if (!slashRequired || !hasSlashableExposure) return;

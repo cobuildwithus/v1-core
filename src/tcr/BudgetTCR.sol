@@ -47,7 +47,8 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
         }
-        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
+        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0))
+            revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
         if (registryConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
@@ -254,13 +255,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
 
             attempted += 1;
-            _bestEffortEnforceBudgetCreditCap(
-                itemID,
-                deployment.childFlow,
-                budgetTreasury,
-                budgetStakeLedger,
-                lambda
-            );
+            _bestEffortEnforceBudgetCreditCap(itemID, deployment.childFlow, budgetTreasury, budgetStakeLedger, lambda);
 
             bool success;
             try IBudgetTreasury(budgetTreasury).sync() {
@@ -307,10 +302,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         return BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury);
     }
 
-    function _removeRecipientFromGoalFlowIfPresent(
-        bytes32 itemID,
-        address childFlow
-    ) internal returns (bool) {
+    function _removeRecipientFromGoalFlowIfPresent(bytes32 itemID, address childFlow) internal returns (bool) {
         return BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(goalFlow, itemID, childFlow);
     }
 

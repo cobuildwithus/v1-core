@@ -60,8 +60,10 @@ library GoalFlowLedgerMode {
     bytes32 internal constant CHILD_SYNC_SKIP_GAS_BUDGET = "GAS_BUDGET";
 
     function syncMinGasReserve(uint256 gasAtStart) internal pure returns (uint256) {
-        return (gasAtStart * _SYNC_GAS_HEADROOM_BPS) / FlowProtocolConstants.BPS_SCALE_UINT256
-            + _SYNC_MIN_FINALIZATION_GAS;
+        return
+            (gasAtStart * _SYNC_GAS_HEADROOM_BPS) /
+            FlowProtocolConstants.BPS_SCALE_UINT256 +
+            _SYNC_MIN_FINALIZATION_GAS;
     }
 
     function childSyncGasStipend() internal pure returns (uint256) {

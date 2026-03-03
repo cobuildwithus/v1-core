@@ -118,11 +118,7 @@ interface IGoalTreasury is
         uint256 superTokenAmount,
         uint256 totalRaised
     );
-    event ResidualSettled(
-        GoalState indexed finalState,
-        uint256 totalSettled,
-        uint256 controllerBurnAmount
-    );
+    event ResidualSettled(GoalState indexed finalState, uint256 totalSettled, uint256 controllerBurnAmount);
     event GoalFinalized(GoalState finalState);
     event TerminalSideEffectFailed(uint8 indexed operation, bytes reason);
     event StateTransition(GoalState previousState, GoalState newState);
@@ -167,9 +163,7 @@ interface IGoalTreasury is
     function processHookSplit(
         address sourceToken,
         uint256 sourceAmount
-    )
-        external
-        returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount);
+    ) external returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount);
     function sync() external;
     function retryTerminalSideEffects() external;
 

@@ -14,10 +14,12 @@ import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
+import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
@@ -37,6 +39,8 @@ contract DeployGoalFactory is DeployScript {
     uint256 internal cobuildRevnetIdOut;
 
     address internal goalTreasuryImplOut;
+    address internal budgetStakeLedgerImplOut;
+    address internal goalFlowAllocationLedgerPipelineImplOut;
     address internal premiumEscrowImplOut;
     address internal underwriterSlasherRouterImplOut;
     address internal customFlowImplOut;
@@ -78,6 +82,9 @@ contract DeployGoalFactory is DeployScript {
         bytes32 fakeUmaDomainId = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
+        BudgetStakeLedger budgetStakeLedgerImpl = new BudgetStakeLedger(deployerAddress);
+        GoalFlowAllocationLedgerPipeline goalFlowAllocationLedgerPipelineImpl =
+            new GoalFlowAllocationLedgerPipeline(address(0));
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
@@ -112,6 +119,8 @@ contract DeployGoalFactory is DeployScript {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
             address(premiumEscrowImpl),
             address(underwriterSlasherRouterImpl),
             address(depositStrategy),
@@ -128,6 +137,8 @@ contract DeployGoalFactory is DeployScript {
         cobuildRevnetIdOut = cobuildRevnetId;
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
+        budgetStakeLedgerImplOut = address(budgetStakeLedgerImpl);
+        goalFlowAllocationLedgerPipelineImplOut = address(goalFlowAllocationLedgerPipelineImpl);
         premiumEscrowImplOut = address(premiumEscrowImpl);
         underwriterSlasherRouterImplOut = address(underwriterSlasherRouterImpl);
         customFlowImplOut = address(flowImpl);
@@ -155,6 +166,8 @@ contract DeployGoalFactory is DeployScript {
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
+        console2.log("BudgetStakeLedger impl:", budgetStakeLedgerImplOut);
+        console2.log("GoalFlowAllocationLedgerPipeline impl:", goalFlowAllocationLedgerPipelineImplOut);
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
         console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
@@ -196,6 +209,8 @@ contract DeployGoalFactory is DeployScript {
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
+        _writeAddressLine(filePath, "BudgetStakeLedgerImpl", budgetStakeLedgerImplOut);
+        _writeAddressLine(filePath, "GoalFlowAllocationLedgerPipelineImpl", goalFlowAllocationLedgerPipelineImplOut);
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
         _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);

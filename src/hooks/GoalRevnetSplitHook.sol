@@ -121,21 +121,13 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
 
         IERC20 sourceToken = IERC20(context.token);
         _safeTransferToGoalTreasuryExact(sourceToken, context.amount);
-        (
-            IGoalTreasury.HookSplitAction action,
-            uint256 superTokenAmount,
-            uint256 burnAmount
-        ) = goalTreasury.processHookSplit(context.token, context.amount);
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) = goalTreasury
+            .processHookSplit(context.token, context.amount);
 
         bool funded = action == IGoalTreasury.HookSplitAction.Funded;
 
         if (action == IGoalTreasury.HookSplitAction.SuccessSettled) {
-            emit GoalSuccessSettlementProcessed(
-                context.projectId,
-                context.token,
-                context.amount,
-                burnAmount
-            );
+            emit GoalSuccessSettlementProcessed(context.projectId, context.token, context.amount, burnAmount);
         }
 
         emit GoalFundingProcessed(

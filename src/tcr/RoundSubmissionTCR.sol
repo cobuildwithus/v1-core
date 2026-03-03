@@ -142,7 +142,11 @@ contract RoundSubmissionTCR is GeneralizedTCR {
     }
 
     /// @inheritdoc GeneralizedTCR
-    function _deriveItemManager(bytes memory itemData, bytes32, address) internal pure override returns (address manager_) {
+    function _deriveItemManager(
+        bytes memory itemData,
+        bytes32,
+        address
+    ) internal pure override returns (address manager_) {
         (, , manager_) = abi.decode(itemData, (uint8, bytes32, address));
     }
 }
