@@ -1,6 +1,6 @@
 # Protocol Deep Dive for Logic Audit
 
-Last verified: 2026-03-01
+Last verified: 2026-03-03
 
 ## Why this document exists
 
@@ -100,11 +100,11 @@ Transitions:
 
 - `Funding -> Active`
   - Trigger: `sync()`.
-  - Guard: before/at funding deadline and activation threshold reached.
+  - Guard: activation threshold reached while still in `Funding` (including post-`fundingDeadline` sync calls).
 
 - `Funding -> Expired`
   - Trigger: `sync()`.
-  - Guard: funding deadline passed before activation threshold.
+  - Guard: funding window has ended and activation threshold is still unmet at sync time.
 
 - `Active -> Succeeded`
   - Trigger: `resolveSuccess()` (resolver-only).
@@ -253,7 +253,7 @@ Juror locks:
 | Hook funding accepted | Goal not terminal; before deadline; not in post-min-raise-deadline-below-min terminalizing condition. |
 | Goal activation | Flow balance `>= minRaise` under deadline constraints. |
 | Goal success | Goal `Active`; pending assertion; assertion resolves truthful. |
-| Budget activation | Budget `Funding`; `now <= fundingDeadline`; flow balance `>= activationThreshold`. |
+| Budget activation | Budget `Funding`; flow balance `>= activationThreshold` (including post-`fundingDeadline` sync if threshold is met before expiry finalization). |
 | Budget success | Budget `Active`; success resolution not disabled; resolver calls with truthful pending assertion. |
 | Budget manual failure | Controller-only; correct state/time gate; no pending success assertion for active failure path. |
 | Underwriter stake withdrawal | Goal resolved and caller has completed required `prepareUnderwriterWithdrawal` work for current epoch. |

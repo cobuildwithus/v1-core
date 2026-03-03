@@ -28,7 +28,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Goal and budget treasuries start in funding state, then activate or finalize based on thresholds and deadlines.
 - `sync()` is the permissionless best-next-action entrypoint:
-  - `Funding`: activate when threshold is met, otherwise expire once windows elapse.
+  - `Funding`: activate when threshold is met (including post-`fundingDeadline` sync calls while state is still `Funding`), otherwise expire once the funding window has ended and threshold remains unmet.
   - `Active`: sync flow-rate while time remains; at/after deadline:
     - goal treasuries resolve pending assertions deterministically (`Succeeded` when truthful, `Expired` when false/invalid, else remain active with zero target flow),
     - budget treasuries open a one-time post-deadline reassert grace when the first pending assertion settles false/invalid; if grace elapses without a new pending assertion (or the grace reassert settles false/invalid), state transitions to `Expired`.
