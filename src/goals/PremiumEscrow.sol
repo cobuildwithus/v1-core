@@ -39,6 +39,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error GOAL_TREASURY_UNAVAILABLE();
     error GOAL_NOT_SUCCEEDED(IGoalTreasury.GoalState state);
     error GOAL_NOT_EXPIRED(IGoalTreasury.GoalState state);
+    error BUDGET_NOT_SUCCEEDED(IBudgetTreasury.BudgetState state);
 
     event PremiumIndexed(
         uint256 indexed distributedPremium,
@@ -249,16 +250,24 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     function claim(address to) external override nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ADDRESS_ZERO();
 
+        // Premium is a success fee and only claimable after budget terminalization as succeeded.
+        if (!closed) revert NOT_CLOSED();
+        IBudgetTreasury.BudgetState budgetFinalState = finalState;
+        if (budgetFinalState != IBudgetTreasury.BudgetState.Succeeded) {
+            revert BUDGET_NOT_SUCCEEDED(budgetFinalState);
+        }
+
         _requireGoalSucceeded();
 
-        _checkpoint(msg.sender, !closed);
+        // Coverage is frozen on close, so do not re-sync post-close.
+        _checkpoint(msg.sender, false);
 
         AccountState storage accountState = _accountStates[msg.sender];
         uint256 claimableAmount = accountState.claimable;
         if (claimableAmount == 0) return 0;
 
         uint256 available = premiumToken.balanceOf(address(this));
-        amount = claimableAmount > available ? available : claimableAmount;
+        amount = Math.min(claimableAmount, available);
         if (amount == 0) return 0;
 
         accountState.claimable = claimableAmount - amount;
@@ -271,7 +280,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     }
 
     /// @notice Sweeps unclaimable premium to the goal flow once the goal has expired.
-    /// @dev Premiums are escrowed for underwriters and only become claimable on goal success.
+    /// @dev Premiums are escrowed for underwriters and only become claimable on goal success and
+    ///      budget success.
     ///      On goal expiry, these premiums are intentionally made unclaimable and should be burned.
     ///      This function forwards the SuperToken to the goal flow; anyone can then call
     ///      `GoalTreasury.settleLateResidual()` to sweep/downgrade/burn. We attempt this burn
@@ -283,21 +293,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         // Ensure any newly received premium is accounted for before sweeping.
         _checkpointGlobal();
 
-        amount = premiumToken.balanceOf(address(this));
-        if (amount != 0) {
-            premiumToken.safeTransfer(goalFlow, amount);
-            if (address(managerRewardPool) == address(0)) {
-                accountedBalance = premiumToken.balanceOf(address(this));
-            }
-
-            emit UnclaimablePremiumSwept(goalFlow, amount);
-        }
-
-        if (address(managerRewardPool) != address(0)) {
-            // Rebaseline to cumulative pool receipts so post-burn checkpoints do not
-            // attempt to recycle already-swept rounding dust.
-            accountedManagerRewardReceived = managerRewardPool.getTotalAmountReceivedByMember(address(this));
-        }
+        amount = _sweepEscrowedPremiumToGoalFlow();
 
         // Best-effort burn: this will sweep the goal flow balance (including the swept premium)
         // and burn the underlying via the goal's revnet controller.
@@ -328,7 +324,29 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         // Freeze coverage to prevent post-close premium accrual; late inflows recycle to goal flow.
         totalCoverage = 0;
 
+        // Pattern B: premium is only payable if the budget succeeds.
+        // If failed/expired, recycle escrowed premium to the goal flow.
+        if (state_ != IBudgetTreasury.BudgetState.Succeeded) {
+            _sweepEscrowedPremiumToGoalFlow();
+        }
+
         emit Closed(state_, activatedAt_, closedAt_);
+    }
+
+    function _sweepEscrowedPremiumToGoalFlow() internal returns (uint256 amount) {
+        amount = premiumToken.balanceOf(address(this));
+        if (amount != 0) {
+            premiumToken.safeTransfer(goalFlow, amount);
+            emit UnclaimablePremiumSwept(goalFlow, amount);
+        }
+
+        // Rebaseline receipt accounting so future checkpoints do not attempt to recycle already-swept dust.
+        ISuperfluidPool managerRewardDistributionPool = managerRewardPool;
+        if (address(managerRewardDistributionPool) != address(0)) {
+            accountedManagerRewardReceived = managerRewardDistributionPool.getTotalAmountReceivedByMember(address(this));
+        } else {
+            accountedBalance = premiumToken.balanceOf(address(this));
+        }
     }
 
     function slash(address underwriter) external override nonReentrant returns (uint256 slashWeight) {
