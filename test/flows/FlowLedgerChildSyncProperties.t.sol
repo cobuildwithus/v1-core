@@ -35,6 +35,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     FlowLedgerPropPremiumEscrow internal premiumEscrow;
     FlowLedgerPropChildFlow internal childFlow;
     FlowLedgerPropChildStrategy internal childStrategy;
+    GoalFlowAllocationLedgerPipeline internal allocationPipeline;
 
     function setUp() public override {
         super.setUp();
@@ -49,7 +50,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         strategy.setStakeVault(address(stakeVault));
         strategy.setCanAllocate(parentKey, allocator, true);
 
-        GoalFlowAllocationLedgerPipeline allocationPipeline = new GoalFlowAllocationLedgerPipeline(address(ledger));
+        allocationPipeline = new GoalFlowAllocationLedgerPipeline(address(ledger));
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
         strategies[0] = IAllocationStrategy(address(strategy));
         flow = _deployFlowWithConfig(
@@ -412,6 +413,111 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         assertTrue(found);
         assertEq(childFlow.syncCallCount(), 0);
+    }
+
+    function test_allocate_childSyncDebt_blocksFollowupAllocationsUntilRepaired() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        _allocateParentSingleRecipient();
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        GoalFlowAllocationLedgerPipeline.ChildSyncDebtView memory debt =
+            allocationPipeline.childSyncDebt(allocator, address(budgetTreasury));
+        assertTrue(debt.exists);
+        assertEq(debt.childFlow, address(childFlow));
+        assertEq(debt.childStrategy, address(childStrategy));
+        assertEq(debt.allocationKey, parentKey);
+        assertEq(debt.reason, bytes32("SYNC_FAILED"));
+
+        uint256 checkpointsBefore = ledger.checkpointCallCount();
+        bytes[][] memory allocationData = _parentAllocationData();
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+        _setWeights(30e18);
+        _allocateWithPrevStateForStrategyExpectRevert(
+            allocator,
+            allocationData,
+            address(strategy),
+            address(flow),
+            recipientIds,
+            scaled,
+            abi.encodeWithSelector(
+                GoalFlowAllocationLedgerPipeline.ACCOUNT_HAS_CHILD_SYNC_DEBT.selector,
+                allocator,
+                1
+            )
+        );
+        assertEq(ledger.checkpointCallCount(), checkpointsBefore);
+
+        childFlow.setRevertSync(false);
+        bool repaired = allocationPipeline.repairChildSyncDebt(allocator, address(budgetTreasury));
+        assertTrue(repaired);
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+
+        _setWeights(30e18);
+        _allocateParentSingleRecipient();
+    }
+
+    function test_repairChildSyncDebt_clearsWhenChildCommitMissing() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+        _setWeights(40e18);
+        _allocateParentSingleRecipient();
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+
+        childFlow.setCommit(bytes32(0));
+        bool cleared = allocationPipeline.repairChildSyncDebt(allocator, address(budgetTreasury));
+        assertTrue(cleared);
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+    }
+
+    function test_repairChildSyncDebt_clearsWhenChildTargetUnavailable() public {
+        FlowLedgerPropChildStrategy unavailableChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow unavailableChildFlow = new FlowLedgerPropChildFlow(address(unavailableChildStrategy));
+        FlowLedgerPropMutableBudgetTreasury unavailableBudgetTreasury =
+            new FlowLedgerPropMutableBudgetTreasury(address(unavailableChildFlow), address(premiumEscrow));
+
+        _registerBudgetRecipient(
+            SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(unavailableBudgetTreasury)
+        );
+
+        bytes[][] memory allocationData = _parentAllocationData();
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = SECOND_BUDGET_RECIPIENT_ID;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = FULL_SCALED;
+
+        _setWeights(80e18);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        unavailableChildFlow.setCommit(keccak256("child-commit"));
+        unavailableChildFlow.setRevertSync(true);
+        _setWeights(40e18);
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        GoalFlowAllocationLedgerPipeline.ChildSyncDebtView memory debt =
+            allocationPipeline.childSyncDebt(allocator, address(unavailableBudgetTreasury));
+        assertTrue(debt.exists);
+        assertEq(debt.reason, bytes32("SYNC_FAILED"));
+
+        unavailableBudgetTreasury.setFlow(address(0xBEEF));
+
+        bool cleared = allocationPipeline.repairChildSyncDebt(allocator, address(unavailableBudgetTreasury));
+        assertTrue(cleared);
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
     }
 
     function testFuzz_allocate_goalResolved_childCommitNonZero_changedStake_doesNotCheckpointOrRequirePrevState(
@@ -829,6 +935,20 @@ contract FlowLedgerPropBudgetTreasury {
     constructor(address flow_, address premiumEscrow_) {
         flow = flow_;
         premiumEscrow = premiumEscrow_;
+    }
+}
+
+contract FlowLedgerPropMutableBudgetTreasury {
+    address public flow;
+    address public premiumEscrow;
+
+    constructor(address flow_, address premiumEscrow_) {
+        flow = flow_;
+        premiumEscrow = premiumEscrow_;
+    }
+
+    function setFlow(address flow_) external {
+        flow = flow_;
     }
 }
 

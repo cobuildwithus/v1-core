@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 ## Purpose
 
@@ -46,6 +46,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `src/tcr/BudgetTCR.sol`
   - `src/tcr/BudgetTCRDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
+  - `src/tcr/AllocationMechanismTCR.sol` (active mechanism registry with hard max of 7 active recipients)
 - Budget listing validation helpers:
   - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Supporting modules:
@@ -69,7 +70,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
 2. Flow rate and child synchronization
 - Flow-rate updates use `FlowRates` and `FlowPools` helpers.
 - Parent-driven child flow-rate queueing is removed from `Flow`; child recipients track allocation units while child `flowOperator` roles (typically budget treasuries) own target-rate mutation.
-- Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` with best-effort call semantics and explicit observability events.
+- Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` with best-effort per-target semantics and explicit observability events.
+- Gas-budget skips and failed child sync attempts open per-account child-sync debt in the pipeline.
+- While child-sync debt exists, checkpoint-requiring allocations for that account fail closed until repaired or cleared.
+- Child-sync debt repair is permissionless per budget via `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
 - Init-only flow deployment knobs:
   - `flowImpl` and `managerRewardPoolFlowRatePpm` are configured
     only at initialization time.
@@ -214,11 +218,13 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Pipeline instances with `allocationLedger == 0` are explicit no-op mode and do not checkpoint.
 - Goal-flow ledger checkpoint writes and child-sync enforcement/execution are delegated to the configured post-commit
   pipeline (`src/hooks/GoalFlowAllocationLedgerPipeline.sol`) after allocation commit success.
-- Architecture decision (2026-02-24): allocation child-sync side effects are best-effort and should not hard-revert
-  parent allocation maintenance paths. Failures are expected to remain observable and permissionlessly repairable via
-  `syncAllocation` / `clearStaleAllocation` worker/keeper calls.
-- Implementation note: unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`; failed child
-  sync calls emit `ChildAllocationSyncAttempted(..., success=false)` while parent allocation maintenance continues.
+- Architecture decision update (2026-03-03): allocation child-sync execution remains best-effort per target, but
+  unresolved child-sync debt fail-closes future checkpoint-requiring allocation commits for that account.
+- Implementation note:
+  - unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`,
+  - failed child sync calls emit `ChildAllocationSyncAttempted(..., success=false)`,
+  - gas-budget skips (`"GAS_BUDGET"`) and failed child sync attempts open debt with `ChildSyncDebtOpened`,
+  - successful child sync and permissionless per-budget repair clear debt with `ChildSyncDebtCleared`.
 - Goal-ledger compatible strategy capability is explicitly represented by
   `src/interfaces/IGoalLedgerStrategy.sol` (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `IHasStakeVault`).
 

@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -168,11 +168,16 @@ cobuild-protocol/
 - Pipeline instances with `allocationLedger == 0` are explicit no-op mode and do not checkpoint.
 - Goal-flow ledger checkpointing and child-sync enforcement/execution are executed through the configured
   post-commit pipeline (`src/hooks/GoalFlowAllocationLedgerPipeline.sol`) after successful allocation commits.
-- Architecture decision (2026-02-24): downstream allocation child-sync execution is best-effort and must not brick
-  upstream parent `allocate`/`syncAllocation` consumers. Child-target resolution/sync failures must stay observable
-  and recoverable via permissionless repair calls (`syncAllocation` / `clearStaleAllocation`) by workers/keepers.
-- Implementation note: unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`; failed child
-  sync calls emit `ChildAllocationSyncAttempted(..., success=false)` and parent allocation maintenance paths continue.
+- Architecture decision update (2026-03-03): downstream child-sync execution remains best-effort per target, but
+  allocator state is fail-closed when unresolved child-sync debt exists.
+- Implementation note:
+  - unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`,
+  - failed child sync calls emit `ChildAllocationSyncAttempted(..., success=false)`,
+  - gas-budget skips (`"GAS_BUDGET"`) and failed child sync calls open account-level debt tracked by
+    `GoalFlowAllocationLedgerPipeline`,
+  - subsequent checkpoint-requiring allocation commits for that account revert with
+    `ACCOUNT_HAS_CHILD_SYNC_DEBT` until debt is cleared by successful sync or
+    permissionless `repairChildSyncDebt(account, budgetTreasury)`.
 - Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol`
   (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `IHasStakeVault`).
 - Goal allocation pipeline underwriting hook:
@@ -192,8 +197,13 @@ cobuild-protocol/
   - Runtime setter entrypoints for those fields are intentionally removed from the flow surface.
 - Child-sync and treasury-sync recovery are permissionless and observable:
   - parent allocation maintenance uses `syncAllocation`/`clearStaleAllocation` with pipeline-driven child sync attempts.
+  - account-level child-sync debt repair is permissionless via
+    `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
   - budget treasury maintenance uses `BudgetTCR.syncBudgetTreasuries` best-effort batch sync.
   - per-target failures are emitted and recoverable without queue-based retries.
+- `AllocationMechanismTCR` enforces a hard active recipient cap (`MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`):
+  - activation reverts when the cap is reached,
+  - active count decrements on funding-stop and removal-finalization recipient removals.
 - Runtime budget recipient add/remove operations are executed directly by `BudgetTCR`, so goal-flow `recipientAdmin` should be configured to the per-goal `BudgetTCR`.
 - Child flow synchronization is explicit per recipient:
   - `ParentSynced` (default): parent allocation pipeline computes/applies child sync updates.

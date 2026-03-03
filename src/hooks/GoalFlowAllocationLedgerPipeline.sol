@@ -16,12 +16,40 @@ import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
  * @dev Bind one pipeline instance to one ledger via constructor (ledger may be zero to disable all behavior).
  */
 contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
+    struct ChildSyncDebtView {
+        bool exists;
+        address childFlow;
+        address childStrategy;
+        uint256 allocationKey;
+        bytes32 reason;
+    }
+
+    struct ChildSyncDebt {
+        address childFlow;
+        address childStrategy;
+        uint256 allocationKey;
+        bytes32 reason;
+        bool exists;
+    }
+
+    bytes32 private constant _CHILD_SYNC_SKIP_NO_COMMITMENT = "NO_COMMITMENT";
+    bytes32 private constant _CHILD_SYNC_SKIP_TARGET_UNAVAILABLE = "TARGET_UNAVAILABLE";
+    bytes32 private constant _CHILD_SYNC_DEBT_REASON_GAS_BUDGET = "GAS_BUDGET";
+    bytes32 private constant _CHILD_SYNC_DEBT_REASON_SYNC_FAILED = "SYNC_FAILED";
+    bytes32 private constant _CHILD_SYNC_DEBT_REASON_SYNCED = "SYNCED";
+    bytes32 private constant _CHILD_SYNC_DEBT_REASON_REPAIRED = "REPAIRED";
+
     address public immutable allocationLedger;
 
     mapping(address flow => GoalFlowLedgerMode.ValidationCache cache) private _validationCacheByFlow;
+    mapping(address account => uint256 debtCount) private _childSyncDebtCount;
+    mapping(address account => mapping(address budgetTreasury => ChildSyncDebt debt)) private _childSyncDebtByBudget;
 
     error INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(address strategy, uint256 allocationKey);
     error INVALID_BUDGET_PREMIUM_ESCROW(address budgetTreasury, address premiumEscrow);
+    error ACCOUNT_HAS_CHILD_SYNC_DEBT(address account, uint256 debtCount);
+    error CHILD_SYNC_DEBT_NOT_FOUND(address account, address budgetTreasury);
+    error CHILD_SYNC_DEBT_REPAIR_FAILED(address account, address budgetTreasury, bytes reason);
 
     event ChildAllocationSyncAttempted(
         address indexed budgetTreasury,
@@ -51,6 +79,20 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 parentAllocationKey,
         bytes32 reason
     );
+    event ChildSyncDebtOpened(
+        address indexed account,
+        address indexed budgetTreasury,
+        address indexed childFlow,
+        address childStrategy,
+        uint256 allocationKey,
+        bytes32 reason
+    );
+    event ChildSyncDebtCleared(
+        address indexed account,
+        address indexed budgetTreasury,
+        address indexed childFlow,
+        bytes32 reason
+    );
 
     constructor(address allocationLedger_) {
         allocationLedger = allocationLedger_;
@@ -58,6 +100,49 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
 
     function validateForFlow(address flow) external view override {
         _validateFlowView(flow);
+    }
+
+    function childSyncDebtCount(address account) external view returns (uint256) {
+        return _childSyncDebtCount[account];
+    }
+
+    function childSyncDebt(address account, address budgetTreasury) external view returns (ChildSyncDebtView memory debt) {
+        ChildSyncDebt storage storedDebt = _childSyncDebtByBudget[account][budgetTreasury];
+        debt = ChildSyncDebtView({
+            exists: storedDebt.exists,
+            childFlow: storedDebt.childFlow,
+            childStrategy: storedDebt.childStrategy,
+            allocationKey: storedDebt.allocationKey,
+            reason: storedDebt.reason
+        });
+    }
+
+    function repairChildSyncDebt(address account, address budgetTreasury) external returns (bool cleared) {
+        ChildSyncDebt storage debt = _childSyncDebtByBudget[account][budgetTreasury];
+        if (!debt.exists) {
+            revert CHILD_SYNC_DEBT_NOT_FOUND(account, budgetTreasury);
+        }
+
+        address[] memory singleBudget = new address[](1);
+        singleBudget[0] = budgetTreasury;
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions = GoalFlowLedgerMode.buildChildSyncActions(account, singleBudget);
+        GoalFlowLedgerMode.ChildSyncAction memory action = actions[0];
+        bytes32 skipReason = action.skipReason;
+
+        if (skipReason != bytes32(0)) {
+            if (_isChildSyncDebtClearSkipReason(skipReason)) {
+                _clearChildSyncDebt(account, budgetTreasury, action.target.childFlow, skipReason);
+                return true;
+            }
+            revert CHILD_SYNC_DEBT_REPAIR_FAILED(account, budgetTreasury, abi.encode(skipReason));
+        }
+
+        try ICustomFlow(action.target.childFlow).syncAllocation(action.target.childStrategy, action.target.allocationKey) {
+            _clearChildSyncDebt(account, budgetTreasury, action.target.childFlow, _CHILD_SYNC_DEBT_REASON_REPAIRED);
+            return true;
+        } catch (bytes memory reason) {
+            revert CHILD_SYNC_DEBT_REPAIR_FAILED(account, budgetTreasury, reason);
+        }
     }
 
     function onAllocationCommitted(
@@ -84,6 +169,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
             newWeight
         );
         if (!shouldCheckpoint) return;
+        _revertIfAccountHasChildSyncDebt(account);
 
         address[] memory changedBudgetTreasuries = _checkpointAndDetectBudgetDeltas(
             ledger,
@@ -171,6 +257,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions = GoalFlowLedgerMode.executeChildSyncBestEffort(
             actions
         );
+        _applyChildSyncDebtPolicy(account, ledgerExecutions);
         _emitChildSyncExecutions(ledgerExecutions, parentFlow, parentStrategy, parentAllocationKey);
     }
 
@@ -308,5 +395,106 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                 ++i;
             }
         }
+    }
+
+    function _applyChildSyncDebtPolicy(
+        address account,
+        GoalFlowLedgerMode.ChildSyncExecution[] memory ledgerExecutions
+    ) private {
+        uint256 executionCount = ledgerExecutions.length;
+        for (uint256 i = 0; i < executionCount; ) {
+            GoalFlowLedgerMode.ChildSyncExecution memory execution = ledgerExecutions[i];
+            address budgetTreasury = execution.budgetTreasury;
+            if (budgetTreasury == address(0)) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
+
+            if (execution.skipReason == _CHILD_SYNC_DEBT_REASON_GAS_BUDGET) {
+                _openChildSyncDebt(
+                    account,
+                    budgetTreasury,
+                    execution.childFlow,
+                    execution.childStrategy,
+                    execution.allocationKey,
+                    execution.skipReason
+                );
+            } else if (execution.attempted) {
+                if (execution.success) {
+                    _clearChildSyncDebt(account, budgetTreasury, execution.childFlow, _CHILD_SYNC_DEBT_REASON_SYNCED);
+                } else {
+                    _openChildSyncDebt(
+                        account,
+                        budgetTreasury,
+                        execution.childFlow,
+                        execution.childStrategy,
+                        execution.allocationKey,
+                        _CHILD_SYNC_DEBT_REASON_SYNC_FAILED
+                    );
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _isChildSyncDebtClearSkipReason(bytes32 skipReason) private pure returns (bool) {
+        return skipReason == _CHILD_SYNC_SKIP_TARGET_UNAVAILABLE || skipReason == _CHILD_SYNC_SKIP_NO_COMMITMENT;
+    }
+
+    function _revertIfAccountHasChildSyncDebt(address account) private view {
+        uint256 debtCount = _childSyncDebtCount[account];
+        if (debtCount != 0) revert ACCOUNT_HAS_CHILD_SYNC_DEBT(account, debtCount);
+    }
+
+    function _openChildSyncDebt(
+        address account,
+        address budgetTreasury,
+        address childFlow,
+        address childStrategy,
+        uint256 allocationKey,
+        bytes32 reason
+    ) private {
+        ChildSyncDebt storage debt = _childSyncDebtByBudget[account][budgetTreasury];
+        bool existed = debt.exists;
+        debt.childFlow = childFlow;
+        debt.childStrategy = childStrategy;
+        debt.allocationKey = allocationKey;
+        debt.reason = reason;
+        debt.exists = true;
+
+        if (!existed) {
+            unchecked {
+                _childSyncDebtCount[account] += 1;
+            }
+        }
+
+        emit ChildSyncDebtOpened(account, budgetTreasury, childFlow, childStrategy, allocationKey, reason);
+    }
+
+    function _clearChildSyncDebt(
+        address account,
+        address budgetTreasury,
+        address childFlow,
+        bytes32 reason
+    ) private {
+        ChildSyncDebt storage debt = _childSyncDebtByBudget[account][budgetTreasury];
+        if (!debt.exists) return;
+
+        address eventChildFlow = childFlow != address(0) ? childFlow : debt.childFlow;
+        delete _childSyncDebtByBudget[account][budgetTreasury];
+
+        uint256 debtCount = _childSyncDebtCount[account];
+        if (debtCount != 0) {
+            unchecked {
+                _childSyncDebtCount[account] = debtCount - 1;
+            }
+        }
+
+        emit ChildSyncDebtCleared(account, budgetTreasury, eventChildFlow, reason);
     }
 }

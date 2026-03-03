@@ -36,6 +36,8 @@ import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contract
  *         - Anyone can call `finalizeRemovedMechanism(itemID)` to remove recipient + refund escrow.
  */
 contract AllocationMechanismTCR is GeneralizedTCR {
+    uint256 public constant MAX_ACTIVE_MECHANISM_RECIPIENTS = 7;
+
     // ---------------------------
     // Types
     // ---------------------------
@@ -111,6 +113,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error MECHANISM_EXPIRED_UNDERFUNDED(uint64 fundingDeadline, uint256 minRequired, uint256 totalReceived);
     error FACTORY_NOT_ALLOWED(address factory);
     error INVALID_FACTORY(address factory);
+    error ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED(uint256 maxRecipients);
+    error ACTIVE_MECHANISM_RECIPIENT_COUNT_UNDERFLOW();
 
     // ---------------------------
     // Events
@@ -145,6 +149,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     mapping(bytes32 => bool) public activationQueued;
     mapping(bytes32 => bool) public removalQueued;
     mapping(bytes32 => MechanismDeployment) internal _mechanismDeployment;
+    uint256 public activeMechanismRecipientCount;
 
     constructor() {
         _disableInitializers();
@@ -198,6 +203,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (item.status != Status.Registered) revert NOT_REGISTERED();
         if (!activationQueued[itemID]) revert NOT_QUEUED();
         if (_mechanismDeployment[itemID].mechanism != address(0)) revert ALREADY_DEPLOYED();
+        if (activeMechanismRecipientCount >= MAX_ACTIVE_MECHANISM_RECIPIENTS) {
+            revert ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED(MAX_ACTIVE_MECHANISM_RECIPIENTS);
+        }
 
         MechanismListing memory listing = _decodeAndValidateListing(item.data);
 
@@ -242,6 +250,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         });
 
         budgetFlow.addRecipient(itemID, escrow, listing.metadata);
+        _incrementActiveMechanismRecipientCount();
 
         emit MechanismActivated(
             itemID,
@@ -259,10 +268,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         MechanismDeployment storage dep = _mechanismDeployment[itemID];
         if (dep.mechanism == address(0) || dep.fundingEscrow == address(0)) revert NOT_DEPLOYED();
 
-        if (dep.active) {
-            dep.active = false;
-            budgetFlow.removeRecipient(itemID);
-        }
+        _deactivateMechanismRecipient(itemID, dep);
         removalQueued[itemID] = false;
 
         _refundEscrow(itemID, dep.fundingEscrow);
@@ -432,10 +438,29 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         FundingStopReason reason,
         uint256 totalReceived
     ) internal {
-        if (!dep.active) return;
+        if (!_deactivateMechanismRecipient(itemID, dep)) return;
+        emit MechanismFundingStopped(itemID, reason, totalReceived);
+    }
+
+    function _deactivateMechanismRecipient(bytes32 itemID, MechanismDeployment storage dep) internal returns (bool) {
+        if (!dep.active) return false;
         dep.active = false;
         budgetFlow.removeRecipient(itemID);
-        emit MechanismFundingStopped(itemID, reason, totalReceived);
+        _decrementActiveMechanismRecipientCount();
+        return true;
+    }
+
+    function _incrementActiveMechanismRecipientCount() internal {
+        unchecked {
+            activeMechanismRecipientCount += 1;
+        }
+    }
+
+    function _decrementActiveMechanismRecipientCount() internal {
+        if (activeMechanismRecipientCount == 0) revert ACTIVE_MECHANISM_RECIPIENT_COUNT_UNDERFLOW();
+        unchecked {
+            activeMechanismRecipientCount -= 1;
+        }
     }
 
     function _isExpiredUnderfunded(MechanismListing memory listing, uint256 totalReceived) internal view returns (bool) {

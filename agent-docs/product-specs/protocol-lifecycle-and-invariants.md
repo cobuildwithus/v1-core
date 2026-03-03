@@ -20,6 +20,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Child flow creation via `addFlowRecipient(...)` also fixes child manager-reward routing (`managerRewardPool` + `managerRewardPoolFlowRatePpm`) at creation time.
 - Allocation updates must pass previous-state snapshot/commit validation and strategy allocation checks.
 - Allocation-ledger-driven child sync and treasury-driven flow-rate synchronization are part of runtime safety.
+- Goal allocation child sync is best-effort per target, but account-level child-sync debt fail-closes checkpoint-requiring
+  follow-up allocations until debt is cleared (successful sync) or repaired permissionlessly per budget via
+  `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
 
 ### Goal/Budget lifecycle
 
@@ -96,6 +99,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 - Request/challenge/dispute/timeout transitions are explicit and should preserve dispute accounting and status semantics.
 - Arbitrator token/arbitrable compatibility is a hard precondition.
+- `AllocationMechanismTCR` enforces `MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`; activation beyond cap reverts and active-recipient
+  count decrements when funding stops or finalized removals detach recipients.
 
 ## Behavioral Guarantees
 
