@@ -11,6 +11,7 @@ import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 
@@ -32,6 +33,7 @@ contract DeployGoalFactory is DeployScript {
     uint256 internal cobuildRevnetIdOut;
 
     address internal goalTreasuryImplOut;
+    address internal premiumEscrowImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
@@ -71,6 +73,7 @@ contract DeployGoalFactory is DeployScript {
         bytes32 fakeUmaDomainId = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
+        PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         CustomFlow flowImpl = new CustomFlow();
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
@@ -103,6 +106,7 @@ contract DeployGoalFactory is DeployScript {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
+            address(premiumEscrowImpl),
             address(depositStrategy),
             defaultAllocationMechanismAdmin,
             invalidRoundRewardsSink
@@ -117,6 +121,7 @@ contract DeployGoalFactory is DeployScript {
         cobuildRevnetIdOut = cobuildRevnetId;
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
+        premiumEscrowImplOut = address(premiumEscrowImpl);
         customFlowImplOut = address(flowImpl);
         splitHookImplOut = address(splitHookImpl);
         budgetTcrImplOut = address(budgetTcrImpl);
@@ -142,6 +147,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
+        console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
@@ -168,6 +174,7 @@ contract DeployGoalFactory is DeployScript {
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
+        _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);

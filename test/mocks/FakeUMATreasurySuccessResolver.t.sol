@@ -230,7 +230,7 @@ contract FakeResolverMockERC20 is ERC20 {
 
 contract DeployGoalFactoryScriptWiringTest is Test {
     uint256 internal constant PRIVATE_KEY = 0xA11CE;
-    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 8;
+    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 9;
     address internal constant REV_DEPLOYER = address(0x1001);
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant FAKE_UMA_OWNER = address(0xF00D);
@@ -275,6 +275,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
         assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
         assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
+        assertTrue(_stringContains(artifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
         assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
         assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));

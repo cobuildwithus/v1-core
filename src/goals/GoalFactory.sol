@@ -9,7 +9,6 @@ import { ISuperfluid } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
@@ -35,6 +34,7 @@ contract GoalFactory {
     address public immutable GOAL_TREASURY_IMPL;
     address public immutable FLOW_IMPL;
     address public immutable SPLIT_HOOK_IMPL;
+    address public immutable PREMIUM_ESCROW_IMPL;
 
     address public immutable DEFAULT_SUBMISSION_DEPOSIT_STRATEGY;
     address public immutable DEFAULT_ALLOCATION_MECHANISM_ADMIN;
@@ -142,6 +142,7 @@ contract GoalFactory {
         address goalTreasuryImpl,
         address flowImpl,
         address splitHookImpl,
+        address premiumEscrowImpl,
         address defaultSubmissionDepositStrategy,
         address defaultAllocationMechanismAdmin,
         address defaultInvalidRoundRewardsSink
@@ -153,12 +154,14 @@ contract GoalFactory {
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
         if (splitHookImpl == address(0)) revert ADDRESS_ZERO();
+        if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
         if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryImpl);
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
         if (splitHookImpl.code.length == 0) revert NOT_A_CONTRACT(splitHookImpl);
+        if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
@@ -174,6 +177,7 @@ contract GoalFactory {
         GOAL_TREASURY_IMPL = goalTreasuryImpl;
         FLOW_IMPL = flowImpl;
         SPLIT_HOOK_IMPL = splitHookImpl;
+        PREMIUM_ESCROW_IMPL = premiumEscrowImpl;
 
         DEFAULT_SUBMISSION_DEPOSIT_STRATEGY = defaultSubmissionDepositStrategy;
         DEFAULT_ALLOCATION_MECHANISM_ADMIN = defaultAllocationMechanismAdmin;
@@ -335,7 +339,6 @@ contract GoalFactory {
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address predictedBudgetTCR
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        address premiumEscrowImplementation = address(new PremiumEscrow());
         address underwriterSlasherRouter = address(
             new UnderwriterSlasherRouter(
                 IStakeVault(address(core.stakeVault)),
@@ -380,7 +383,7 @@ contract GoalFactory {
                     goalToken: revnet.goalToken,
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
-                    premiumEscrowImplementation: premiumEscrowImplementation,
+                    premiumEscrowImplementation: PREMIUM_ESCROW_IMPL,
                     underwriterSlasherRouter: underwriterSlasherRouter,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm
