@@ -18,7 +18,8 @@ import { CappedMath } from "./utils/CappedMath.sol";
 import { VotingTokenCompatibility } from "./utils/VotingTokenCompatibility.sol";
 import { GeneralizedTCRStorageV1 } from "./storage/GeneralizedTCRStorageV1.sol";
 import { TCRRounds } from "./library/TCRRounds.sol";
-import { GeneralizedTCRRuntimeLib } from "./library/GeneralizedTCRRuntimeLib.sol";
+import { GeneralizedTCRLifecycle } from "./library/GeneralizedTCRLifecycle.sol";
+import { GeneralizedTCRRequestState } from "./library/GeneralizedTCRRequestState.sol";
 import { TokenTransfers } from "../library/TokenTransfers.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -286,7 +287,7 @@ abstract contract GeneralizedTCR is
         if (block.timestamp - request.submissionTime <= challengePeriod) revert CHALLENGE_PERIOD_MUST_PASS();
         if (request.disputed) revert REQUEST_MUST_NOT_BE_DISPUTED();
 
-        Status requestType = GeneralizedTCRRuntimeLib.applyUnchallengedStatusChange(item);
+        Status requestType = GeneralizedTCRLifecycle.applyUnchallengedStatusChange(item);
         _handleSubmissionDepositOnResolution(_itemID, requestType, request);
 
         if (item.status == Status.Registered) {
@@ -403,7 +404,7 @@ abstract contract GeneralizedTCR is
         bool shouldUpdateItem = requestIndexBefore == 0 || item.status == Status.Absent;
         address manager_ = shouldUpdateItem ? _deriveItemManager(_item, _itemID, msg.sender) : address(0);
 
-        GeneralizedTCRRuntimeLib.OpenRequestResult memory openResult = GeneralizedTCRRuntimeLib.openRequest(
+        GeneralizedTCRLifecycle.OpenRequestResult memory openResult = GeneralizedTCRLifecycle.openRequest(
             item,
             itemList,
             itemIDtoIndex,
@@ -468,7 +469,7 @@ abstract contract GeneralizedTCR is
         Status requestType,
         Request storage request
     ) internal {
-        GeneralizedTCRRuntimeLib.DepositResolution memory resolution = GeneralizedTCRRuntimeLib.resolveSubmissionDeposit(
+        GeneralizedTCRLifecycle.DepositResolution memory resolution = GeneralizedTCRLifecycle.resolveSubmissionDeposit(
             submissionDeposits, items, itemID, submissionDepositStrategy, requestType, request
         );
         if (!resolution.shouldTransfer) return;
@@ -552,7 +553,7 @@ abstract contract GeneralizedTCR is
         Item storage item = items[itemID];
         Request storage request = item.requests[item.requests.length - 1];
 
-        (Status requestType, bool executed) = GeneralizedTCRRuntimeLib.applyRulingStatus(item, _ruling);
+        (Status requestType, bool executed) = GeneralizedTCRLifecycle.applyRulingStatus(item, _ruling);
         _handleSubmissionDepositOnResolution(itemID, requestType, request);
 
         if (executed) {
@@ -720,7 +721,7 @@ abstract contract GeneralizedTCR is
         )
     {
         Request storage request = items[_itemID].requests[_request];
-        requestType = GeneralizedTCRRuntimeLib.requestTypeFromMetaEvidence(request.metaEvidenceID);
+        requestType = GeneralizedTCRRequestState.requestTypeFromMetaEvidence(request.metaEvidenceID);
         challengePeriodDuration_ = request.challengePeriodDuration;
         disputeTimeout_ = request.disputeTimeout;
         arbitrationCost_ = request.arbitrationCost;
@@ -744,7 +745,7 @@ abstract contract GeneralizedTCR is
             bool canExecuteTimeout
         )
     {
-        return GeneralizedTCRRuntimeLib.getRequestState(items, _itemID, _request);
+        return GeneralizedTCRRequestState.getRequestState(items, _itemID, _request);
     }
 
     /**
