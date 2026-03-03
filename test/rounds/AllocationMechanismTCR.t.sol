@@ -32,6 +32,23 @@ contract MockAllocationRoundFactory is IAllocationRoundFactory {
     bytes32 public lastRoundId;
     address public lastBudgetTreasury;
     address public lastRoundOperator;
+    uint64 public lastStartAt;
+    uint64 public lastEndAt;
+    bytes public lastArbitratorExtraData;
+    string public lastRegistrationMetaEvidence;
+    string public lastClearingMetaEvidence;
+    address public lastSubmissionTcrGovernor;
+    uint256 public lastSubmissionBaseDeposit;
+    uint256 public lastRemovalBaseDeposit;
+    uint256 public lastSubmissionChallengeBaseDeposit;
+    uint256 public lastRemovalChallengeBaseDeposit;
+    uint256 public lastChallengePeriodDuration;
+    uint256 public lastVotingPeriod;
+    uint256 public lastVotingDelay;
+    uint256 public lastRevealPeriod;
+    uint256 public lastArbitrationCost;
+    uint256 public lastWrongOrMissedSlashBps;
+    uint256 public lastSlashCallerBountyBps;
 
     function setNextDeployedRound(DeployedRound calldata next) external {
         nextDeployedRound = next;
@@ -40,15 +57,32 @@ contract MockAllocationRoundFactory is IAllocationRoundFactory {
     function createRoundForBudget(
         bytes32 roundId,
         address budgetTreasury,
-        RoundTiming calldata,
+        RoundTiming calldata timing,
         address roundOperator,
-        SubmissionTcrConfig calldata,
-        ArbitratorConfig calldata
+        SubmissionTcrConfig calldata submissionConfig,
+        ArbitratorConfig calldata arbitratorConfig
     ) external returns (DeployedRound memory out) {
         createCalls += 1;
         lastRoundId = roundId;
         lastBudgetTreasury = budgetTreasury;
         lastRoundOperator = roundOperator;
+        lastStartAt = timing.startAt;
+        lastEndAt = timing.endAt;
+        lastArbitratorExtraData = submissionConfig.arbitratorExtraData;
+        lastRegistrationMetaEvidence = submissionConfig.registrationMetaEvidence;
+        lastClearingMetaEvidence = submissionConfig.clearingMetaEvidence;
+        lastSubmissionTcrGovernor = submissionConfig.governor;
+        lastSubmissionBaseDeposit = submissionConfig.submissionBaseDeposit;
+        lastRemovalBaseDeposit = submissionConfig.removalBaseDeposit;
+        lastSubmissionChallengeBaseDeposit = submissionConfig.submissionChallengeBaseDeposit;
+        lastRemovalChallengeBaseDeposit = submissionConfig.removalChallengeBaseDeposit;
+        lastChallengePeriodDuration = submissionConfig.challengePeriodDuration;
+        lastVotingPeriod = arbitratorConfig.votingPeriod;
+        lastVotingDelay = arbitratorConfig.votingDelay;
+        lastRevealPeriod = arbitratorConfig.revealPeriod;
+        lastArbitrationCost = arbitratorConfig.arbitrationCost;
+        lastWrongOrMissedSlashBps = arbitratorConfig.wrongOrMissedSlashBps;
+        lastSlashCallerBountyBps = arbitratorConfig.slashCallerBountyBps;
         out = nextDeployedRound;
     }
 }
@@ -399,6 +433,36 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.addItem(abi.encode(listing));
     }
 
+    function test_verifyItemData_rejectsInvalidRoundDeploymentConfigFields() public {
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 2)
+        );
+        listing.deployment.submissionTcrGovernor = address(0);
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+
+        listing = _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
+        listing.deployment.roundOperator = address(0);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+
+        listing = _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
+        listing.deployment.registrationMetaEvidence = "";
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+
+        listing = _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
+        listing.deployment.clearingMetaEvidence = "";
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        mechanism.addItem(abi.encode(listing));
+    }
+
     function test_activateRound_routesDeploymentThroughFactoryInListing() public {
         MockAllocationRoundFactory mockFactory = new MockAllocationRoundFactory();
         IAllocationRoundFactory.DeployedRound memory fakeDeployment = IAllocationRoundFactory.DeployedRound({
@@ -441,6 +505,86 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(deployment.submissionTCR, fakeDeployment.submissionTCR);
         assertEq(deployment.arbitrator, fakeDeployment.arbitrator);
         assertEq(deployment.depositStrategy, fakeDeployment.depositStrategy);
+    }
+
+    function test_activateRound_forwardsImmutableListingDeploymentConfig() public {
+        MockAllocationRoundFactory mockFactory = new MockAllocationRoundFactory();
+        IAllocationRoundFactory.DeployedRound memory fakeDeployment = IAllocationRoundFactory.DeployedRound({
+            prizeVault: address(0xFA01),
+            submissionTCR: address(0xFA02),
+            arbitrator: address(0xFA03),
+            depositStrategy: address(0xFA04),
+            underlyingToken: address(0xFA05),
+            superToken: address(0xFA06),
+            stakeVault: address(0xFA07),
+            goalTreasury: address(0xFA08),
+            goalFlow: address(0xFA09),
+            budgetFlow: address(0xFA10)
+        });
+        mockFactory.setNextDeployedRound(fakeDeployment);
+
+        vm.prank(governor);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 5),
+            uint64(block.timestamp + 40 days)
+        );
+        listing.deployment = AllocationMechanismTCR.RoundDeploymentConfig({
+            mechanismFactory: address(mockFactory),
+            arbitratorExtraData: hex"deadbeef",
+            registrationMetaEvidence: "custom-round-reg",
+            clearingMetaEvidence: "custom-round-clr",
+            submissionTcrGovernor: address(0x1111),
+            submissionBaseDeposit: 123,
+            removalBaseDeposit: 456,
+            submissionChallengeBaseDeposit: 789,
+            removalChallengeBaseDeposit: 321,
+            challengePeriodDuration: 3 days,
+            votingPeriod: 10,
+            votingDelay: 11,
+            revealPeriod: 12,
+            arbitrationCost: ARBITRATION_COST + 42,
+            wrongOrMissedSlashBps: 1337,
+            slashCallerBountyBps: 777,
+            roundOperator: address(0x2222)
+        });
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+        mechanism.activateRound(itemId);
+
+        assertEq(mockFactory.createCalls(), 1);
+        assertEq(mockFactory.lastStartAt(), listing.startAt);
+        assertEq(mockFactory.lastEndAt(), listing.endAt);
+        assertEq(mockFactory.lastRoundOperator(), listing.deployment.roundOperator);
+        assertEq(mockFactory.lastSubmissionTcrGovernor(), listing.deployment.submissionTcrGovernor);
+        assertEq(mockFactory.lastSubmissionBaseDeposit(), listing.deployment.submissionBaseDeposit);
+        assertEq(mockFactory.lastRemovalBaseDeposit(), listing.deployment.removalBaseDeposit);
+        assertEq(
+            mockFactory.lastSubmissionChallengeBaseDeposit(), listing.deployment.submissionChallengeBaseDeposit
+        );
+        assertEq(mockFactory.lastRemovalChallengeBaseDeposit(), listing.deployment.removalChallengeBaseDeposit);
+        assertEq(mockFactory.lastChallengePeriodDuration(), listing.deployment.challengePeriodDuration);
+        assertEq(mockFactory.lastVotingPeriod(), listing.deployment.votingPeriod);
+        assertEq(mockFactory.lastVotingDelay(), listing.deployment.votingDelay);
+        assertEq(mockFactory.lastRevealPeriod(), listing.deployment.revealPeriod);
+        assertEq(mockFactory.lastArbitrationCost(), listing.deployment.arbitrationCost);
+        assertEq(mockFactory.lastWrongOrMissedSlashBps(), listing.deployment.wrongOrMissedSlashBps);
+        assertEq(mockFactory.lastSlashCallerBountyBps(), listing.deployment.slashCallerBountyBps);
+        assertEq(
+            keccak256(mockFactory.lastArbitratorExtraData()), keccak256(listing.deployment.arbitratorExtraData)
+        );
+        assertEq(
+            keccak256(bytes(mockFactory.lastRegistrationMetaEvidence())),
+            keccak256(bytes(listing.deployment.registrationMetaEvidence))
+        );
+        assertEq(
+            keccak256(bytes(mockFactory.lastClearingMetaEvidence())),
+            keccak256(bytes(listing.deployment.clearingMetaEvidence))
+        );
     }
 
     function test_activateRound_revertsWhenListingFactoryIsNoLongerAllowlisted() public {
@@ -509,6 +653,63 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR.RoundDeployment memory deployment = mechanism.roundDeployment(itemId);
         assertEq(deployment.prizeVault, fakeDeployment.prizeVault);
         assertEq(deployment.submissionTCR, fakeDeployment.submissionTCR);
+    }
+
+    function test_activateRound_revertsWhenListingAlreadyEndedBeforeActivation() public {
+        MockAllocationRoundFactory mockFactory = new MockAllocationRoundFactory();
+        vm.prank(governor);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 2 days)
+        );
+        listing.deployment.mechanismFactory = address(mockFactory);
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.warp(uint256(listing.endAt) + 1);
+        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.ROUND_ALREADY_ENDED.selector, listing.endAt));
+        mechanism.activateRound(itemId);
+
+        assertEq(mockFactory.createCalls(), 0);
+        assertTrue(mechanism.activationQueued(itemId));
+    }
+
+    function test_activateRound_revertsWhenListingExpiredUnderfundedBeforeActivation() public {
+        MockAllocationRoundFactory mockFactory = new MockAllocationRoundFactory();
+        vm.prank(governor);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 3 days)
+        );
+        listing.deployment.mechanismFactory = address(mockFactory);
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 2 days);
+
+        vm.prank(alice);
+        bytes32 itemId = mechanism.addItem(abi.encode(listing));
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.warp(uint256(listing.fundingDeadline) + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AllocationMechanismTCR.ROUND_EXPIRED_UNDERFUNDED.selector,
+                listing.fundingDeadline,
+                listing.minBudgetFunding,
+                0
+            )
+        );
+        mechanism.activateRound(itemId);
+
+        assertEq(mockFactory.createCalls(), 0);
+        assertTrue(mechanism.activationQueued(itemId));
     }
 
     function test_activateAndFinalizeRemoval_endToEnd() public {
