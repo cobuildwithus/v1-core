@@ -9,6 +9,12 @@ import { TreasuryDonations } from "./library/TreasuryDonations.sol";
 
 abstract contract TreasuryBase is ReentrancyGuardUpgradeable, ITreasuryDonations {
     event FlowRateZeroingFailed(address indexed flow, bytes reason);
+    error ONLY_SELF();
+
+    modifier onlySelf() {
+        if (msg.sender != address(this)) revert ONLY_SELF();
+        _;
+    }
 
     function donateUnderlyingAndUpgrade(
         uint256 amount

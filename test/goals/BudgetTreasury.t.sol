@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { TreasuryBase } from "src/goals/TreasuryBase.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
@@ -1651,7 +1652,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_settleResidualToParentForFinalize_revertsWhenCallerNotSelf() public {
-        vm.expectRevert(BudgetTreasury.ONLY_SELF.selector);
+        vm.expectRevert(TreasuryBase.ONLY_SELF.selector);
         treasury.settleResidualToParentForFinalize();
     }
 

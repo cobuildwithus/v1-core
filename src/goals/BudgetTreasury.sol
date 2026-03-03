@@ -57,8 +57,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         bool deadlinePassed;
     }
 
-    error ONLY_SELF();
-
     constructor() {
         _disableInitializers();
     }
@@ -159,8 +157,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function retryTerminalSideEffects() external override nonReentrant {
-        if (!_isTerminalState(_state)) revert INVALID_STATE();
-        _runTerminalSideEffects();
+        BudgetState terminalState = _state;
+        if (!_isTerminalState(terminalState)) revert INVALID_STATE();
+        _runTerminalSideEffects(terminalState);
     }
 
     function forceFlowRateToZero() external override onlyController nonReentrant {
@@ -372,16 +371,13 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
 
-        _runTerminalSideEffects();
+        _runTerminalSideEffects(finalState);
 
         emit BudgetFinalized(finalState);
     }
 
-    function _runTerminalSideEffects() internal {
-        BudgetState terminalState = _state;
-        if (_isTerminalState(terminalState)) {
-            _tryClosePremiumEscrow(terminalState);
-        }
+    function _runTerminalSideEffects(BudgetState finalState) internal {
+        _tryClosePremiumEscrow(finalState);
 
         (bool flowStopped, bytes memory flowStopReason) = _tryForceFlowRateToZero();
         if (!flowStopped) {
@@ -420,8 +416,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         }
     }
 
-    function settleResidualToParentForFinalize() external {
-        if (msg.sender != address(this)) revert ONLY_SELF();
+    function settleResidualToParentForFinalize() external onlySelf {
         _settleResidualToParent();
     }
 
@@ -464,33 +459,17 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function _tryFinalizePostDeadline() internal returns (bool) {
-        bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
-        bool assertionResolved;
-        bool assertionTruthful;
-
-        if (pendingAssertionId != bytes32(0)) {
-            TreasurySuccessAssertions.FailClosedReason failClosedReason;
-            (assertionResolved, assertionTruthful, failClosedReason) = _successAssertions
-                .pendingSuccessAssertionResolutionWithReason(
-                pendingAssertionId,
-                successResolver,
-                successAssertionLiveness,
-                successAssertionBond
-            );
-            if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-                emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
-            }
-        }
-
-        TreasuryPostDeadlineFinalize.Decision decision = TreasuryPostDeadlineFinalize.decide(
-            TreasuryPostDeadlineFinalize.Inputs({
-                pendingAssertionId: pendingAssertionId,
-                reassertGraceActive: _reassertGrace.isActive(),
-                assertionResolved: assertionResolved,
-                assertionTruthful: assertionTruthful,
-                reassertGraceUsed: _reassertGrace.used
-            })
+        (
+            bytes32 pendingAssertionId,
+            TreasuryPostDeadlineFinalize.Decision decision,
+            TreasurySuccessAssertions.FailClosedReason failClosedReason
+        ) = TreasuryPostDeadlineFinalize.evaluate(
+            _successAssertions, _reassertGrace, successResolver, successAssertionLiveness, successAssertionBond
         );
+
+        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        }
 
         if (decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
         if (decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {

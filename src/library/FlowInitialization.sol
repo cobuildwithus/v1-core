@@ -5,6 +5,7 @@ import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
+import { FlowRecipients } from "./FlowRecipients.sol";
 
 import { PoolConfig, SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -30,9 +31,7 @@ library FlowInitialization {
         if (initConfig.flowImplementation == address(0)) revert IFlow.ADDRESS_ZERO();
         if (initConfig.recipientAdmin == address(0)) revert IFlow.ADDRESS_ZERO();
         if (initConfig.superToken == address(0)) revert IFlow.ADDRESS_ZERO();
-        if (bytes(initConfig.metadata.title).length == 0) revert IFlow.INVALID_METADATA();
-        if (bytes(initConfig.metadata.description).length == 0) revert IFlow.INVALID_METADATA();
-        if (bytes(initConfig.metadata.image).length == 0) revert IFlow.INVALID_METADATA();
+        FlowRecipients.validateMetadata(initConfig.metadata);
         if (initConfig.flowParams.managerRewardPoolFlowRatePpm > FlowProtocolConstants.PPM_SCALE) {
             revert IFlow.INVALID_RATE_PPM();
         }

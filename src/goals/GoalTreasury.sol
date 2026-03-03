@@ -94,8 +94,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         DeferredIngress
     }
 
-    error ONLY_SELF();
-
     event SuccessAssertionResolutionFailClosed(
         bytes32 indexed assertionId,
         TreasurySuccessAssertions.FailClosedReason indexed reason
@@ -568,44 +566,26 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
     }
 
-    function settleResidualForFinalize(GoalState finalState) external {
-        if (msg.sender != address(this)) revert ONLY_SELF();
+    function settleResidualForFinalize(GoalState finalState) external onlySelf {
         _settleResidual(finalState);
     }
 
-    function settleDeferredHookFundingForFinalize(GoalState finalState) external {
-        if (msg.sender != address(this)) revert ONLY_SELF();
+    function settleDeferredHookFundingForFinalize(GoalState finalState) external onlySelf {
         _settleDeferredHookFunding(finalState);
     }
 
     function _tryFinalizePostDeadline() internal returns (bool) {
-        bytes32 pendingAssertionId = TreasurySuccessAssertions.pendingId(_successAssertions);
-        bool assertionResolved;
-        bool assertionTruthful;
-
-        if (pendingAssertionId != bytes32(0)) {
-            TreasurySuccessAssertions.FailClosedReason failClosedReason;
-            (assertionResolved, assertionTruthful, failClosedReason) = _successAssertions
-                .pendingSuccessAssertionResolutionWithReason(
-                pendingAssertionId,
-                successResolver,
-                successAssertionLiveness,
-                successAssertionBond
-            );
-            if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-                emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
-            }
-        }
-
-        TreasuryPostDeadlineFinalize.Decision decision = TreasuryPostDeadlineFinalize.decide(
-            TreasuryPostDeadlineFinalize.Inputs({
-                pendingAssertionId: pendingAssertionId,
-                reassertGraceActive: _reassertGrace.isActive(),
-                assertionResolved: assertionResolved,
-                assertionTruthful: assertionTruthful,
-                reassertGraceUsed: _reassertGrace.used
-            })
+        (
+            bytes32 pendingAssertionId,
+            TreasuryPostDeadlineFinalize.Decision decision,
+            TreasurySuccessAssertions.FailClosedReason failClosedReason
+        ) = TreasuryPostDeadlineFinalize.evaluate(
+            _successAssertions, _reassertGrace, successResolver, successAssertionLiveness, successAssertionBond
         );
+
+        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        }
 
         if (decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
         if (decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
