@@ -455,17 +455,18 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         MechanismDeployment storage dep = _mechanismDeployment[itemID];
         if (dep.mechanism == address(0) || dep.fundingEscrow == address(0)) revert NOT_DEPLOYED();
         if (removalQueued[itemID]) return;
-        if (!dep.active) return;
 
         MechanismListing memory listing = _decodeAndValidateListing(items[itemID].data);
 
         uint256 policyFunding = _policyFundingLevel(dep);
 
         if (_isExpiredUnderfunded(listing, policyFunding)) {
-            _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, policyFunding);
+            if (dep.active) _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, policyFunding);
             _refundEscrow(itemID, dep.fundingEscrow);
             return;
         }
+
+        if (!dep.active) return;
 
         if (listing.maxBudgetFunding != 0 && policyFunding >= listing.maxBudgetFunding) {
             _stopFunding(itemID, dep, FundingStopReason.Capped, policyFunding);

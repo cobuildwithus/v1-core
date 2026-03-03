@@ -1492,6 +1492,34 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
     }
 
+    function test_syncMechanismFunding_refundsAfterDurationStopWhenDeadlinePassesLater() public {
+        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 2 days)
+        );
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 4 days);
+
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = 3e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
+
+        vm.warp(uint256(deployment.activatedAt) + uint256(listing.duration) + 1);
+        mechanism.syncMechanismFunding(itemId);
+
+        AllocationMechanismTCR.MechanismDeployment memory afterDurationStop = mechanism.mechanismDeployment(itemId);
+        assertFalse(afterDurationStop.active);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
+        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
+
+        vm.warp(uint256(listing.fundingDeadline) + 1);
+        mechanism.syncMechanismFunding(itemId);
+
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
+    }
+
     function test_finalizeRemovedMechanism_refundsEscrowAfterFundingAlreadyStopped() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),
