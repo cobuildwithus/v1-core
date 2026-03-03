@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
@@ -92,7 +93,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_initialize_revertsWhenAlreadyInitialized() public {
-        vm.expectRevert(UnderwriterSlasherRouter.ALREADY_INITIALIZED.selector);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         router.initialize(
             IStakeVault(address(stakeVault)),
             address(this),
@@ -129,7 +130,40 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(clone.goalFundingTarget(), fundingTarget);
         assertEq(clone.goalRevnetId(), GOAL_REVNET_ID);
 
-        vm.expectRevert(UnderwriterSlasherRouter.ALREADY_INITIALIZED.selector);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        _initializeRouter(clone);
+    }
+
+    function test_initialize_cloneFailedFirstAttempt_canRetryOnce() public {
+        UnderwriterSlasherRouter implementation = new UnderwriterSlasherRouter(
+            IStakeVault(address(0)),
+            address(0),
+            IJBDirectory(address(0)),
+            0,
+            IERC20(address(0)),
+            IERC20(address(0)),
+            ISuperToken(address(0)),
+            address(0)
+        );
+        UnderwriterSlasherRouter clone = UnderwriterSlasherRouter(Clones.clone(address(implementation)));
+
+        vm.expectRevert(IUnderwriterSlasherRouter.ADDRESS_ZERO.selector);
+        clone.initialize(
+            IStakeVault(address(stakeVault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            address(0)
+        );
+
+        _initializeRouter(clone);
+        assertEq(address(clone.stakeVault()), address(stakeVault));
+        assertEq(clone.authority(), address(this));
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         _initializeRouter(clone);
     }
 
@@ -154,7 +188,7 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(address(implementation.goalSuperToken()), address(0));
         assertEq(implementation.goalFundingTarget(), address(0));
 
-        vm.expectRevert(UnderwriterSlasherRouter.ALREADY_INITIALIZED.selector);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         _initializeRouter(implementation);
 
         UnderwriterSlasherRouter clone = UnderwriterSlasherRouter(Clones.clone(address(implementation)));

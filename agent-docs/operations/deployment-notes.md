@@ -1,6 +1,6 @@
 # Deployment Notes
 
-Last updated: 2026-02-26
+Last updated: 2026-03-03
 
 ## Initializer Takeover Guardrail
 
@@ -23,3 +23,9 @@ If `initialize(...)` is publicly callable and a runtime instance is left uniniti
 1. Proxy deployments must pass initializer calldata in proxy construction.
 2. Clone deployments must call `initialize(...)` immediately in the factory before returning control.
 3. Any future async or multi-transaction init refactor must include an explicit initializer-caller gate or equivalent hardening.
+
+## Initializer Primitive Policy
+
+- Prefer OpenZeppelin `Initializable` for clone/proxy initialization paths.
+- Use OZ `initializer`/`reinitializer` guards and `_disableInitializers()` for implementation instances instead of custom one-off init-lock patterns.
+- If a contract cannot use OZ `Initializable`, document the exception in the execution plan with a concrete reason (for example strict measured size budget constraints).
