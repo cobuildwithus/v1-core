@@ -6,7 +6,6 @@ import { IArbitrator } from "./interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { IAllocationRoundFactory } from "./interfaces/IAllocationRoundFactory.sol";
 
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
@@ -23,8 +22,8 @@ import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contract
  *         Operationally:
  *         - Items represent "round mechanisms" (metadata + timing + optional funding policy).
  *         - When an item becomes Registered, activation is queued.
- *         - Anyone can call `activateRound(itemID)` to deploy the round stack via the currently
- *           selected allowlisted mechanism factory.
+ *         - Anyone can call `activateRound(itemID)` to deploy the round stack via the allowlisted
+ *           mechanism factory declared in that listing payload.
  *         - On activation, this contract deploys a MechanismFundingEscrow and adds the escrow as the
  *           budget-flow recipient. Budget-flow funds are therefore escrowed and can be:
  *             - Released into the RoundPrizeVault for payouts (once min-funding is met), or
@@ -61,30 +60,14 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         uint256 challengePeriodDuration;
     }
 
-    /// @dev Round listing stored as item data.
-    /// @notice Funding policy applies only to budget-flow contributions (escrow receipts).
-    struct RoundMechanismListing {
-        FlowTypes.RecipientMetadata metadata;
-        /// @notice Submission window start timestamp (0 means no gating).
-        uint64 startAt;
-        /// @notice Submission window end timestamp (0 means no gating).
-        uint64 endAt;
-        /// @notice If non-zero and `minBudgetFunding` is not met by this timestamp,
-        ///         the round expires underfunded and escrowed funds are refunded.
-        uint64 fundingDeadline;
-        /// @notice Minimum budget-flow funding required for the round to be eligible to use escrowed funds.
-        uint256 minBudgetFunding;
-        /// @notice Maximum budget-flow funding the round may receive. When reached, funding is stopped.
-        uint256 maxBudgetFunding;
-    }
-
-    /// @dev Default config applied to new rounds deployed via this registry.
-    struct RoundDefaults {
+    struct RoundDeploymentConfig {
+        /// @notice Allowlisted factory that deploys this mechanism.
+        address mechanismFactory;
         // RoundSubmissionTCR config
         bytes arbitratorExtraData;
         string registrationMetaEvidence;
         string clearingMetaEvidence;
-        address governor;
+        address submissionTcrGovernor;
         uint256 submissionBaseDeposit;
         uint256 removalBaseDeposit;
         uint256 submissionChallengeBaseDeposit;
@@ -99,6 +82,25 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         uint256 slashCallerBountyBps;
         // Prize vault operator
         address roundOperator;
+    }
+
+    /// @dev Round listing stored as item data and fixed at curation time.
+    /// @notice Funding policy applies only to budget-flow contributions (escrow receipts).
+    struct RoundMechanismListing {
+        FlowTypes.RecipientMetadata metadata;
+        /// @notice Submission window start timestamp (0 means no gating).
+        uint64 startAt;
+        /// @notice Submission window end timestamp (0 means no gating).
+        uint64 endAt;
+        /// @notice If non-zero and `minBudgetFunding` is not met by this timestamp,
+        ///         the round expires underfunded and escrowed funds are refunded.
+        uint64 fundingDeadline;
+        /// @notice Minimum budget-flow funding required for the round to be eligible to use escrowed funds.
+        uint256 minBudgetFunding;
+        /// @notice Maximum budget-flow funding the round may receive. When reached, funding is stopped.
+        uint256 maxBudgetFunding;
+        /// @notice Immutable deployment config consumed at activation.
+        RoundDeploymentConfig deployment;
     }
 
     struct RoundDeployment {
@@ -124,7 +126,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // ---------------------------
 
     error ONLY_GOVERNOR();
-    error INVALID_ROUND_DEFAULTS();
+    error INVALID_ROUND_CONFIG();
     error INVALID_TIME_WINDOW(uint64 startAt, uint64 endAt);
     error INVALID_FUNDING_POLICY(uint64 fundingDeadline, uint256 minBudgetFunding, uint256 maxBudgetFunding);
     error ROUND_ALREADY_ENDED(uint64 endAt);
@@ -154,9 +156,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         address depositStrategy
     );
     event RoundRemoved(bytes32 indexed itemID);
-    event RoundDefaultsUpdated();
     event MechanismFactoryAllowedSet(address indexed factory, bool allowed);
-    event ActiveMechanismFactorySet(address indexed factory);
 
     event RoundFundingStopped(bytes32 indexed itemID, FundingStopReason indexed reason, uint256 totalReceived);
     event RoundFundingRefunded(bytes32 indexed itemID, uint256 amount);
@@ -166,15 +166,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Storage
     // ---------------------------
 
-    /// @notice Factory configured at initialization (legacy compatibility getter).
-    /// @dev Activation routing uses `activeMechanismFactory`, not this value.
-    RoundFactory public roundFactory;
     mapping(address => bool) public mechanismFactoryAllowed;
-    address public activeMechanismFactory;
     address public budgetTreasury;
     IManagedFlow public budgetFlow;
-
-    RoundDefaults public roundDefaults;
 
     mapping(bytes32 => bool) public activationQueued;
     mapping(bytes32 => bool) public removalQueued;
@@ -190,27 +184,20 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function initialize(
         address budgetTreasury_,
-        address roundFactory_,
-        RoundDefaults calldata roundDefaults_,
+        address initialMechanismFactory_,
         RegistryConfig calldata registryConfig
     ) external initializer {
-        if (budgetTreasury_ == address(0) || roundFactory_ == address(0)) revert ADDRESS_ZERO();
-        if (roundFactory_.code.length == 0) revert INVALID_FACTORY(roundFactory_);
-        if (roundDefaults_.roundOperator == address(0)) revert ADDRESS_ZERO();
-        _validateRoundDefaults(roundDefaults_);
+        if (budgetTreasury_ == address(0) || initialMechanismFactory_ == address(0)) revert ADDRESS_ZERO();
+        if (initialMechanismFactory_.code.length == 0) revert INVALID_FACTORY(initialMechanismFactory_);
 
         budgetTreasury = budgetTreasury_;
-        roundFactory = RoundFactory(roundFactory_);
-        mechanismFactoryAllowed[roundFactory_] = true;
-        activeMechanismFactory = roundFactory_;
+        mechanismFactoryAllowed[initialMechanismFactory_] = true;
         address budgetFlowAddress = IBudgetTreasury(budgetTreasury_).flow();
         if (budgetFlowAddress == address(0) || budgetFlowAddress.code.length == 0) revert BUDGET_FLOW_MISMATCH();
         budgetFlow = IManagedFlow(budgetFlowAddress);
 
         // Basic sanity check: we must be recipient admin of the budget flow we intend to manage.
         if (budgetFlow.recipientAdmin() != address(this)) revert BUDGET_FLOW_MISMATCH();
-
-        roundDefaults = roundDefaults_;
 
         __GeneralizedTCR_init(
             registryConfig.arbitrator,
@@ -232,7 +219,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Round lifecycle
     // ---------------------------
 
-    function activateRound(bytes32 itemID) external nonReentrant returns (RoundFactory.DeployedRound memory deployed) {
+    function activateRound(bytes32 itemID) external nonReentrant returns (IAllocationRoundFactory.DeployedRound memory deployed) {
         Item storage item = items[itemID];
         if (item.status != Status.Registered) revert NOT_REGISTERED();
         if (!activationQueued[itemID]) revert NOT_QUEUED();
@@ -247,48 +234,36 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             revert ROUND_EXPIRED_UNDERFUNDED(listing.fundingDeadline, listing.minBudgetFunding, 0);
         }
 
-        address factory = activeMechanismFactory;
+        RoundDeploymentConfig memory deploymentConfig = listing.deployment;
+        address factory = deploymentConfig.mechanismFactory;
         if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
         if (factory.code.length == 0) revert INVALID_FACTORY(factory);
 
-        IAllocationRoundFactory.DeployedRound memory deployedByFactory = IAllocationRoundFactory(factory).createRoundForBudget(
+        deployed = IAllocationRoundFactory(factory).createRoundForBudget(
             itemID,
             budgetTreasury,
             IAllocationRoundFactory.RoundTiming({ startAt: listing.startAt, endAt: listing.endAt }),
-            roundDefaults.roundOperator,
+            deploymentConfig.roundOperator,
             IAllocationRoundFactory.SubmissionTcrConfig({
-                arbitratorExtraData: roundDefaults.arbitratorExtraData,
-                registrationMetaEvidence: roundDefaults.registrationMetaEvidence,
-                clearingMetaEvidence: roundDefaults.clearingMetaEvidence,
-                governor: roundDefaults.governor,
-                submissionBaseDeposit: roundDefaults.submissionBaseDeposit,
-                removalBaseDeposit: roundDefaults.removalBaseDeposit,
-                submissionChallengeBaseDeposit: roundDefaults.submissionChallengeBaseDeposit,
-                removalChallengeBaseDeposit: roundDefaults.removalChallengeBaseDeposit,
-                challengePeriodDuration: roundDefaults.challengePeriodDuration
+                arbitratorExtraData: deploymentConfig.arbitratorExtraData,
+                registrationMetaEvidence: deploymentConfig.registrationMetaEvidence,
+                clearingMetaEvidence: deploymentConfig.clearingMetaEvidence,
+                governor: deploymentConfig.submissionTcrGovernor,
+                submissionBaseDeposit: deploymentConfig.submissionBaseDeposit,
+                removalBaseDeposit: deploymentConfig.removalBaseDeposit,
+                submissionChallengeBaseDeposit: deploymentConfig.submissionChallengeBaseDeposit,
+                removalChallengeBaseDeposit: deploymentConfig.removalChallengeBaseDeposit,
+                challengePeriodDuration: deploymentConfig.challengePeriodDuration
             }),
             IAllocationRoundFactory.ArbitratorConfig({
-                votingPeriod: roundDefaults.votingPeriod,
-                votingDelay: roundDefaults.votingDelay,
-                revealPeriod: roundDefaults.revealPeriod,
-                arbitrationCost: roundDefaults.arbitrationCost,
-                wrongOrMissedSlashBps: roundDefaults.wrongOrMissedSlashBps,
-                slashCallerBountyBps: roundDefaults.slashCallerBountyBps
+                votingPeriod: deploymentConfig.votingPeriod,
+                votingDelay: deploymentConfig.votingDelay,
+                revealPeriod: deploymentConfig.revealPeriod,
+                arbitrationCost: deploymentConfig.arbitrationCost,
+                wrongOrMissedSlashBps: deploymentConfig.wrongOrMissedSlashBps,
+                slashCallerBountyBps: deploymentConfig.slashCallerBountyBps
             })
         );
-
-        deployed = RoundFactory.DeployedRound({
-            prizeVault: deployedByFactory.prizeVault,
-            submissionTCR: deployedByFactory.submissionTCR,
-            arbitrator: deployedByFactory.arbitrator,
-            depositStrategy: deployedByFactory.depositStrategy,
-            underlyingToken: deployedByFactory.underlyingToken,
-            superToken: deployedByFactory.superToken,
-            stakeVault: deployedByFactory.stakeVault,
-            goalTreasury: deployedByFactory.goalTreasury,
-            goalFlow: deployedByFactory.goalFlow,
-            budgetFlow: deployedByFactory.budgetFlow
-        });
 
         ISuperfluidPool distributionPool = budgetFlow.distributionPool();
         if (address(distributionPool) == address(0)) revert BUDGET_FLOW_MISMATCH();
@@ -392,26 +367,11 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Governance
     // ---------------------------
 
-    function setRoundDefaults(RoundDefaults calldata next) external onlyGovernor {
-        if (next.roundOperator == address(0)) revert ADDRESS_ZERO();
-        _validateRoundDefaults(next);
-        roundDefaults = next;
-        emit RoundDefaultsUpdated();
-    }
-
     function setMechanismFactoryAllowed(address factory, bool allowed) external onlyGovernor {
         if (factory == address(0)) revert ADDRESS_ZERO();
         if (allowed && factory.code.length == 0) revert INVALID_FACTORY(factory);
         mechanismFactoryAllowed[factory] = allowed;
         emit MechanismFactoryAllowedSet(factory, allowed);
-    }
-
-    function setActiveMechanismFactory(address factory) external onlyGovernor {
-        if (factory == address(0)) revert ADDRESS_ZERO();
-        if (factory.code.length == 0) revert INVALID_FACTORY(factory);
-        if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
-        activeMechanismFactory = factory;
-        emit ActiveMechanismFactorySet(factory);
     }
 
     // ---------------------------
@@ -421,13 +381,16 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     function _verifyItemData(bytes calldata itemData) internal view override returns (bool valid) {
         // Ensure the listing decodes, and validate required metadata fields.
         try this.decodeListing(itemData) returns (RoundMechanismListing memory decoded) {
-            // Validate time and funding policy.
-            if (!_isValidListing(decoded)) return false;
+            if (_hasInvalidTimeWindow(decoded)) return false;
+            if (!_isValidFundingPolicy(decoded)) return false;
+            if (!_isValidRoundDeploymentConfig(decoded.deployment)) return false;
+            if (!mechanismFactoryAllowed[decoded.deployment.mechanismFactory]) return false;
 
+            FlowTypes.RecipientMetadata memory metadata = decoded.metadata;
             // Flow enforces these, but failing early is cheaper.
-            if (bytes(decoded.metadata.title).length == 0) return false;
-            if (bytes(decoded.metadata.description).length == 0) return false;
-            if (bytes(decoded.metadata.image).length == 0) return false;
+            if (bytes(metadata.title).length == 0) return false;
+            if (bytes(metadata.description).length == 0) return false;
+            if (bytes(metadata.image).length == 0) return false;
             return true;
         } catch {
             return false;
@@ -475,11 +438,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (!_isValidFundingPolicy(listing)) {
             revert INVALID_FUNDING_POLICY(listing.fundingDeadline, listing.minBudgetFunding, listing.maxBudgetFunding);
         }
-    }
-
-    function _isValidListing(RoundMechanismListing memory listing) internal pure returns (bool) {
-        if (_hasInvalidTimeWindow(listing)) return false;
-        return _isValidFundingPolicy(listing);
+        if (!_isValidRoundDeploymentConfig(listing.deployment)) {
+            revert INVALID_ROUND_CONFIG();
+        }
     }
 
     function _hasInvalidTimeWindow(RoundMechanismListing memory listing) internal pure returns (bool) {
@@ -498,6 +459,15 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (listing.minBudgetFunding != 0 && listing.fundingDeadline == 0) return false;
         if (listing.endAt != 0 && listing.fundingDeadline != 0 && listing.fundingDeadline > listing.endAt) return false;
 
+        return true;
+    }
+
+    function _isValidRoundDeploymentConfig(RoundDeploymentConfig memory config) internal pure returns (bool) {
+        if (config.mechanismFactory == address(0)) return false;
+        if (config.submissionTcrGovernor == address(0)) return false;
+        if (config.roundOperator == address(0)) return false;
+        if (bytes(config.registrationMetaEvidence).length == 0) return false;
+        if (bytes(config.clearingMetaEvidence).length == 0) return false;
         return true;
     }
 
@@ -560,12 +530,6 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (listing.endAt != 0 && block.timestamp > listing.endAt) {
             _stopFunding(itemID, dep, FundingStopReason.Ended, totalReceived);
         }
-    }
-
-    function _validateRoundDefaults(RoundDefaults calldata defaults) internal pure {
-        if (defaults.governor == address(0)) revert INVALID_ROUND_DEFAULTS();
-        if (bytes(defaults.registrationMetaEvidence).length == 0) revert INVALID_ROUND_DEFAULTS();
-        if (bytes(defaults.clearingMetaEvidence).length == 0) revert INVALID_ROUND_DEFAULTS();
     }
 
     modifier onlyGovernor() {
