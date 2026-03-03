@@ -23,6 +23,8 @@ import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessRe
 
 contract DeployGoalFactory is DeployScript {
     uint256 internal constant GOAL_FACTORY_CREATE_OFFSET = 3;
+    string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
+    string internal constant HISTORY_DIR = "deploys/history";
 
     address internal revDeployerAddressOut;
     address internal superfluidHostAddressOut;
@@ -48,6 +50,11 @@ contract DeployGoalFactory is DeployScript {
     bytes32 internal fakeUmaDomainIdOut;
 
     error GOAL_FACTORY_ADDRESS_MISMATCH(address predicted, address actual);
+
+    function run() public override {
+        super.run();
+        _writeLatestImplementationArtifacts();
+    }
 
     function deploy() internal override {
         address revDeployer = vm.envOr("REV_DEPLOYER", address(0x2cA27BDe7e7D33E353b44c27aCfCf6c78ddE251d));
@@ -177,5 +184,56 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "FAKE_UMA_OWNER", fakeUmaOwnerOut);
         _writeAddressLine(filePath, "FAKE_UMA_ESCALATION_MANAGER", fakeUmaEscalationManagerOut);
         vm.writeLine(filePath, string(abi.encodePacked("FAKE_UMA_DOMAIN_ID: ", vm.toString(fakeUmaDomainIdOut))));
+    }
+
+    function _writeLatestImplementationArtifacts() internal {
+        string memory canonicalFilePath =
+            string(abi.encodePacked("deploys/", deploymentName(), ".", vm.toString(chainId), ".txt"));
+        string memory artifact = vm.readFile(canonicalFilePath);
+
+        _overwriteFile(LATEST_IMPLEMENTATIONS_FILE, artifact);
+        console2.log("Latest implementation artifact written:", LATEST_IMPLEMENTATIONS_FILE);
+
+        vm.createDir(HISTORY_DIR, true);
+        uint256 unixTimeMs = vm.unixTime();
+        uint256 collisionIndex;
+        string memory snapshotFilePath = _snapshotFilePath(unixTimeMs, collisionIndex);
+        while (vm.isFile(snapshotFilePath)) {
+            unchecked {
+                collisionIndex++;
+            }
+            snapshotFilePath = _snapshotFilePath(unixTimeMs, collisionIndex);
+        }
+        vm.writeFile(snapshotFilePath, artifact);
+        console2.log("Implementation snapshot written:", snapshotFilePath);
+    }
+
+    function _overwriteFile(string memory path, string memory data) internal {
+        vm.writeFile(path, data);
+    }
+
+    function _snapshotFilePath(uint256 unixTimeMs, uint256 collisionIndex) internal view returns (string memory) {
+        if (collisionIndex == 0) {
+            return string(
+                abi.encodePacked(
+                    HISTORY_DIR, "/", deploymentName(), ".", vm.toString(chainId), ".", vm.toString(unixTimeMs), ".txt"
+                )
+            );
+        }
+
+        return string(
+            abi.encodePacked(
+                HISTORY_DIR,
+                "/",
+                deploymentName(),
+                ".",
+                vm.toString(chainId),
+                ".",
+                vm.toString(unixTimeMs),
+                ".",
+                vm.toString(collisionIndex),
+                ".txt"
+            )
+        );
     }
 }
