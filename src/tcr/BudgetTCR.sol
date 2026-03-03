@@ -59,6 +59,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
         }
         if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
+        if (registryConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -85,6 +86,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
+        allocationMechanismAdmin = registryConfig.allocationMechanismAdmin;
         budgetValidationBounds = budgetBounds;
         oracleValidationBounds = oracleBounds;
 
@@ -93,7 +95,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             registryConfig.arbitratorExtraData,
             registryConfig.registrationMetaEvidence,
             registryConfig.clearingMetaEvidence,
-            registryConfig.governor,
             registryConfig.votingToken,
             registryConfig.submissionBaseDeposit,
             registryConfig.removalBaseDeposit,
@@ -616,7 +617,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             arbitratorExtraData: arbitratorExtraData,
             registrationMetaEvidence: registrationMetaEvidence,
             clearingMetaEvidence: clearingMetaEvidence,
-            governor: governor,
+            factoryManager: allocationMechanismAdmin,
             votingToken: IVotes(address(erc20)),
             submissionBaseDeposit: submissionBaseDeposit,
             submissionDepositStrategy: submissionDepositStrategy,

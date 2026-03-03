@@ -4,13 +4,10 @@ pragma solidity ^0.8.34;
 import "test/GeneralizedTCR.t.sol";
 
 contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
-    function test_setGovernor_has_no_direct_setter() public {
-        address initialGovernor = tcr.governor();
-
+    function test_governor_surface_is_removed() public {
+        _assertMissingSelector(abi.encodeWithSignature("governor()"));
         _assertMissingSelector(abi.encodeWithSignature("setGovernor(address)", makeAddr("newGov")));
         _assertMissingSelectorAs(governor, abi.encodeWithSignature("setGovernor(address)", makeAddr("anotherGov")));
-
-        assertEq(tcr.governor(), initialGovernor);
     }
 
     function test_setArbitrator_has_no_direct_setter() public {

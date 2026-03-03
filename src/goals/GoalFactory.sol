@@ -37,7 +37,7 @@ contract GoalFactory {
     address public immutable SPLIT_HOOK_IMPL;
 
     address public immutable DEFAULT_SUBMISSION_DEPOSIT_STRATEGY;
-    address public immutable DEFAULT_BUDGET_TCR_GOVERNOR;
+    address public immutable DEFAULT_ALLOCATION_MECHANISM_ADMIN;
     address public immutable DEFAULT_INVALID_ROUND_REWARDS_SINK;
 
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -81,7 +81,7 @@ contract GoalFactory {
     }
 
     struct BudgetTCRParams {
-        address governor;
+        address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
         address submissionDepositStrategy;
         uint256 submissionBaseDeposit;
@@ -143,7 +143,7 @@ contract GoalFactory {
         address flowImpl,
         address splitHookImpl,
         address defaultSubmissionDepositStrategy,
-        address defaultBudgetTcrGovernor,
+        address defaultAllocationMechanismAdmin,
         address defaultInvalidRoundRewardsSink
     ) {
         if (address(revDeployer) == address(0)) revert ADDRESS_ZERO();
@@ -154,7 +154,7 @@ contract GoalFactory {
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
         if (splitHookImpl == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
-        if (defaultBudgetTcrGovernor == address(0)) revert ADDRESS_ZERO();
+        if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryImpl);
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
@@ -176,7 +176,7 @@ contract GoalFactory {
         SPLIT_HOOK_IMPL = splitHookImpl;
 
         DEFAULT_SUBMISSION_DEPOSIT_STRATEGY = defaultSubmissionDepositStrategy;
-        DEFAULT_BUDGET_TCR_GOVERNOR = defaultBudgetTcrGovernor;
+        DEFAULT_ALLOCATION_MECHANISM_ADMIN = defaultAllocationMechanismAdmin;
         DEFAULT_INVALID_ROUND_REWARDS_SINK = defaultInvalidRoundRewardsSink;
     }
 
@@ -354,7 +354,7 @@ contract GoalFactory {
                 GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
                     budgetTcrFactory: BUDGET_TCR_FACTORY,
                     registryConfig: GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
-                        governor: p.budgetTCR.governor,
+                        allocationMechanismAdmin: p.budgetTCR.allocationMechanismAdmin,
                         invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
                         submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
                         submissionBaseDeposit: p.budgetTCR.submissionBaseDeposit,
@@ -366,7 +366,7 @@ contract GoalFactory {
                         challengePeriodDuration: p.budgetTCR.challengePeriodDuration,
                         arbitratorExtraData: p.budgetTCR.arbitratorExtraData
                     }),
-                    defaultGovernor: DEFAULT_BUDGET_TCR_GOVERNOR,
+                    defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
                     cobuildToken: COBUILD_TOKEN,

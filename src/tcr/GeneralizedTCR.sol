@@ -49,7 +49,6 @@ abstract contract GeneralizedTCR is
      *  @param _arbitratorExtraData Extra data for the trusted arbitrator contract.
      *  @param _registrationMetaEvidence The URI of the meta evidence object for registration requests.
      *  @param _clearingMetaEvidence The URI of the meta evidence object for clearing requests.
-     *  @param _governor The trusted governor of this contract.
      *  @param _votingToken The address of the ERC20Votes token used for deposits and vote snapshots.
      *  @param _submissionBaseDeposit The base deposit to submit an item.
      *  @param _removalBaseDeposit The base deposit to remove an item.
@@ -63,7 +62,6 @@ abstract contract GeneralizedTCR is
         bytes memory _arbitratorExtraData,
         string memory _registrationMetaEvidence,
         string memory _clearingMetaEvidence,
-        address _governor,
         IVotes _votingToken,
         uint256 _submissionBaseDeposit,
         uint256 _removalBaseDeposit,
@@ -78,7 +76,6 @@ abstract contract GeneralizedTCR is
         emit MetaEvidence(1, _clearingMetaEvidence);
         if (address(_arbitrator) == address(0)) revert ADDRESS_ZERO();
         if (address(_votingToken) == address(0)) revert ADDRESS_ZERO();
-        if (_governor == address(0)) revert ADDRESS_ZERO();
 
         IERC20Votes votingToken = IERC20Votes(address(_votingToken));
 
@@ -88,7 +85,6 @@ abstract contract GeneralizedTCR is
 
         arbitrator = _arbitrator;
         arbitratorExtraData = _arbitratorExtraData;
-        governor = _governor;
         erc20 = IERC20(address(votingToken));
         submissionBaseDeposit = _submissionBaseDeposit;
         removalBaseDeposit = _removalBaseDeposit;

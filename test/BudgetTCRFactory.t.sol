@@ -256,7 +256,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -296,7 +296,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -336,7 +336,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -379,7 +379,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -432,7 +432,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -483,7 +483,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -542,7 +542,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -596,7 +596,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -647,7 +647,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -699,7 +699,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -747,7 +747,7 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(BudgetTCR(deployed.budgetTCR).budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
 
         IBudgetTCR.RegistryConfig memory fullRegistryConfig = IBudgetTCR.RegistryConfig({
-            governor: registryConfig.governor,
+            allocationMechanismAdmin: registryConfig.allocationMechanismAdmin,
             arbitrator: IArbitrator(deployed.arbitrator),
             arbitratorExtraData: registryConfig.arbitratorExtraData,
             registrationMetaEvidence: registryConfig.registrationMetaEvidence,
@@ -781,7 +781,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.configureJurorSlasher(address(existingRouter));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -827,7 +827,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.configureJurorSlasher(unsupportedSlasher);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -873,7 +873,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.configureJurorSlasher(address(wrongAuthorityRouter));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -922,7 +922,7 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.configureJurorSlasher(address(mismatchedRouter));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -964,7 +964,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -1009,7 +1009,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -1062,7 +1062,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes("arbitrator-extra"),
             registrationMetaEvidence: "ipfs://registration",
@@ -1120,7 +1120,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
 
         assertEq(address(deployedBudgetTCR.arbitrator()), deployed.arbitrator);
-        assertEq(deployedBudgetTCR.governor(), registryConfig.governor);
+        assertEq(deployedBudgetTCR.allocationMechanismAdmin(), registryConfig.allocationMechanismAdmin);
         assertEq(deployedBudgetTCR.arbitratorExtraData(), registryConfig.arbitratorExtraData);
         assertEq(deployedBudgetTCR.registrationMetaEvidence(), registryConfig.registrationMetaEvidence);
         assertEq(deployedBudgetTCR.clearingMetaEvidence(), registryConfig.clearingMetaEvidence);
@@ -1184,7 +1184,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -1233,7 +1233,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), customEscrowBondBps);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -1281,7 +1281,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",
@@ -1333,7 +1333,7 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://reg",

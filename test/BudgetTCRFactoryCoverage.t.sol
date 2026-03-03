@@ -273,7 +273,7 @@ contract BudgetTCRFactoryCoverageTest is Test {
         returns (BudgetTCRFactory.RegistryConfigInput memory registryConfig)
     {
         registryConfig = BudgetTCRFactory.RegistryConfigInput({
-            governor: makeAddr("governor"),
+            allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://registration",

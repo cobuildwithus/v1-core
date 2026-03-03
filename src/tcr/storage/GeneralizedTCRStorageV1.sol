@@ -73,11 +73,6 @@ contract GeneralizedTCRStorageV1 {
     uint256 public constant RULING_OPTIONS = 2;
 
     /**
-     * @notice The address that can make changes to the parameters of the contract
-     */
-    address public governor;
-
-    /**
      * @notice The address of the ERC20 contract used for deposits
      */
     IERC20 public erc20;

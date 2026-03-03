@@ -63,33 +63,6 @@ contract GeneralizedTCRInitSubmissionTest is GeneralizedTCRTestBase {
             );
         }
 
-        // 1c) ADDRESS_ZERO on governor
-        {
-            MockGeneralizedTCR impl = new MockGeneralizedTCR();
-            vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
-            _deployProxy(
-                address(impl),
-                abi.encodeCall(
-                    MockGeneralizedTCR.initialize,
-                    (
-                        owner,
-                        arb,
-                        bytes(""),
-                        "reg",
-                        "clear",
-                        address(0),
-                        IVotes(address(token)),
-                        submissionBaseDeposit,
-                        removalBaseDeposit,
-                        submissionChallengeBaseDeposit,
-                        removalChallengeBaseDeposit,
-                        challengePeriodDuration,
-                        defaultSubmissionDepositStrategy
-                    )
-                )
-            );
-        }
-
         // 2) ARBITRATOR_TOKEN_MISMATCH via no votingToken() implementation
         {
             MockArbitratorNoVotingToken bad = new MockArbitratorNoVotingToken();

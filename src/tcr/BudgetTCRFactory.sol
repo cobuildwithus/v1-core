@@ -33,7 +33,7 @@ contract BudgetTCRFactory {
     error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
 
     struct RegistryConfigInput {
-        address governor;
+        address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
         bytes arbitratorExtraData;
         string registrationMetaEvidence;
@@ -253,7 +253,7 @@ contract BudgetTCRFactory {
         uint256 removalChallengeBaseDeposit
     ) internal pure returns (IBudgetTCR.RegistryConfig memory config) {
         config = IBudgetTCR.RegistryConfig({
-            governor: registryConfig.governor,
+            allocationMechanismAdmin: registryConfig.allocationMechanismAdmin,
             arbitrator: IArbitrator(arbitrator),
             arbitratorExtraData: registryConfig.arbitratorExtraData,
             registrationMetaEvidence: registryConfig.registrationMetaEvidence,

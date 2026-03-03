@@ -42,7 +42,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     }
 
     struct RegistryConfig {
-        address governor;
+        address allocationMechanismAdmin;
         IArbitrator arbitrator;
         bytes arbitratorExtraData;
         string registrationMetaEvidence;

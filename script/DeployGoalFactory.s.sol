@@ -38,7 +38,7 @@ contract DeployGoalFactory is DeployScript {
     address internal fakeUmaResolverOut;
     address internal goalFactoryOut;
 
-    address internal defaultBudgetTcrGovernorOut;
+    address internal defaultAllocationMechanismAdminOut;
     address internal defaultInvalidRoundRewardsSinkOut;
     address internal fakeUmaOwnerOut;
     address internal fakeUmaEscalationManagerOut;
@@ -54,7 +54,7 @@ contract DeployGoalFactory is DeployScript {
         uint256 cobuildRevnetId = vm.envOr("COBUILD_REVNET_ID", uint256(138));
 
         uint256 escrowBondBps = vm.envOr("ESCROW_BOND_BPS", uint256(5000));
-        address defaultGovernor = vm.envOr("DEFAULT_BUDGET_TCR_GOVERNOR", deployerAddress);
+        address defaultAllocationMechanismAdmin = vm.envOr("DEFAULT_ALLOCATION_MECHANISM_ADMIN", deployerAddress);
         address invalidRoundRewardsSink = vm.envOr("DEFAULT_INVALID_ROUND_REWARDS_SINK", BURN);
         address fakeUmaOwner = vm.envOr("FAKE_UMA_OWNER", deployerAddress);
         address fakeUmaEscalationManager = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
@@ -94,7 +94,7 @@ contract DeployGoalFactory is DeployScript {
             address(flowImpl),
             address(splitHookImpl),
             address(depositStrategy),
-            defaultGovernor,
+            defaultAllocationMechanismAdmin,
             invalidRoundRewardsSink
         );
         if (address(goalFactory) != predictedGoalFactory) {
@@ -115,7 +115,7 @@ contract DeployGoalFactory is DeployScript {
         fakeUmaResolverOut = address(fakeUmaResolver);
         goalFactoryOut = address(goalFactory);
 
-        defaultBudgetTcrGovernorOut = defaultGovernor;
+        defaultAllocationMechanismAdminOut = defaultAllocationMechanismAdmin;
         defaultInvalidRoundRewardsSinkOut = invalidRoundRewardsSink;
         fakeUmaOwnerOut = fakeUmaOwner;
         fakeUmaEscalationManagerOut = fakeUmaEscalationManager;
@@ -160,7 +160,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "FakeUMATreasurySuccessResolver", fakeUmaResolverOut);
         _writeAddressLine(filePath, "GoalFactory", goalFactoryOut);
 
-        _writeAddressLine(filePath, "DEFAULT_BUDGET_TCR_GOVERNOR", defaultBudgetTcrGovernorOut);
+        _writeAddressLine(filePath, "DEFAULT_ALLOCATION_MECHANISM_ADMIN", defaultAllocationMechanismAdminOut);
         _writeAddressLine(filePath, "DEFAULT_INVALID_ROUND_REWARDS_SINK", defaultInvalidRoundRewardsSinkOut);
         _writeAddressLine(filePath, "FAKE_UMA_OWNER", fakeUmaOwnerOut);
         _writeAddressLine(filePath, "FAKE_UMA_ESCALATION_MANAGER", fakeUmaEscalationManagerOut);

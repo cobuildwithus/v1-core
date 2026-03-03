@@ -100,7 +100,7 @@ The arbitrator implements commit/reveal voting with `votingDelay`, `votingPeriod
 
 - **Arbitrator + arbitrator extra data** are deployment-configured and immutable after initialization.
 - **Challenge period** is deployment-configured and init-only.
-- **Governor address** is initialization-only (no runtime governor-rotation setter).
+- **GeneralizedTCR** has no built-in governor role; concrete registries define their own optional admin roles (for example mechanism-factory allowlists) as initialization-only.
 - **Registration/clearing meta-evidence URIs** are deployment-configured and immutable after initialization.
 - Deployment-time BudgetTCR meta-evidence should be content-addressed (IPFS/Arweave URI or raw CID/txid string).
 - `GeneralizedTCR` and `ERC20VotesArbitrator` expose no upgrade path.

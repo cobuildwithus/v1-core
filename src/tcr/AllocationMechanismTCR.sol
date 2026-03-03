@@ -45,7 +45,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         bytes arbitratorExtraData;
         string registrationMetaEvidence;
         string clearingMetaEvidence;
-        address governor;
+        address factoryManager;
         IVotes votingToken;
         uint256 submissionBaseDeposit;
         ISubmissionDepositStrategy submissionDepositStrategy;
@@ -98,7 +98,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Errors
     // ---------------------------
 
-    error ONLY_GOVERNOR();
+    error ONLY_FACTORY_MANAGER();
     error INVALID_MECHANISM_CONFIG();
     error INVALID_TIME_WINDOW(uint64 startAt, uint64 endAt);
     error INVALID_FUNDING_POLICY(uint64 fundingDeadline, uint256 minBudgetFunding, uint256 maxBudgetFunding);
@@ -141,6 +141,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     mapping(address => bool) public mechanismFactoryAllowed;
     address public budgetTreasury;
+    address public factoryManager;
     IManagedFlow public budgetFlow;
 
     mapping(bytes32 => bool) public activationQueued;
@@ -176,7 +177,6 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             registryConfig.arbitratorExtraData,
             registryConfig.registrationMetaEvidence,
             registryConfig.clearingMetaEvidence,
-            registryConfig.governor,
             registryConfig.votingToken,
             registryConfig.submissionBaseDeposit,
             registryConfig.removalBaseDeposit,
@@ -185,6 +185,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             registryConfig.challengePeriodDuration,
             registryConfig.submissionDepositStrategy
         );
+        if (registryConfig.factoryManager == address(0)) revert ADDRESS_ZERO();
+        factoryManager = registryConfig.factoryManager;
     }
 
     // ---------------------------
@@ -312,7 +314,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Governance
     // ---------------------------
 
-    function setMechanismFactoryAllowed(address factory, bool allowed) external onlyGovernor {
+    function setMechanismFactoryAllowed(address factory, bool allowed) external onlyFactoryManager {
         if (factory == address(0)) revert ADDRESS_ZERO();
         if (allowed && factory.code.length == 0) revert INVALID_FACTORY(factory);
         mechanismFactoryAllowed[factory] = allowed;
@@ -459,8 +461,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         }
     }
 
-    modifier onlyGovernor() {
-        if (msg.sender != governor) revert ONLY_GOVERNOR();
+    modifier onlyFactoryManager() {
+        if (msg.sender != factoryManager) revert ONLY_FACTORY_MANAGER();
         _;
     }
 }

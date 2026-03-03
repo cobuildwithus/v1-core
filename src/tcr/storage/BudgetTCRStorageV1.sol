@@ -32,6 +32,7 @@ contract BudgetTCRStorageV1 {
     uint32 public budgetPremiumPpm;
     uint32 public budgetSlashPpm;
     address public budgetSuccessResolver;
+    address public allocationMechanismAdmin;
 
     IBudgetTCR.BudgetValidationBounds public budgetValidationBounds;
     IBudgetTCR.OracleValidationBounds public oracleValidationBounds;

@@ -45,7 +45,6 @@ contract RoundSubmissionTCR is GeneralizedTCR {
         bytes arbitratorExtraData;
         string registrationMetaEvidence;
         string clearingMetaEvidence;
-        address governor;
         IVotes votingToken;
         uint256 submissionBaseDeposit;
         ISubmissionDepositStrategy submissionDepositStrategy;
@@ -85,7 +84,6 @@ contract RoundSubmissionTCR is GeneralizedTCR {
             registryConfig.arbitratorExtraData,
             registryConfig.registrationMetaEvidence,
             registryConfig.clearingMetaEvidence,
-            registryConfig.governor,
             registryConfig.votingToken,
             registryConfig.submissionBaseDeposit,
             registryConfig.removalBaseDeposit,

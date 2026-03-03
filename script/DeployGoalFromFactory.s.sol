@@ -134,7 +134,7 @@ contract DeployGoalFromFactory is DeployScript {
                 budgetSlashPpm: budgetSlashPpm
             }),
             budgetTCR: GoalFactory.BudgetTCRParams({
-                governor: goalOwner,
+                allocationMechanismAdmin: goalOwner,
                 invalidRoundRewardsSink: BURN,
                 submissionDepositStrategy: address(0),
                 submissionBaseDeposit: vm.envOr("TCR_SUBMISSION_BASE_DEPOSIT", uint256(0)),

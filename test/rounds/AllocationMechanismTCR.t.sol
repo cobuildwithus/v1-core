@@ -356,6 +356,7 @@ contract AllocationMechanismTCRTest is Test {
 
         AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
         mechanismTcrCfg.factoryManager = address(0);
+        budgetFlow.setRecipientAdmin(address(mechanism2));
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
         mechanism2.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);

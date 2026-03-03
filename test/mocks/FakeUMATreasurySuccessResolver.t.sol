@@ -292,7 +292,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
             vm.setEnv("COBUILD_REVNET_ID", "138");
             vm.setEnv("ESCROW_BOND_BPS", "5000");
-            vm.setEnv("DEFAULT_BUDGET_TCR_GOVERNOR", "0x000000000000000000000000000000000000dEaD");
+            vm.setEnv("DEFAULT_ALLOCATION_MECHANISM_ADMIN", "0x000000000000000000000000000000000000dEaD");
             vm.setEnv("DEFAULT_INVALID_ROUND_REWARDS_SINK", "0x000000000000000000000000000000000000dEaD");
             vm.setEnv("FAKE_UMA_OWNER", vm.toString(FAKE_UMA_OWNER));
             vm.setEnv("FAKE_UMA_ESCALATION_MANAGER", vm.toString(FAKE_UMA_ESCALATION_MANAGER));

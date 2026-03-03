@@ -15,7 +15,7 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 
 library GoalFactoryBudgetTcrDeploy {
     struct RegistryConfigArgs {
-        address governor;
+        address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
         address submissionDepositStrategy;
         uint256 submissionBaseDeposit;
@@ -31,7 +31,7 @@ library GoalFactoryBudgetTcrDeploy {
     struct BudgetTcrDeployRequest {
         BudgetTCRFactory budgetTcrFactory;
         RegistryConfigArgs registryConfig;
-        address defaultGovernor;
+        address defaultAllocationMechanismAdmin;
         address defaultInvalidRoundRewardsSink;
         address defaultSubmissionDepositStrategy;
         address cobuildToken;
@@ -53,13 +53,15 @@ library GoalFactoryBudgetTcrDeploy {
 
     function resolveRegistryConfig(
         RegistryConfigArgs memory p,
-        address defaultGovernor,
+        address defaultAllocationMechanismAdmin,
         address defaultInvalidRoundRewardsSink,
         address defaultSubmissionDepositStrategy,
         address cobuildToken
     ) public pure returns (BudgetTCRFactory.RegistryConfigInput memory out) {
         out = BudgetTCRFactory.RegistryConfigInput({
-            governor: p.governor == address(0) ? defaultGovernor : p.governor,
+            allocationMechanismAdmin: p.allocationMechanismAdmin == address(0)
+                ? defaultAllocationMechanismAdmin
+                : p.allocationMechanismAdmin,
             invalidRoundRewardsSink: p.invalidRoundRewardsSink == address(0)
                 ? defaultInvalidRoundRewardsSink
                 : p.invalidRoundRewardsSink,
@@ -105,7 +107,7 @@ library GoalFactoryBudgetTcrDeploy {
             request.budgetTcrFactory.deployBudgetTCRStackForGoal(
                 resolveRegistryConfig(
                     request.registryConfig,
-                    request.defaultGovernor,
+                    request.defaultAllocationMechanismAdmin,
                     request.defaultInvalidRoundRewardsSink,
                     request.defaultSubmissionDepositStrategy,
                     request.cobuildToken

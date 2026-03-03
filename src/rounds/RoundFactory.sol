@@ -59,7 +59,6 @@ contract RoundFactory is IAllocationMechanismFactory {
         bytes arbitratorExtraData;
         string registrationMetaEvidence;
         string clearingMetaEvidence;
-        address governor;
         uint256 submissionBaseDeposit;
         uint256 removalBaseDeposit;
         uint256 submissionChallengeBaseDeposit;
@@ -196,7 +195,6 @@ contract RoundFactory is IAllocationMechanismFactory {
                 arbitratorExtraData: tcrConfig.arbitratorExtraData,
                 registrationMetaEvidence: tcrConfig.registrationMetaEvidence,
                 clearingMetaEvidence: tcrConfig.clearingMetaEvidence,
-                governor: tcrConfig.governor,
                 votingToken: IVotes(address(underlying)),
                 submissionBaseDeposit: tcrConfig.submissionBaseDeposit,
                 submissionDepositStrategy: depositStrategy,
