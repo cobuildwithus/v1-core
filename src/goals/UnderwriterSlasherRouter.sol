@@ -9,15 +9,14 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Routes underwriter slashing from premium escrows into stake vault and goal funding.
 /// @dev Forwarding side effects are best-effort and observable; held balances stay in this contract on failure.
-contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard {
+contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     string private constant COBUILD_CONVERSION_MEMO = "UNDERWRITER_SLASH_COBUILD_CONVERSION";
-
-    error ALREADY_INITIALIZED();
 
     IStakeVault public override stakeVault;
     address public override authority;
@@ -27,7 +26,6 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
     ISuperToken public goalSuperToken;
     address public goalFundingTarget;
     uint256 public goalRevnetId;
-    bool private _initializationLocked;
 
     mapping(address => bool) public override isAuthorizedPremiumEscrow;
 
@@ -42,7 +40,7 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         address goalFundingTarget_
     ) {
         if (
-            _isImplementationConstructorSentinelConfig(
+            !_isImplementationConstructorSentinelConfig(
                 stakeVault_,
                 authority_,
                 directory_,
@@ -53,19 +51,18 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
                 goalFundingTarget_
             )
         ) {
-            _initializationLocked = true;
-            return;
+            _initialize(
+                stakeVault_,
+                authority_,
+                directory_,
+                goalRevnetId_,
+                goalToken_,
+                cobuildToken_,
+                goalSuperToken_,
+                goalFundingTarget_
+            );
         }
-        _initialize(
-            stakeVault_,
-            authority_,
-            directory_,
-            goalRevnetId_,
-            goalToken_,
-            cobuildToken_,
-            goalSuperToken_,
-            goalFundingTarget_
-        );
+        _disableInitializers();
     }
 
     function _isImplementationConstructorSentinelConfig(
@@ -92,7 +89,7 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         IERC20 cobuildToken_,
         ISuperToken goalSuperToken_,
         address goalFundingTarget_
-    ) external {
+    ) external initializer {
         _initialize(
             stakeVault_,
             authority_,
@@ -115,7 +112,6 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         ISuperToken goalSuperToken_,
         address goalFundingTarget_
     ) internal {
-        if (_initializationLocked || authority != address(0)) revert ALREADY_INITIALIZED();
         if (address(stakeVault_) == address(0)) revert ADDRESS_ZERO();
         if (authority_ == address(0)) revert ADDRESS_ZERO();
         if (address(directory_) == address(0)) revert ADDRESS_ZERO();
