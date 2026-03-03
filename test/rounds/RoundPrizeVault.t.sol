@@ -181,7 +181,7 @@ contract RoundPrizeVaultTest is Test {
         vault.claim(id);
     }
 
-    function test_claim_revertsWhenSubmissionRemovedAfterEntitlementSet() public {
+    function test_claim_succeedsWhenSubmissionRemovedAfterEntitlementSet() public {
         bytes32 id = _submitAndRegister();
 
         vm.prank(operator);
@@ -195,11 +195,11 @@ contract RoundPrizeVaultTest is Test {
         submissions.executeRequest(id);
 
         vm.prank(alice);
-        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
         vault.claim(id);
+        assertEq(vault.claimedOf(id), 100);
     }
 
-    function test_claim_revertsWhenSubmissionIsPendingRemoval() public {
+    function test_claim_succeedsWhenSubmissionIsPendingRemoval() public {
         bytes32 id = _submitAndRegister();
 
         vm.prank(operator);
@@ -210,8 +210,8 @@ contract RoundPrizeVaultTest is Test {
         submissions.removeItem(id, "");
 
         vm.prank(alice);
-        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
         vault.claim(id);
+        assertEq(vault.claimedOf(id), 100);
     }
 
     function test_claim_revertsWhenNothingToClaim() public {
@@ -345,10 +345,10 @@ contract RoundPrizeVaultTest is Test {
         assertEq(vault.claimedOf(id), 100);
     }
 
-    function test_wrongRecipientCanBeCorrectedViaRemovalAndReAdd() public {
-        bytes memory attackerItem = _submissionItem(bob);
-        vm.prank(bob);
-        bytes32 id = submissions.addItem(attackerItem);
+    function test_claim_snapshotRecipient_blocksRemoveAndReAddTakeover() public {
+        bytes memory item = _submissionItem(alice);
+        vm.prank(alice);
+        bytes32 id = submissions.addItem(item);
 
         vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
         submissions.executeRequest(id);
@@ -357,19 +357,15 @@ contract RoundPrizeVaultTest is Test {
         vault.setEntitlement(id, 100);
         underlying.mint(address(vault), 100);
 
-        vm.prank(alice);
-        submissions.removeItem(id, "");
-
         vm.prank(bob);
-        vm.expectRevert(RoundPrizeVault.SUBMISSION_NOT_REGISTERED.selector);
-        vault.claim(id);
+        submissions.removeItem(id, "");
 
         vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
         submissions.executeRequest(id);
 
-        bytes memory correctedItem = _submissionItem(alice);
-        vm.prank(alice);
-        submissions.addItem(correctedItem);
+        bytes memory attackerItem = _submissionItem(bob);
+        vm.prank(bob);
+        submissions.addItem(attackerItem);
 
         vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
         submissions.executeRequest(id);
@@ -381,5 +377,46 @@ contract RoundPrizeVaultTest is Test {
         vm.prank(alice);
         vault.claim(id);
         assertEq(vault.claimedOf(id), 100);
+    }
+
+    function test_claim_snapshotRecipient_staysPinnedAfterManagerMutation_andEntitlementIncrease() public {
+        bytes memory item = _submissionItem(alice);
+        vm.prank(alice);
+        bytes32 id = submissions.addItem(item);
+
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 100);
+        assertEq(vault.payoutRecipientOf(id), alice);
+        underlying.mint(address(vault), 175);
+
+        vm.prank(alice);
+        vault.claim(id);
+        assertEq(vault.claimedOf(id), 100);
+
+        vm.prank(bob);
+        submissions.removeItem(id, "");
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        bytes memory attackerItem = _submissionItem(bob);
+        vm.prank(bob);
+        submissions.addItem(attackerItem);
+        vm.warp(vm.getBlockTimestamp() + CHALLENGE_PERIOD + 1);
+        submissions.executeRequest(id);
+
+        vm.prank(operator);
+        vault.setEntitlement(id, 175);
+        assertEq(vault.payoutRecipientOf(id), alice);
+
+        vm.prank(bob);
+        vm.expectRevert(RoundPrizeVault.ONLY_SUBMITTER.selector);
+        vault.claim(id);
+
+        vm.prank(alice);
+        vault.claim(id);
+        assertEq(vault.claimedOf(id), 175);
     }
 }
