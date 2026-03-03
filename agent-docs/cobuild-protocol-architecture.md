@@ -223,7 +223,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Implementation note:
   - unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`,
   - failed child sync calls emit `ChildAllocationSyncAttempted(..., success=false)`,
-  - gas-budget skips (`"GAS_BUDGET"`) and failed child sync attempts open debt with `ChildSyncDebtOpened`,
+  - allocation-edit commits open debt with `ChildSyncDebtOpened` on gas-budget skips (`"GAS_BUDGET"`) and failed child sync attempts,
+  - maintenance-sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are clear-only:
+    successful sync attempts clear existing debt while skip/failure outcomes do not open debt,
   - successful child sync and permissionless per-budget repair clear debt with `ChildSyncDebtCleared`.
 - Goal-ledger compatible strategy capability is explicitly represented by
   `src/interfaces/IGoalLedgerStrategy.sol` (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `IHasStakeVault`).

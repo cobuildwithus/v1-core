@@ -18,7 +18,8 @@ library CustomFlowAllocationEngine {
         IAllocationStrategy strategy,
         address caller,
         bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm
+        uint32[] memory allocationsPpm,
+        IAllocationPipeline.CommitKind commitKind
     ) external {
         uint256 allocationKey = strategy.allocationKey(caller, bytes(""));
         if (!strategy.canAllocate(allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
@@ -38,7 +39,8 @@ library CustomFlowAllocationEngine {
             prevIds,
             prevAllocationPpm,
             recipientIds,
-            allocationsPpm
+            allocationsPpm,
+            commitKind
         );
     }
 
@@ -53,7 +55,8 @@ library CustomFlowAllocationEngine {
         bytes32[] memory prevIds,
         uint32[] memory prevAllocationPpm,
         bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm
+        uint32[] memory allocationsPpm,
+        IAllocationPipeline.CommitKind commitKind
     ) public {
         FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
             cfg,
@@ -68,7 +71,16 @@ library CustomFlowAllocationEngine {
             allocationsPpm
         );
         _runPipeline(
-            alloc, pipelineState, strategy, allocationKey, prevWeight, prevIds, prevAllocationPpm, recipientIds, allocationsPpm
+            alloc,
+            pipelineState,
+            strategy,
+            allocationKey,
+            prevWeight,
+            prevIds,
+            prevAllocationPpm,
+            recipientIds,
+            allocationsPpm,
+            commitKind
         );
     }
 
@@ -84,7 +96,8 @@ library CustomFlowAllocationEngine {
         uint32[] memory prevAllocationPpm,
         bytes32[] memory recipientIds,
         uint32[] memory allocationsPpm,
-        uint256 newWeight
+        uint256 newWeight,
+        IAllocationPipeline.CommitKind commitKind
     ) public {
         FlowAllocations.applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
             cfg,
@@ -100,7 +113,16 @@ library CustomFlowAllocationEngine {
             newWeight
         );
         _runPipeline(
-            alloc, pipelineState, strategy, allocationKey, prevWeight, prevIds, prevAllocationPpm, recipientIds, allocationsPpm
+            alloc,
+            pipelineState,
+            strategy,
+            allocationKey,
+            prevWeight,
+            prevIds,
+            prevAllocationPpm,
+            recipientIds,
+            allocationsPpm,
+            commitKind
         );
     }
 
@@ -113,7 +135,8 @@ library CustomFlowAllocationEngine {
         bytes32[] memory prevIds,
         uint32[] memory prevAllocationPpm,
         bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm
+        uint32[] memory allocationsPpm,
+        IAllocationPipeline.CommitKind commitKind
     ) private {
         address pipeline = pipelineState.allocationPipeline;
         if (pipeline == address(0)) return;
@@ -126,7 +149,8 @@ library CustomFlowAllocationEngine {
             prevAllocationPpm,
             _committedWeight(alloc, strategy, allocationKey),
             recipientIds,
-            allocationsPpm
+            allocationsPpm,
+            commitKind
         );
     }
 

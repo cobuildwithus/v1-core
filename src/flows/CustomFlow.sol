@@ -109,7 +109,8 @@ contract CustomFlow is ICustomFlow, Flow {
             strategy,
             msg.sender,
             recipientIds,
-            allocationsPpm
+            allocationsPpm,
+            IAllocationPipeline.CommitKind.AllocationEdit
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);
@@ -170,7 +171,8 @@ contract CustomFlow is ICustomFlow, Flow {
             prevAllocationPpm,
             prevRecipientIds,
             prevAllocationPpm,
-            currentWeight
+            currentWeight,
+            IAllocationPipeline.CommitKind.MaintenanceSync
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);

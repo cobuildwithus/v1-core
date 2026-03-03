@@ -8,6 +8,12 @@ import { ICustomFlow } from "./IFlow.sol";
  * @dev Implementations may checkpoint ledger state, detect changed budgets, and execute child-sync mutations.
  */
 interface IAllocationPipeline {
+    /// @notice Classification of allocation commits for downstream policy decisions.
+    enum CommitKind {
+        AllocationEdit,
+        MaintenanceSync
+    }
+
     /**
      * @notice Optional fail-fast validation hook for flow-level pipeline configuration.
      * @dev Called during flow initialization when pipeline is non-zero.
@@ -26,7 +32,8 @@ interface IAllocationPipeline {
         uint32[] calldata prevAllocationsPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsPpm
+        uint32[] calldata newAllocationsPpm,
+        CommitKind commitKind
     ) external;
 
     /**

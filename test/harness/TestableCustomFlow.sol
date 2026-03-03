@@ -5,6 +5,7 @@ import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {FlowAllocations} from "src/library/FlowAllocations.sol";
 import {FlowPools} from "src/library/FlowPools.sol";
 import {CustomFlowAllocationEngine} from "src/library/CustomFlowAllocationEngine.sol";
+import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 contract TestableCustomFlow is CustomFlow {
@@ -54,7 +55,8 @@ contract TestableCustomFlow is CustomFlow {
             ids,
             allocationPpm,
             ids,
-            allocationPpm
+            allocationPpm,
+            IAllocationPipeline.CommitKind.AllocationEdit
         );
     }
 
@@ -74,7 +76,8 @@ contract TestableCustomFlow is CustomFlow {
             _defaultStrategyOrRevert(),
             msg.sender,
             ids,
-            allocationPpm
+            allocationPpm,
+            IAllocationPipeline.CommitKind.AllocationEdit
         );
     }
 }

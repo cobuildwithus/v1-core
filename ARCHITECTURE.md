@@ -173,9 +173,10 @@ cobuild-protocol/
 - Implementation note:
   - unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`,
   - failed child sync calls emit `ChildAllocationSyncAttempted(..., success=false)`,
-  - gas-budget skips (`"GAS_BUDGET"`) and failed child sync calls open account-level debt tracked by
-    `GoalFlowAllocationLedgerPipeline`,
-  - subsequent checkpoint-requiring allocation commits for that account revert with
+  - allocation-edit commits open account-level debt on gas-budget skips (`"GAS_BUDGET"`) and failed child sync calls,
+  - maintenance-sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are clear-only:
+    successful child sync clears existing debt, but skip/failure outcomes do not open new debt,
+  - subsequent composition-changing allocation commits for that account revert with
     `ACCOUNT_HAS_CHILD_SYNC_DEBT` until debt is cleared by successful sync or
     permissionless `repairChildSyncDebt(account, budgetTreasury)`.
 - Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol`
