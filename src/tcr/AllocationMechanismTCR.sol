@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IArbitrator } from "./interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
+import { IAllocationRoundFactory } from "./interfaces/IAllocationRoundFactory.sol";
 
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
@@ -135,6 +136,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error REMOVAL_FINALIZATION_PENDING();
     error ROUND_BELOW_MIN_FUNDING(uint256 minRequired, uint256 totalReceived);
     error ROUND_EXPIRED_UNDERFUNDED(uint64 fundingDeadline, uint256 minRequired, uint256 totalReceived);
+    error FACTORY_NOT_ALLOWED(address factory);
 
     // ---------------------------
     // Events
@@ -152,6 +154,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     );
     event RoundRemoved(bytes32 indexed itemID);
     event RoundDefaultsUpdated();
+    event MechanismFactoryAllowedSet(address indexed factory, bool allowed);
+    event ActiveMechanismFactorySet(address indexed factory);
 
     event RoundFundingStopped(bytes32 indexed itemID, FundingStopReason indexed reason, uint256 totalReceived);
     event RoundFundingRefunded(bytes32 indexed itemID, uint256 amount);
@@ -162,6 +166,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // ---------------------------
 
     RoundFactory public roundFactory;
+    mapping(address => bool) public mechanismFactoryAllowed;
+    address public activeMechanismFactory;
     address public budgetTreasury;
     IManagedFlow public budgetFlow;
 
@@ -191,6 +197,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         budgetTreasury = budgetTreasury_;
         roundFactory = RoundFactory(roundFactory_);
+        mechanismFactoryAllowed[roundFactory_] = true;
+        activeMechanismFactory = roundFactory_;
         address budgetFlowAddress = IBudgetTreasury(budgetTreasury_).flow();
         if (budgetFlowAddress == address(0) || budgetFlowAddress.code.length == 0) revert BUDGET_FLOW_MISMATCH();
         budgetFlow = IManagedFlow(budgetFlowAddress);
@@ -235,12 +243,15 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             revert ROUND_EXPIRED_UNDERFUNDED(listing.fundingDeadline, listing.minBudgetFunding, 0);
         }
 
-        deployed = roundFactory.createRoundForBudget(
+        address factory = activeMechanismFactory;
+        if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
+
+        IAllocationRoundFactory.DeployedRound memory deployedByFactory = IAllocationRoundFactory(factory).createRoundForBudget(
             itemID,
             budgetTreasury,
-            RoundFactory.RoundTiming({ startAt: listing.startAt, endAt: listing.endAt }),
+            IAllocationRoundFactory.RoundTiming({ startAt: listing.startAt, endAt: listing.endAt }),
             roundDefaults.roundOperator,
-            RoundFactory.SubmissionTcrConfig({
+            IAllocationRoundFactory.SubmissionTcrConfig({
                 arbitratorExtraData: roundDefaults.arbitratorExtraData,
                 registrationMetaEvidence: roundDefaults.registrationMetaEvidence,
                 clearingMetaEvidence: roundDefaults.clearingMetaEvidence,
@@ -251,7 +262,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
                 removalChallengeBaseDeposit: roundDefaults.removalChallengeBaseDeposit,
                 challengePeriodDuration: roundDefaults.challengePeriodDuration
             }),
-            RoundFactory.ArbitratorConfig({
+            IAllocationRoundFactory.ArbitratorConfig({
                 votingPeriod: roundDefaults.votingPeriod,
                 votingDelay: roundDefaults.votingDelay,
                 revealPeriod: roundDefaults.revealPeriod,
@@ -260,6 +271,19 @@ contract AllocationMechanismTCR is GeneralizedTCR {
                 slashCallerBountyBps: roundDefaults.slashCallerBountyBps
             })
         );
+
+        deployed = RoundFactory.DeployedRound({
+            prizeVault: deployedByFactory.prizeVault,
+            submissionTCR: deployedByFactory.submissionTCR,
+            arbitrator: deployedByFactory.arbitrator,
+            depositStrategy: deployedByFactory.depositStrategy,
+            underlyingToken: deployedByFactory.underlyingToken,
+            superToken: deployedByFactory.superToken,
+            stakeVault: deployedByFactory.stakeVault,
+            goalTreasury: deployedByFactory.goalTreasury,
+            goalFlow: deployedByFactory.goalFlow,
+            budgetFlow: deployedByFactory.budgetFlow
+        });
 
         ISuperfluidPool distributionPool = budgetFlow.distributionPool();
         if (address(distributionPool) == address(0)) revert BUDGET_FLOW_MISMATCH();
@@ -370,6 +394,20 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         emit RoundDefaultsUpdated();
     }
 
+    function setMechanismFactoryAllowed(address factory, bool allowed) external onlyGovernor {
+        if (factory == address(0)) revert ADDRESS_ZERO();
+        mechanismFactoryAllowed[factory] = allowed;
+        emit MechanismFactoryAllowedSet(factory, allowed);
+    }
+
+    function setActiveMechanismFactory(address factory) external onlyGovernor {
+        if (factory == address(0)) revert ADDRESS_ZERO();
+        if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
+        activeMechanismFactory = factory;
+        roundFactory = RoundFactory(factory);
+        emit ActiveMechanismFactorySet(factory);
+    }
+
     // ---------------------------
     // TCR hooks
     // ---------------------------
@@ -425,16 +463,24 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     }
 
     function _validateListing(RoundMechanismListing memory listing) internal pure {
-        if (listing.endAt != 0 && listing.startAt != 0 && listing.endAt < listing.startAt) {
+        if (_hasInvalidTimeWindow(listing)) {
             revert INVALID_TIME_WINDOW(listing.startAt, listing.endAt);
         }
-        if (!_isValidListing(listing)) {
+        if (!_isValidFundingPolicy(listing)) {
             revert INVALID_FUNDING_POLICY(listing.fundingDeadline, listing.minBudgetFunding, listing.maxBudgetFunding);
         }
     }
 
     function _isValidListing(RoundMechanismListing memory listing) internal pure returns (bool) {
-        if (listing.endAt != 0 && listing.startAt != 0 && listing.endAt < listing.startAt) return false;
+        if (_hasInvalidTimeWindow(listing)) return false;
+        return _isValidFundingPolicy(listing);
+    }
+
+    function _hasInvalidTimeWindow(RoundMechanismListing memory listing) internal pure returns (bool) {
+        return listing.endAt != 0 && listing.startAt != 0 && listing.endAt < listing.startAt;
+    }
+
+    function _isValidFundingPolicy(RoundMechanismListing memory listing) internal pure returns (bool) {
         // Funding policy sanity:
         // - max must be >= min when both are set.
         // - min and underfunded-expiry require a funding deadline.
