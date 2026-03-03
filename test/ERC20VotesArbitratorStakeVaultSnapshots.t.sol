@@ -216,6 +216,43 @@ contract ERC20VotesArbitratorStakeVaultSnapshotsTest is ERC20VotesArbitratorTest
         scopedArb.commitVote(disputeId, bytes32(uint256(3)));
     }
 
+    function test_createDispute_fixedBudgetStakeVaultMode_usesPreviousBlockInputs_whenSameBlockValuesDropToZero()
+        public
+    {
+        address scopedJuror = makeAddr("scopedJurorDrop");
+
+        (
+            ERC20VotesArbitrator scopedArb,
+            StakeVaultSnapshotStakeVaultMock scopedStakeVault,
+            StakeVaultSnapshotBudgetLedgerMock ledger,
+            StakeVaultSnapshotBudgetTreasuryMock budgetTreasury
+        ) = _deployFixedBudgetStakeVaultModeArbitrator();
+
+        scopedStakeVault.setJurorWeight(scopedJuror, 120e18);
+        ledger.setUserAllocationWeight(scopedJuror, 120e18);
+        ledger.setUserAllocatedStakeOnBudget(scopedJuror, address(budgetTreasury), 90e18);
+        vm.roll(block.number + 1);
+
+        uint256 startTime = block.timestamp + votingDelay;
+        uint256 disputeId = arbitrable.createDispute(2, "");
+
+        // Juror exits and clears budget/allocation after dispute creation in the same block.
+        scopedStakeVault.setJurorWeight(scopedJuror, 0);
+        ledger.setUserAllocationWeight(scopedJuror, 0);
+        ledger.setUserAllocatedStakeOnBudget(scopedJuror, address(budgetTreasury), 0);
+
+        (uint256 votingPower, bool canVote) = scopedArb.votingPowerInRound(disputeId, 0, scopedJuror);
+        assertTrue(canVote);
+        assertEq(votingPower, 90e18);
+
+        _warpRoll(startTime + 1);
+        vm.prank(scopedJuror);
+        scopedArb.commitVote(disputeId, bytes32(uint256(4)));
+
+        IERC20VotesArbitrator.VoterRoundStatus memory status = scopedArb.getVoterRoundStatus(disputeId, 0, scopedJuror);
+        assertTrue(status.hasCommitted);
+    }
+
     function _deployFixedBudgetStakeVaultModeArbitrator()
         internal
         returns (
