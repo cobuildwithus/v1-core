@@ -6,6 +6,7 @@ deploys/
 
 # Local/editor metadata
 .DS_Store
+**/.DS_Store
 .vscode/
 
 # Ignores development broadcast logs
