@@ -149,14 +149,16 @@ contract CustomFlow is ICustomFlow, Flow {
         uint32[] memory prevAllocationPpm,
         bool requireZeroWeight
     ) internal {
+        uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
         if (requireZeroWeight) {
-            uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
             if (currentWeight != 0) revert STALE_CLEAR_WEIGHT_NOT_ZERO(currentWeight);
+        } else if (currentWeight == prevWeight) {
+            return;
         }
 
         uint128 totalUnitsBefore = _cfgStorage().distributionPool.getTotalUnits();
 
-        CustomFlowAllocationEngine.applyAllocationWithPipeline(
+        CustomFlowAllocationEngine.applyAllocationWithPipelineWithWeight(
             _cfgStorage(),
             _recipientsStorage(),
             _allocStorage(),
@@ -167,7 +169,8 @@ contract CustomFlow is ICustomFlow, Flow {
             prevRecipientIds,
             prevAllocationPpm,
             prevRecipientIds,
-            prevAllocationPpm
+            prevAllocationPpm,
+            currentWeight
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);

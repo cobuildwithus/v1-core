@@ -67,7 +67,54 @@ library CustomFlowAllocationEngine {
             recipientIds,
             allocationsPpm
         );
+        _runPipeline(
+            alloc, pipelineState, strategy, allocationKey, prevWeight, prevIds, prevAllocationPpm, recipientIds, allocationsPpm
+        );
+    }
 
+    function applyAllocationWithPipelineWithWeight(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        FlowTypes.PipelineState storage pipelineState,
+        address strategy,
+        uint256 allocationKey,
+        uint256 prevWeight,
+        bytes32[] memory prevIds,
+        uint32[] memory prevAllocationPpm,
+        bytes32[] memory recipientIds,
+        uint32[] memory allocationsPpm,
+        uint256 newWeight
+    ) public {
+        FlowAllocations.applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+            cfg,
+            recipients,
+            alloc,
+            strategy,
+            allocationKey,
+            prevIds,
+            prevAllocationPpm,
+            prevWeight,
+            recipientIds,
+            allocationsPpm,
+            newWeight
+        );
+        _runPipeline(
+            alloc, pipelineState, strategy, allocationKey, prevWeight, prevIds, prevAllocationPpm, recipientIds, allocationsPpm
+        );
+    }
+
+    function _runPipeline(
+        FlowTypes.AllocationState storage alloc,
+        FlowTypes.PipelineState storage pipelineState,
+        address strategy,
+        uint256 allocationKey,
+        uint256 prevWeight,
+        bytes32[] memory prevIds,
+        uint32[] memory prevAllocationPpm,
+        bytes32[] memory recipientIds,
+        uint32[] memory allocationsPpm
+    ) private {
         address pipeline = pipelineState.allocationPipeline;
         if (pipeline == address(0)) return;
 

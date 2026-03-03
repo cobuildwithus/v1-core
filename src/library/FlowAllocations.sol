@@ -62,9 +62,67 @@ library FlowAllocations {
         bytes32[] memory newRecipientIds,
         uint32[] memory newAllocationPpm
     ) public {
-        uint256 allocationScalePpm = FlowProtocolConstants.PPM_SCALE_UINT256;
-        uint256 newWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
+        _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+            cfg,
+            recipients,
+            alloc,
+            strategy,
+            allocationKey,
+            prevRecipientIds,
+            prevAllocationPpm,
+            prevWeight,
+            newRecipientIds,
+            newAllocationPpm,
+            IAllocationStrategy(strategy).currentWeight(allocationKey)
+        );
+    }
 
+    /**
+     * @dev Unchecked apply path for memory arrays with caller-supplied weight.
+     * Caller must enforce recipient activity and allocation-sum invariants for new allocations.
+     * This function validates previous-state commitment continuity only.
+     */
+    function applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        address strategy,
+        uint256 allocationKey,
+        bytes32[] memory prevRecipientIds,
+        uint32[] memory prevAllocationPpm,
+        uint256 prevWeight,
+        bytes32[] memory newRecipientIds,
+        uint32[] memory newAllocationPpm,
+        uint256 newWeight
+    ) public {
+        _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+            cfg,
+            recipients,
+            alloc,
+            strategy,
+            allocationKey,
+            prevRecipientIds,
+            prevAllocationPpm,
+            prevWeight,
+            newRecipientIds,
+            newAllocationPpm,
+            newWeight
+        );
+    }
+
+    function _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        address strategy,
+        uint256 allocationKey,
+        bytes32[] memory prevRecipientIds,
+        uint32[] memory prevAllocationPpm,
+        uint256 prevWeight,
+        bytes32[] memory newRecipientIds,
+        uint32[] memory newAllocationPpm,
+        uint256 newWeight
+    ) private {
         // New inputs must be strictly sorted and unique for canonical hashing and linear merge
         _assertSortedUniqueMemoryNonEmpty(newRecipientIds);
 
@@ -87,16 +145,11 @@ library FlowAllocations {
         // --- assemble old & new unit pairs ---
         _PairUnits[] memory oldPairs;
         if (oldCommit != bytes32(0)) {
-            oldPairs = _pairsUnitsFromComputed(prevRecipientIds, prevAllocationPpm, prevWeight, allocationScalePpm);
+            oldPairs = _pairsUnitsFromComputed(prevRecipientIds, prevAllocationPpm, prevWeight);
         } else {
             oldPairs = new _PairUnits[](0);
         }
-        _PairUnits[] memory newPairs = _pairsUnitsFromComputed(
-            newRecipientIds,
-            newAllocationPpm,
-            newWeight,
-            allocationScalePpm
-        );
+        _PairUnits[] memory newPairs = _pairsUnitsFromComputed(newRecipientIds, newAllocationPpm, newWeight);
         bytes32 newCommit = AllocationCommitment.hashMemory(newRecipientIds, newAllocationPpm);
         bytes memory packedSnapshot = new bytes(0);
         if (newCommit != oldCommit) {
@@ -255,28 +308,21 @@ library FlowAllocations {
     function _pairsUnitsFromComputed(
         bytes32[] memory ids,
         uint32[] memory allocationPpm,
-        uint256 weight,
-        uint256 allocationScalePpm
+        uint256 weight
     ) internal pure returns (_PairUnits[] memory pairs) {
         if (ids.length != allocationPpm.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
         pairs = new _PairUnits[](ids.length);
         for (uint256 i; i < ids.length; ) {
-            pairs[i] = _PairUnits({
-                id: ids[i],
-                units: _computedUnits(weight, allocationPpm[i], allocationScalePpm)
-            });
+            pairs[i] = _PairUnits({ id: ids[i], units: _computedUnits(weight, allocationPpm[i]) });
             unchecked {
                 ++i;
             }
         }
     }
 
-    function _computedUnits(
-        uint256 weight,
-        uint32 allocationPpm,
-        uint256 allocationScalePpm
-    ) internal pure returns (uint128) {
-        uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, allocationScalePpm);
+    function _computedUnits(uint256 weight, uint32 allocationPpm) internal pure returns (uint128) {
+        uint256 units =
+            FlowUnitMath.poolUnitsFromScaledAllocation(weight, allocationPpm, FlowProtocolConstants.PPM_SCALE_UINT256);
         if (units > type(uint128).max) revert IFlow.OVERFLOW();
         return uint128(units);
     }

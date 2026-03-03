@@ -199,7 +199,7 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
         assertEq(_packedSnapshotCount(packedSnapshot), 1);
     }
 
-    function test_syncAllocation_noopApply_emitsCommitOnlyWithoutSnapshot() public {
+    function test_syncAllocation_noopApply_skipsPipelineAndEmitsNoAllocationEvents() public {
         bytes32 id1 = bytes32(uint256(1));
         address recipient = address(0x111);
         _addRecipient(id1, recipient);
@@ -219,12 +219,32 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
 
         assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
         assertEq(_countPoolMemberUnitsUpdated(logs), 0);
-        assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 1);
+        assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 0);
         assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
+    }
 
-        (bytes32 commit, uint256 weight) = _getCommittedCommitAndWeight(logs);
-        assertEq(commit, keccak256(abi.encode(ids, scaled)));
-        assertEq(weight, DEFAULT_WEIGHT);
+    function test_syncAllocationForAccount_noopApply_skipsPipelineAndEmitsNoAllocationEvents() public {
+        bytes32 id1 = bytes32(uint256(1));
+        address recipient = address(0x111);
+        _addRecipient(id1, recipient);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id1;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        uint256 key = _allocatorKey();
+        _allocateSingleKey(key, ids, scaled);
+
+        vm.recordLogs();
+        vm.prank(other);
+        flow.syncAllocationForAccount(allocator);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
+        assertEq(_countPoolMemberUnitsUpdated(logs), 0);
+        assertEq(_countFlowEvents(logs, ALLOCATION_COMMITTED_SIG), 0);
+        assertEq(_countFlowEvents(logs, ALLOCATION_SNAPSHOT_UPDATED_SIG), 0);
     }
 
     function test_clearStaleAllocation_zeroWeight_emitsCommitOnlyWithoutSnapshot() public {
