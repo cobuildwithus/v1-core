@@ -918,6 +918,38 @@ contract StakeVaultTest is Test {
         budgetAwareVault.withdrawGoal(1e18, alice);
     }
 
+    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithCreditDrawn_revertsAndKeepsWithdrawLocked()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setCreditDrawn(alice, 1);
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 0);
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+    }
+
     function test_prepareUnderwriterWithdrawal_failedBudgetWithExposure_callsSlashAndAllowsWithdraw() public {
         (
             StakeVault budgetAwareVault,
@@ -945,6 +977,7 @@ contract StakeVaultTest is Test {
         assertEq(nextBudgetIndex, 1);
         assertEq(budgetCount, 1);
         assertTrue(complete);
+        assertEq(failedBudget.retryTerminalSideEffectsCallCount(), 0);
         assertEq(escrow.slashCallCount(), 1);
         assertEq(escrow.slashCallCountFor(alice), 1);
         assertEq(escrow.lastSlashedUnderwriter(), alice);
@@ -952,6 +985,142 @@ contract StakeVaultTest is Test {
         vm.prank(alice);
         budgetAwareVault.withdrawGoal(1e18, alice);
         assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
+    function test_prepareUnderwriterWithdrawal_failedBudgetWithExposure_retriesTerminalSideEffectsWhenSlashReverts()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        escrow.setShouldRevertSlash(true);
+        VaultPrepareBudgetTreasury failedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        failedBudget.setResolved(true);
+        failedBudget.setActivatedAt(1);
+        failedBudget.setState(IBudgetTreasury.BudgetState.Failed);
+        failedBudget.setClearSlashRevertOnRetry(true);
+        budgetAwareLedger.addBudget(address(failedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertEq(failedBudget.retryTerminalSideEffectsCallCount(), 1);
+        assertEq(escrow.slashCallCount(), 1);
+        assertEq(escrow.slashCallCountFor(alice), 1);
+        assertEq(escrow.lastSlashedUnderwriter(), alice);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
+    function test_prepareUnderwriterWithdrawal_expiredBudgetWithExposure_retriesTerminalSideEffectsWhenSlashReverts()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        escrow.setShouldRevertSlash(true);
+        VaultPrepareBudgetTreasury expiredBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        expiredBudget.setResolved(true);
+        expiredBudget.setActivatedAt(1);
+        expiredBudget.setState(IBudgetTreasury.BudgetState.Expired);
+        expiredBudget.setClearSlashRevertOnRetry(true);
+        budgetAwareLedger.addBudget(address(expiredBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertEq(expiredBudget.retryTerminalSideEffectsCallCount(), 1);
+        assertEq(escrow.slashCallCount(), 1);
+        assertEq(escrow.slashCallCountFor(alice), 1);
+        assertEq(escrow.lastSlashedUnderwriter(), alice);
+    }
+
+    function test_prepareUnderwriterWithdrawal_failedBudgetWithExposure_revertsWhenRetryTerminalSideEffectsReverts()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        escrow.setShouldRevertSlash(true);
+        VaultPrepareBudgetTreasury failedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        failedBudget.setResolved(true);
+        failedBudget.setActivatedAt(1);
+        failedBudget.setState(IBudgetTreasury.BudgetState.Failed);
+        failedBudget.setShouldRevertRetryTerminalSideEffects(true);
+        budgetAwareLedger.addBudget(address(failedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "RETRY_TERMINAL_SIDE_EFFECTS_FAILED"));
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+    }
+
+    function test_prepareUnderwriterWithdrawal_failedBudgetWithExposure_revertsWhenSecondSlashStillRevertsAfterRetry()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        escrow.setUserCov(alice, 1);
+        escrow.setShouldRevertSlash(true);
+        VaultPrepareBudgetTreasury failedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        failedBudget.setResolved(true);
+        failedBudget.setActivatedAt(1);
+        failedBudget.setState(IBudgetTreasury.BudgetState.Failed);
+        failedBudget.setUseAltSlashRevertReasonOnRetry(true);
+        budgetAwareLedger.addBudget(address(failedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "SLASH_REVERTED_AFTER_RETRY"));
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
     }
 
     function test_prepareUnderwriterWithdrawal_revertsOnZeroMaxBudgets() public {
@@ -2648,6 +2817,10 @@ contract VaultPrepareBudgetTreasury {
     bool internal _resolved;
     uint64 internal _activatedAt;
     IBudgetTreasury.BudgetState internal _state;
+    bool internal _shouldRevertRetryTerminalSideEffects;
+    bool internal _clearSlashRevertOnRetry;
+    bool internal _useAltSlashRevertReasonOnRetry;
+    uint256 internal _retryTerminalSideEffectsCallCount;
 
     constructor(address premiumEscrow_) {
         _premiumEscrow = premiumEscrow_;
@@ -2685,11 +2858,41 @@ contract VaultPrepareBudgetTreasury {
     function activatedAt() external view returns (uint64) {
         return _activatedAt;
     }
+
+    function setShouldRevertRetryTerminalSideEffects(bool shouldRevert_) external {
+        _shouldRevertRetryTerminalSideEffects = shouldRevert_;
+    }
+
+    function setClearSlashRevertOnRetry(bool clearOnRetry_) external {
+        _clearSlashRevertOnRetry = clearOnRetry_;
+    }
+
+    function setUseAltSlashRevertReasonOnRetry(bool useAltReason_) external {
+        _useAltSlashRevertReasonOnRetry = useAltReason_;
+    }
+
+    function retryTerminalSideEffectsCallCount() external view returns (uint256) {
+        return _retryTerminalSideEffectsCallCount;
+    }
+
+    function retryTerminalSideEffects() external {
+        _retryTerminalSideEffectsCallCount += 1;
+        if (_shouldRevertRetryTerminalSideEffects) revert("RETRY_TERMINAL_SIDE_EFFECTS_FAILED");
+        if (_clearSlashRevertOnRetry) {
+            VaultPreparePremiumEscrow(_premiumEscrow).setShouldRevertSlash(false);
+        }
+        if (_useAltSlashRevertReasonOnRetry) {
+            VaultPreparePremiumEscrow(_premiumEscrow).setUseAltSlashRevertReason(true);
+        }
+    }
 }
 
 contract VaultPreparePremiumEscrow {
     mapping(address account => uint256 cov) internal _userCov;
     mapping(address account => uint256 integral) internal _exposureIntegral;
+    mapping(address account => uint256 credit) internal _creditDrawn;
+    bool internal _shouldRevertSlash;
+    bool internal _useAltSlashRevertReason;
     uint256 internal _slashCallCount;
     mapping(address account => uint256 count) internal _slashCallCountFor;
     address internal _lastSlashedUnderwriter;
@@ -2702,6 +2905,10 @@ contract VaultPreparePremiumEscrow {
         _exposureIntegral[account] = integral;
     }
 
+    function setCreditDrawn(address account, uint256 credit) external {
+        _creditDrawn[account] = credit;
+    }
+
     function userCov(address account) external view returns (uint256) {
         return _userCov[account];
     }
@@ -2710,8 +2917,20 @@ contract VaultPreparePremiumEscrow {
         return _exposureIntegral[account];
     }
 
+    function creditDrawn(address account) external view returns (uint256) {
+        return _creditDrawn[account];
+    }
+
     function slashCallCount() external view returns (uint256) {
         return _slashCallCount;
+    }
+
+    function setShouldRevertSlash(bool shouldRevert_) external {
+        _shouldRevertSlash = shouldRevert_;
+    }
+
+    function setUseAltSlashRevertReason(bool useAlt_) external {
+        _useAltSlashRevertReason = useAlt_;
     }
 
     function slashCallCountFor(address account) external view returns (uint256) {
@@ -2723,6 +2942,10 @@ contract VaultPreparePremiumEscrow {
     }
 
     function slash(address underwriter) external returns (uint256) {
+        if (_shouldRevertSlash) {
+            if (_useAltSlashRevertReason) revert("SLASH_REVERTED_AFTER_RETRY");
+            revert("SLASH_REVERTED");
+        }
         _slashCallCount += 1;
         _slashCallCountFor[underwriter] += 1;
         _lastSlashedUnderwriter = underwriter;
