@@ -1165,6 +1165,29 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(address(budgetFlow)), 0);
     }
 
+    function test_syncMechanismFunding_doesNotExpireAfterReleaseWhenMinWasMetByDirectEscrowBalance() public {
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
+
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = listing.minBudgetFunding;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
+
+        uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
+        assertEq(released, escrowed);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+
+        vm.warp(uint256(listing.fundingDeadline) + 1);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
+        mechanism.syncMechanismFunding(itemId);
+
+        AllocationMechanismTCR.MechanismDeployment memory afterSync = mechanism.mechanismDeployment(itemId);
+        assertTrue(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
+    }
+
     function test_releaseMechanismFunds_revertsWhenEscrowTransferReturnsFalse() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),

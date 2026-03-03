@@ -83,6 +83,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         address auxiliary;
         address fundingEscrow;
         uint64 activatedAt;
+        uint256 maxEffectiveFundingObserved;
         bool active;
     }
 
@@ -236,6 +237,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             auxiliary: deployed.auxiliary,
             fundingEscrow: escrow,
             activatedAt: uint64(block.timestamp),
+            maxEffectiveFundingObserved: 0,
             active: true
         });
 
@@ -286,18 +288,18 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (removalQueued[itemID]) revert REMOVAL_FINALIZATION_PENDING();
 
         _syncMechanismFunding(itemID);
-        MechanismDeployment memory dep = _mechanismDeployment[itemID];
+        MechanismDeployment storage dep = _mechanismDeployment[itemID];
 
         MechanismListing memory listing = _decodeAndValidateListing(item.data);
 
-        uint256 effectiveFunding = _effectiveEscrowFunding(dep.fundingEscrow);
+        uint256 policyFunding = _policyFundingLevel(dep);
 
-        if (_isExpiredUnderfunded(listing, effectiveFunding)) {
+        if (_isExpiredUnderfunded(listing, policyFunding)) {
             return 0;
         }
 
-        if (listing.minBudgetFunding != 0 && effectiveFunding < listing.minBudgetFunding) {
-            revert MECHANISM_BELOW_MIN_FUNDING(listing.minBudgetFunding, effectiveFunding);
+        if (listing.minBudgetFunding != 0 && policyFunding < listing.minBudgetFunding) {
+            revert MECHANISM_BELOW_MIN_FUNDING(listing.minBudgetFunding, policyFunding);
         }
 
         uint256 toRelease = amount == 0 ? type(uint256).max : amount;
@@ -416,6 +418,14 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         return totalReceived >= escrowBalance ? totalReceived : escrowBalance;
     }
 
+    function _policyFundingLevel(MechanismDeployment storage dep) internal returns (uint256) {
+        uint256 effectiveFunding = _effectiveEscrowFunding(dep.fundingEscrow);
+        if (effectiveFunding > dep.maxEffectiveFundingObserved) {
+            dep.maxEffectiveFundingObserved = effectiveFunding;
+        }
+        return dep.maxEffectiveFundingObserved;
+    }
+
     function _stopFunding(
         bytes32 itemID,
         MechanismDeployment storage dep,
@@ -449,21 +459,21 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         MechanismListing memory listing = _decodeAndValidateListing(items[itemID].data);
 
-        uint256 effectiveFunding = _effectiveEscrowFunding(dep.fundingEscrow);
+        uint256 policyFunding = _policyFundingLevel(dep);
 
-        if (_isExpiredUnderfunded(listing, effectiveFunding)) {
-            _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, effectiveFunding);
+        if (_isExpiredUnderfunded(listing, policyFunding)) {
+            _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, policyFunding);
             _refundEscrow(itemID, dep.fundingEscrow);
             return;
         }
 
-        if (listing.maxBudgetFunding != 0 && effectiveFunding >= listing.maxBudgetFunding) {
-            _stopFunding(itemID, dep, FundingStopReason.Capped, effectiveFunding);
+        if (listing.maxBudgetFunding != 0 && policyFunding >= listing.maxBudgetFunding) {
+            _stopFunding(itemID, dep, FundingStopReason.Capped, policyFunding);
             return;
         }
 
         if (_isDurationElapsed(listing.duration, dep.activatedAt)) {
-            _stopFunding(itemID, dep, FundingStopReason.Ended, effectiveFunding);
+            _stopFunding(itemID, dep, FundingStopReason.Ended, policyFunding);
         }
     }
 
