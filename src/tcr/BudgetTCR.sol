@@ -596,32 +596,8 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         AllocationMechanismTCR(allocationMechanism).initialize(
             budgetTreasury,
             deployer.roundFactory(),
-            _mechanismRoundDefaults(arbParams),
             _mechanismRegistryConfig(mechanismArbitrator)
         );
-    }
-
-    function _mechanismRoundDefaults(
-        IArbitrator.ArbitratorParams memory arbParams
-    ) internal view returns (AllocationMechanismTCR.RoundDefaults memory defaults) {
-        defaults = AllocationMechanismTCR.RoundDefaults({
-            arbitratorExtraData: arbitratorExtraData,
-            registrationMetaEvidence: registrationMetaEvidence,
-            clearingMetaEvidence: clearingMetaEvidence,
-            governor: governor,
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration,
-            votingPeriod: arbParams.votingPeriod,
-            votingDelay: arbParams.votingDelay,
-            revealPeriod: arbParams.revealPeriod,
-            arbitrationCost: arbParams.arbitrationCost,
-            wrongOrMissedSlashBps: arbParams.wrongOrMissedSlashBps,
-            slashCallerBountyBps: arbParams.slashCallerBountyBps,
-            roundOperator: governor
-        });
     }
 
     function _mechanismRegistryConfig(

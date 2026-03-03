@@ -54,7 +54,7 @@ contract DeployGoalFactory is DeployScript {
         uint256 cobuildRevnetId = vm.envOr("COBUILD_REVNET_ID", uint256(138));
 
         uint256 escrowBondBps = vm.envOr("ESCROW_BOND_BPS", uint256(5000));
-        address defaultGovernor = vm.envOr("DEFAULT_BUDGET_TCR_GOVERNOR", BURN);
+        address defaultGovernor = vm.envOr("DEFAULT_BUDGET_TCR_GOVERNOR", deployerAddress);
         address invalidRoundRewardsSink = vm.envOr("DEFAULT_INVALID_ROUND_REWARDS_SINK", BURN);
         address fakeUmaOwner = vm.envOr("FAKE_UMA_OWNER", deployerAddress);
         address fakeUmaEscalationManager = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
