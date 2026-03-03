@@ -295,6 +295,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID))));
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 
@@ -331,6 +332,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         deployScript.run();
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 

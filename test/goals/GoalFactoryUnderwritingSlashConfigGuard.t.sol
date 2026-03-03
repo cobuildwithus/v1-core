@@ -18,19 +18,89 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
 
     GoalFactory internal factory;
+    address internal premiumEscrowImpl;
 
     function setUp() public {
-        factory = _newFactory(address(new DummyContract()), DEFAULT_ALLOCATION_MECHANISM_ADMIN);
+        premiumEscrowImpl = address(new DummyContract());
+        factory = _newFactory(premiumEscrowImpl, DEFAULT_ALLOCATION_MECHANISM_ADMIN);
     }
 
     function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
-        _newFactory(address(new DummyContract()), address(0));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(premiumEscrowImpl),
+            address(defaultSubmissionDepositStrategy),
+            address(0),
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
     }
 
     function test_constructor_revertsWhenPremiumEscrowImplementationIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
-        _newFactory(address(0), DEFAULT_ALLOCATION_MECHANISM_ADMIN);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(0),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenPremiumEscrowImplementationHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodePremiumEscrowImpl = address(0xCAFE);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodePremiumEscrowImpl));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            noCodePremiumEscrowImpl,
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_setsPremiumEscrowImplementationImmutable() public view {
+        assertEq(factory.PREMIUM_ESCROW_IMPL(), premiumEscrowImpl);
     }
 
     function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
