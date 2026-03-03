@@ -47,14 +47,14 @@
 8. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, and deployer implementations.
 9. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
 
-## Round Stack Notes
+## Mechanism Registry Notes
 
-- `RoundFactory` is permissionless and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
+- `RoundFactory` is a permissionless implementation of the generic allocation-mechanism factory interface and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
 - `AllocationMechanismTCR` now gates mechanism deployment factories through one governor-managed control:
   - `mechanismFactoryAllowed[factory]` allowlist.
-- Mechanism deployment config (factory + round config) is immutable per curated listing payload.
+- Mechanism deployment config (factory + opaque mechanism payload) is immutable per curated listing payload.
 - Activation uses the listing's configured mechanism factory, with allowlist enforcement at submission-time validation and activation-time execution.
-- Canonical budget rounds for product/indexing should be sourced from `AllocationMechanismTCR.RoundActivated`, which links an accepted mechanism listing item id to the activated deployed stack.
+- Canonical mechanism activations for product/indexing should be sourced from `AllocationMechanismTCR.MechanismActivated`, which links an accepted mechanism listing item id to the activated deployed stack.
 - `RoundSubmissionTCR` submission windows are bounded by `startAt` (inclusive lower bound) and `endAt` (inclusive upper bound).
 - `RoundPrizeVault` has no sweep/closeout path by design; only entitled submissions can claim, and unentitled balances remain in-vault.
 
