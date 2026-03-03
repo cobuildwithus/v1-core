@@ -231,6 +231,38 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(address(router)), 0);
     }
 
+    function test_regression_systemCheckpointedCoverage_noManualCheckpoint_stillSlashes() public {
+        uint256 coverage = 100e18;
+        uint64 activatedAt = 10;
+        uint64 closedAt = 30;
+
+        budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), coverage);
+
+        // Model the canonical allocation-pipeline checkpoint at allocation-change time.
+        escrow.checkpoint(ALICE);
+        assertEq(escrow.userCov(ALICE), coverage);
+        assertEq(escrow.creditDrawn(ALICE), 0);
+
+        vm.warp(activatedAt);
+        budgetTreasury.setActivatedAt(activatedAt);
+
+        vm.warp(closedAt);
+        _setGoalFlowCreditForTargetSlashWithoutCheckpoint(escrow, TARGET_SLASH_WEIGHT);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, activatedAt, closedAt);
+
+        uint256 stakedGoalBefore = stakeVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBefore = stakeVault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, TARGET_SLASH_WEIGHT);
+        assertLt(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
+        assertLt(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+    }
+
     function test_failedBudgetAfterActivation_slashStillFundsGoal_whenCobuildConversionUnavailable() public {
         budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
         directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(0)));
@@ -1017,7 +1049,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(ALICE), 0);
     }
 
-    function _fundEscrowForTargetSlash(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
+    function _setGoalFlowCreditForTargetSlash(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
         uint256 duration = uint256(IBudgetTreasury(escrow_.budgetTreasury()).executionDuration());
         // New credit-drawn formula: targetSlashWeight = creditDrawn * coverageLambda / duration * budgetSlashPpm / 1e6
         // => creditDrawn = targetSlashWeight * duration * 1e6 / (coverageLambda * budgetSlashPpm)
@@ -1027,8 +1059,16 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         (bool ok,) = escrow_.goalFlow().call(
             abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, creditNeeded)
         );
-        require(ok, "_fundEscrowForTargetSlash: setTotalReceivedByMember failed");
+        require(ok, "_setGoalFlowCreditForTargetSlash: setTotalReceivedByMember failed");
+    }
+
+    function _fundEscrowForTargetSlash(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
+        _setGoalFlowCreditForTargetSlash(escrow_, targetSlashWeight);
         escrow_.checkpoint(ALICE);
+    }
+
+    function _setGoalFlowCreditForTargetSlashWithoutCheckpoint(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
+        _setGoalFlowCreditForTargetSlash(escrow_, targetSlashWeight);
     }
 
     function _distributeEscrowPremium(PremiumEscrow escrow_, uint256 amount) internal {
