@@ -17,6 +17,8 @@ import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     bytes32 internal constant CHILD_ALLOCATION_SYNC_FAILED_SIG =
         keccak256("ChildAllocationSyncFailed(address,address,address,uint256,address,address,uint256,bytes)");
+    bytes32 internal constant CHILD_SYNC_DEBT_CLEARED_SIG =
+        keccak256("ChildSyncDebtCleared(address,address,address,bytes32)");
     bytes32 internal constant PARENT_BUDGET_RECIPIENT_ID = bytes32(uint256(1001));
     address internal constant PARENT_BUDGET_RECIPIENT = address(0xA001);
     bytes32 internal constant SECOND_BUDGET_RECIPIENT_ID = bytes32(uint256(1002));
@@ -499,6 +501,80 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(20e18, FULL_SCALED));
     }
 
+    function test_syncAllocationForAccount_weightOnlyCommit_freshSyncFailure_doesNotOpenChildSyncDebt() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        vm.prank(other);
+        flow.syncAllocationForAccount(allocator);
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(40e18, FULL_SCALED));
+    }
+
+    function test_syncAllocationForAccount_weightOnlyCommit_lowGasSkip_doesNotOpenChildSyncDebt() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+
+        _setWeights(40e18);
+        vm.prank(other);
+        flow.syncAllocationForAccount{ gas: 1_800_000 }(allocator);
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+        assertEq(childFlow.syncCallCount(), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(40e18, FULL_SCALED));
+    }
+
+    function test_syncAllocationForAccount_weightOnlyCommit_recoveredChildSync_clearsDebtAndEmitsTelemetry() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        _allocateParentSingleRecipient();
+
+        GoalFlowAllocationLedgerPipeline.ChildSyncDebtView memory debtBefore =
+            allocationPipeline.childSyncDebt(allocator, address(budgetTreasury));
+        assertTrue(debtBefore.exists);
+        assertEq(debtBefore.reason, bytes32("SYNC_FAILED"));
+
+        childFlow.setRevertSync(false);
+        _setWeights(20e18);
+        vm.recordLogs();
+        vm.prank(other);
+        flow.syncAllocationForAccount(allocator);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool clearedEventFound;
+        for (uint256 i = 0; i < entries.length; i++) {
+            Vm.Log memory logEntry = entries[i];
+            if (logEntry.topics.length == 0 || logEntry.topics[0] != CHILD_SYNC_DEBT_CLEARED_SIG) continue;
+            if (logEntry.emitter != flow.allocationPipeline()) continue;
+
+            assertEq(logEntry.topics[1], bytes32(uint256(uint160(allocator))));
+            assertEq(logEntry.topics[2], bytes32(uint256(uint160(address(budgetTreasury)))));
+            assertEq(logEntry.topics[3], bytes32(uint256(uint160(address(childFlow)))));
+
+            bytes32 reason = abi.decode(logEntry.data, (bytes32));
+            assertEq(reason, bytes32("SYNCED"));
+            clearedEventFound = true;
+            break;
+        }
+
+        assertTrue(clearedEventFound);
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+        assertEq(childFlow.syncCallCount(), 1);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(20e18, FULL_SCALED));
+    }
+
     function test_allocate_weightOnlyCommit_underDebt_proceedsAndClearsWhenChildSyncRecovers() public {
         _setWeights(80e18);
         _allocateParentSingleRecipient();
@@ -898,7 +974,8 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
         uint32[] calldata prevAllocationsPpm,
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsPpm
+        uint32[] calldata newAllocationsPpm,
+        IAllocationPipeline.CommitKind
     ) external {
         address ledger = allocationLedger;
         if (ledger == address(0)) return;
