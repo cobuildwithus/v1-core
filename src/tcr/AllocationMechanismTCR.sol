@@ -284,11 +284,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         Item storage item = items[itemID];
         if (item.status != Status.Registered) revert NOT_REGISTERED();
         if (removalQueued[itemID]) revert REMOVAL_FINALIZATION_PENDING();
-        MechanismDeployment memory dep = _mechanismDeployment[itemID];
-        if (dep.mechanism == address(0) || dep.fundingEscrow == address(0)) revert NOT_DEPLOYED();
 
         _syncMechanismFunding(itemID);
-        dep = _mechanismDeployment[itemID];
+        MechanismDeployment memory dep = _mechanismDeployment[itemID];
 
         MechanismListing memory listing = _decodeAndValidateListing(item.data);
 
