@@ -43,7 +43,6 @@ contract RoundFactoryTest is Test {
     RoundFactory internal factory;
 
     address internal roundOperator = address(0x0F00);
-    address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal challenger = address(0xC0FFEE);
     address internal juror = address(0xD00D);
@@ -81,7 +80,6 @@ contract RoundFactoryTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
-                governor: governor,
                 submissionBaseDeposit: 1e18,
                 removalBaseDeposit: 0,
                 submissionChallengeBaseDeposit: 0,
@@ -275,7 +273,6 @@ contract RoundFactoryTest is Test {
             arbitratorExtraData: "",
             registrationMetaEvidence: "reg",
             clearingMetaEvidence: "clr",
-            governor: governor,
             submissionBaseDeposit: 0,
             removalBaseDeposit: 0,
             submissionChallengeBaseDeposit: 0,

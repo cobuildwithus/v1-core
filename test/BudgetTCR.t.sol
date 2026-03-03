@@ -82,7 +82,7 @@ contract BudgetTCRTest is TestUtils {
     address internal underwriterSlasherRouter;
 
     address internal owner = makeAddr("owner");
-    address internal governor = makeAddr("governor");
+    address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
     address internal requester = makeAddr("requester");
     address internal managerRewardPool = makeAddr("managerRewardPool");
 
@@ -361,28 +361,30 @@ contract BudgetTCRTest is TestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_governor_is_init_only_with_no_direct_setter() public {
-        address initialGovernor = budgetTcr.governor();
+    function test_allocationMechanismAdmin_is_init_only_with_no_direct_setter() public {
+        address initialAllocationMechanismAdmin = budgetTcr.allocationMechanismAdmin();
 
         (bool success, bytes memory revertData) =
-            address(budgetTcr).call(abi.encodeWithSignature("setGovernor(address)", makeAddr("new-governor")));
+            address(budgetTcr).call(abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("new-admin")));
         assertFalse(success);
         assertEq(revertData.length, 0);
 
-        vm.prank(governor);
+        vm.prank(allocationMechanismAdmin);
         (bool governorSuccess, bytes memory governorRevertData) =
-            address(budgetTcr).call(abi.encodeWithSignature("setGovernor(address)", makeAddr("another-governor")));
+            address(budgetTcr).call(
+                abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("another-admin"))
+            );
         assertFalse(governorSuccess);
         assertEq(governorRevertData.length, 0);
 
-        assertEq(budgetTcr.governor(), initialGovernor);
+        assertEq(budgetTcr.allocationMechanismAdmin(), initialAllocationMechanismAdmin);
     }
 
     function test_setMetaEvidenceURIs_has_no_direct_setter() public {
         string memory beforeRegistration = budgetTcr.registrationMetaEvidence();
         string memory beforeClearing = budgetTcr.clearingMetaEvidence();
 
-        vm.prank(governor);
+        vm.prank(allocationMechanismAdmin);
         (bool success, bytes memory revertData) = address(budgetTcr).call(
             abi.encodeWithSignature("setMetaEvidenceURIs(string,string)", "ipfs://new-reg", "ipfs://new-clear")
         );
@@ -398,7 +400,7 @@ contract BudgetTCRTest is TestUtils {
         assertFalse(success);
         assertEq(revertData.length, 0);
 
-        vm.prank(governor);
+        vm.prank(allocationMechanismAdmin);
         (bool governorSuccess, bytes memory governorRevertData) =
             address(budgetTcr).call(abi.encodeWithSignature("metaEvidenceUpdates()"));
         assertFalse(governorSuccess);
@@ -2023,7 +2025,7 @@ contract BudgetTCRTest is TestUtils {
 
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
         registryConfig = IBudgetTCR.RegistryConfig({
-            governor: governor,
+            allocationMechanismAdmin: allocationMechanismAdmin,
             arbitrator: IArbitrator(address(arbitrator)),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://budget-reg-meta",

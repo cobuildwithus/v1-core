@@ -50,7 +50,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
     address internal underwriterSlasherRouter;
 
     address internal owner = makeAddr("owner");
-    address internal governor = makeAddr("governor");
+    address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
     address internal requester = makeAddr("requester");
     address internal managerRewardPool = makeAddr("managerRewardPool");
 
@@ -165,7 +165,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
 
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
         registryConfig = IBudgetTCR.RegistryConfig({
-            governor: governor,
+            allocationMechanismAdmin: allocationMechanismAdmin,
             arbitrator: IArbitrator(address(arbitrator)),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://budget-reg-meta",

@@ -25,7 +25,6 @@ contract RoundPrizeVaultTest is Test {
     RoundPrizeVault internal vault;
 
     address internal operator = address(0x0F00);
-    address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
 
@@ -53,7 +52,6 @@ contract RoundPrizeVaultTest is Test {
             arbitratorExtraData: "",
             registrationMetaEvidence: "reg",
             clearingMetaEvidence: "clr",
-            governor: governor,
             votingToken: IVotes(address(underlying)),
             submissionBaseDeposit: 0,
             submissionDepositStrategy: depositStrategy,

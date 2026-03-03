@@ -39,7 +39,6 @@ contract SubmissionDepositRoutingTest is Test {
     RoundFactory internal factory;
 
     address internal roundOperator = address(0x0F00);
-    address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
     address internal challenger = address(0xC0FFEE);
@@ -81,7 +80,6 @@ contract SubmissionDepositRoutingTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
-                governor: governor,
                 submissionBaseDeposit: SUBMISSION_DEPOSIT,
                 removalBaseDeposit: 0,
                 submissionChallengeBaseDeposit: 0,
@@ -137,7 +135,6 @@ contract SubmissionDepositRoutingTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
-                governor: governor,
                 votingToken: IVotes(address(underlying)),
                 submissionBaseDeposit: SUBMISSION_DEPOSIT,
                 submissionDepositStrategy: strategy,
@@ -194,7 +191,6 @@ contract SubmissionDepositRoutingTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
-                governor: governor,
                 votingToken: IVotes(address(underlying)),
                 submissionBaseDeposit: SUBMISSION_DEPOSIT,
                 submissionDepositStrategy: strategy,
@@ -254,7 +250,6 @@ contract SubmissionDepositRoutingTest is Test {
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
-                governor: governor,
                 votingToken: IVotes(address(underlying)),
                 submissionBaseDeposit: SUBMISSION_DEPOSIT,
                 submissionDepositStrategy: strategy,

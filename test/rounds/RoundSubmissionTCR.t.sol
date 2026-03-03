@@ -19,7 +19,6 @@ contract RoundSubmissionTCRTest is Test {
     EscrowSubmissionDepositStrategy internal depositStrategy;
     RoundTestArbitrator internal arbitrator;
 
-    address internal governor = address(0xBEEF);
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
 
@@ -81,7 +80,6 @@ contract RoundSubmissionTCRTest is Test {
             arbitratorExtraData: "",
             registrationMetaEvidence: "reg",
             clearingMetaEvidence: "clr",
-            governor: governor,
             votingToken: IVotes(address(token)),
             submissionBaseDeposit: submissionBaseDeposit,
             submissionDepositStrategy: depositStrategy,

@@ -44,7 +44,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     address internal constant EXTRA_RECIPIENT = address(0x1111);
 
     address internal owner = makeAddr("owner");
-    address internal governor = makeAddr("governor");
+    address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
     address internal requester = makeAddr("requester");
     address internal allocator = makeAddr("allocator");
     address internal keeper = makeAddr("keeper");
@@ -378,7 +378,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
 
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
         registryConfig = IBudgetTCR.RegistryConfig({
-            governor: governor,
+            allocationMechanismAdmin: allocationMechanismAdmin,
             arbitrator: IArbitrator(address(arbitrator)),
             arbitratorExtraData: bytes(""),
             registrationMetaEvidence: "ipfs://budget-reg-meta",
