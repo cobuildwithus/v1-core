@@ -7,6 +7,7 @@ import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePool
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
@@ -29,7 +30,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
  *         - A RoundPrizeVault: holds prize funds and pays out in the underlying goal token.
  *         - A PrizePoolSubmissionDepositStrategy: routes accepted submission deposits into the prize vault.
  */
-contract RoundFactory {
+contract RoundFactory is IAllocationMechanismFactory {
     using Clones for address;
 
     error ADDRESS_ZERO();
@@ -90,6 +91,14 @@ contract RoundFactory {
         address budgetFlow;
     }
 
+    /// @notice Opaque config payload shape for generic `deployForBudget`.
+    struct AllocationMechanismConfig {
+        RoundTiming timing;
+        address roundOperator;
+        SubmissionTcrConfig tcrConfig;
+        ArbitratorConfig arbConfig;
+    }
+
     /// @dev Clone targets.
     address public immutable roundSubmissionTcrImplementation;
     address public immutable arbitratorImplementation;
@@ -109,11 +118,11 @@ contract RoundFactory {
     function createRoundForBudget(
         bytes32 roundId,
         address budgetTreasury,
-        RoundTiming calldata timing,
+        RoundTiming memory timing,
         address roundOperator,
-        SubmissionTcrConfig calldata tcrConfig,
-        ArbitratorConfig calldata arbConfig
-    ) external returns (DeployedRound memory out) {
+        SubmissionTcrConfig memory tcrConfig,
+        ArbitratorConfig memory arbConfig
+    ) public returns (DeployedRound memory out) {
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (roundOperator == address(0)) revert ADDRESS_ZERO();
         _requireDeployedContract(budgetTreasury);
@@ -221,6 +230,30 @@ contract RoundFactory {
             address(underlying),
             address(superTok)
         );
+    }
+
+    /// @notice Generic mechanism-factory adapter used by allocation mechanism registry.
+    function deployForBudget(
+        bytes32 mechanismId,
+        address budgetTreasury,
+        bytes calldata mechanismConfig
+    ) external override returns (IAllocationMechanismFactory.DeployedMechanism memory out) {
+        AllocationMechanismConfig memory cfg = abi.decode(mechanismConfig, (AllocationMechanismConfig));
+        DeployedRound memory deployed = createRoundForBudget(
+            mechanismId,
+            budgetTreasury,
+            cfg.timing,
+            cfg.roundOperator,
+            cfg.tcrConfig,
+            cfg.arbConfig
+        );
+
+        out = IAllocationMechanismFactory.DeployedMechanism({
+            mechanism: deployed.submissionTCR,
+            payoutRecipient: deployed.prizeVault,
+            arbitrator: deployed.arbitrator,
+            auxiliary: deployed.depositStrategy
+        });
     }
 
     function _requireDeployedContract(address candidate) internal view returns (address deployed) {
