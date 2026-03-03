@@ -18,13 +18,23 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
 
     GoalFactory internal factory;
-    address internal premiumEscrowImpl;
-    address internal underwriterSlasherRouterImpl;
+    address internal configuredBudgetStakeLedgerImpl;
+    address internal configuredGoalFlowAllocationLedgerPipelineImpl;
+    address internal configuredPremiumEscrowImpl;
+    address internal configuredUnderwriterSlasherRouterImpl;
 
     function setUp() public {
-        premiumEscrowImpl = address(new DummyContract());
-        underwriterSlasherRouterImpl = address(new DummyContract());
-        factory = _newFactory(premiumEscrowImpl, underwriterSlasherRouterImpl, DEFAULT_ALLOCATION_MECHANISM_ADMIN);
+        configuredBudgetStakeLedgerImpl = address(new DummyContract());
+        configuredGoalFlowAllocationLedgerPipelineImpl = address(new DummyContract());
+        configuredPremiumEscrowImpl = address(new DummyContract());
+        configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
+        factory = _newFactory(
+            configuredBudgetStakeLedgerImpl,
+            configuredGoalFlowAllocationLedgerPipelineImpl,
+            configuredPremiumEscrowImpl,
+            configuredUnderwriterSlasherRouterImpl,
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN
+        );
     }
 
     function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
@@ -32,6 +42,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
         DummyContract premiumEscrowImpl = new DummyContract();
         DummyContract underwriterSlasherRouterImpl = new DummyContract();
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
@@ -46,6 +58,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
             address(premiumEscrowImpl),
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
@@ -59,6 +73,38 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(0),
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenBudgetStakeLedgerImplementationIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
         DummyContract underwriterSlasherRouterImpl = new DummyContract();
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
 
@@ -73,6 +119,102 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(flowImpl),
             address(splitHookImpl),
             address(0),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenBudgetStakeLedgerImplementationHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeBudgetStakeLedgerImpl = address(0xCA11AB1E);
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBudgetStakeLedgerImpl)
+        );
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            noCodeBudgetStakeLedgerImpl,
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenGoalFlowAllocationLedgerPipelineImplementationIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(0),
+            address(premiumEscrowImpl),
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenGoalFlowAllocationLedgerPipelineImplementationHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodePipelineImpl = address(0xDA7A);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodePipelineImpl));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            noCodePipelineImpl,
+            address(premiumEscrowImpl),
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -85,6 +227,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
         DummyContract underwriterSlasherRouterImpl = new DummyContract();
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
 
@@ -99,6 +243,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
             noCodePremiumEscrowImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
@@ -112,6 +258,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
@@ -124,7 +272,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
-            premiumEscrowImpl,
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
             address(0),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -137,6 +287,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
 
         address noCodeRouterImpl = address(0xBEEF);
@@ -150,7 +302,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
-            premiumEscrowImpl,
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
             noCodeRouterImpl,
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -159,11 +313,19 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_setsPremiumEscrowImplementationImmutable() public view {
-        assertEq(factory.PREMIUM_ESCROW_IMPL(), premiumEscrowImpl);
+        assertEq(factory.PREMIUM_ESCROW_IMPL(), configuredPremiumEscrowImpl);
+    }
+
+    function test_constructor_setsBudgetStakeLedgerImplementationImmutable() public view {
+        assertEq(factory.BUDGET_STAKE_LEDGER_IMPL(), configuredBudgetStakeLedgerImpl);
+    }
+
+    function test_constructor_setsGoalFlowAllocationLedgerPipelineImplementationImmutable() public view {
+        assertEq(factory.GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL(), configuredGoalFlowAllocationLedgerPipelineImpl);
     }
 
     function test_constructor_setsUnderwriterSlasherRouterImplementationImmutable() public view {
-        assertEq(factory.UNDERWRITER_SLASHER_ROUTER_IMPL(), underwriterSlasherRouterImpl);
+        assertEq(factory.UNDERWRITER_SLASHER_ROUTER_IMPL(), configuredUnderwriterSlasherRouterImpl);
     }
 
     function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
@@ -233,6 +395,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function _newFactory(
+        address budgetStakeLedgerImpl,
+        address goalFlowAllocationLedgerPipelineImpl,
         address premiumEscrowImpl,
         address underwriterSlasherRouterImpl,
         address allocationMechanismAdmin
@@ -252,6 +416,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(goalTreasuryImpl),
             address(flowImpl),
             address(splitHookImpl),
+            budgetStakeLedgerImpl,
+            goalFlowAllocationLedgerPipelineImpl,
             premiumEscrowImpl,
             underwriterSlasherRouterImpl,
             address(defaultSubmissionDepositStrategy),

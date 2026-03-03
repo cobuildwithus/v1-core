@@ -12,6 +12,8 @@ import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3
 import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 
 function _stringContains(string memory haystack, string memory needle) pure returns (bool) {
     bytes memory haystackBytes = bytes(haystack);
@@ -230,7 +232,7 @@ contract FakeResolverMockERC20 is ERC20 {
 
 contract DeployGoalFactoryScriptWiringTest is Test {
     uint256 internal constant PRIVATE_KEY = 0xA11CE;
-    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 10;
+    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 12;
     address internal constant REV_DEPLOYER = address(0x1001);
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant FAKE_UMA_OWNER = address(0xF00D);
@@ -275,6 +277,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
         assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
         assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
+        assertTrue(_stringContains(artifact, "BudgetStakeLedgerImpl: 0x"));
+        assertTrue(_stringContains(artifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
         assertTrue(_stringContains(artifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(artifact, "UnderwriterSlasherRouterImpl: 0x"));
         assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
@@ -296,6 +300,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID))));
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "BudgetStakeLedgerImpl: 0x"));
+        assertTrue(_stringContains(latestArtifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
@@ -308,6 +314,36 @@ contract DeployGoalFactoryScriptWiringTest is Test {
                 historyArtifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
             )
         );
+    }
+
+    function test_run_wiresFactoryCloneImplementations_andLocksImplementationInitialization() public {
+        _setDeployEnv();
+
+        address deployer = vm.addr(PRIVATE_KEY);
+        uint64 nonceBefore = vm.getNonce(deployer);
+        address expectedGoalFactory =
+            vm.computeCreateAddress(deployer, uint256(nonceBefore) + FAKE_RESOLVER_CREATE_OFFSET + 1);
+
+        deployScript.run();
+        assertGt(expectedGoalFactory.code.length, 0);
+
+        GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
+
+        address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
+        address goalFlowAllocationLedgerPipelineImpl = deployedFactory.GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL();
+        assertGt(budgetStakeLedgerImpl.code.length, 0);
+        assertGt(goalFlowAllocationLedgerPipelineImpl.code.length, 0);
+
+        BudgetStakeLedger budgetStakeLedger = BudgetStakeLedger(budgetStakeLedgerImpl);
+        assertEq(budgetStakeLedger.goalTreasury(), deployer);
+        vm.expectRevert(BudgetStakeLedger.ALREADY_INITIALIZED.selector);
+        budgetStakeLedger.initialize(address(0xBEEF));
+
+        GoalFlowAllocationLedgerPipeline allocationPipeline =
+            GoalFlowAllocationLedgerPipeline(goalFlowAllocationLedgerPipelineImpl);
+        assertEq(allocationPipeline.allocationLedger(), address(0));
+        vm.expectRevert(GoalFlowAllocationLedgerPipeline.ALREADY_INITIALIZED.selector);
+        allocationPipeline.initialize(address(0xBEEF));
     }
 
     function test_run_retainsHistoricalImplementationArtifactsAcrossRuns() public {
@@ -334,6 +370,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         deployScript.run();
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "BudgetStakeLedgerImpl: 0x"));
+        assertTrue(_stringContains(latestArtifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
