@@ -195,10 +195,7 @@ contract AllocationMechanismTCRTest is Test {
         uint64 roundStartAt,
         uint64 roundEndAt
     ) internal view returns (AllocationMechanismTCR.MechanismListing memory listing) {
-        uint64 duration = 0;
-        if (roundEndAt != 0 && roundEndAt > roundStartAt) {
-            duration = roundEndAt - roundStartAt;
-        }
+        uint64 duration = roundEndAt > roundStartAt ? roundEndAt - roundStartAt : 0;
         listing = AllocationMechanismTCR.MechanismListing({
             metadata: FlowTypes.RecipientMetadata({
                 title: "Test Round",
@@ -215,6 +212,16 @@ contract AllocationMechanismTCRTest is Test {
                 address(roundFactory), _encodedRoundMechanismConfig(roundStartAt, roundEndAt, _defaultRoundFactoryConfig())
             )
         });
+    }
+
+    function _validListingWithDefaultMinFundingPolicy()
+        internal
+        view
+        returns (AllocationMechanismTCR.MechanismListing memory listing)
+    {
+        listing = _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
+        listing.minBudgetFunding = 100e18;
+        listing.fundingDeadline = uint64(block.timestamp + 7 days);
     }
 
     function _defaultRoundFactoryConfig() internal view returns (RoundFactory.AllocationMechanismConfig memory cfg) {
@@ -1041,12 +1048,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_revertsBelowMinBudgetFunding() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
-        listing.minBudgetFunding = 100e18;
-        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
@@ -1058,12 +1060,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_allowsDirectEscrowBalanceWhenPoolBelowMin() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
-        listing.minBudgetFunding = 100e18;
-        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = listing.minBudgetFunding;
@@ -1085,6 +1082,7 @@ contract AllocationMechanismTCRTest is Test {
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 4e18;
         superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
 
         vm.mockCall(
             address(superToken),
@@ -1127,12 +1125,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_sweepsEscrowToPrizeVaultWhenMinMet() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
-        listing.minBudgetFunding = 100e18;
-        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 5e18;
@@ -1146,12 +1139,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_afterFundingTicks_balanceIncreases_andReleasesNonZero() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
-        listing.minBudgetFunding = 100e18;
-        listing.fundingDeadline = uint64(block.timestamp + 7 days);
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
@@ -1185,13 +1173,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_totalReceived_usesEscrowPool_notBudgetFlowPool_afterPoolChange() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
-        listing.minBudgetFunding = 100e18;
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
         listing.maxBudgetFunding = 200e18;
-        listing.fundingDeadline = uint64(block.timestamp + 7 days);
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         address escrowPool = address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool());
@@ -1332,6 +1315,7 @@ contract AllocationMechanismTCRTest is Test {
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 6e18;
         superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
 
         vm.mockCall(
             address(superToken),

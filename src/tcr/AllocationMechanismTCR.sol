@@ -64,10 +64,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     struct MechanismListing {
         FlowTypes.RecipientMetadata metadata;
-        /// @notice Optional lifecycle start (0 = no gating).
-        uint64 startAt;
-        /// @notice Optional lifecycle end (0 = no gating).
-        uint64 endAt;
+        /// @notice Optional lifecycle duration from activation time (0 = no duration stop).
+        uint64 duration;
         /// @notice Optional underfunded-expiry deadline for min funding.
         uint64 fundingDeadline;
         /// @notice Minimum funding required before escrow release is permitted.
@@ -84,6 +82,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         address arbitrator;
         address auxiliary;
         address fundingEscrow;
+        uint64 activatedAt;
         bool active;
     }
 
@@ -100,9 +99,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     error ONLY_FACTORY_MANAGER();
     error INVALID_MECHANISM_CONFIG();
-    error INVALID_TIME_WINDOW(uint64 startAt, uint64 endAt);
     error INVALID_FUNDING_POLICY(uint64 fundingDeadline, uint256 minBudgetFunding, uint256 maxBudgetFunding);
-    error MECHANISM_ALREADY_ENDED(uint64 endAt);
     error NOT_REGISTERED();
     error NOT_QUEUED();
     error ALREADY_DEPLOYED();
@@ -201,10 +198,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (!activationQueued[itemID]) revert NOT_QUEUED();
         if (_mechanismDeployment[itemID].mechanism != address(0)) revert ALREADY_DEPLOYED();
 
-        MechanismListing memory listing = _decodeListing(item.data);
-        _validateListing(listing);
+        MechanismListing memory listing = _decodeAndValidateListing(item.data);
 
-        if (listing.endAt != 0 && block.timestamp > listing.endAt) revert MECHANISM_ALREADY_ENDED(listing.endAt);
         if (_isExpiredUnderfunded(listing, 0)) {
             revert MECHANISM_EXPIRED_UNDERFUNDED(listing.fundingDeadline, listing.minBudgetFunding, 0);
         }
@@ -221,8 +216,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         ISuperfluidPool distributionPool = budgetFlow.distributionPool();
         if (address(distributionPool) == address(0)) revert BUDGET_FLOW_MISMATCH();
-        if (deployed.mechanism == address(0)) revert INVALID_MECHANISM_CONFIG();
-        if (deployed.payoutRecipient == address(0)) revert INVALID_MECHANISM_CONFIG();
+        _validateFactoryDeployment(deployed);
 
         address escrow = address(
             new MechanismFundingEscrow(
@@ -241,6 +235,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
             arbitrator: deployed.arbitrator,
             auxiliary: deployed.auxiliary,
             fundingEscrow: escrow,
+            activatedAt: uint64(block.timestamp),
             active: true
         });
 
@@ -292,17 +287,19 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         MechanismDeployment memory dep = _mechanismDeployment[itemID];
         if (dep.mechanism == address(0) || dep.fundingEscrow == address(0)) revert NOT_DEPLOYED();
 
-        MechanismListing memory listing = _decodeListing(item.data);
-        _validateListing(listing);
+        _syncMechanismFunding(itemID);
+        dep = _mechanismDeployment[itemID];
 
-        uint256 totalReceived = _totalEscrowReceived(dep.fundingEscrow);
+        MechanismListing memory listing = _decodeAndValidateListing(item.data);
 
-        if (_isExpiredUnderfunded(listing, totalReceived)) {
-            revert MECHANISM_EXPIRED_UNDERFUNDED(listing.fundingDeadline, listing.minBudgetFunding, totalReceived);
+        uint256 effectiveFunding = _effectiveEscrowFunding(dep.fundingEscrow);
+
+        if (_isExpiredUnderfunded(listing, effectiveFunding)) {
+            return 0;
         }
 
-        if (listing.minBudgetFunding != 0 && totalReceived < listing.minBudgetFunding) {
-            revert MECHANISM_BELOW_MIN_FUNDING(listing.minBudgetFunding, totalReceived);
+        if (listing.minBudgetFunding != 0 && effectiveFunding < listing.minBudgetFunding) {
+            revert MECHANISM_BELOW_MIN_FUNDING(listing.minBudgetFunding, effectiveFunding);
         }
 
         uint256 toRelease = amount == 0 ? type(uint256).max : amount;
@@ -327,7 +324,6 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function _verifyItemData(bytes calldata itemData) internal view override returns (bool valid) {
         try this.decodeMechanismListing(itemData) returns (MechanismListing memory decoded) {
-            if (_hasInvalidTimeWindow(decoded)) return false;
             if (!_isValidFundingPolicy(decoded)) return false;
             if (!_isValidMechanismDeploymentConfig(decoded.deploymentConfig)) return false;
             if (!mechanismFactoryAllowed[decoded.deploymentConfig.mechanismFactory]) return false;
@@ -374,10 +370,12 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         listing = _decodeListing(itemData);
     }
 
+    function _decodeAndValidateListing(bytes memory itemData) internal pure returns (MechanismListing memory listing) {
+        listing = _decodeListing(itemData);
+        _validateListing(listing);
+    }
+
     function _validateListing(MechanismListing memory listing) internal pure {
-        if (_hasInvalidTimeWindow(listing)) {
-            revert INVALID_TIME_WINDOW(listing.startAt, listing.endAt);
-        }
         if (!_isValidFundingPolicy(listing)) {
             revert INVALID_FUNDING_POLICY(listing.fundingDeadline, listing.minBudgetFunding, listing.maxBudgetFunding);
         }
@@ -386,17 +384,12 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         }
     }
 
-    function _hasInvalidTimeWindow(MechanismListing memory listing) internal pure returns (bool) {
-        return listing.endAt != 0 && listing.startAt != 0 && listing.endAt < listing.startAt;
-    }
-
     function _isValidFundingPolicy(MechanismListing memory listing) internal pure returns (bool) {
         if (listing.maxBudgetFunding != 0 && listing.minBudgetFunding != 0 && listing.maxBudgetFunding < listing.minBudgetFunding) {
             return false;
         }
         if (listing.fundingDeadline != 0 && listing.minBudgetFunding == 0) return false;
         if (listing.minBudgetFunding != 0 && listing.fundingDeadline == 0) return false;
-        if (listing.endAt != 0 && listing.fundingDeadline != 0 && listing.fundingDeadline > listing.endAt) return false;
 
         return true;
     }
@@ -405,8 +398,24 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         return config.mechanismFactory != address(0);
     }
 
+    function _validateFactoryDeployment(IAllocationMechanismFactory.DeployedMechanism memory deployed) internal view {
+        if (deployed.mechanism == address(0) || deployed.mechanism.code.length == 0) {
+            revert INVALID_MECHANISM_CONFIG();
+        }
+        if (deployed.payoutRecipient == address(0) || deployed.payoutRecipient == address(this)) {
+            revert INVALID_MECHANISM_CONFIG();
+        }
+    }
+
     function _totalEscrowReceived(address fundingEscrow) internal view returns (uint256) {
-        return budgetFlow.distributionPool().getTotalAmountReceivedByMember(fundingEscrow);
+        ISuperfluidPool escrowPool = MechanismFundingEscrow(fundingEscrow).distributionPool();
+        return escrowPool.getTotalAmountReceivedByMember(fundingEscrow);
+    }
+
+    function _effectiveEscrowFunding(address fundingEscrow) internal view returns (uint256) {
+        uint256 totalReceived = _totalEscrowReceived(fundingEscrow);
+        uint256 escrowBalance = MechanismFundingEscrow(fundingEscrow).superToken().balanceOf(fundingEscrow);
+        return totalReceived >= escrowBalance ? totalReceived : escrowBalance;
     }
 
     function _stopFunding(
@@ -440,25 +449,28 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (removalQueued[itemID]) return;
         if (!dep.active) return;
 
-        MechanismListing memory listing = _decodeListing(items[itemID].data);
-        _validateListing(listing);
+        MechanismListing memory listing = _decodeAndValidateListing(items[itemID].data);
 
-        uint256 totalReceived = _totalEscrowReceived(dep.fundingEscrow);
+        uint256 effectiveFunding = _effectiveEscrowFunding(dep.fundingEscrow);
 
-        if (_isExpiredUnderfunded(listing, totalReceived)) {
-            _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, totalReceived);
+        if (_isExpiredUnderfunded(listing, effectiveFunding)) {
+            _stopFunding(itemID, dep, FundingStopReason.ExpiredUnderfunded, effectiveFunding);
             _refundEscrow(itemID, dep.fundingEscrow);
             return;
         }
 
-        if (listing.maxBudgetFunding != 0 && totalReceived >= listing.maxBudgetFunding) {
-            _stopFunding(itemID, dep, FundingStopReason.Capped, totalReceived);
+        if (listing.maxBudgetFunding != 0 && effectiveFunding >= listing.maxBudgetFunding) {
+            _stopFunding(itemID, dep, FundingStopReason.Capped, effectiveFunding);
             return;
         }
 
-        if (listing.endAt != 0 && block.timestamp > listing.endAt) {
-            _stopFunding(itemID, dep, FundingStopReason.Ended, totalReceived);
+        if (_isDurationElapsed(listing.duration, dep.activatedAt)) {
+            _stopFunding(itemID, dep, FundingStopReason.Ended, effectiveFunding);
         }
+    }
+
+    function _isDurationElapsed(uint64 duration, uint64 activatedAt) internal view returns (bool) {
+        return duration != 0 && block.timestamp > uint256(activatedAt) + uint256(duration);
     }
 
     modifier onlyFactoryManager() {
