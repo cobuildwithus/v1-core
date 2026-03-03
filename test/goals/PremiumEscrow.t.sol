@@ -119,6 +119,10 @@ contract PremiumEscrowTest is Test {
 
         _mintEscrowPremiumAndCheckpointBoth(150e18);
 
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
         vm.prank(ALICE);
         uint256 aliceClaim = escrow.claim(ALICE);
         vm.prank(BOB);
@@ -153,6 +157,10 @@ contract PremiumEscrowTest is Test {
         assertEq(escrow.claimable(ALICE), aliceExpected);
         assertEq(escrow.claimable(BOB), bobExpected);
 
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
         vm.prank(ALICE);
         uint256 aliceClaim = escrow.claim(ALICE);
         vm.prank(BOB);
@@ -184,6 +192,10 @@ contract PremiumEscrowTest is Test {
 
         premiumToken.mint(address(escrow), 50e18);
 
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
         vm.prank(ALICE);
         uint256 firstClaim = escrow.claim(ALICE);
         vm.prank(ALICE);
@@ -193,16 +205,22 @@ contract PremiumEscrowTest is Test {
         assertEq(secondClaim, 0);
         assertEq(premiumToken.balanceOf(ALICE), 50e18);
 
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
         premiumToken.mint(address(escrow), 25e18);
         vm.prank(ALICE);
         uint256 thirdClaim = escrow.claim(ALICE);
 
-        assertEq(thirdClaim, 25e18);
-        assertEq(premiumToken.balanceOf(ALICE), 75e18);
+        assertEq(thirdClaim, 0);
+        assertEq(premiumToken.balanceOf(ALICE), 50e18);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 25e18);
     }
 
     function test_claimRevertsWhenGoalStateIsNotSucceeded() public {
         _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
 
         goalTreasury.setState(IGoalTreasury.GoalState.Active);
 
@@ -216,9 +234,35 @@ contract PremiumEscrowTest is Test {
     function test_claimRevertsWhenGoalTreasuryUnavailable() public {
         _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
 
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
         goalFlow.setFlowOperator(address(0));
 
         vm.expectRevert(PremiumEscrow.GOAL_TREASURY_UNAVAILABLE.selector);
+        vm.prank(ALICE);
+        escrow.claim(ALICE);
+    }
+
+    function test_claimRevertsWhenBudgetFinalStateIsNotSucceeded() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.BUDGET_NOT_SUCCEEDED.selector, IBudgetTreasury.BudgetState.Failed)
+        );
+        vm.prank(ALICE);
+        escrow.claim(ALICE);
+    }
+
+    function test_claimRevertsWhenEscrowNotClosed() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 10e18);
+
+        vm.expectRevert(PremiumEscrow.NOT_CLOSED.selector);
         vm.prank(ALICE);
         escrow.claim(ALICE);
     }
@@ -610,6 +654,10 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
         assertEq(escrow.claimable(ALICE), 100e18);
 
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 10, 20);
+
         deal(address(premiumToken), address(escrow), 40e18);
 
         vm.prank(ALICE);
@@ -618,13 +666,47 @@ contract PremiumEscrowTest is Test {
         assertEq(escrow.claimable(ALICE), 60e18);
         assertEq(escrow.accountedBalance(), 0);
 
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
         premiumToken.mint(address(escrow), 60e18);
 
         vm.prank(ALICE);
         uint256 secondClaim = escrow.claim(ALICE);
-        assertEq(secondClaim, 60e18);
+        assertEq(secondClaim, 0);
         assertEq(escrow.claimable(ALICE), 60e18);
-        assertEq(premiumToken.balanceOf(ALICE), 100e18);
+        assertEq(premiumToken.balanceOf(ALICE), 40e18);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 60e18);
+    }
+
+    function test_closeFailedSweepsEscrowedPremiumToGoalFlow() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 50e18);
+
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 50e18);
+    }
+
+    function test_closeExpiredSweepsEscrowedPremiumToGoalFlow_andClaimReverts() public {
+        _setCoverageAndCheckpointClaimable(ALICE, 100, 50e18);
+
+        uint256 goalFlowBefore = premiumToken.balanceOf(address(goalFlow));
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Expired, 10, 20);
+
+        assertEq(premiumToken.balanceOf(address(escrow)), 0);
+        assertEq(premiumToken.balanceOf(address(goalFlow)), goalFlowBefore + 50e18);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(PremiumEscrow.BUDGET_NOT_SUCCEEDED.selector, IBudgetTreasury.BudgetState.Expired)
+        );
+        vm.prank(ALICE);
+        escrow.claim(ALICE);
     }
 
     function test_slashRevertsWhenNotClosed_orWhenFinalStateNotSlashable() public {
