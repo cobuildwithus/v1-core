@@ -66,6 +66,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     );
     event Claimed(address indexed account, address indexed to, uint256 amount);
     event UnclaimablePremiumSwept(address indexed goalFlow, uint256 amount);
+    event LateResidualSettlementFailed(address indexed goalTreasury, bytes reason);
     event Closed(IBudgetTreasury.BudgetState indexed finalState, uint64 activatedAt, uint64 closedAt);
     event UnderwriterSlashed(
         address indexed underwriter,
@@ -293,7 +294,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
         // Best-effort burn: this will sweep the goal flow balance (including the swept premium)
         // and burn the underlying via the goal's revnet controller.
-        try IGoalTreasury(goalTreasury).settleLateResidual() {} catch {}
+        try IGoalTreasury(goalTreasury).settleLateResidual() {} catch (bytes memory reason) {
+            emit LateResidualSettlementFailed(goalTreasury, reason);
+        }
     }
 
     function close(

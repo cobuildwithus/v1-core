@@ -329,6 +329,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function _composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) internal pure returns (int96) {
+        if (incomingRate < 0 || spenddownRate < 0) {
+            revert NEGATIVE_FLOW_COMPONENT(incomingRate, spenddownRate);
+        }
+
         uint256 incoming = uint256(uint96(incomingRate));
         if (incoming >= INT96_MAX_UINT) return type(int96).max;
 

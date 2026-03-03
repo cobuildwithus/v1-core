@@ -36,13 +36,14 @@ import {Vm} from "forge-std/Vm.sol";
 
 contract BudgetTCRCreditLineGatingTest is TestUtils {
     bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
-        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,bytes4,bytes)");
+        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,address,bytes4,bytes)");
     bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG =
         keccak256("BudgetTreasuryBatchSyncAttempted(bytes32,address,bool)");
 
     event BudgetCreditCapEnforcementFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
+        address callTarget,
         bytes4 indexed selector,
         bytes reason
     );
@@ -222,7 +223,11 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
         emit BudgetCreditCapEnforcementFailed(
-            itemID, budgetTreasury, IBudgetStakeLedger.budgetTotalAllocatedStake.selector, reason
+            itemID,
+            budgetTreasury,
+            address(budgetStakeLedger),
+            IBudgetStakeLedger.budgetTotalAllocatedStake.selector,
+            reason
         );
 
         bytes32[] memory itemIDs = new bytes32[](1);

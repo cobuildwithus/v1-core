@@ -101,4 +101,13 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
+
+    function test_recordHookFunding_returnsFalseAtOrAfterDeadline_insteadOfReverting() public {
+        vm.warp(treasury.deadline());
+
+        vm.prank(address(hook));
+        bool accepted = treasury.recordHookFunding(1e18);
+
+        assertFalse(accepted);
+    }
 }

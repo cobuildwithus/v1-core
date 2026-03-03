@@ -5,6 +5,8 @@ import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccountResolver.sol";
 
 abstract contract AddressKeyAllocationStrategy is IAllocationStrategy, IAllocationKeyAccountResolver {
+    error INVALID_ALLOCATION_KEY(uint256 key);
+
     function allocationKey(address caller, bytes calldata) external pure virtual override returns (uint256) {
         return uint256(uint160(caller));
     }
@@ -14,6 +16,7 @@ abstract contract AddressKeyAllocationStrategy is IAllocationStrategy, IAllocati
     }
 
     function _accountForKey(uint256 key) internal pure returns (address) {
+        if (key > type(uint160).max) revert INVALID_ALLOCATION_KEY(key);
         return address(uint160(key));
     }
 }

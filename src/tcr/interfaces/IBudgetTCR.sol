@@ -124,6 +124,13 @@ interface IBudgetTCR is IGeneralizedTCR {
         bytes4 indexed selector,
         bytes reason
     );
+    event BudgetCreditCapEnforcementFailed(
+        bytes32 indexed itemID,
+        address indexed budgetTreasury,
+        address callTarget,
+        bytes4 indexed selector,
+        bytes reason
+    );
 
     error INVALID_BOUNDS();
     error ITEM_NOT_DEPLOYED();

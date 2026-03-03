@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IStakeVault {
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error DECIMALS_MISMATCH(uint8 goalDecimals, uint8 cobuildDecimals);
     error PAYMENT_TOKEN_DECIMALS_MISMATCH(uint8 tokenDecimals, uint8 paymentTokenDecimals);
     error INVALID_PAYMENT_TOKEN_DECIMALS(uint8 decimals);
@@ -31,6 +32,7 @@ interface IStakeVault {
     error UNDERWRITER_SLASHER_ALREADY_SET();
     error UNAUTHORIZED();
     error INVALID_TREASURY_AUTHORITY_SURFACE(address treasury);
+    error INVALID_ALLOCATION_KEY(uint256 key);
 
     event GoalStaked(address indexed user, uint256 amount, uint256 weightDelta);
     event CobuildStaked(address indexed user, uint256 amount, uint256 weightDelta);

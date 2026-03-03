@@ -428,6 +428,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(executions.length, 1);
         assertTrue(executions[0].attempted);
         assertTrue(executions[0].success);
+        assertEq(executions[0].failureReason.length, 0);
     }
 
     function test_executeChildSyncBestEffort_marksAttemptedAndFailureWhenSyncReverts() public {
@@ -445,6 +446,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(executions.length, 1);
         assertTrue(executions[0].attempted);
         assertFalse(executions[0].success);
+        assertEq(executions[0].failureReason, abi.encodeWithSignature("Error(string)", "sync"));
     }
 
     function test_executeChildSyncBestEffort_skipsWhenGasBudgetIsTooLow() public {
@@ -468,6 +470,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(executions[0].skipReason, bytes32("GAS_BUDGET"));
         assertFalse(executions[0].attempted);
         assertFalse(executions[0].success);
+        assertEq(executions[0].failureReason.length, 0);
     }
 
     function test_validateView_revertsWhenLedgerHasNoCode() public {

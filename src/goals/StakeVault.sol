@@ -85,9 +85,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (address(goalToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(cobuildToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(goalRulesets_) == address(0)) revert ADDRESS_ZERO();
-        if (address(goalRulesets_).code.length != 0) {
-            _requireGoalTokenRevnetLink(goalToken_, goalRulesets_, goalRevnetId_);
-        }
+        if (address(goalRulesets_).code.length == 0) revert NOT_A_CONTRACT(address(goalRulesets_));
+        _requireGoalTokenRevnetLink(goalToken_, goalRulesets_, goalRevnetId_);
 
         uint8 goalDecimals = IERC20Metadata(address(goalToken_)).decimals();
         uint8 cobuildDecimals = IERC20Metadata(address(cobuildToken_)).decimals();
@@ -859,6 +858,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     }
 
     function _accountForKey(uint256 key) internal pure returns (address) {
+        if (key > type(uint160).max) revert INVALID_ALLOCATION_KEY(key);
         return address(uint160(key));
     }
 

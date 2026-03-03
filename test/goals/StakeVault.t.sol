@@ -121,17 +121,25 @@ contract StakeVaultTest is Test {
         assertEq(vault.accountForAllocationKey(uint256(uint160(alice))), alice);
     }
 
-    function test_strategy_accountResolution_truncatesHighBits() public {
+    function test_strategy_accountResolution_revertsOnHighBits() public {
         vm.prank(alice);
         vault.depositGoal(20e18);
 
         uint256 canonicalKey = uint256(uint160(alice));
         uint256 aliasedKey = canonicalKey | (uint256(1) << 200);
 
-        assertEq(vault.accountForAllocationKey(aliasedKey), alice);
-        assertEq(vault.currentWeight(aliasedKey), vault.currentWeight(canonicalKey));
-        assertTrue(vault.canAllocate(aliasedKey, alice));
-        assertFalse(vault.canAllocate(aliasedKey, bob));
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_ALLOCATION_KEY.selector, aliasedKey));
+        vault.accountForAllocationKey(aliasedKey);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_ALLOCATION_KEY.selector, aliasedKey));
+        vault.currentWeight(aliasedKey);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_ALLOCATION_KEY.selector, aliasedKey));
+        vault.canAllocate(aliasedKey, alice);
+
+        assertEq(vault.currentWeight(canonicalKey), 10e18);
+        assertTrue(vault.canAllocate(canonicalKey, alice));
+        assertFalse(vault.canAllocate(canonicalKey, bob));
     }
 
     function test_strategyKey_constant() public view {
@@ -205,6 +213,20 @@ contract StakeVaultTest is Test {
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
             IJBRulesets(address(0)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
+    function test_constructor_revertsWhenRulesetsHasNoCode() public {
+        address eoaRulesets = makeAddr("rulesets-eoa");
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.NOT_A_CONTRACT.selector, eoaRulesets));
+        new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(eoaRulesets),
             GOAL_PROJECT_ID,
             18
         );

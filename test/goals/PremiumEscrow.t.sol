@@ -13,6 +13,7 @@ import { ISuperToken, ISuperfluidPool } from
 
 contract PremiumEscrowTest is Test {
     uint32 internal constant SLASH_PPM = 200_000; // 20%
+    event LateResidualSettlementFailed(address indexed goalTreasury, bytes reason);
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
@@ -336,6 +337,10 @@ contract PremiumEscrowTest is Test {
 
         goalTreasury.setState(IGoalTreasury.GoalState.Expired);
         goalTreasury.setRevertSettleLateResidual(true);
+        bytes memory expectedReason =
+            abi.encodeWithSelector(PremiumEscrowMockGoalTreasury.SETTLE_LATE_RESIDUAL_REVERT.selector);
+        vm.expectEmit(true, false, false, true, address(escrow));
+        emit LateResidualSettlementFailed(address(goalTreasury), expectedReason);
 
         uint256 amount = escrow.burnOnGoalFailure();
 

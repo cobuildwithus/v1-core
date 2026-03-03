@@ -33,6 +33,16 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
         uint256 parentAllocationKey,
         bool success
     );
+    event ChildAllocationSyncFailed(
+        address indexed budgetTreasury,
+        address indexed childFlow,
+        address indexed strategy,
+        uint256 allocationKey,
+        address parentFlow,
+        address parentStrategy,
+        uint256 parentAllocationKey,
+        bytes reason
+    );
     event ChildAllocationSyncSkipped(
         address indexed budgetTreasury,
         address indexed childFlow,
@@ -281,6 +291,18 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
                     parentAllocationKey,
                     execution.success
                 );
+                if (!execution.success) {
+                    emit ChildAllocationSyncFailed(
+                        execution.budgetTreasury,
+                        execution.childFlow,
+                        execution.childStrategy,
+                        execution.allocationKey,
+                        parentFlow,
+                        parentStrategy,
+                        parentAllocationKey,
+                        execution.failureReason
+                    );
+                }
             }
             unchecked {
                 ++i;

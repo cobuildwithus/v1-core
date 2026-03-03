@@ -44,6 +44,7 @@ library GoalFlowLedgerMode {
         bytes32 skipReason;
         bool attempted;
         bool success;
+        bytes failureReason;
     }
 
     error INVALID_ALLOCATION_LEDGER_STRATEGY(
@@ -235,8 +236,9 @@ library GoalFlowLedgerMode {
                         )
                     {
                         execution.success = true;
-                    } catch {
+                    } catch (bytes memory reason) {
                         execution.success = false;
+                        execution.failureReason = reason;
                     }
                 }
             }

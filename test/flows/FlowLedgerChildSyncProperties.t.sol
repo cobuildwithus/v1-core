@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
@@ -14,6 +15,8 @@ import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
+    bytes32 internal constant CHILD_ALLOCATION_SYNC_FAILED_SIG =
+        keccak256("ChildAllocationSyncFailed(address,address,address,uint256,address,address,uint256,bytes)");
     bytes32 internal constant PARENT_BUDGET_RECIPIENT_ID = bytes32(uint256(1001));
     address internal constant PARENT_BUDGET_RECIPIENT = address(0xA001);
     bytes32 internal constant SECOND_BUDGET_RECIPIENT_ID = bytes32(uint256(1002));
@@ -376,6 +379,39 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         assertEq(ledger.checkpointCallCount(), checkpointsBefore + 1);
         assertEq(childFlow.syncCallCount(), 1);
+    }
+
+    function test_allocate_changedStake_childSyncRevert_emitsFailureReasonTelemetry() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+        childFlow.setRevertSync(true);
+
+        _setWeights(40e18);
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        vm.recordLogs();
+        vm.prank(allocator);
+        flow.allocate(recipientIds, scaled);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        bytes memory expectedReason = abi.encodeWithSelector(FlowLedgerPropChildFlow.SYNC_REVERT.selector);
+        bool found;
+        for (uint256 i = 0; i < entries.length; i++) {
+            Vm.Log memory logEntry = entries[i];
+            if (logEntry.topics.length == 0 || logEntry.topics[0] != CHILD_ALLOCATION_SYNC_FAILED_SIG) continue;
+            if (logEntry.emitter != flow.allocationPipeline()) continue;
+
+            (uint256 allocationKey,,,, bytes memory reason) = abi.decode(logEntry.data, (uint256, address, address, uint256, bytes));
+            assertEq(allocationKey, parentKey);
+            assertEq(reason, expectedReason);
+            found = true;
+            break;
+        }
+
+        assertTrue(found);
+        assertEq(childFlow.syncCallCount(), 0);
     }
 
     function testFuzz_allocate_goalResolved_childCommitNonZero_changedStake_doesNotCheckpointOrRequirePrevState(
@@ -861,7 +897,10 @@ contract FlowLedgerPropChildStrategy is IAllocationStrategy {
 contract FlowLedgerPropChildFlow {
     IAllocationStrategy[] internal _strategies;
 
+    error SYNC_REVERT();
+
     bytes32 internal _commit;
+    bool internal _revertSync;
     uint256 public syncCallCount;
     address public lastStrategy;
     uint256 public lastAllocationKey;
@@ -875,6 +914,10 @@ contract FlowLedgerPropChildFlow {
         _commit = commit_;
     }
 
+    function setRevertSync(bool shouldRevert) external {
+        _revertSync = shouldRevert;
+    }
+
     function strategies() external view returns (IAllocationStrategy[] memory) {
         return _strategies;
     }
@@ -884,6 +927,7 @@ contract FlowLedgerPropChildFlow {
     }
 
     function syncAllocation(address strategy, uint256 allocationKey) external {
+        if (_revertSync) revert SYNC_REVERT();
         syncCallCount += 1;
         lastStrategy = strategy;
         lastAllocationKey = allocationKey;

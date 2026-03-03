@@ -197,7 +197,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function recordHookFunding(uint256 amount) external override nonReentrant returns (bool accepted) {
         if (msg.sender != _hook) revert ONLY_HOOK();
         if (amount == 0) return false;
-        if (block.timestamp >= deadline) revert GOAL_DEADLINE_PASSED();
+        if (block.timestamp >= deadline) return false;
         if (!canAcceptHookFunding()) return false;
 
         totalRaised += amount;

@@ -1733,6 +1733,20 @@ contract BudgetTreasuryTest is Test {
         assertEq(treasury.targetFlowRate(), 0);
     }
 
+    function test_composeTargetFlowRate_revertsOnNegativeComponent() public {
+        BudgetTreasuryComposeHarness composeHarness = new BudgetTreasuryComposeHarness();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(-1), int96(0))
+        );
+        composeHarness.composeTargetFlowRate(-1, 0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(0), int96(-1))
+        );
+        composeHarness.composeTargetFlowRate(0, -1);
+    }
+
     function test_targetFlowRate_zeroAtDeadline() public {
         superToken.mint(address(flow), 100e18);
         treasury.sync();
@@ -2402,5 +2416,11 @@ contract BudgetTreasuryMockController {
         lastBudgetTreasury = budgetTreasury;
         if (shouldRevertPrune) revert("PRUNE_FAILED");
         return (true, returnGoalSynced);
+    }
+}
+
+contract BudgetTreasuryComposeHarness is BudgetTreasury {
+    function composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) external pure returns (int96) {
+        return _composeTargetFlowRate(incomingRate, spenddownRate);
     }
 }
