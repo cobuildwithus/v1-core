@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -223,88 +224,178 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
     }
 }
 
-    contract FakeResolverMockERC20 is ERC20 {
-        constructor() ERC20("Mock USDC", "mUSDC") {}
+contract FakeResolverMockERC20 is ERC20 {
+    constructor() ERC20("Mock USDC", "mUSDC") {}
+}
+
+contract DeployGoalFactoryScriptWiringTest is Test {
+    uint256 internal constant PRIVATE_KEY = 0xA11CE;
+    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 8;
+    address internal constant REV_DEPLOYER = address(0x1001);
+    address internal constant SUPERFLUID_HOST = address(0x1002);
+    address internal constant FAKE_UMA_OWNER = address(0xF00D);
+    address internal constant FAKE_UMA_ESCALATION_MANAGER = address(0xBEEF);
+    bytes32 internal constant FAKE_UMA_DOMAIN_ID = bytes32(uint256(0x4d2));
+    string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
+    string internal constant HISTORY_DIR = "deploys/history";
+
+    FakeResolverMockERC20 internal token;
+    DeployGoalFactory internal deployScript;
+
+    function setUp() public {
+        token = new FakeResolverMockERC20();
+        deployScript = new DeployGoalFactory();
     }
 
-    contract DeployGoalFactoryScriptWiringTest is Test {
-        uint256 internal constant PRIVATE_KEY = 0xA11CE;
-        address internal constant REV_DEPLOYER = address(0x1001);
-        address internal constant SUPERFLUID_HOST = address(0x1002);
-        address internal constant FAKE_UMA_OWNER = address(0xF00D);
-        address internal constant FAKE_UMA_ESCALATION_MANAGER = address(0xBEEF);
-        bytes32 internal constant FAKE_UMA_DOMAIN_ID = bytes32(uint256(0x4d2));
+    function test_run_deploysFakeResolverWithConfiguredEnv() public {
+        _setDeployEnv();
 
-        FakeResolverMockERC20 internal token;
-        DeployGoalFactory internal deployScript;
+        address deployer = vm.addr(PRIVATE_KEY);
+        uint64 nonceBefore = vm.getNonce(deployer);
+        address expectedFakeResolver =
+            vm.computeCreateAddress(deployer, uint256(nonceBefore) + FAKE_RESOLVER_CREATE_OFFSET);
 
-        function setUp() public {
-            token = new FakeResolverMockERC20();
-            deployScript = new DeployGoalFactory();
-        }
+        deployScript.run();
 
-        function test_run_deploysFakeResolverWithConfiguredEnv() public {
-            _setDeployEnv();
+        assertGt(expectedFakeResolver.code.length, 0);
 
-            address deployer = vm.addr(PRIVATE_KEY);
-            uint64 nonceBefore = vm.getNonce(deployer);
-            address expectedFakeResolver = vm.computeCreateAddress(deployer, uint256(nonceBefore) + 8);
+        FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
+        assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);
+        assertEq(fakeResolver.escalationManager(), FAKE_UMA_ESCALATION_MANAGER);
+        assertEq(fakeResolver.domainId(), FAKE_UMA_DOMAIN_ID);
+        assertEq(address(fakeResolver.assertionCurrency()), address(token));
+        assertEq(address(fakeResolver.optimisticOracle()), expectedFakeResolver);
 
-            deployScript.run();
+        string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+        string memory artifact = vm.readFile(artifactPath);
+        assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
+        assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
+        assertTrue(_stringContains(artifact, string.concat("REV_DEPLOYER: ", vm.toString(REV_DEPLOYER))));
+        assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
+        assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
+        assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
+        assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
+        assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
+        assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
+        assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
+        assertTrue(_stringContains(artifact, "ERC20VotesArbitratorImpl: 0x"));
+        assertTrue(_stringContains(artifact, "BudgetTCRDeployerImpl: 0x"));
+        assertTrue(
+            _stringContains(
+                artifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
+            )
+        );
+        assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_OWNER: ", vm.toString(FAKE_UMA_OWNER))));
+        assertTrue(
+            _stringContains(
+                artifact, string.concat("FAKE_UMA_ESCALATION_MANAGER: ", vm.toString(FAKE_UMA_ESCALATION_MANAGER))
+            )
+        );
+        assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID))));
 
-            assertGt(expectedFakeResolver.code.length, 0);
+        string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(
+            _stringContains(
+                latestArtifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
+            )
+        );
+        assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
 
-            FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
-            assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);
-            assertEq(fakeResolver.escalationManager(), FAKE_UMA_ESCALATION_MANAGER);
-            assertEq(fakeResolver.domainId(), FAKE_UMA_DOMAIN_ID);
-            assertEq(address(fakeResolver.assertionCurrency()), address(token));
-            assertEq(address(fakeResolver.optimisticOracle()), expectedFakeResolver);
-
-            string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
-            string memory artifact = vm.readFile(artifactPath);
-            assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
-            assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
-            assertTrue(_stringContains(artifact, string.concat("REV_DEPLOYER: ", vm.toString(REV_DEPLOYER))));
-            assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
-            assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
-            assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
-            assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
-            assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
-            assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
-            assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
-            assertTrue(_stringContains(artifact, "ERC20VotesArbitratorImpl: 0x"));
-            assertTrue(_stringContains(artifact, "BudgetTCRDeployerImpl: 0x"));
-            assertTrue(
-                _stringContains(
-                    artifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
-                )
-            );
-            assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_OWNER: ", vm.toString(FAKE_UMA_OWNER))));
-            assertTrue(
-                _stringContains(
-                    artifact, string.concat("FAKE_UMA_ESCALATION_MANAGER: ", vm.toString(FAKE_UMA_ESCALATION_MANAGER))
-                )
-            );
-            assertTrue(
-                _stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID)))
-            );
-        }
-
-        function _setDeployEnv() internal {
-            vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
-            vm.setEnv("REV_DEPLOYER", vm.toString(REV_DEPLOYER));
-            vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
-            vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
-            vm.setEnv("COBUILD_REVNET_ID", "138");
-            vm.setEnv("ESCROW_BOND_BPS", "5000");
-            vm.setEnv("DEFAULT_ALLOCATION_MECHANISM_ADMIN", "0x000000000000000000000000000000000000dEaD");
-            vm.setEnv("DEFAULT_INVALID_ROUND_REWARDS_SINK", "0x000000000000000000000000000000000000dEaD");
-            vm.setEnv("FAKE_UMA_OWNER", vm.toString(FAKE_UMA_OWNER));
-            vm.setEnv("FAKE_UMA_ESCALATION_MANAGER", vm.toString(FAKE_UMA_ESCALATION_MANAGER));
-            vm.setEnv("FAKE_UMA_DOMAIN_ID", "0x00000000000000000000000000000000000000000000000000000000000004d2");
-        }
+        string memory historyPath = _historyPathContainingResolver(expectedFakeResolver);
+        string memory historyArtifact = vm.readFile(historyPath);
+        assertTrue(
+            _stringContains(
+                historyArtifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
+            )
+        );
     }
+
+    function test_run_retainsHistoricalImplementationArtifactsAcrossRuns() public {
+        _setDeployEnv();
+        address deployer = vm.addr(PRIVATE_KEY);
+        uint64 nonceBeforeFirstRun = vm.getNonce(deployer);
+        address expectedFirstFakeResolver =
+            vm.computeCreateAddress(deployer, uint256(nonceBeforeFirstRun) + FAKE_RESOLVER_CREATE_OFFSET);
+        deployScript.run();
+
+        string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+        string memory firstArtifact = vm.readFile(artifactPath);
+
+        string memory firstHistoryPath = _historyPathContainingResolver(expectedFirstFakeResolver);
+        assertEq(vm.readFile(firstHistoryPath), firstArtifact);
+
+        vm.warp(block.timestamp + 1);
+        uint64 nonceBeforeSecondRun = vm.getNonce(deployer);
+        address expectedSecondFakeResolver =
+            vm.computeCreateAddress(deployer, uint256(nonceBeforeSecondRun) + FAKE_RESOLVER_CREATE_OFFSET);
+        deployScript.run();
+
+        string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
+        assertTrue(
+            _stringContains(
+                latestArtifact,
+                string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedSecondFakeResolver))
+            )
+        );
+
+        string memory secondHistoryPath = _historyPathContainingResolver(expectedSecondFakeResolver);
+        assertTrue(bytes(secondHistoryPath).length > 0);
+
+        // Historical snapshots are append-only; first run snapshot remains readable after later runs.
+        assertEq(vm.readFile(firstHistoryPath), firstArtifact);
+    }
+
+    function _historyPathContainingResolver(address resolver) internal view returns (string memory matchPath) {
+        Vm.DirEntry[] memory entries = vm.readDir(HISTORY_DIR);
+        string memory prefix = _goalFactoryHistoryPrefix();
+        string memory resolverLine = string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(resolver));
+
+        uint256 length = entries.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (entries[i].isDir) continue;
+            if (!_stringContains(entries[i].path, prefix)) continue;
+            string memory artifact = vm.readFile(entries[i].path);
+            if (!_stringContains(artifact, resolverLine)) continue;
+            if (bytes(matchPath).length == 0 || _isLexicographicallyAfter(entries[i].path, matchPath)) {
+                matchPath = entries[i].path;
+            }
+        }
+
+        assertGt(bytes(matchPath).length, 0);
+    }
+
+    function _goalFactoryHistoryPrefix() internal view returns (string memory) {
+        return string.concat(HISTORY_DIR, "/DeployGoalFactory.", vm.toString(block.chainid), ".");
+    }
+
+    function _isLexicographicallyAfter(string memory a, string memory b) internal pure returns (bool) {
+        bytes memory aBytes = bytes(a);
+        bytes memory bBytes = bytes(b);
+        uint256 minLen = aBytes.length < bBytes.length ? aBytes.length : bBytes.length;
+
+        for (uint256 i = 0; i < minLen; i++) {
+            if (aBytes[i] > bBytes[i]) return true;
+            if (aBytes[i] < bBytes[i]) return false;
+        }
+
+        return aBytes.length > bBytes.length;
+    }
+
+    function _setDeployEnv() internal {
+        vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
+        vm.setEnv("REV_DEPLOYER", vm.toString(REV_DEPLOYER));
+        vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
+        vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
+        vm.setEnv("COBUILD_REVNET_ID", "138");
+        vm.setEnv("ESCROW_BOND_BPS", "5000");
+        vm.setEnv("DEFAULT_ALLOCATION_MECHANISM_ADMIN", "0x000000000000000000000000000000000000dEaD");
+        vm.setEnv("DEFAULT_INVALID_ROUND_REWARDS_SINK", "0x000000000000000000000000000000000000dEaD");
+        vm.setEnv("FAKE_UMA_OWNER", vm.toString(FAKE_UMA_OWNER));
+        vm.setEnv("FAKE_UMA_ESCALATION_MANAGER", vm.toString(FAKE_UMA_ESCALATION_MANAGER));
+        vm.setEnv("FAKE_UMA_DOMAIN_ID", "0x00000000000000000000000000000000000000000000000000000000000004d2");
+    }
+}
 
     contract DeployGoalFromFactoryScriptWiringTest is Test {
         uint256 internal constant PRIVATE_KEY = 0xB0B;
