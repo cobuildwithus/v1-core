@@ -18,6 +18,7 @@
 5. In stake-vault mode, `slashVoter` permissionlessly applies configured slashing for missed reveal or incorrect vote (non-tie):
    - caller bounty transfers to the slashing caller,
    - remaining slash transfers to winner pools when a winner exists, otherwise to `invalidRoundRewardsSink`,
+   - by intentional policy, "missed reveal" includes jurors who never committed in that round (`!receipt.hasRevealed`), so non-participation can be slashable after solved rounds,
    - slash settlement draws from the juror's live stake balances, so post-snapshot exits do not zero slashability.
 
 ## Timeout Path

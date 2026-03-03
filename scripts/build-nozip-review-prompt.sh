@@ -49,6 +49,7 @@ emit_profile_files() {
   case "$selected" in
     comprehensive-a-goals-logic)
       cat <<'EOF'
+agent-docs/references/known-design-intent-edge-cases.md
 src/goals/GoalTreasury.sol
 src/goals/BudgetTreasury.sol
 src/goals/StakeVault.sol
@@ -111,6 +112,7 @@ EOF
       ;;
     comprehensive-b-flow-tcr-logic)
       cat <<'EOF'
+agent-docs/references/known-design-intent-edge-cases.md
 src/Flow.sol
 src/flows/CustomFlow.sol
 src/storage/FlowStorage.sol
@@ -171,6 +173,7 @@ EOF
       ;;
     comprehensive-ab-flow-tcr-goals-combined)
       cat <<'EOF'
+agent-docs/references/known-design-intent-edge-cases.md
 src/Flow.sol
 src/flows/CustomFlow.sol
 src/storage/FlowStorage.sol

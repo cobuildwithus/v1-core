@@ -4,9 +4,11 @@ This file captures protocol-level behaviors that are easy to misread and intenti
 
 ## TCR and arbitration
 
-- In stake-vault-based arbitration, `ERC20VotesArbitrator.slashVoter` treats an uncommitted juror as “missed reveal” because `missedReveal` is computed from `!receipt.hasRevealed` alone.
-  - A permissionless `slashVoter` call can therefore punish non-participants that have zero-value receipts in solved rounds.
-  - `src/tcr/ERC20VotesArbitrator.sol` (arbitration slashing path).
+- Stake-vault arbitration intentionally penalizes abstention, not only failed reveal after commit:
+  - `ERC20VotesArbitrator._slashVoter` computes `missedReveal` from `!receipt.hasRevealed`, so both non-reveal and never-committed voters are slash-eligible after round resolution.
+  - `slashVoter`/`slashVoters` are permissionless by design, so any caller may execute that slash path for snapshot-eligible jurors in solved rounds.
+  - This repository treats that behavior as accepted protocol intent (not a bug) for the current design.
+  - `src/tcr/ERC20VotesArbitrator.sol` (arbitration slashing path; around `_slashVoter`).
 
 ## Lifecycle and state-machine semantics
 
