@@ -56,7 +56,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             cfg.managerRewardPoolFlowRatePpm,
             _strategies[0]
         );
-        emit MetadataSet(cfg.metadata);
+        emit MetadataSet(initConfig.metadata);
     }
 
     /// @notice Restricts recipient lifecycle authority to the configured recipient admin.
@@ -335,10 +335,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         uint128 totalUnitsAfter = cfg.distributionPool.getTotalUnits();
         bool unitsCrossedZeroBoundary = (totalUnitsBefore == 0) != (totalUnitsAfter == 0);
         if (!unitsCrossedZeroBoundary) return;
-
-        try this._refreshOutflowFromCachedTarget(cachedTargetOutflowRate) {} catch (bytes memory reason) {
-            emit TargetOutflowRefreshFailed(cachedTargetOutflowRate, reason);
-        }
+        _bestEffortRefreshOutflowFromCachedTarget(cachedTargetOutflowRate);
     }
 
     /**
@@ -361,8 +358,8 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         metadata.description = description;
         FlowRecipients.validateMetadata(metadata);
 
-        cfg.metadata.description = description;
-        emit MetadataSet(cfg.metadata);
+        cfg.metadata = metadata;
+        emit MetadataSet(metadata);
     }
 
     /**
