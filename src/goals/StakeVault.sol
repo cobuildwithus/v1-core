@@ -49,13 +49,11 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     mapping(address => uint256) private _stakedCobuild;
     mapping(address => uint256) private _accountGoalStakeWeight;
     mapping(address => uint256) private _jurorLockedGoal;
-    mapping(address => uint256) private _jurorLockedCobuild;
     mapping(address => uint256) private _jurorLockedGoalWeight;
     mapping(address => address) private _jurorDelegate;
 
     struct JurorExitRequest {
         uint256 goalAmount;
-        uint256 cobuildAmount;
         uint64 requestedAt;
     }
 
@@ -160,7 +158,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         _totalWeight -= weightReduction;
 
         _clampJurorGoalWeight(msg.sender);
-        _setJurorWeight(msg.sender, _jurorLockedGoalWeight[msg.sender] + _jurorLockedCobuild[msg.sender]);
+        _setJurorWeight(msg.sender, _jurorLockedGoalWeight[msg.sender]);
         _safeTransferExact(goalToken, to, amount);
         emit GoalWithdrawn(msg.sender, to, amount);
     }
@@ -173,7 +171,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         uint256 staked = _stakedCobuild[msg.sender];
         if (amount > staked) revert INSUFFICIENT_STAKED_BALANCE();
-        if (amount > staked - _jurorLockedCobuild[msg.sender]) revert JUROR_WITHDRAWAL_LOCKED();
 
         _stakedCobuild[msg.sender] = staked - amount;
         totalStakedCobuild -= amount;
@@ -274,64 +271,44 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         emit UnderwriterWithdrawalPrepared(underwriter, nextBudgetIndex, budgetCount, complete);
     }
 
-    function optInAsJuror(uint256 goalAmount, uint256 cobuildAmount, address delegate) external override nonReentrant {
+    function optInAsJuror(uint256 goalAmount, address delegate) external override nonReentrant {
         if (goalResolved) revert GOAL_ALREADY_RESOLVED();
-        if (goalAmount == 0 && cobuildAmount == 0) revert INVALID_JUROR_LOCK();
+        if (goalAmount == 0) revert INVALID_JUROR_LOCK();
 
         uint256 stakedGoal = _stakedGoal[msg.sender];
-        uint256 stakedCobuild = _stakedCobuild[msg.sender];
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
-        uint256 lockedCobuild = _jurorLockedCobuild[msg.sender];
 
         if (goalAmount > stakedGoal - lockedGoal) revert INSUFFICIENT_STAKED_BALANCE();
-        if (cobuildAmount > stakedCobuild - lockedCobuild) revert INSUFFICIENT_STAKED_BALANCE();
 
-        uint256 goalWeightDelta = 0;
-        if (goalAmount != 0) {
-            uint256 accountGoalStakeWeight = _accountGoalStakeWeight[msg.sender];
-            uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
-            goalWeightDelta = StakeVaultJurorMath.computeOptInGoalWeightDelta(
-                goalAmount,
-                stakedGoal,
-                lockedGoal,
-                accountGoalStakeWeight,
-                lockedGoalWeight
-            );
-            // slither-disable-next-line incorrect-equality
-            if (goalWeightDelta == 0) revert ZERO_WEIGHT_DELTA();
-            _jurorLockedGoalWeight[msg.sender] = lockedGoalWeight + goalWeightDelta;
-            _jurorLockedGoal[msg.sender] = lockedGoal + goalAmount;
-        }
-
-        if (cobuildAmount != 0) {
-            _jurorLockedCobuild[msg.sender] = lockedCobuild + cobuildAmount;
-        }
-
-        uint256 oldWeight = _currentJurorWeight(msg.sender);
-        uint256 weightDelta = goalWeightDelta + cobuildAmount;
-        uint256 newWeight = oldWeight + weightDelta;
-        _setJurorWeight(msg.sender, newWeight);
+        uint256 accountGoalStakeWeight = _accountGoalStakeWeight[msg.sender];
+        uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
+        uint256 goalWeightDelta = StakeVaultJurorMath.computeOptInGoalWeightDelta(
+            goalAmount,
+            stakedGoal,
+            lockedGoal,
+            accountGoalStakeWeight,
+            lockedGoalWeight
+        );
+        // slither-disable-next-line incorrect-equality
+        if (goalWeightDelta == 0) revert ZERO_WEIGHT_DELTA();
+        _jurorLockedGoalWeight[msg.sender] = lockedGoalWeight + goalWeightDelta;
+        _jurorLockedGoal[msg.sender] = lockedGoal + goalAmount;
+        _setJurorWeight(msg.sender, _currentJurorWeight(msg.sender) + goalWeightDelta);
 
         _jurorDelegate[msg.sender] = delegate;
-        emit JurorOptedIn(msg.sender, goalAmount, cobuildAmount, weightDelta, delegate);
+        emit JurorOptedIn(msg.sender, goalAmount, goalWeightDelta, delegate);
     }
 
-    function requestJurorExit(uint256 goalAmount, uint256 cobuildAmount) external override nonReentrant {
-        if (goalAmount == 0 && cobuildAmount == 0) revert INVALID_JUROR_LOCK();
+    function requestJurorExit(uint256 goalAmount) external override nonReentrant {
+        if (goalAmount == 0) revert INVALID_JUROR_LOCK();
 
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
-        uint256 lockedCobuild = _jurorLockedCobuild[msg.sender];
         if (goalAmount > lockedGoal) revert INSUFFICIENT_STAKED_BALANCE();
-        if (cobuildAmount > lockedCobuild) revert INSUFFICIENT_STAKED_BALANCE();
 
         uint64 nowTs = uint64(block.timestamp);
-        _jurorExitRequest[msg.sender] = JurorExitRequest({
-            goalAmount: goalAmount,
-            cobuildAmount: cobuildAmount,
-            requestedAt: nowTs
-        });
+        _jurorExitRequest[msg.sender] = JurorExitRequest({ goalAmount: goalAmount, requestedAt: nowTs });
 
-        emit JurorExitRequested(msg.sender, goalAmount, cobuildAmount, nowTs, nowTs + JUROR_EXIT_DELAY);
+        emit JurorExitRequested(msg.sender, goalAmount, nowTs, nowTs + JUROR_EXIT_DELAY);
     }
 
     function finalizeJurorExit() external override nonReentrant {
@@ -347,10 +324,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         uint256 lockedGoal = _jurorLockedGoal[msg.sender];
         uint256 lockedGoalWeight = _jurorLockedGoalWeight[msg.sender];
-        uint256 lockedCobuild = _jurorLockedCobuild[msg.sender];
 
         uint256 goalAmount = StakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
-        uint256 cobuildAmount = StakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
 
         uint256 goalWeightReduction = 0;
         if (goalAmount != 0) {
@@ -363,18 +338,11 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             _jurorLockedGoalWeight[msg.sender] = lockedGoalWeight - goalWeightReduction;
         }
 
-        if (cobuildAmount != 0) {
-            _jurorLockedCobuild[msg.sender] = lockedCobuild - cobuildAmount;
-        }
-
         delete _jurorExitRequest[msg.sender];
 
-        uint256 oldWeight = _currentJurorWeight(msg.sender);
-        uint256 weightReduction = goalWeightReduction + cobuildAmount;
-        uint256 newWeight = oldWeight - weightReduction;
-        _setJurorWeight(msg.sender, newWeight);
+        _setJurorWeight(msg.sender, _currentJurorWeight(msg.sender) - goalWeightReduction);
 
-        emit JurorExitFinalized(msg.sender, goalAmount, cobuildAmount, weightReduction);
+        emit JurorExitFinalized(msg.sender, goalAmount, goalWeightReduction);
     }
 
     function setJurorDelegate(address delegate) external override {
@@ -412,12 +380,10 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function slashJurorStake(address juror, uint256 weightAmount, address recipient) external override nonReentrant {
         if (msg.sender != jurorSlasher) revert ONLY_JUROR_SLASHER();
-        StakeVaultSlashMath.SlashAmounts memory slash = _slashStake(juror, weightAmount, recipient);
-        if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return;
+        StakeVaultSlashMath.SlashAmounts memory slash = _slashJurorGoalOnly(juror, weightAmount, recipient);
+        if (slash.goalAmount == 0) return;
 
-        uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
-
-        emit JurorSlashed(juror, weightAmount, totalWeightReduction, slash.goalAmount, slash.cobuildAmount, recipient);
+        emit JurorSlashed(juror, weightAmount, slash.goalWeight, slash.goalAmount, recipient);
     }
 
     function slashUnderwriterStake(
@@ -441,6 +407,58 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         );
     }
 
+    /// @dev Slash juror stake using goal-token weight only. Cobuild stake is never slashed for juror behavior.
+    function _slashJurorGoalOnly(
+        address juror,
+        uint256 weightAmount,
+        address recipient
+    ) internal returns (StakeVaultSlashMath.SlashAmounts memory slash) {
+        if (recipient == address(0)) revert ADDRESS_ZERO();
+        if (weightAmount == 0) return slash;
+
+        uint256 currentGoalWeight = _accountGoalStakeWeight[juror];
+        if (currentGoalWeight == 0) return slash;
+
+        uint256 requestedWeight = Math.min(weightAmount, currentGoalWeight);
+
+        StakeVaultSlashMath.StakeSlashSnapshot memory snapshot = StakeVaultSlashMath.StakeSlashSnapshot({
+            stakedGoal: _stakedGoal[juror],
+            goalWeight: currentGoalWeight,
+            stakedCobuild: 0,
+            lockedGoal: _jurorLockedGoal[juror],
+            lockedGoalWeight: _jurorLockedGoalWeight[juror],
+            lockedCobuild: 0
+        });
+
+        slash = StakeVaultSlashMath.computeStakeSlashBreakdown(snapshot, requestedWeight, currentGoalWeight);
+        // `stakedCobuild` is 0 in the snapshot, so only goal stake can be slashed.
+        if (slash.goalAmount == 0) return slash;
+
+        StakeVaultSlashMath.SlashAmounts memory lockedSlash = StakeVaultSlashMath.computeLockedSlashBreakdown(
+            snapshot,
+            slash
+        );
+
+        _stakedGoal[juror] = snapshot.stakedGoal - slash.goalAmount;
+        totalStakedGoal -= slash.goalAmount;
+        _accountGoalStakeWeight[juror] = snapshot.goalWeight - slash.goalWeight;
+
+        if (lockedSlash.goalAmount != 0) {
+            _jurorLockedGoal[juror] = snapshot.lockedGoal - lockedSlash.goalAmount;
+            _jurorLockedGoalWeight[juror] = snapshot.lockedGoalWeight - lockedSlash.goalWeight;
+        }
+
+        _syncJurorExitRequest(juror);
+
+        _totalWeight -= slash.goalWeight;
+
+        _clampJurorGoalWeight(juror);
+        _setJurorWeight(juror, _jurorLockedGoalWeight[juror]);
+        _trySyncGoalFlowAllocation(juror);
+
+        _safeTransferExact(goalToken, recipient, slash.goalAmount);
+    }
+
     function _slashStake(
         address account,
         uint256 weightAmount,
@@ -460,7 +478,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             stakedCobuild: _stakedCobuild[account],
             lockedGoal: _jurorLockedGoal[account],
             lockedGoalWeight: _jurorLockedGoalWeight[account],
-            lockedCobuild: _jurorLockedCobuild[account]
+            lockedCobuild: 0
         });
         slash = StakeVaultSlashMath.computeStakeSlashBreakdown(snapshot, requestedWeight, currentStakeWeight);
         if (slash.goalAmount == 0 && slash.cobuildAmount == 0) return slash;
@@ -486,10 +504,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
             _jurorLockedGoalWeight[account] = snapshot.lockedGoalWeight - lockedSlash.goalWeight;
         }
 
-        if (lockedSlash.cobuildAmount != 0) {
-            _jurorLockedCobuild[account] = snapshot.lockedCobuild - lockedSlash.cobuildAmount;
-        }
-
         _syncJurorExitRequest(account);
 
         uint256 totalWeightReduction = slash.goalWeight + slash.cobuildAmount;
@@ -497,8 +511,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
         _clampJurorGoalWeight(account);
 
-        uint256 newJurorWeight = _jurorLockedGoalWeight[account] + _jurorLockedCobuild[account];
-        _setJurorWeight(account, newJurorWeight);
+        _setJurorWeight(account, _jurorLockedGoalWeight[account]);
         _trySyncGoalFlowAllocation(account);
 
         if (slash.goalAmount != 0) {
@@ -597,10 +610,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
 
     function jurorLockedGoalOf(address user) external view override returns (uint256) {
         return _jurorLockedGoal[user];
-    }
-
-    function jurorLockedCobuildOf(address user) external view override returns (uint256) {
-        return _jurorLockedCobuild[user];
     }
 
     function jurorWeightOf(address user) external view override returns (uint256) {
@@ -839,10 +848,8 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         if (request.requestedAt == 0) return;
 
         uint256 lockedGoal = _jurorLockedGoal[juror];
-        uint256 lockedCobuild = _jurorLockedCobuild[juror];
 
         request.goalAmount = StakeVaultJurorMath.clampToAvailable(request.goalAmount, lockedGoal);
-        request.cobuildAmount = StakeVaultJurorMath.clampToAvailable(request.cobuildAmount, lockedCobuild);
     }
 
     function _stakeWeightOf(address user) internal view returns (uint256) {

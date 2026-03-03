@@ -42,21 +42,9 @@ interface IStakeVault {
     event UnderwriterWithdrawalPrepared(
         address indexed underwriter, uint256 nextBudgetIndex, uint256 budgetCount, bool complete
     );
-    event JurorOptedIn(
-        address indexed juror,
-        uint256 goalAmount,
-        uint256 cobuildAmount,
-        uint256 weightDelta,
-        address indexed delegate
-    );
-    event JurorExitRequested(
-        address indexed juror,
-        uint256 goalAmount,
-        uint256 cobuildAmount,
-        uint64 requestedAt,
-        uint64 availableAt
-    );
-    event JurorExitFinalized(address indexed juror, uint256 goalAmount, uint256 cobuildAmount, uint256 weightDelta);
+    event JurorOptedIn(address indexed juror, uint256 goalAmount, uint256 weightDelta, address indexed delegate);
+    event JurorExitRequested(address indexed juror, uint256 goalAmount, uint64 requestedAt, uint64 availableAt);
+    event JurorExitFinalized(address indexed juror, uint256 goalAmount, uint256 weightDelta);
     event JurorDelegateSet(address indexed juror, address indexed delegate);
     event JurorSlasherSet(address indexed slasher);
     event UnderwriterSlasherSet(address indexed slasher);
@@ -65,7 +53,6 @@ interface IStakeVault {
         uint256 requestedWeight,
         uint256 appliedWeight,
         uint256 goalAmount,
-        uint256 cobuildAmount,
         address indexed recipient
     );
     event UnderwriterSlashed(
@@ -98,8 +85,8 @@ interface IStakeVault {
     function withdrawGoal(uint256 amount, address to) external;
     function withdrawCobuild(uint256 amount, address to) external;
     function markGoalResolved() external;
-    function optInAsJuror(uint256 goalAmount, uint256 cobuildAmount, address delegate) external;
-    function requestJurorExit(uint256 goalAmount, uint256 cobuildAmount) external;
+    function optInAsJuror(uint256 goalAmount, address delegate) external;
+    function requestJurorExit(uint256 goalAmount) external;
     function finalizeJurorExit() external;
     function setJurorDelegate(address delegate) external;
     function setJurorSlasher(address slasher) external;
@@ -115,7 +102,6 @@ interface IStakeVault {
     function stakedGoalOf(address user) external view returns (uint256);
     function stakedCobuildOf(address user) external view returns (uint256);
     function jurorLockedGoalOf(address user) external view returns (uint256);
-    function jurorLockedCobuildOf(address user) external view returns (uint256);
     function jurorWeightOf(address user) external view returns (uint256);
     function jurorDelegateOf(address user) external view returns (address);
     function isAuthorizedJurorOperator(address juror, address operator) external view returns (bool);
