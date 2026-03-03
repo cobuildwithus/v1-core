@@ -90,9 +90,6 @@ interface IERC20VotesArbitrator is IArbitrator {
     /// @notice Error thrown when owner tries to withdraw rewards for a round that has votes
     error VOTES_WERE_CAST();
 
-    /// @notice Error thrown when there are no winning votes
-    error NO_WINNING_VOTES();
-
     /// @notice Error thrown when the arbitration cost is outside the allowed range
     error INVALID_ARBITRATION_COST();
 

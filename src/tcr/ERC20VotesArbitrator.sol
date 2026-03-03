@@ -37,7 +37,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     error INVALID_STAKE_VAULT_ADDRESS();
     error INVALID_STAKE_VAULT_GOAL_TREASURY();
     error INVALID_STAKE_VAULT_BUDGET_STAKE_LEDGER();
-    error NON_UPGRADEABLE();
     error UNAUTHORIZED_DELEGATE();
     error STAKE_VAULT_NOT_SET();
     error STAKE_VAULT_ALREADY_SET();
@@ -157,11 +156,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         emit ArbitrationCostSet(_arbitrationCost, arbitrationCost_);
         _arbitrationCost = arbitrationCost_;
-    }
-
-    /// @notice Explicitly reject upgrades to keep this contract non-upgradeable.
-    function upgradeToAndCall(address, bytes memory) external pure {
-        revert NON_UPGRADEABLE();
     }
 
     /**

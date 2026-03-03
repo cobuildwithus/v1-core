@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {ERC20VotesArbitratorTestBase, ArbitratorHarness, ERC20VotesArbitratorUpgradeMock} from "test/ERC20VotesArbitrator.t.sol";
+import {ERC20VotesArbitratorTestBase, ArbitratorHarness} from "test/ERC20VotesArbitrator.t.sol";
 
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {IArbitrable} from "src/tcr/interfaces/IArbitrable.sol";
@@ -559,16 +559,16 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         assertEq(h.exposed_bps2Uint(5_000, 1000), 500);
     }
 
-    function test_upgrade_reverts_when_nonupgradeable() public {
-        // deploy new impl
-        ERC20VotesArbitratorUpgradeMock newImpl = new ERC20VotesArbitratorUpgradeMock();
-
-        vm.expectRevert(ERC20VotesArbitrator.NON_UPGRADEABLE.selector);
-        arb.upgradeToAndCall(address(newImpl), bytes(""));
+    function test_upgrade_selector_is_missing() public {
+        bytes memory callData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(0xBEEF), bytes(""));
+        (bool success, bytes memory revertData) = address(arb).call(callData);
+        assertFalse(success);
+        assertEq(revertData.length, 0);
 
         vm.prank(address(arbitrable));
-        vm.expectRevert(ERC20VotesArbitrator.NON_UPGRADEABLE.selector);
-        arb.upgradeToAndCall(address(newImpl), bytes(""));
+        (success, revertData) = address(arb).call(callData);
+        assertFalse(success);
+        assertEq(revertData.length, 0);
     }
 
     function _deployValidFixedBudgetContext() internal returns (address stakeVault_, address budgetTreasury_) {

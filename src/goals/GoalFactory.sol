@@ -388,31 +388,6 @@ contract GoalFactory {
             );
     }
 
-    function _resolveRegistryConfig(
-        BudgetTCRParams calldata p
-    ) internal view returns (BudgetTCRFactory.RegistryConfigInput memory) {
-        return
-            GoalFactoryBudgetTcrDeploy.resolveRegistryConfig(
-                GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
-                    governor: p.governor,
-                    invalidRoundRewardsSink: p.invalidRoundRewardsSink,
-                    submissionDepositStrategy: p.submissionDepositStrategy,
-                    submissionBaseDeposit: p.submissionBaseDeposit,
-                    removalBaseDeposit: p.removalBaseDeposit,
-                    submissionChallengeBaseDeposit: p.submissionChallengeBaseDeposit,
-                    removalChallengeBaseDeposit: p.removalChallengeBaseDeposit,
-                    registrationMetaEvidence: p.registrationMetaEvidence,
-                    clearingMetaEvidence: p.clearingMetaEvidence,
-                    challengePeriodDuration: p.challengePeriodDuration,
-                    arbitratorExtraData: p.arbitratorExtraData
-                }),
-                DEFAULT_BUDGET_TCR_GOVERNOR,
-                DEFAULT_INVALID_ROUND_REWARDS_SINK,
-                DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-                COBUILD_TOKEN
-            );
-    }
-
     function _resolveMinRaiseWindow(
         uint32 durationSeconds,
         uint32 minRaiseDurationSeconds

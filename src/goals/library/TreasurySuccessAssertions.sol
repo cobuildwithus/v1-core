@@ -99,22 +99,6 @@ library TreasurySuccessAssertions {
         return _matchesAssertionTail(assertion, assertedAt, assertionLiveness, assertionBond);
     }
 
-    function pendingSuccessAssertionResolution(
-        State storage self,
-        bytes32 assertionId,
-        address successResolver,
-        uint64 successAssertionLiveness,
-        uint256 successAssertionBond
-    ) internal view returns (bool isResolved, bool truthful) {
-        (isResolved, truthful, ) = pendingSuccessAssertionResolutionWithReason(
-            self,
-            assertionId,
-            successResolver,
-            successAssertionLiveness,
-            successAssertionBond
-        );
-    }
-
     function pendingSuccessAssertionResolutionWithReason(
         State storage self,
         bytes32 assertionId,

@@ -43,8 +43,6 @@ abstract contract GeneralizedTCR is
     using TCRRounds for GeneralizedTCRStorageV1.Round;
     using TokenTransfers for IERC20;
 
-    error NON_UPGRADEABLE();
-
     /**
      *  @dev Initialize the arbitrable curated registry.
      *  @param _arbitrator Arbitrator to resolve potential disputes.
@@ -115,11 +113,6 @@ abstract contract GeneralizedTCR is
         submissionDepositStrategy = _submissionDepositStrategy;
     }
 
-    /// @notice Explicitly reject upgrades to keep this contract non-upgradeable.
-    function upgradeToAndCall(address, bytes memory) external pure {
-        revert NON_UPGRADEABLE();
-    }
-
     /* External and Public */
 
     // ************************ //
@@ -152,9 +145,7 @@ abstract contract GeneralizedTCR is
      * @dev Verifies the data of an item before it's added to the registry.
      *  @return valid True if the item data is valid, false otherwise.
      */
-    function _verifyItemData(bytes calldata) internal virtual returns (bool valid) {
-        return true;
-    }
+    function _verifyItemData(bytes calldata) internal virtual returns (bool valid);
 
     /**
      * @dev Optional extension point for derived registries to reject add-item requests for specific itemIDs.

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import "test/GeneralizedTCR.t.sol";
-import { GeneralizedTCR } from "src/tcr/GeneralizedTCR.sol";
 
 contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
     function test_setGovernor_has_no_direct_setter() public {
@@ -77,15 +76,10 @@ contract GeneralizedTCRGovernanceUpgradeTest is GeneralizedTCRTestBase {
         assertEq(addItemCostAfter, addItemCost);
     }
 
-    function test_tcr_upgrade_reverts_when_nonupgradeable() public {
-        MockGeneralizedTCRUpgradeMock newImpl = new MockGeneralizedTCRUpgradeMock();
-
-        vm.expectRevert(GeneralizedTCR.NON_UPGRADEABLE.selector);
-        tcr.upgradeToAndCall(address(newImpl), bytes(""));
-
-        vm.prank(governor);
-        vm.expectRevert(GeneralizedTCR.NON_UPGRADEABLE.selector);
-        tcr.upgradeToAndCall(address(newImpl), bytes(""));
+    function test_tcr_upgrade_selector_is_missing() public {
+        bytes memory callData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(0xBEEF), bytes(""));
+        _assertMissingSelector(callData);
+        _assertMissingSelectorAs(governor, callData);
     }
 
     function test_disputeTimeout_has_no_direct_setter() public {
