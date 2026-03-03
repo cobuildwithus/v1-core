@@ -5,13 +5,17 @@ import "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 
@@ -34,6 +38,7 @@ contract DeployGoalFactory is DeployScript {
 
     address internal goalTreasuryImplOut;
     address internal premiumEscrowImplOut;
+    address internal underwriterSlasherRouterImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
@@ -74,6 +79,7 @@ contract DeployGoalFactory is DeployScript {
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
+        UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
@@ -107,6 +113,7 @@ contract DeployGoalFactory is DeployScript {
             address(flowImpl),
             address(splitHookImpl),
             address(premiumEscrowImpl),
+            address(underwriterSlasherRouterImpl),
             address(depositStrategy),
             defaultAllocationMechanismAdmin,
             invalidRoundRewardsSink
@@ -122,6 +129,7 @@ contract DeployGoalFactory is DeployScript {
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
         premiumEscrowImplOut = address(premiumEscrowImpl);
+        underwriterSlasherRouterImplOut = address(underwriterSlasherRouterImpl);
         customFlowImplOut = address(flowImpl);
         splitHookImplOut = address(splitHookImpl);
         budgetTcrImplOut = address(budgetTcrImpl);
@@ -148,6 +156,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
+        console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
@@ -163,6 +172,19 @@ contract DeployGoalFactory is DeployScript {
         console2.log("GoalFactory:", goalFactoryOut);
     }
 
+    function _deployUnderwriterSlasherRouterImplementation() internal returns (UnderwriterSlasherRouter) {
+        return new UnderwriterSlasherRouter(
+            IStakeVault(address(0)),
+            address(0),
+            IJBDirectory(address(0)),
+            0,
+            IERC20(address(0)),
+            IERC20(address(0)),
+            ISuperToken(address(0)),
+            address(0)
+        );
+    }
+
     function deploymentName() internal pure override returns (string memory) {
         return "DeployGoalFactory";
     }
@@ -175,6 +197,7 @@ contract DeployGoalFactory is DeployScript {
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
+        _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);

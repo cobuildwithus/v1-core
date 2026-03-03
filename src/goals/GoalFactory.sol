@@ -35,6 +35,7 @@ contract GoalFactory {
     address public immutable FLOW_IMPL;
     address public immutable SPLIT_HOOK_IMPL;
     address public immutable PREMIUM_ESCROW_IMPL;
+    address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
 
     address public immutable DEFAULT_SUBMISSION_DEPOSIT_STRATEGY;
     address public immutable DEFAULT_ALLOCATION_MECHANISM_ADMIN;
@@ -143,6 +144,7 @@ contract GoalFactory {
         address flowImpl,
         address splitHookImpl,
         address premiumEscrowImpl,
+        address underwriterSlasherRouterImpl,
         address defaultSubmissionDepositStrategy,
         address defaultAllocationMechanismAdmin,
         address defaultInvalidRoundRewardsSink
@@ -155,6 +157,7 @@ contract GoalFactory {
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
         if (splitHookImpl == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
+        if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
         if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
@@ -162,6 +165,7 @@ contract GoalFactory {
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
         if (splitHookImpl.code.length == 0) revert NOT_A_CONTRACT(splitHookImpl);
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
+        if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
@@ -178,6 +182,7 @@ contract GoalFactory {
         FLOW_IMPL = flowImpl;
         SPLIT_HOOK_IMPL = splitHookImpl;
         PREMIUM_ESCROW_IMPL = premiumEscrowImpl;
+        UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
 
         DEFAULT_SUBMISSION_DEPOSIT_STRATEGY = defaultSubmissionDepositStrategy;
         DEFAULT_ALLOCATION_MECHANISM_ADMIN = defaultAllocationMechanismAdmin;
@@ -339,17 +344,17 @@ contract GoalFactory {
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address predictedBudgetTCR
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        address underwriterSlasherRouter = address(
-            new UnderwriterSlasherRouter(
-                IStakeVault(address(core.stakeVault)),
-                predictedBudgetTCR,
-                revnet.directory,
-                revnet.goalRevnetId,
-                IERC20Metadata(revnet.goalToken),
-                IERC20Metadata(COBUILD_TOKEN),
-                core.goalSuperToken,
-                address(core.goalFlow)
-            )
+        UnderwriterSlasherRouter underwriterSlasherRouter =
+            UnderwriterSlasherRouter(Clones.clone(UNDERWRITER_SLASHER_ROUTER_IMPL));
+        underwriterSlasherRouter.initialize(
+            IStakeVault(address(core.stakeVault)),
+            predictedBudgetTCR,
+            revnet.directory,
+            revnet.goalRevnetId,
+            IERC20Metadata(revnet.goalToken),
+            IERC20Metadata(COBUILD_TOKEN),
+            core.goalSuperToken,
+            address(core.goalFlow)
         );
 
         return
@@ -384,7 +389,7 @@ contract GoalFactory {
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
                     premiumEscrowImplementation: PREMIUM_ESCROW_IMPL,
-                    underwriterSlasherRouter: underwriterSlasherRouter,
+                    underwriterSlasherRouter: address(underwriterSlasherRouter),
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm
                 })

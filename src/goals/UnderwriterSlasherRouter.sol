@@ -17,14 +17,17 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
 
     string private constant COBUILD_CONVERSION_MEMO = "UNDERWRITER_SLASH_COBUILD_CONVERSION";
 
-    IStakeVault public immutable override stakeVault;
-    address public immutable override authority;
-    IJBDirectory public immutable directory;
-    IERC20 public immutable goalToken;
-    IERC20 public immutable cobuildToken;
-    ISuperToken public immutable goalSuperToken;
-    address public immutable goalFundingTarget;
-    uint256 public immutable goalRevnetId;
+    error ALREADY_INITIALIZED();
+
+    IStakeVault public override stakeVault;
+    address public override authority;
+    IJBDirectory public directory;
+    IERC20 public goalToken;
+    IERC20 public cobuildToken;
+    ISuperToken public goalSuperToken;
+    address public goalFundingTarget;
+    uint256 public goalRevnetId;
+    bool private _initializationLocked;
 
     mapping(address => bool) public override isAuthorizedPremiumEscrow;
 
@@ -38,6 +41,81 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, ReentrancyGuard 
         ISuperToken goalSuperToken_,
         address goalFundingTarget_
     ) {
+        if (
+            _isImplementationConstructorSentinelConfig(
+                stakeVault_,
+                authority_,
+                directory_,
+                goalRevnetId_,
+                goalToken_,
+                cobuildToken_,
+                goalSuperToken_,
+                goalFundingTarget_
+            )
+        ) {
+            _initializationLocked = true;
+            return;
+        }
+        _initialize(
+            stakeVault_,
+            authority_,
+            directory_,
+            goalRevnetId_,
+            goalToken_,
+            cobuildToken_,
+            goalSuperToken_,
+            goalFundingTarget_
+        );
+    }
+
+    function _isImplementationConstructorSentinelConfig(
+        IStakeVault stakeVault_,
+        address authority_,
+        IJBDirectory directory_,
+        uint256 goalRevnetId_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        ISuperToken goalSuperToken_,
+        address goalFundingTarget_
+    ) internal pure returns (bool) {
+        return address(stakeVault_) == address(0) && authority_ == address(0) && address(directory_) == address(0)
+            && goalRevnetId_ == 0 && address(goalToken_) == address(0) && address(cobuildToken_) == address(0)
+            && address(goalSuperToken_) == address(0) && goalFundingTarget_ == address(0);
+    }
+
+    function initialize(
+        IStakeVault stakeVault_,
+        address authority_,
+        IJBDirectory directory_,
+        uint256 goalRevnetId_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        ISuperToken goalSuperToken_,
+        address goalFundingTarget_
+    ) external {
+        _initialize(
+            stakeVault_,
+            authority_,
+            directory_,
+            goalRevnetId_,
+            goalToken_,
+            cobuildToken_,
+            goalSuperToken_,
+            goalFundingTarget_
+        );
+    }
+
+    function _initialize(
+        IStakeVault stakeVault_,
+        address authority_,
+        IJBDirectory directory_,
+        uint256 goalRevnetId_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        ISuperToken goalSuperToken_,
+        address goalFundingTarget_
+    ) internal {
+        if (_initializationLocked || authority != address(0)) revert ALREADY_INITIALIZED();
         if (address(stakeVault_) == address(0)) revert ADDRESS_ZERO();
         if (authority_ == address(0)) revert ADDRESS_ZERO();
         if (address(directory_) == address(0)) revert ADDRESS_ZERO();
