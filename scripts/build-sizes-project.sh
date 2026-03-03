@@ -25,9 +25,9 @@ search_pattern() {
     fi
 }
 
-# Concrete contracts declared in src/. (Excludes interfaces, libraries, and abstract contracts.)
-search_pattern '^[[:space:]]*contract[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' src \
-    | sed -E 's/.*contract[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
+# Deployable units declared in src/. (Includes contracts and libraries; excludes interfaces and abstract contracts.)
+search_pattern '^[[:space:]]*(contract|library)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' src \
+    | sed -E 's/.*(contract|library)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\2/' \
     | sort -u > "$tmp_names"
 
 set +e
@@ -41,7 +41,7 @@ awk -F'\\|' -v names_file="$tmp_names" -v forge_status="$status" '
 BEGIN {
     while ((getline n < names_file) > 0) keep[n] = 1
     close(names_file)
-    printf("%-42s %16s %18s %18s %18s\n", "Contract", "Runtime Size (B)", "Initcode Size (B)", "Runtime Margin (B)", "Initcode Margin (B)")
+    printf("%-42s %16s %18s %18s %18s\n", "Unit", "Runtime Size (B)", "Initcode Size (B)", "Runtime Margin (B)", "Initcode Margin (B)")
     print "-----------------------------------------------------------------------------------------------------------------------------"
 }
 $0 ~ /^\|/ {
@@ -74,7 +74,7 @@ set -e
 
 if [ "$table_status" -eq 42 ]; then
     echo
-    echo "Project contracts exceed EIP-170 runtime size limit."
+    echo "Project units exceed EIP-170 runtime size limit."
     exit 1
 fi
 
