@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 import { ISuperToken, ISuperfluidPool } from
     "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @title MechanismFundingEscrow
 /// @notice Holds SuperToken funding for an allocation mechanism.
@@ -18,7 +19,7 @@ import { ISuperToken, ISuperfluidPool } from
 ///      - A registry/controller enforces policy (min/max/deadline) and then either:
 ///          - releases escrowed funds to the mechanism's payout contract, or
 ///          - refunds escrowed funds back to the funding source.
-contract MechanismFundingEscrow {
+contract MechanismFundingEscrow is Initializable {
     using SuperTokenV1Library for ISuperToken;
 
     error ADDRESS_ZERO();
@@ -29,19 +30,23 @@ contract MechanismFundingEscrow {
     event Released(address indexed recipient, uint256 amount);
     event Refunded(address indexed refundRecipient, uint256 amount);
 
-    ISuperToken public immutable superToken;
-    ISuperfluidPool public immutable distributionPool;
-    address public immutable controller;
-    address public immutable refundRecipient;
-    address public immutable recipient;
+    ISuperToken public superToken;
+    ISuperfluidPool public distributionPool;
+    address public controller;
+    address public refundRecipient;
+    address public recipient;
 
-    constructor(
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         ISuperToken superToken_,
         ISuperfluidPool distributionPool_,
         address controller_,
         address refundRecipient_,
         address recipient_
-    ) {
+    ) external initializer {
         if (address(superToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(distributionPool_) == address(0)) revert ADDRESS_ZERO();
         if (controller_ == address(0)) revert ADDRESS_ZERO();

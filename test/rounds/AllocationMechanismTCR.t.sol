@@ -25,6 +25,9 @@ import {
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ISuperToken, ISuperfluidPool } from
+    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
     DeployedMechanism internal nextDeployedMechanism;
@@ -375,6 +378,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_initialize_setsFactoryManager() public view {
         assertEq(mechanism.factoryManager(), factoryManager);
+    }
+
+    function test_mechanismFundingEscrowImplementation_initializeReverts() public {
+        address implementation = mechanism.mechanismFundingEscrowImplementation();
+        address superToken_ = address(MechanismFundingEscrow(implementation).superToken());
+        address distributionPool_ = address(MechanismFundingEscrow(implementation).distributionPool());
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        MechanismFundingEscrow(implementation).initialize(
+            ISuperToken(superToken_),
+            ISuperfluidPool(distributionPool_),
+            address(mechanism),
+            address(budgetFlow),
+            alice
+        );
     }
 
     function test_verifyItemData_rejectsBadMetadata() public {
@@ -1149,6 +1166,60 @@ contract AllocationMechanismTCRTest is Test {
         assertFalse(budgetFlow.recipientExists(deployment.fundingEscrow));
         assertEq(superToken.balanceOf(address(budgetFlow)), escrowedBeforeRemoval);
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+    }
+
+    function test_activateMechanism_escrowClone_reinitializeReverts() public {
+        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        (, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+
+        MechanismFundingEscrow escrow = MechanismFundingEscrow(deployment.fundingEscrow);
+        address recipientBefore = escrow.recipient();
+        address refundRecipientBefore = escrow.refundRecipient();
+        address controllerBefore = escrow.controller();
+        address escrowSuperToken = address(escrow.superToken());
+        address escrowDistributionPool = address(escrow.distributionPool());
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        escrow.initialize(
+            ISuperToken(escrowSuperToken),
+            ISuperfluidPool(escrowDistributionPool),
+            address(mechanism),
+            address(budgetFlow),
+            alice
+        );
+
+        assertEq(escrow.recipient(), recipientBefore);
+        assertEq(escrow.refundRecipient(), refundRecipientBefore);
+        assertEq(escrow.controller(), controllerBefore);
+    }
+
+    function test_escrowReleaseRefund_onlyController() public {
+        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
+            uint64(block.timestamp + 1),
+            uint64(block.timestamp + 30 days)
+        );
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+        MechanismFundingEscrow escrow = MechanismFundingEscrow(deployment.fundingEscrow);
+
+        uint256 escrowed = 3e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+
+        vm.prank(alice);
+        vm.expectRevert(MechanismFundingEscrow.ONLY_CONTROLLER.selector);
+        escrow.release(1e18);
+
+        vm.prank(alice);
+        vm.expectRevert(MechanismFundingEscrow.ONLY_CONTROLLER.selector);
+        escrow.refund(1e18);
+
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+        uint256 released = mechanism.releaseMechanismFunds(itemId, 1e18);
+        assertEq(released, 1e18);
+        assertEq(superToken.balanceOf(deployment.payoutRecipient), 1e18);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed - released);
     }
 
     function test_activateMechanism_revertsWhenBudgetFlowDistributionPoolIsZero() public {

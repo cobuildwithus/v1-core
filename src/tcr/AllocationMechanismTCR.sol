@@ -13,6 +13,7 @@ import { IManagedFlow } from "src/interfaces/IManagedFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 /**
@@ -37,6 +38,7 @@ import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contract
  */
 contract AllocationMechanismTCR is GeneralizedTCR {
     uint256 public constant MAX_ACTIVE_MECHANISM_RECIPIENTS = 7;
+    address public immutable mechanismFundingEscrowImplementation;
 
     // ---------------------------
     // Types
@@ -152,6 +154,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     uint256 public activeMechanismRecipientCount;
 
     constructor() {
+        mechanismFundingEscrowImplementation = address(new MechanismFundingEscrow());
         _disableInitializers();
     }
 
@@ -227,15 +230,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         if (address(distributionPool) == address(0)) revert BUDGET_FLOW_MISMATCH();
         _validateFactoryDeployment(deployed);
 
-        address escrow = address(
-            new MechanismFundingEscrow(
-                budgetFlow.superToken(),
-                distributionPool,
-                address(this),
-                address(budgetFlow),
-                deployed.payoutRecipient
-            )
-        );
+        address escrow = _deployMechanismFundingEscrow(distributionPool, deployed.payoutRecipient);
 
         activationQueued[itemID] = false;
         _mechanismDeployment[itemID] = MechanismDeployment({
@@ -370,6 +365,20 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function _decodeListing(bytes memory itemData) internal pure returns (MechanismListing memory listing) {
         listing = abi.decode(itemData, (MechanismListing));
+    }
+
+    function _deployMechanismFundingEscrow(
+        ISuperfluidPool distributionPool,
+        address payoutRecipient
+    ) internal returns (address escrow) {
+        escrow = Clones.clone(mechanismFundingEscrowImplementation);
+        MechanismFundingEscrow(escrow).initialize(
+            budgetFlow.superToken(),
+            distributionPool,
+            address(this),
+            address(budgetFlow),
+            payoutRecipient
+        );
     }
 
     function decodeMechanismListing(bytes calldata itemData) external pure returns (MechanismListing memory listing) {
