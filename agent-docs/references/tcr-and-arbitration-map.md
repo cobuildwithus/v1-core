@@ -50,6 +50,11 @@
 ## Round Stack Notes
 
 - `RoundFactory` is permissionless and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
+- `AllocationMechanismTCR` now gates mechanism deployment factories through governor-managed controls:
+  - `mechanismFactoryAllowed[factory]` allowlist,
+  - `activeMechanismFactory` selection for live deployments.
+- At initialization, the configured `roundFactory` is auto-allowlisted and selected as `activeMechanismFactory` to preserve existing behavior.
+- Integration note: `activeMechanismFactory` is the routing source of truth for new activations; `roundFactory` remains the initialization-time factory getter for legacy compatibility.
 - Canonical budget rounds for product/indexing should be sourced from `AllocationMechanismTCR.RoundActivated`, which links an accepted mechanism listing item id to the activated deployed stack.
 - `RoundSubmissionTCR` submission windows are bounded by `startAt` (inclusive lower bound) and `endAt` (inclusive upper bound).
 - `RoundPrizeVault` has no sweep/closeout path by design; only entitled submissions can claim, and unentitled balances remain in-vault.

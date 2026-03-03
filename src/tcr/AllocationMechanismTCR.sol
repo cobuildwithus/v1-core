@@ -23,8 +23,8 @@ import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contract
  *         Operationally:
  *         - Items represent "round mechanisms" (metadata + timing + optional funding policy).
  *         - When an item becomes Registered, activation is queued.
- *         - Anyone can call `activateRound(itemID)` to deploy the round stack via a shared
- *           RoundFactory.
+ *         - Anyone can call `activateRound(itemID)` to deploy the round stack via the currently
+ *           selected allowlisted mechanism factory.
  *         - On activation, this contract deploys a MechanismFundingEscrow and adds the escrow as the
  *           budget-flow recipient. Budget-flow funds are therefore escrowed and can be:
  *             - Released into the RoundPrizeVault for payouts (once min-funding is met), or
@@ -137,6 +137,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error ROUND_BELOW_MIN_FUNDING(uint256 minRequired, uint256 totalReceived);
     error ROUND_EXPIRED_UNDERFUNDED(uint64 fundingDeadline, uint256 minRequired, uint256 totalReceived);
     error FACTORY_NOT_ALLOWED(address factory);
+    error INVALID_FACTORY(address factory);
 
     // ---------------------------
     // Events
@@ -165,6 +166,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Storage
     // ---------------------------
 
+    /// @notice Factory configured at initialization (legacy compatibility getter).
+    /// @dev Activation routing uses `activeMechanismFactory`, not this value.
     RoundFactory public roundFactory;
     mapping(address => bool) public mechanismFactoryAllowed;
     address public activeMechanismFactory;
@@ -192,6 +195,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         RegistryConfig calldata registryConfig
     ) external initializer {
         if (budgetTreasury_ == address(0) || roundFactory_ == address(0)) revert ADDRESS_ZERO();
+        if (roundFactory_.code.length == 0) revert INVALID_FACTORY(roundFactory_);
         if (roundDefaults_.roundOperator == address(0)) revert ADDRESS_ZERO();
         _validateRoundDefaults(roundDefaults_);
 
@@ -245,6 +249,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         address factory = activeMechanismFactory;
         if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
+        if (factory.code.length == 0) revert INVALID_FACTORY(factory);
 
         IAllocationRoundFactory.DeployedRound memory deployedByFactory = IAllocationRoundFactory(factory).createRoundForBudget(
             itemID,
@@ -396,15 +401,16 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function setMechanismFactoryAllowed(address factory, bool allowed) external onlyGovernor {
         if (factory == address(0)) revert ADDRESS_ZERO();
+        if (allowed && factory.code.length == 0) revert INVALID_FACTORY(factory);
         mechanismFactoryAllowed[factory] = allowed;
         emit MechanismFactoryAllowedSet(factory, allowed);
     }
 
     function setActiveMechanismFactory(address factory) external onlyGovernor {
         if (factory == address(0)) revert ADDRESS_ZERO();
+        if (factory.code.length == 0) revert INVALID_FACTORY(factory);
         if (!mechanismFactoryAllowed[factory]) revert FACTORY_NOT_ALLOWED(factory);
         activeMechanismFactory = factory;
-        roundFactory = RoundFactory(factory);
         emit ActiveMechanismFactorySet(factory);
     }
 

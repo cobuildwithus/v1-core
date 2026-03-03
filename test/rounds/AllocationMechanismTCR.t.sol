@@ -241,6 +241,25 @@ contract AllocationMechanismTCRTest is Test {
         mechanism2.initialize(address(budgetTreasury), address(roundFactory), defaults, mechanismTcrCfg);
     }
 
+    function test_initialize_revertsWhenRoundFactoryIsNotContract() public {
+        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
+        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
+            IVotes(address(underlying)),
+            address(mechanism2),
+            1,
+            1,
+            1,
+            ARBITRATION_COST
+        );
+
+        AllocationMechanismTCR.RoundDefaults memory defaults = _roundDefaults();
+        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
+
+        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
+        mechanism2.initialize(address(budgetTreasury), alice, defaults, mechanismTcrCfg);
+    }
+
     function test_verifyItemData_rejectsBadMetadata() public {
         AllocationMechanismTCR.RoundMechanismListing memory listing = _validListing(
             uint64(block.timestamp),
@@ -373,6 +392,16 @@ contract AllocationMechanismTCRTest is Test {
         assertFalse(mechanism.mechanismFactoryAllowed(altFactory));
     }
 
+    function test_setMechanismFactoryAllowed_revertsForZeroOrNonContractWhenAllowing() public {
+        vm.prank(governor);
+        vm.expectRevert(abi.encodeWithSignature("ADDRESS_ZERO()"));
+        mechanism.setMechanismFactoryAllowed(address(0), true);
+
+        vm.prank(governor);
+        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
+        mechanism.setMechanismFactoryAllowed(alice, true);
+    }
+
     function test_setActiveMechanismFactory_requiresGovernorAndAllowlistedFactory() public {
         address altFactory = address(new RoundFactory());
 
@@ -390,7 +419,17 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.setActiveMechanismFactory(altFactory);
 
         assertEq(mechanism.activeMechanismFactory(), altFactory);
-        assertEq(address(mechanism.roundFactory()), altFactory);
+        assertEq(address(mechanism.roundFactory()), address(roundFactory));
+    }
+
+    function test_setActiveMechanismFactory_revertsForZeroOrNonContract() public {
+        vm.prank(governor);
+        vm.expectRevert(abi.encodeWithSignature("ADDRESS_ZERO()"));
+        mechanism.setActiveMechanismFactory(address(0));
+
+        vm.prank(governor);
+        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
+        mechanism.setActiveMechanismFactory(alice);
     }
 
     function test_activateRound_routesDeploymentThroughActiveMechanismFactory() public {
