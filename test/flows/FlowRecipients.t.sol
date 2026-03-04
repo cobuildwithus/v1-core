@@ -679,6 +679,57 @@ contract FlowRecipientsTest is FlowTestBase {
         flow.getRecipientById(bytes32(uint256(12345)));
     }
 
+    function test_recipientIndexHelpers_resolveIdsInAppendOrder() public {
+        bytes32 recipientIdA = bytes32(uint256(1001));
+        bytes32 recipientIdB = bytes32(uint256(1002));
+        _addRecipient(recipientIdA, address(0xA01));
+        _addRecipient(recipientIdB, address(0xA02));
+
+        assertEq(flow.recipientCount(), 2);
+        assertEq(flow.recipientIdAtIndex(0), recipientIdA);
+        assertEq(flow.recipientIdAtIndex(1), recipientIdB);
+    }
+
+    function test_recipientIdAtIndex_revertsOutOfRange() public {
+        vm.expectRevert(IFlow.INVALID_RECIPIENT_ID.selector);
+        flow.recipientIdAtIndex(0);
+    }
+
+    function test_recipientIndexHelpers_keepRemovedRecipientIdsAddressable() public {
+        bytes32 recipientIdA = bytes32(uint256(2001));
+        bytes32 recipientIdB = bytes32(uint256(2002));
+        _addRecipient(recipientIdA, address(0xB01));
+        _addRecipient(recipientIdB, address(0xB02));
+
+        vm.prank(manager);
+        flow.removeRecipient(recipientIdA);
+
+        assertEq(flow.recipientCount(), 2);
+        assertEq(flow.recipientIdAtIndex(0), recipientIdA);
+        assertEq(flow.recipientIdAtIndex(1), recipientIdB);
+    }
+
+    function test_recipientIndexHelpers_appendAfterRemoval_keepsOrderAndRevertsAtCount() public {
+        bytes32 recipientIdA = bytes32(uint256(3001));
+        bytes32 recipientIdB = bytes32(uint256(3002));
+        bytes32 recipientIdC = bytes32(uint256(3003));
+        _addRecipient(recipientIdA, address(0xC01));
+        _addRecipient(recipientIdB, address(0xC02));
+
+        vm.prank(manager);
+        flow.removeRecipient(recipientIdA);
+
+        _addRecipient(recipientIdC, address(0xC03));
+
+        assertEq(flow.recipientCount(), 3);
+        assertEq(flow.recipientIdAtIndex(0), recipientIdA);
+        assertEq(flow.recipientIdAtIndex(1), recipientIdB);
+        assertEq(flow.recipientIdAtIndex(2), recipientIdC);
+
+        vm.expectRevert(IFlow.INVALID_RECIPIENT_ID.selector);
+        flow.recipientIdAtIndex(3);
+    }
+
     function _mockDistributionRefreshFailure(int96 distributionFlowRate, bytes memory reason) internal {
         bytes memory distributeCallData = abi.encodeWithSelector(
             sf.gda.distributeFlow.selector,
