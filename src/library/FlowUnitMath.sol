@@ -22,7 +22,8 @@ library FlowUnitMath {
     }
 
     function floorToUnitWeightScale(uint256 amount) internal pure returns (uint256) {
-        return (amount / FlowProtocolConstants.UNIT_WEIGHT_SCALE) * FlowProtocolConstants.UNIT_WEIGHT_SCALE;
+        uint256 scale = FlowProtocolConstants.UNIT_WEIGHT_SCALE;
+        return amount - (amount % scale);
     }
 
     function effectiveAllocatedStake(
