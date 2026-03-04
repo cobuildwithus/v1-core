@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { ITreasuryAuthority } from "./ITreasuryAuthority.sol";
 import { ITreasuryDonations } from "./ITreasuryDonations.sol";
 import { ISuccessAssertionTreasury } from "./ISuccessAssertionTreasury.sol";
 import { ITreasuryFlowRateSyncEvents } from "./ITreasuryFlowRateSyncEvents.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
-interface IGoalTreasury is
-    ITreasuryAuthority,
-    ITreasuryDonations,
-    ISuccessAssertionTreasury,
-    ITreasuryFlowRateSyncEvents
-{
+interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreasuryFlowRateSyncEvents {
     enum GoalState {
         Funding,
         Active,
@@ -31,6 +25,8 @@ interface IGoalTreasury is
     struct GoalConfig {
         address flow;
         address stakeVault;
+        address jurorSlasher;
+        address underwriterSlasher;
         address budgetStakeLedger;
         address hook;
         address goalRulesets;
@@ -94,7 +90,6 @@ interface IGoalTreasury is
     error SUCCESS_ASSERTION_NOT_VERIFIED();
     error INVALID_HOOK_SOURCE_TOKEN(address token);
     error HOOK_SUPER_TOKEN_AMOUNT_MISMATCH(uint256 expected, uint256 actual);
-    error ONLY_AUTHORITY();
     error INSUFFICIENT_TREASURY_BALANCE(address token, uint256 needed, uint256 have);
 
     event GoalConfigured(
@@ -136,8 +131,6 @@ interface IGoalTreasury is
         uint256 superTokenAmount,
         uint256 controllerBurnAmount
     );
-    event JurorSlasherConfigured(address indexed authority, address indexed slasher);
-    event UnderwriterSlasherConfigured(address indexed authority, address indexed slasher);
 
     function minRaiseDeadline() external view returns (uint64);
     /// @notice Timestamp when the goal transitioned from Funding -> Active.
@@ -168,8 +161,6 @@ interface IGoalTreasury is
     function retryTerminalSideEffects() external;
 
     function settleLateResidual() external;
-    function configureJurorSlasher(address slasher) external;
-    function configureUnderwriterSlasher(address slasher) external;
 
     function resolved() external view returns (bool);
     function state() external view returns (GoalState);

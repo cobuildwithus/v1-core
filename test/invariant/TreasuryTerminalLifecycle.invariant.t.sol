@@ -146,9 +146,15 @@ contract TreasuryTerminalInvariantFlow {
 }
 
 contract TreasuryTerminalInvariantStakeVault {
+    error ADDRESS_ZERO();
+    error ONLY_GOAL_TREASURY();
+    error SLASHER_ALREADY_SET();
+
     address public goalTreasury;
     bool public goalResolved;
     uint256 public markCallCount;
+    address public jurorSlasher;
+    address public underwriterSlasher;
 
     IERC20 private immutable _goalToken;
     IERC20 private immutable _cobuildToken;
@@ -176,6 +182,20 @@ contract TreasuryTerminalInvariantStakeVault {
 
     function totalWeight() external pure returns (uint256) {
         return 0;
+    }
+
+    function setJurorSlasher(address slasher) external {
+        if (msg.sender != goalTreasury) revert ONLY_GOAL_TREASURY();
+        if (slasher == address(0)) revert ADDRESS_ZERO();
+        if (jurorSlasher != address(0)) revert SLASHER_ALREADY_SET();
+        jurorSlasher = slasher;
+    }
+
+    function setUnderwriterSlasher(address slasher) external {
+        if (msg.sender != goalTreasury) revert ONLY_GOAL_TREASURY();
+        if (slasher == address(0)) revert ADDRESS_ZERO();
+        if (underwriterSlasher != address(0)) revert SLASHER_ALREADY_SET();
+        underwriterSlasher = slasher;
     }
 
     function markGoalResolved() external {
@@ -385,6 +405,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
             IGoalTreasury.GoalConfig({
                 flow: address(goalFlow),
                 stakeVault: address(goalStakeVault),
+                jurorSlasher: address(goalRulesets),
+                underwriterSlasher: address(goalHook),
                 budgetStakeLedger: address(goalBudgetStakeLedger),
                 hook: address(goalHook),
                 goalRulesets: address(goalRulesets),

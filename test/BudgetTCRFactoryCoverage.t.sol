@@ -8,9 +8,11 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
+import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
@@ -269,7 +271,8 @@ contract BudgetTCRFactoryCoverageTest is Test {
                 address(new BudgetTreasury()),
                 address(new RoundFactory()),
                 address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
-                address(new ERC20VotesArbitrator())
+                address(new ERC20VotesArbitrator()),
+                address(new BudgetFlowRouterStrategy(address(0), address(0)))
             )
         );
     }
@@ -363,9 +366,20 @@ contract BudgetTCRFactoryCoverageTest is Test {
             deploymentConfig.goalRevnetId,
             address(votingToken)
         );
+        if (address(stakeVault) == address(0)) {
+            deploymentConfig.underwriterSlasherRouter = address(new _MockImplementation());
+            return deploymentConfig;
+        }
+        _MockGoalTreasuryForFactory mockGoalTreasury = _MockGoalTreasuryForFactory(address(goalTreasury));
+        if (_MockStakeVaultForFactory(address(stakeVault)).jurorSlasher() == address(0)) {
+            mockGoalTreasury.configureJurorSlasher(address(new JurorSlasherRouter(stakeVault, address(factory))));
+        }
         deploymentConfig.underwriterSlasherRouter = address(
             new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR)
         );
+        if (_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher() == address(0)) {
+            mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
+        }
     }
 }
 

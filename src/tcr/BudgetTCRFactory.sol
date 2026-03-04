@@ -10,7 +10,6 @@ import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
 import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
@@ -24,10 +23,12 @@ contract BudgetTCRFactory {
     error UNAUTHORIZED_CALLER(address caller);
     error INVALID_ESCROW_BOND_BPS(uint256 escrowBondBps);
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
+    error JUROR_SLASHER_NOT_CONFIGURED();
     error UNSUPPORTED_JUROR_SLASHER(address configuredSlasher);
     error INVALID_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_SLASHER_STAKE_VAULT(address expected, address actual);
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();
+    error UNDERWRITER_SLASHER_MISMATCH(address expected, address actual);
     error UNSUPPORTED_UNDERWRITER_SLASHER(address configuredSlasher);
     error INVALID_UNDERWRITER_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
@@ -103,7 +104,7 @@ contract BudgetTCRFactory {
         if (token == address(0)) revert ADDRESS_ZERO();
         if (registryConfig.invalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
         if (address(registryConfig.submissionDepositStrategy) == address(0)) revert ADDRESS_ZERO();
-        address stakeVault = IGoalTreasury(address(deploymentConfig.goalTreasury)).stakeVault();
+        address stakeVault = deploymentConfig.goalTreasury.stakeVault();
         if (stakeVault == address(0)) revert ADDRESS_ZERO();
 
         bytes32 budgetTCRSalt = deriveBudgetTCRSalt(
@@ -133,9 +134,9 @@ contract BudgetTCRFactory {
                 slashCallerBountyBps: arbitratorParams.slashCallerBountyBps
             })
         );
-        _configureJurorSlasherIfFactoryAuthority(deploymentConfig.goalTreasury, stakeVault, arbitrator);
+        address jurorSlasherRouter = _resolveConfiguredJurorSlasherRouter(stakeVault);
+        JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
         address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
-            deploymentConfig.goalTreasury,
             deploymentConfig.underwriterSlasherRouter,
             stakeVault,
             budgetTCR
@@ -204,22 +205,10 @@ contract BudgetTCRFactory {
         }
     }
 
-    function _configureJurorSlasherIfFactoryAuthority(
-        IGoalTreasury goalTreasury,
-        address stakeVault,
-        address arbitrator
-    ) internal {
-        if (goalTreasury.authority() != address(this)) return;
-
-        address router = IStakeVault(stakeVault).jurorSlasher();
-        if (router == address(0)) {
-            router = address(new JurorSlasherRouter(IStakeVault(stakeVault), address(this)));
-            goalTreasury.configureJurorSlasher(router);
-        } else {
-            _validateConfiguredJurorSlasher(router, stakeVault);
-        }
-
-        JurorSlasherRouter(router).setAuthorizedSlasher(arbitrator, true);
+    function _resolveConfiguredJurorSlasherRouter(address stakeVault) internal view returns (address router) {
+        router = IStakeVault(stakeVault).jurorSlasher();
+        if (router == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
+        _validateConfiguredJurorSlasher(router, stakeVault);
     }
 
     function _validateConfiguredJurorSlasher(address configuredSlasher, address stakeVault) internal view {
@@ -293,19 +282,20 @@ contract BudgetTCRFactory {
     }
 
     function _resolveUnderwriterSlasherRouter(
-        IGoalTreasury goalTreasury,
         address configuredRouter,
         address stakeVault,
         address budgetTCR
-    ) internal returns (address router) {
+    ) internal view returns (address router) {
         if (configuredRouter == address(0) || configuredRouter.code.length == 0) {
             revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
         }
         router = configuredRouter;
         _validateConfiguredUnderwriterSlasher(router, stakeVault, budgetTCR);
 
-        if (goalTreasury.authority() == address(this)) {
-            goalTreasury.configureUnderwriterSlasher(router);
+        address configuredOnStakeVault = IStakeVault(stakeVault).underwriterSlasher();
+        if (configuredOnStakeVault == address(0)) revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
+        if (configuredOnStakeVault != router) {
+            revert UNDERWRITER_SLASHER_MISMATCH(router, configuredOnStakeVault);
         }
     }
 

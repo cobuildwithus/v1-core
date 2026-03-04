@@ -7,7 +7,6 @@ import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
-import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -22,25 +21,26 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { TokenTransfers } from "../library/TokenTransfers.sol";
 import { StakeVaultJurorMath } from "./library/StakeVaultJurorMath.sol";
 import { StakeVaultSlashMath } from "./library/StakeVaultSlashMath.sol";
 
-contract StakeVault is IStakeVault, ReentrancyGuard {
+contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     using Checkpoints for Checkpoints.Trace224;
     using TokenTransfers for IERC20;
 
     uint64 public constant JUROR_EXIT_DELAY = 7 days;
     string public constant STRATEGY_KEY = "StakeVault";
 
-    IERC20 public immutable override goalToken;
-    IERC20 public immutable override cobuildToken;
-    address public immutable override goalTreasury;
-    uint8 public immutable override paymentTokenDecimals;
+    IERC20 public override goalToken;
+    IERC20 public override cobuildToken;
+    address public override goalTreasury;
+    uint8 public override paymentTokenDecimals;
 
-    IJBRulesets public immutable goalRulesets;
-    uint256 public immutable goalRevnetId;
-    uint256 private immutable _goalWeightScale;
+    IJBRulesets public goalRulesets;
+    uint256 public goalRevnetId;
+    uint256 private _goalWeightScale;
 
     bool public override goalResolved;
     uint64 public override goalResolvedAt;
@@ -79,6 +79,57 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         uint256 goalRevnetId_,
         uint8 paymentTokenDecimals_
     ) {
+        if (
+            !_isImplementationConstructorSentinelConfig(
+                goalTreasury_,
+                goalToken_,
+                cobuildToken_,
+                goalRulesets_,
+                goalRevnetId_,
+                paymentTokenDecimals_
+            )
+        ) {
+            _initialize(goalTreasury_, goalToken_, cobuildToken_, goalRulesets_, goalRevnetId_, paymentTokenDecimals_);
+        }
+        _disableInitializers();
+    }
+
+    function _isImplementationConstructorSentinelConfig(
+        address goalTreasury_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        IJBRulesets goalRulesets_,
+        uint256 goalRevnetId_,
+        uint8 paymentTokenDecimals_
+    ) internal pure returns (bool) {
+        return
+            goalTreasury_ == address(0) &&
+            address(goalToken_) == address(0) &&
+            address(cobuildToken_) == address(0) &&
+            address(goalRulesets_) == address(0) &&
+            goalRevnetId_ == 0 &&
+            paymentTokenDecimals_ == 0;
+    }
+
+    function initialize(
+        address goalTreasury_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        IJBRulesets goalRulesets_,
+        uint256 goalRevnetId_,
+        uint8 paymentTokenDecimals_
+    ) external initializer {
+        _initialize(goalTreasury_, goalToken_, cobuildToken_, goalRulesets_, goalRevnetId_, paymentTokenDecimals_);
+    }
+
+    function _initialize(
+        address goalTreasury_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        IJBRulesets goalRulesets_,
+        uint256 goalRevnetId_,
+        uint8 paymentTokenDecimals_
+    ) internal {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
         if (address(goalToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(cobuildToken_) == address(0)) revert ADDRESS_ZERO();
@@ -354,11 +405,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     function setJurorSlasher(address slasher) external override {
         if (slasher == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasher != address(0)) revert JUROR_SLASHER_ALREADY_SET();
-
-        if (msg.sender != goalTreasury) {
-            address treasuryAuthority = _goalTreasuryAuthority();
-            if (msg.sender != treasuryAuthority) revert UNAUTHORIZED();
-        }
+        if (msg.sender != goalTreasury) revert UNAUTHORIZED();
         if (slasher.code.length == 0) revert INVALID_JUROR_SLASHER();
 
         jurorSlasher = slasher;
@@ -368,11 +415,7 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
     function setUnderwriterSlasher(address slasher) external override {
         if (slasher == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasher != address(0)) revert UNDERWRITER_SLASHER_ALREADY_SET();
-
-        if (msg.sender != goalTreasury) {
-            address treasuryAuthority = _goalTreasuryAuthority();
-            if (msg.sender != treasuryAuthority) revert UNAUTHORIZED();
-        }
+        if (msg.sender != goalTreasury) revert UNAUTHORIZED();
         if (slasher.code.length == 0) revert INVALID_UNDERWRITER_SLASHER();
 
         underwriterSlasher = slasher;
@@ -798,16 +841,6 @@ contract StakeVault is IStakeVault, ReentrancyGuard {
         }
         if (budgetStakeLedger == address(0) || budgetStakeLedger.code.length == 0) {
             revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
-        }
-    }
-
-    function _goalTreasuryAuthority() internal view returns (address) {
-        if (goalTreasury.code.length == 0) return address(0);
-
-        try ITreasuryAuthority(goalTreasury).authority() returns (address authority_) {
-            return authority_;
-        } catch {
-            revert INVALID_TREASURY_AUTHORITY_SURFACE(goalTreasury);
         }
     }
 

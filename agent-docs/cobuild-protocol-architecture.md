@@ -192,9 +192,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Activation-locked delistings preserve reward-history/success-eligibility and do not auto-force `Failed`; `retryRemovedBudgetResolution(...)` enforces spend-stop and attempts treasury `sync()` progression.
 - `BudgetTCRDeployer` remains `onlyBudgetTCR` and mechanical (`prepareBudgetStack` + `deployBudgetTreasury`).
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
-- Treasury authority reads are standardized:
-  - canonical surface is `ITreasuryAuthority.authority()`,
-  - `StakeVault` reads `authority()` directly from configured `goalTreasury` (no forwarder indirection).
+- Goal slasher wiring is initialization-bound:
+  - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them through `GoalTreasury.GoalConfig`,
+  - `GoalTreasury.initialize` configures StakeVault slashers immediately and exactly once,
+  - `StakeVault` slasher setters are `goalTreasury`-only (no `goalTreasury.authority()` callback path).
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal `BudgetTCR`.
 - `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetTCRDeployer` implementations.
 - `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.

@@ -218,9 +218,10 @@ cobuild-protocol/
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
 - `BudgetTCRDeployer` remains a mechanical helper (`onlyBudgetTCR`) that prepares stack components and deploys budget treasury instances.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
-- Treasury-controlled integrations use canonical `ITreasuryAuthority.authority()` directly on configured treasury surfaces:
-  - `StakeVault` reads authority through `authority()` on `goalTreasury`,
-  - no runtime forwarding resolution or `controller()`/`owner()` probing paths remain.
+- Goal stack slasher wiring is init-only and fail-fast:
+  - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them into `GoalTreasury.initialize`,
+  - `GoalTreasury.initialize` sets both StakeVault slashers exactly once,
+  - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.

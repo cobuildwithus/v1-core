@@ -31,7 +31,6 @@ interface IStakeVault {
     error INVALID_UNDERWRITER_SLASHER();
     error UNDERWRITER_SLASHER_ALREADY_SET();
     error UNAUTHORIZED();
-    error INVALID_TREASURY_AUTHORITY_SURFACE(address treasury);
     error INVALID_ALLOCATION_KEY(uint256 key);
 
     event GoalStaked(address indexed user, uint256 amount, uint256 weightDelta);

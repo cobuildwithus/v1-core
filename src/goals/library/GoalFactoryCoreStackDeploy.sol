@@ -13,13 +13,16 @@ import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalFlowAllocationLedgerPipeline } from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
+import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { StakeVault } from "src/goals/StakeVault.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
+import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 library GoalFactoryCoreStackDeploy {
@@ -27,9 +30,11 @@ library GoalFactoryCoreStackDeploy {
         GoalTreasury goalTreasury;
         GoalRevnetSplitHook splitHook;
         CustomFlow goalFlow;
+        address stakeVaultImpl;
         address flowImpl;
         ISuperfluid superfluidHost;
         address budgetTcrFactory;
+        address underwriterSlasherRouterImpl;
         address budgetStakeLedgerImpl;
         address goalFlowAllocationLedgerPipelineImpl;
         address cobuildToken;
@@ -65,6 +70,7 @@ library GoalFactoryCoreStackDeploy {
         ISuperToken goalSuperToken;
         StakeVault stakeVault;
         BudgetStakeLedger budgetStakeLedger;
+        address underwriterSlasherRouter;
     }
 
     function initializeCoreStack(CoreStackRequest memory request) external returns (CoreStackResult memory out) {
@@ -82,7 +88,8 @@ library GoalFactoryCoreStackDeploy {
         IERC20 goalToken = IERC20(request.goalToken);
         IERC20 cobuildToken = IERC20(request.cobuildToken);
 
-        out.stakeVault = new StakeVault(
+        out.stakeVault = StakeVault(Clones.clone(request.stakeVaultImpl));
+        out.stakeVault.initialize(
             address(out.goalTreasury),
             goalToken,
             cobuildToken,
@@ -123,9 +130,28 @@ library GoalFactoryCoreStackDeploy {
             allocationStrategies
         );
 
+        address jurorSlasher = address(
+            new JurorSlasherRouter(IStakeVault(address(out.stakeVault)), request.budgetTcrFactory)
+        );
+        UnderwriterSlasherRouter underwriterSlasherRouter =
+            UnderwriterSlasherRouter(Clones.clone(request.underwriterSlasherRouterImpl));
+        underwriterSlasherRouter.initialize(
+            IStakeVault(address(out.stakeVault)),
+            request.predictedBudgetTcr,
+            request.directory,
+            request.goalRevnetId,
+            IERC20Metadata(request.goalToken),
+            IERC20Metadata(request.cobuildToken),
+            out.goalSuperToken,
+            address(out.goalFlow)
+        );
+        out.underwriterSlasherRouter = address(underwriterSlasherRouter);
+
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({
             flow: address(out.goalFlow),
             stakeVault: address(out.stakeVault),
+            jurorSlasher: jurorSlasher,
+            underwriterSlasher: out.underwriterSlasherRouter,
             budgetStakeLedger: address(out.budgetStakeLedger),
             hook: address(out.splitHook),
             goalRulesets: address(request.rulesets),

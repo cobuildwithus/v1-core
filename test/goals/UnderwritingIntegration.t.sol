@@ -862,6 +862,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             ISuperToken(address(goalSuperToken)),
             GOAL_FUNDING_TARGET
         );
+        vm.prank(address(delayedGoalTreasury));
         delayedVault.setUnderwriterSlasher(address(delayedRouter));
 
         delayedBudgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
@@ -950,6 +951,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             ISuperToken(address(goalSuperToken)),
             GOAL_FUNDING_TARGET
         );
+        vm.prank(address(delayedGoalTreasury));
         delayedVault.setUnderwriterSlasher(address(delayedRouter));
 
         delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
@@ -1146,6 +1148,11 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         goalTreasuryImplementation = new GoalTreasury();
         treasury = _cloneGoalTreasuryWithPredictedAddress();
         treasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
+    }
+
+    function test_initialize_wiresConfiguredSlashersOnStakeVault() public view {
+        assertEq(stakeVault.jurorSlasher(), address(successResolverConfig));
+        assertEq(stakeVault.underwriterSlasher(), address(hook));
     }
 
     function test_goalTreasuryImplementation_initializeRevertsInvalidInitialization() public {
@@ -1625,6 +1632,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config = IGoalTreasury.GoalConfig({
             flow: address(flow),
             stakeVault: address(stakeVault),
+            jurorSlasher: address(successResolverConfig),
+            underwriterSlasher: hookAddr,
             budgetStakeLedger: budgetStakeLedgerAddr,
             hook: hookAddr,
             goalRulesets: rulesetsAddr,

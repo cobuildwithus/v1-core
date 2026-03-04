@@ -9,7 +9,6 @@ import { ISuperfluid } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 
@@ -19,7 +18,6 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract GoalFactory {
@@ -32,6 +30,7 @@ contract GoalFactory {
     uint256 public immutable COBUILD_REVNET_ID;
 
     address public immutable GOAL_TREASURY_IMPL;
+    address public immutable STAKE_VAULT_IMPL;
     address public immutable FLOW_IMPL;
     address public immutable SPLIT_HOOK_IMPL;
     address public immutable BUDGET_STAKE_LEDGER_IMPL;
@@ -143,6 +142,7 @@ contract GoalFactory {
         address cobuildToken,
         uint256 cobuildRevnetId,
         address goalTreasuryImpl,
+        address stakeVaultImpl,
         address flowImpl,
         address splitHookImpl,
         address budgetStakeLedgerImpl,
@@ -158,6 +158,7 @@ contract GoalFactory {
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
         if (cobuildToken == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
+        if (stakeVaultImpl == address(0)) revert ADDRESS_ZERO();
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
         if (splitHookImpl == address(0)) revert ADDRESS_ZERO();
         if (budgetStakeLedgerImpl == address(0)) revert ADDRESS_ZERO();
@@ -168,6 +169,7 @@ contract GoalFactory {
         if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryImpl);
+        if (stakeVaultImpl.code.length == 0) revert NOT_A_CONTRACT(stakeVaultImpl);
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
         if (splitHookImpl.code.length == 0) revert NOT_A_CONTRACT(splitHookImpl);
         if (budgetStakeLedgerImpl.code.length == 0) revert NOT_A_CONTRACT(budgetStakeLedgerImpl);
@@ -189,6 +191,7 @@ contract GoalFactory {
         COBUILD_REVNET_ID = cobuildRevnetId;
 
         GOAL_TREASURY_IMPL = goalTreasuryImpl;
+        STAKE_VAULT_IMPL = stakeVaultImpl;
         FLOW_IMPL = flowImpl;
         SPLIT_HOOK_IMPL = splitHookImpl;
         BUDGET_STAKE_LEDGER_IMPL = budgetStakeLedgerImpl;
@@ -321,9 +324,11 @@ contract GoalFactory {
                     goalTreasury: goalTreasury,
                     splitHook: splitHook,
                     goalFlow: goalFlow,
+                    stakeVaultImpl: STAKE_VAULT_IMPL,
                     flowImpl: FLOW_IMPL,
                     superfluidHost: SUPERFLUID_HOST,
                     budgetTcrFactory: address(BUDGET_TCR_FACTORY),
+                    underwriterSlasherRouterImpl: UNDERWRITER_SLASHER_ROUTER_IMPL,
                     budgetStakeLedgerImpl: BUDGET_STAKE_LEDGER_IMPL,
                     goalFlowAllocationLedgerPipelineImpl: GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL,
                     cobuildToken: COBUILD_TOKEN,
@@ -360,20 +365,6 @@ contract GoalFactory {
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address predictedBudgetTCR
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
-            Clones.clone(UNDERWRITER_SLASHER_ROUTER_IMPL)
-        );
-        underwriterSlasherRouter.initialize(
-            IStakeVault(address(core.stakeVault)),
-            predictedBudgetTCR,
-            revnet.directory,
-            revnet.goalRevnetId,
-            IERC20Metadata(revnet.goalToken),
-            IERC20Metadata(COBUILD_TOKEN),
-            core.goalSuperToken,
-            address(core.goalFlow)
-        );
-
         return
             GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
                 GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
@@ -406,7 +397,7 @@ contract GoalFactory {
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
                     premiumEscrowImplementation: PREMIUM_ESCROW_IMPL,
-                    underwriterSlasherRouter: address(underwriterSlasherRouter),
+                    underwriterSlasherRouter: core.underwriterSlasherRouter,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm
                 })

@@ -17,6 +17,8 @@ import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {MockFeeOnTransferVotesToken} from "test/mocks/MockFeeOnTransferVotesToken.sol";
@@ -334,6 +336,131 @@ contract StakeVaultTest is Test {
             IJBRulesets(address(goalRulesets)),
             GOAL_PROJECT_ID,
             18
+        );
+    }
+
+    function test_initialize_revertsOnConstructorDeployedInstance() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        vault.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
+    function test_clone_initialize_setsStateAndGuardsReinitialize() public {
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+        StakeVault clone = StakeVault(Clones.clone(address(implementation)));
+
+        clone.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        assertEq(address(clone.goalTreasury()), address(this));
+        assertEq(address(clone.goalToken()), address(goalToken));
+        assertEq(address(clone.cobuildToken()), address(cobuildToken));
+        assertEq(clone.goalRevnetId(), GOAL_PROJECT_ID);
+        assertEq(clone.paymentTokenDecimals(), 18);
+
+        (uint256 weightOut,, uint256 weightScale) = clone.quoteGoalToCobuildWeightRatio(10e18);
+        assertEq(weightScale, 1e18);
+        assertEq(weightOut, 5e18);
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        clone.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
+    function test_implementationSentinelConfig_disablesInitializers() public {
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
+    function test_clone_initialize_supportsNonReentrantDepositFlow() public {
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+        StakeVault clone = StakeVault(Clones.clone(address(implementation)));
+
+        clone.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(clone), type(uint256).max);
+        vm.prank(alice);
+        clone.depositGoal(20e18);
+
+        assertEq(clone.stakedGoalOf(alice), 20e18);
+        assertEq(clone.weightOf(alice), 10e18);
+    }
+
+    function test_clone_initialize_revertsOnDecimalsMismatch() public {
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+        StakeVault clone = StakeVault(Clones.clone(address(implementation)));
+        VaultMockDecimalsToken token6 = new VaultMockDecimalsToken("USDC", "USDC", 6);
+        VaultMockDecimalsToken token18 = new VaultMockDecimalsToken("Token", "TKN", 18);
+        controllerTokens.setProjectIdOf(address(token6), GOAL_PROJECT_ID);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.DECIMALS_MISMATCH.selector, 6, 18));
+        clone.initialize(
+            address(this),
+            IERC20(address(token6)),
+            IERC20(address(token18)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
+    function test_clone_initialize_revertsOnPaymentTokenDecimalsMismatch() public {
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+        StakeVault clone = StakeVault(Clones.clone(address(implementation)));
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.PAYMENT_TOKEN_DECIMALS_MISMATCH.selector, 18, 6));
+        clone.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            6
         );
     }
 
@@ -2469,7 +2596,7 @@ contract StakeVaultTest is Test {
         controlledVault.setUnderwriterSlasher(bob);
     }
 
-    function test_setJurorSlasher_doesNotForwardLegacyBudgetTreasuryAuthorityLookup() public {
+    function test_setJurorSlasher_revertsWhenCallerIsNotGoalTreasury_evenWithLegacyForwarder() public {
         VaultAuthorityTreasury downstreamTreasury = new VaultAuthorityTreasury(bob);
         VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
 
@@ -2483,10 +2610,26 @@ contract StakeVaultTest is Test {
         );
 
         vm.prank(bob);
-        vm.expectRevert(
-            abi.encodeWithSelector(IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(legacyForwarder))
-        );
+        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
         controlledVault.setJurorSlasher(alice);
+    }
+
+    function test_setUnderwriterSlasher_revertsWhenCallerIsNotGoalTreasury_evenWithLegacyForwarder() public {
+        VaultAuthorityTreasury downstreamTreasury = new VaultAuthorityTreasury(bob);
+        VaultLegacyTreasuryForwarder legacyForwarder = new VaultLegacyTreasuryForwarder(address(downstreamTreasury));
+
+        StakeVault controlledVault = new StakeVault(
+            address(legacyForwarder),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(bob);
+        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
+        controlledVault.setUnderwriterSlasher(alice);
     }
 
     function test_setJurorSlasher_revertsWhenAlreadySet() public {
@@ -2508,7 +2651,7 @@ contract StakeVaultTest is Test {
         vault.setUnderwriterSlasher(address(0));
     }
 
-    function test_setJurorSlasher_allowsTreasuryAuthority() public {
+    function test_setJurorSlasher_allowsGoalTreasuryCaller() public {
         VaultAuthorityTreasury ownedTreasury = new VaultAuthorityTreasury(bob);
 
         StakeVault ownedVault = new StakeVault(
@@ -2520,12 +2663,12 @@ contract StakeVaultTest is Test {
             18
         );
 
-        vm.prank(bob);
+        vm.prank(address(ownedTreasury));
         ownedVault.setJurorSlasher(address(this));
         assertEq(ownedVault.jurorSlasher(), address(this));
     }
 
-    function test_setUnderwriterSlasher_allowsTreasuryAuthority() public {
+    function test_setUnderwriterSlasher_allowsGoalTreasuryCaller() public {
         VaultAuthorityTreasury ownedTreasury = new VaultAuthorityTreasury(bob);
 
         StakeVault ownedVault = new StakeVault(
@@ -2537,7 +2680,7 @@ contract StakeVaultTest is Test {
             18
         );
 
-        vm.prank(bob);
+        vm.prank(address(ownedTreasury));
         ownedVault.setUnderwriterSlasher(address(this));
         assertEq(ownedVault.underwriterSlasher(), address(this));
     }
@@ -2550,44 +2693,6 @@ contract StakeVaultTest is Test {
     function test_setUnderwriterSlasher_revertsWhenSlasherHasNoCode() public {
         vm.expectRevert(IStakeVault.INVALID_UNDERWRITER_SLASHER.selector);
         vault.setUnderwriterSlasher(alice);
-    }
-
-    function test_setJurorSlasher_revertsWhenTreasuryReportsZeroAuthority() public {
-        VaultAuthorityTreasury controlledTreasury = new VaultAuthorityTreasury(address(0));
-
-        StakeVault controlledVault = new StakeVault(
-            address(controlledTreasury),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18
-        );
-
-        vm.prank(alice);
-        vm.expectRevert(IStakeVault.UNAUTHORIZED.selector);
-        controlledVault.setJurorSlasher(alice);
-    }
-
-    function test_setJurorSlasher_revertsWhenTreasuryHasNoAuthoritySurface() public {
-        VaultNoAuthorityTreasury noAuthorityTreasury = new VaultNoAuthorityTreasury();
-
-        StakeVault controlledVault = new StakeVault(
-            address(noAuthorityTreasury),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(goalRulesets)),
-            GOAL_PROJECT_ID,
-            18
-        );
-
-        vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IStakeVault.INVALID_TREASURY_AUTHORITY_SURFACE.selector, address(noAuthorityTreasury)
-            )
-        );
-        controlledVault.setJurorSlasher(alice);
     }
 
     function test_slashJurorStake_doesNotOverslashGoalWeightFromRounding() public {

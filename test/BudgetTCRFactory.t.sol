@@ -573,6 +573,46 @@ contract BudgetTCRFactoryTest is Test {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
+    function test_deployBudgetTCRStackForGoal_reverts_when_stake_vault_underwriter_slasher_not_preconfigured() public {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            allocationMechanismAdmin: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            arbitratorExtraData: bytes(""),
+            registrationMetaEvidence: "ipfs://reg",
+            clearingMetaEvidence: "ipfs://clear",
+            votingToken: IVotes(address(votingToken)),
+            submissionBaseDeposit: 100e18,
+            removalBaseDeposit: 50e18,
+            submissionChallengeBaseDeposit: 120e18,
+            removalChallengeBaseDeposit: 70e18,
+            challengePeriodDuration: 3 days,
+            submissionDepositStrategy: submissionDepositStrategy
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
+        );
+
+        goalTreasury.configureUnderwriterSlasher(address(0));
+
+        vm.expectRevert(BudgetTCRFactory.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+    }
+
     function test_deployBudgetTCRStackForGoal_allowsConfiguredAuthorizedCaller_andDeploysAtPredictedAddress() public {
         address authorizedCaller = makeAddr("authorized-caller");
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
