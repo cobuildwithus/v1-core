@@ -463,18 +463,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         address quoteToken
     ) internal pure returns (uint256 quoteAmount) {
         uint160 sqrtPriceX96 = TickMath.getSqrtPriceAtTick(tick);
-
-        if (sqrtPriceX96 <= type(uint128).max) {
-            uint256 ratioX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
-            quoteAmount = baseToken < quoteToken
-                ? FullMath.mulDiv(ratioX192, baseAmount, Q192)
-                : FullMath.mulDiv(Q192, baseAmount, ratioX192);
-        } else {
-            uint256 ratioX128 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, 1 << 64);
-            quoteAmount = baseToken < quoteToken
-                ? FullMath.mulDiv(ratioX128, baseAmount, 1 << 128)
-                : FullMath.mulDiv(1 << 128, baseAmount, ratioX128);
-        }
+        quoteAmount = _quoteFromSqrtPriceX96(sqrtPriceX96, baseAmount, baseToken < quoteToken);
     }
 
     function _getV3Pool(address tokenA, address tokenB, uint24 fee) internal view returns (address) {
@@ -489,14 +478,29 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
 
         uint160 sqrtPriceX96 = _getTWAPSqrtPrice(poolId, spotTick);
         if (sqrtPriceX96 == 0) sqrtPriceX96 = spotSqrtPriceX96;
-
-        uint256 priceX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
-        uint256 out = zeroForOne
-            ? FullMath.mulDiv(amountIn, priceX192, Q192)
-            : FullMath.mulDiv(amountIn, Q192, priceX192);
+        uint256 out = _quoteFromSqrtPriceX96(sqrtPriceX96, amountIn, zeroForOne);
 
         uint256 feeAmount = FullMath.mulDiv(out, key.fee, 1_000_000);
         return out - feeAmount;
+    }
+
+    function _quoteFromSqrtPriceX96(
+        uint160 sqrtPriceX96,
+        uint256 amountIn,
+        bool multiplyByPrice
+    ) internal pure returns (uint256 out) {
+        // Avoid overflow for high ticks when squaring sqrtPriceX96 directly.
+        if (sqrtPriceX96 <= type(uint128).max) {
+            uint256 ratioX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+            out = multiplyByPrice
+                ? FullMath.mulDiv(amountIn, ratioX192, Q192)
+                : FullMath.mulDiv(amountIn, Q192, ratioX192);
+        } else {
+            uint256 ratioX128 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, 1 << 64);
+            out = multiplyByPrice
+                ? FullMath.mulDiv(amountIn, ratioX128, 1 << 128)
+                : FullMath.mulDiv(amountIn, 1 << 128, ratioX128);
+        }
     }
 
     function _getTWAPSqrtPrice(PoolId poolId, int24 currentTick) internal view returns (uint160) {
@@ -579,7 +583,9 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         uint256 baseCurrency = metadata.baseCurrency;
         uint256 reservedPercent = metadata.reservedPercent;
 
-        uint256 paymentCurrency = uint160(paymentToken);
+        // Juicebox encodes ERC-20 currencies as the low 32 bits of the token address.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint32 paymentCurrency = uint32(uint160(paymentToken));
         uint8 paymentDecimals = IERC20Metadata(paymentToken).decimals();
 
         uint256 weightRatio;
@@ -588,7 +594,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         } else if (paymentToken == JBConstants.NATIVE_TOKEN && baseCurrency == 1) {
             weightRatio = 10 ** 18;
         } else {
-            try PRICES.pricePerUnitOf(projectId, paymentCurrency, baseCurrency, paymentDecimals) returns (
+            try PRICES.pricePerUnitOf(projectId, uint256(paymentCurrency), baseCurrency, paymentDecimals) returns (
                 uint256 quotedWeightRatio
             ) {
                 weightRatio = quotedWeightRatio;
@@ -630,15 +636,20 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
             return 0;
         }
 
-        JBAccountingContext[] memory contexts = new JBAccountingContext[](1);
+        JBAccountingContext memory accountingContext;
         try terminal.accountingContextForTokenOf(projectId, outputToken) returns (JBAccountingContext memory context) {
-            contexts[0] = context;
+            accountingContext = context;
         } catch {
             return 0;
         }
 
-        uint8 decimals = IERC20Metadata(outputToken).decimals();
-        uint256 currency = uint160(outputToken);
+        if (accountingContext.token != outputToken) return 0;
+
+        JBAccountingContext[] memory contexts = new JBAccountingContext[](1);
+        contexts[0] = accountingContext;
+
+        uint8 decimals = accountingContext.decimals;
+        uint256 currency = accountingContext.currency;
 
         uint256 surplus;
         try terminal.currentSurplusOf(projectId, contexts, decimals, currency) returns (uint256 currentSurplus) {

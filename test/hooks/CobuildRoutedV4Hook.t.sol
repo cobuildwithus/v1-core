@@ -9,6 +9,10 @@ import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBPrices} from "@bananapus/core-v5/interfaces/IJBPrices.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBTokens} from "@bananapus/core-v5/interfaces/IJBTokens.sol";
+import {IJBRulesetApprovalHook} from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
+import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {JBRulesetMetadata} from "@bananapus/core-v5/structs/JBRulesetMetadata.sol";
 
 import {IUniswapV3Factory} from "src/interfaces/external/uniswap-v3/IUniswapV3Factory.sol";
 
@@ -272,6 +276,171 @@ contract CobuildRoutedV4HookTest is Test {
         assertTrue(localHook.exposedEnforceAfterSwapMinOut(poolId));
     }
 
+    function test_expectedOutFromPay_usesCanonical32BitCurrencyId() public {
+        uint256 projectId = 99;
+        uint256 amountIn = 25e18;
+        MockERC20Metadata paymentToken = new MockERC20Metadata(18);
+
+        MockDirectoryWithController directory = new MockDirectoryWithController();
+        MockPricesConstant prices = new MockPricesConstant(2e18);
+
+        tokens.setProjectId(address(paymentToken), projectId);
+        directory.setController(projectId, address(new MockControllerRuleset(1e18, uint32(uint160(address(paymentToken))), 0, 1e24)));
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(new DummyContract())),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(prices)),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        uint256 out = localHook.exposedExpectedOutFromPay(projectId, address(paymentToken), amountIn);
+
+        // With the canonical currency-id branch this equals amountIn.
+        // Before the fix, the hook called PRICES and returned amountIn / 2 from MockPricesConstant.
+        assertEq(out, amountIn);
+    }
+
+    function test_expectedOutFromPay_pricesPathUsesCanonical32BitCurrencyId() public {
+        uint256 projectId = 100;
+        uint256 amountIn = 25e18;
+        MockERC20Metadata paymentToken = new MockERC20Metadata(18);
+
+        uint32 canonicalCurrency = uint32(uint160(address(paymentToken)));
+        uint32 baseCurrency = canonicalCurrency ^ uint32(1); // force non-matching base currency branch
+        MockPricesExpectingCanonicalCurrency prices = new MockPricesExpectingCanonicalCurrency(canonicalCurrency, 2e18);
+
+        MockDirectoryWithController directory = new MockDirectoryWithController();
+        directory.setController(projectId, address(new MockControllerRuleset(1e18, baseCurrency, 0, 1e24)));
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(new DummyContract())),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(prices)),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        uint256 out = localHook.exposedExpectedOutFromPay(projectId, address(paymentToken), amountIn);
+
+        assertEq(out, amountIn / 2);
+    }
+
+    function test_expectedOutFromCashOut_usesTerminalAccountingContextCurrency() public {
+        uint256 projectId = 111;
+        uint256 tokenAmountIn = 5e18;
+
+        MockDirectoryWithController directory = new MockDirectoryWithController();
+        MockControllerRuleset controller = new MockControllerRuleset(1e18, 1, 0, 100e18);
+        directory.setController(projectId, address(controller));
+
+        MockERC20Metadata outputToken = new MockERC20Metadata(18);
+        StrictCurrencyTerminal terminal =
+            new StrictCurrencyTerminal(address(outputToken), 18, uint32(uint160(address(outputToken))), 80e18, 12e18);
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(new DummyContract())),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        uint256 reclaimable = localHook.exposedExpectedOutFromCashOut(
+            projectId, tokenAmountIn, address(outputToken), IJBTerminal(address(terminal))
+        );
+
+        // Before the fix this was 0 because currency was passed as uint160(token), causing currentSurplusOf revert.
+        assertEq(reclaimable, 12e18);
+    }
+
+    function test_estimateV4Out_doesNotOverflowWhenSqrtPriceAboveUint128() public {
+        MockPoolManager poolManager = new MockPoolManager();
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(poolManager)),
+            IJBDirectory(address(new DummyContract())),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        address projectToken = address(0xCAFE);
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(BACKING_TOKEN),
+            currency1: Currency.wrap(projectToken),
+            fee: 3_000,
+            tickSpacing: 60,
+            hooks: IHooks(address(localHook))
+        });
+        PoolId poolId = key.toId();
+
+        uint160 largeSqrtPriceX96 = uint160(type(uint128).max) + 1;
+        poolManager.setPoolState(poolId, uint128(1), largeSqrtPriceX96, 0);
+
+        uint256 out = localHook.exposedEstimateV4Out(key, true, 1e18);
+        assertGt(out, 0);
+    }
+
+    function test_estimateV3Out_doesNotOverflowWhenTickNearMax() public {
+        MockV3Factory localV3Factory = new MockV3Factory();
+        MockV3PoolHighTick v3Pool = new MockV3PoolHighTick();
+        address tokenIn = address(0x1000);
+        address tokenOut = address(0x2000);
+        localV3Factory.setPool(tokenIn, tokenOut, V3_FEE_TIER, address(v3Pool));
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(new DummyContract())),
+            IJBDirectory(address(new DummyContract())),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(localV3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        vm.warp(1_000);
+        uint256 out = localHook.exposedEstimateV3Out(tokenIn, tokenOut, 1e18);
+        assertGt(out, 0);
+    }
+
+    function test_expectedOutFromCashOut_succeedsWhenOutputTokenHasNoDecimalsMethod() public {
+        uint256 projectId = 123;
+        uint256 tokenAmountIn = 5e18;
+
+        MockDirectoryWithController directory = new MockDirectoryWithController();
+        MockControllerRuleset controller = new MockControllerRuleset(1e18, 1, 0, 100e18);
+        directory.setController(projectId, address(controller));
+
+        MockNoDecimalsToken outputToken = new MockNoDecimalsToken();
+        StrictCurrencyTerminal terminal = new StrictCurrencyTerminal(
+            address(outputToken), 18, uint32(uint160(address(outputToken))), 80e18, 12e18
+        );
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(new DummyContract())),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            BACKING_TOKEN,
+            1 hours
+        );
+
+        uint256 reclaimable = localHook.exposedExpectedOutFromCashOut(
+            projectId, tokenAmountIn, address(outputToken), IJBTerminal(address(terminal))
+        );
+        assertEq(reclaimable, 12e18);
+    }
+
     function _sort(address a, address b) internal pure returns (address token0, address token1) {
         if (a < b) return (a, b);
         return (b, a);
@@ -318,6 +487,35 @@ contract CobuildRoutedV4HookHarness is CobuildRoutedV4Hook {
 
     function exposedEnforceAfterSwapMinOut(PoolId poolId) external view returns (bool) {
         return _enforceAfterSwapMinOut[poolId];
+    }
+
+    function exposedExpectedOutFromPay(uint256 projectId, address paymentToken, uint256 amountIn)
+        external
+        view
+        returns (uint256)
+    {
+        return _expectedOutFromPay(projectId, paymentToken, amountIn);
+    }
+
+    function exposedExpectedOutFromCashOut(
+        uint256 projectId,
+        uint256 tokenAmountIn,
+        address outputToken,
+        IJBTerminal terminal
+    ) external view returns (uint256) {
+        return _expectedOutFromCashOut(projectId, tokenAmountIn, outputToken, terminal);
+    }
+
+    function exposedEstimateV4Out(PoolKey calldata key, bool zeroForOne, uint256 amountIn)
+        external
+        view
+        returns (uint256)
+    {
+        return _estimateV4Out(key, zeroForOne, amountIn);
+    }
+
+    function exposedEstimateV3Out(address tokenIn, address tokenOut, uint256 amountIn) external view returns (uint256) {
+        return _estimateV3Out(tokenIn, tokenOut, amountIn);
     }
 }
 
@@ -370,9 +568,181 @@ contract MockV3PoolRevertingSwap {
     }
 }
 
+contract MockV3PoolHighTick {
+    int24 internal constant HIGH_TICK = 887_272;
+
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        return (uint160(FixedPoint96.Q96), HIGH_TICK, 0, 1, 1, 0, true);
+    }
+
+    function observations(uint256 index) external view returns (uint32, int56, uint160, bool) {
+        if (index != 0) return (0, 0, 0, false);
+        return (uint32(block.timestamp - 1), 0, 0, true);
+    }
+
+    function observe(uint32[] calldata secondsAgos) external pure returns (int56[] memory, uint160[] memory) {
+        int56[] memory tickCumulatives = new int56[](2);
+        uint160[] memory secondsPerLiquidity = new uint160[](2);
+        tickCumulatives[0] = 0;
+        tickCumulatives[1] = int56(int24(HIGH_TICK)) * int56(uint56(secondsAgos[0]));
+        return (tickCumulatives, secondsPerLiquidity);
+    }
+}
+
 contract MockDirectory {
     function primaryTerminalOf(uint256, address) external pure returns (IJBTerminal) {
         return IJBTerminal(address(0));
+    }
+}
+
+contract MockDirectoryWithController {
+    mapping(uint256 => address) internal _controllerOf;
+
+    function setController(uint256 projectId, address controller) external {
+        _controllerOf[projectId] = controller;
+    }
+
+    function controllerOf(uint256 projectId) external view returns (address) {
+        return _controllerOf[projectId];
+    }
+
+    function primaryTerminalOf(uint256, address) external pure returns (IJBTerminal) {
+        return IJBTerminal(address(0));
+    }
+}
+
+contract MockControllerRuleset {
+    JBRuleset internal _ruleset;
+    JBRulesetMetadata internal _metadata;
+    uint256 internal _totalSupply;
+
+    constructor(uint112 weight, uint32 baseCurrency, uint16 reservedPercent, uint256 totalSupply) {
+        _ruleset = JBRuleset({
+            cycleNumber: 1,
+            id: 1,
+            basedOnId: 0,
+            start: uint48(block.timestamp),
+            duration: 0,
+            weight: weight,
+            weightCutPercent: 0,
+            approvalHook: IJBRulesetApprovalHook(address(0)),
+            metadata: 0
+        });
+
+        _metadata = JBRulesetMetadata({
+            reservedPercent: reservedPercent,
+            cashOutTaxRate: 0,
+            baseCurrency: baseCurrency,
+            pausePay: false,
+            pauseCreditTransfers: false,
+            allowOwnerMinting: false,
+            allowSetCustomToken: false,
+            allowTerminalMigration: false,
+            allowSetTerminals: false,
+            allowSetController: false,
+            allowAddAccountingContext: false,
+            allowAddPriceFeed: false,
+            ownerMustSendPayouts: false,
+            holdFees: false,
+            useTotalSurplusForCashOuts: false,
+            useDataHookForPay: false,
+            useDataHookForCashOut: false,
+            dataHook: address(0),
+            metadata: 0
+        });
+
+        _totalSupply = totalSupply;
+    }
+
+    function currentRulesetOf(uint256) external view returns (JBRuleset memory, JBRulesetMetadata memory) {
+        return (_ruleset, _metadata);
+    }
+
+    function totalTokenSupplyWithReservedTokensOf(uint256) external view returns (uint256) {
+        return _totalSupply;
+    }
+}
+
+contract MockPricesConstant {
+    uint256 internal immutable _price;
+
+    constructor(uint256 price_) {
+        _price = price_;
+    }
+
+    function pricePerUnitOf(uint256, uint256, uint256, uint256) external view returns (uint256) {
+        return _price;
+    }
+}
+
+contract MockPricesExpectingCanonicalCurrency {
+    uint32 internal immutable _expectedPricingCurrency;
+    uint256 internal immutable _price;
+
+    constructor(uint32 expectedPricingCurrency_, uint256 price_) {
+        _expectedPricingCurrency = expectedPricingCurrency_;
+        _price = price_;
+    }
+
+    function pricePerUnitOf(uint256, uint256 pricingCurrency, uint256, uint256) external view returns (uint256) {
+        require(pricingCurrency == _expectedPricingCurrency, "NON_CANONICAL_CURRENCY");
+        return _price;
+    }
+}
+
+contract MockERC20Metadata {
+    uint8 internal immutable _decimals;
+
+    constructor(uint8 decimals_) {
+        _decimals = decimals_;
+    }
+
+    function decimals() external view returns (uint8) {
+        return _decimals;
+    }
+}
+
+contract MockNoDecimalsToken {}
+
+contract StrictCurrencyTerminal {
+    JBAccountingContext internal _context;
+    uint256 internal _surplus;
+    StrictCurrencyTerminalStore internal _store;
+
+    constructor(address token, uint8 decimals, uint32 currency, uint256 surplus, uint256 reclaimable) {
+        _context = JBAccountingContext({token: token, decimals: decimals, currency: currency});
+        _surplus = surplus;
+        _store = new StrictCurrencyTerminalStore(reclaimable);
+    }
+
+    function STORE() external view returns (StrictCurrencyTerminalStore) {
+        return _store;
+    }
+
+    function accountingContextForTokenOf(uint256, address) external view returns (JBAccountingContext memory) {
+        return _context;
+    }
+
+    function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256 decimals, uint256 currency)
+        external
+        view
+        returns (uint256)
+    {
+        require(decimals == _context.decimals, "BAD_DECIMALS");
+        require(currency == _context.currency, "BAD_CURRENCY");
+        return _surplus;
+    }
+}
+
+contract StrictCurrencyTerminalStore {
+    uint256 internal immutable _reclaimable;
+
+    constructor(uint256 reclaimable_) {
+        _reclaimable = reclaimable_;
+    }
+
+    function currentReclaimableSurplusOf(uint256, uint256, uint256, uint256) external view returns (uint256) {
+        return _reclaimable;
     }
 }
 
