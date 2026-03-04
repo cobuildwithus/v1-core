@@ -15,7 +15,6 @@ import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
-    error BUDGET_TREASURY_MISMATCH();
 
     constructor() {
         _disableInitializers();
@@ -120,7 +119,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         Item storage item = items[itemID];
         if (item.status != Status.Registered) revert ITEM_NOT_REGISTERED();
         if (!_budgetDeployments[itemID].active) {
-            _deployBudgetStack(itemID, item.data);
+            BudgetTCRStackActions.deployBudgetStack(_budgetDeployments, _itemIdByBudgetTreasury, itemID, item.data);
         }
 
         _pendingRegistrationActivations[itemID] = false;
@@ -256,7 +255,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
 
             attempted += 1;
-            _bestEffortEnforceBudgetCreditCap(itemID, deployment.childFlow, budgetTreasury, budgetStakeLedger, lambda);
+            BudgetTCRCreditCapActions.bestEffortEnforceBudgetCreditCap(
+                goalFlow,
+                itemID,
+                deployment.childFlow,
+                budgetTreasury,
+                budgetStakeLedger,
+                lambda
+            );
 
             bool success;
             try IBudgetTreasury(budgetTreasury).sync() {
@@ -269,30 +275,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         }
     }
 
-    function _bestEffortEnforceBudgetCreditCap(
-        bytes32 itemID,
-        address childFlow,
-        address budgetTreasury,
-        address budgetStakeLedger,
-        uint256 lambda
-    ) internal {
-        BudgetTCRCreditCapActions.bestEffortEnforceBudgetCreditCap(
-            goalFlow,
-            itemID,
-            childFlow,
-            budgetTreasury,
-            budgetStakeLedger,
-            lambda
-        );
-    }
-
     function _budgetStakeLedger() internal view returns (address ledger) {
         ledger = goalTreasury.budgetStakeLedger();
         if (ledger == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
-    }
-
-    function _deployBudgetStack(bytes32 itemID, bytes memory item) internal {
-        BudgetTCRStackActions.deployBudgetStack(_budgetDeployments, _itemIdByBudgetTreasury, itemID, item);
     }
 
     function _resolveBudgetTerminalStateBestEffort(bytes32 itemID, IBudgetTreasury treasury) internal returns (bool) {

@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { Test } from "forge-std/Test.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
+import { BudgetTCRCreditCapActions } from "src/tcr/library/BudgetTCRCreditCapActions.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 
 /// @dev Minimal harness to exercise BudgetTCR's internal cap-enforcement logic in isolation.
@@ -19,7 +20,14 @@ contract BudgetTCRHarness is BudgetTCR {
         address budgetStakeLedger,
         uint256 lambda
     ) external {
-        _bestEffortEnforceBudgetCreditCap(itemID, childFlow, budgetTreasury, budgetStakeLedger, lambda);
+        BudgetTCRCreditCapActions.bestEffortEnforceBudgetCreditCap(
+            goalFlow,
+            itemID,
+            childFlow,
+            budgetTreasury,
+            budgetStakeLedger,
+            lambda
+        );
     }
 }
 
