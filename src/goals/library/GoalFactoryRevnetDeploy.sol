@@ -15,7 +15,10 @@ import { JBTerminalConfig } from "@bananapus/core-v5/structs/JBTerminalConfig.so
 import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 library GoalFactoryRevnetDeploy {
+    bytes4 internal constant STORE_SELECTOR = bytes4(keccak256("STORE()"));
+
     error ADDRESS_ZERO();
+    error INVALID_PAYMENT_TERMINAL(address terminal);
 
     struct RevnetDeploymentRequest {
         IREVDeployer revDeployer;
@@ -48,6 +51,11 @@ library GoalFactoryRevnetDeploy {
 
     function _deriveDeploymentSalt(address splitHook) private view returns (bytes32) {
         return keccak256(abi.encode(address(this), splitHook));
+    }
+
+    function _requireMultiTerminal(IJBTerminal terminal) private view {
+        (bool ok, ) = address(terminal).staticcall(abi.encodeWithSelector(STORE_SELECTOR));
+        if (!ok) revert INVALID_PAYMENT_TERMINAL(address(terminal));
     }
 
     function deployRevnet(RevnetDeploymentRequest memory request) external returns (RevnetDeploymentResult memory) {
@@ -102,11 +110,9 @@ library GoalFactoryRevnetDeploy {
         });
 
         IJBDirectory directory = request.revDeployer.DIRECTORY();
-        IJBTerminal cobuildPaymentTerminal = directory.primaryTerminalOf(
-            request.cobuildRevnetId,
-            JBConstants.NATIVE_TOKEN
-        );
+        IJBTerminal cobuildPaymentTerminal = directory.primaryTerminalOf(request.cobuildRevnetId, request.cobuildToken);
         if (address(cobuildPaymentTerminal) == address(0)) revert ADDRESS_ZERO();
+        _requireMultiTerminal(cobuildPaymentTerminal);
         if (request.cobuildTerminal == address(0)) revert ADDRESS_ZERO();
 
         JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](2);

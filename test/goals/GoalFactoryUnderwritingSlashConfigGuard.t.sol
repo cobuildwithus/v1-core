@@ -9,6 +9,7 @@ import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {GoalFactoryRevnetDeploy} from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
@@ -45,7 +46,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function setUp() public {
         revnetDirectory = new MockDirectory();
         revnetTokens = new MockTokens();
-        revnetController = new MockController(address(revnetTokens));
+        revnetController = new MockController(address(revnetTokens), address(new DummyContract()));
         revDeployer = new MockRevDeployer(address(revnetDirectory), address(revnetController));
         address cobuildNativeTerminal = address(new DummyContract());
         revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativeTerminal));
@@ -897,6 +898,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_deployGoal_forwardsBuybackDefaultsAndFactorySeededSaltToRevDeployer() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
+        uint256 deploymentNonce = vm.getNonce(address(factory));
+        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
+        revDeployer.setExpectedSplitHook(expectedSplitHook);
         revDeployer.setRevertWithObserved(true);
 
         vm.expectRevert(
@@ -909,6 +913,14 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 true
             )
         );
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenCobuildTokenPaymentTerminalMissing() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, factory.COBUILD_TOKEN(), IJBTerminal(address(0)));
+
+        vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
         factory.deployGoal(p);
     }
 
@@ -942,6 +954,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function _newCobuildTokenForRevnet() internal returns (MockToken cobuildToken) {
         cobuildToken = new MockToken();
         revnetTokens.setTokenOf(COBUILD_REVNET_ID, address(cobuildToken));
+        revnetDirectory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, address(cobuildToken), IJBTerminal(address(new DummyMultiTerminal()))
+        );
         configuredCobuildTerminal =
             address(new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(cobuildToken), COBUILD_REVNET_ID));
     }
@@ -1012,6 +1027,12 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
 contract DummyContract {}
 
+contract DummyMultiTerminal {
+    function STORE() external pure returns (address) {
+        return address(0xB0A1);
+    }
+}
+
 contract MockToken is ERC20 {
     constructor() ERC20("Cobuild", "CBD") {}
 
@@ -1025,7 +1046,7 @@ contract MockRevDeployer {
         uint24 buybackPoolFee,
         uint32 buybackPoolTwapWindow,
         bool saltMatchesFactorySeed,
-        bool splitHookForwarded,
+        bool splitHookMatchesExpected,
         bool buybackHooksForwarded
     );
 
@@ -1034,6 +1055,7 @@ contract MockRevDeployer {
     bool internal _revertWithObserved;
     address internal _expectedBuybackDataHook;
     address internal _expectedBuybackHook;
+    address internal _expectedSplitHook;
 
     constructor(address directory_, address controller_) {
         _directory = directory_;
@@ -1047,6 +1069,10 @@ contract MockRevDeployer {
     function setExpectedBuybackHooks(address dataHook, address hookToConfigure) external {
         _expectedBuybackDataHook = dataHook;
         _expectedBuybackHook = hookToConfigure;
+    }
+
+    function setExpectedSplitHook(address splitHook) external {
+        _expectedSplitHook = splitHook;
     }
 
     function deployFor(
@@ -1074,7 +1100,7 @@ contract MockRevDeployer {
 
         if (_revertWithObserved) {
             bool saltMatchesFactorySeed = configuration.description.salt == keccak256(abi.encode(msg.sender, splitHook));
-            bool splitHookForwarded = splitHook != address(0);
+            bool splitHookMatchesExpected = splitHook == _expectedSplitHook;
             bool buybackHooksForwarded = buybackHookConfiguration.dataHook == _expectedBuybackDataHook
                 && buybackHookConfiguration.hookToConfigure == _expectedBuybackHook;
 
@@ -1082,7 +1108,7 @@ contract MockRevDeployer {
                 observedFee,
                 observedTwapWindow,
                 saltMatchesFactorySeed,
-                splitHookForwarded,
+                splitHookMatchesExpected,
                 buybackHooksForwarded
             );
         }
@@ -1101,17 +1127,19 @@ contract MockRevDeployer {
 
 contract MockController {
     address internal immutable _tokens;
+    address internal immutable _rulesets;
 
-    constructor(address tokens_) {
+    constructor(address tokens_, address rulesets_) {
         _tokens = tokens_;
+        _rulesets = rulesets_;
     }
 
     function TOKENS() external view returns (address) {
         return _tokens;
     }
 
-    function RULESETS() external pure returns (address) {
-        return address(0x1234);
+    function RULESETS() external view returns (address) {
+        return _rulesets;
     }
 }
 
