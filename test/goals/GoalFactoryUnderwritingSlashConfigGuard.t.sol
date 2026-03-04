@@ -5,12 +5,16 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
-    address internal constant REV_DEPLOYER = address(0x1001);
+    uint256 internal constant COBUILD_REVNET_ID = 1;
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant BUDGET_TCR_FACTORY = address(0x1003);
     address internal constant DEFAULT_ALLOCATION_MECHANISM_ADMIN = address(0x1004);
@@ -18,6 +22,10 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     GoalFactory internal factory;
     address internal configuredCobuildTerminal;
+    address internal configuredGoalTreasuryImpl;
+    address internal configuredFlowImpl;
+    address internal configuredSplitHookImpl;
+    address internal configuredDefaultSubmissionDepositStrategy;
     address internal configuredStakeVaultImpl;
     address internal configuredBudgetStakeLedgerImpl;
     address internal configuredGoalFlowAllocationLedgerPipelineImpl;
@@ -26,15 +34,29 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredUnderwriterSlasherRouterImpl;
     address internal configuredBuybackHookDataHook;
     address internal configuredBuybackHook;
+    MockDirectory internal revnetDirectory;
+    MockTokens internal revnetTokens;
+    MockController internal revnetController;
+    MockRevDeployer internal revDeployer;
 
     function setUp() public {
-        configuredCobuildTerminal = address(new DummyContract());
+        revnetDirectory = new MockDirectory();
+        revnetTokens = new MockTokens();
+        revnetController = new MockController(address(revnetTokens));
+        revDeployer = new MockRevDeployer(address(revnetDirectory), address(revnetController));
+        address cobuildNativeTerminal = address(new DummyContract());
+        revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativeTerminal));
+
         configuredStakeVaultImpl = address(new DummyContract());
         configuredBudgetStakeLedgerImpl = address(new DummyContract());
         configuredGoalFlowAllocationLedgerPipelineImpl = address(new DummyContract());
         configuredPremiumEscrowImpl = address(new DummyContract());
         configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
+        configuredGoalTreasuryImpl = address(new DummyContract());
+        configuredFlowImpl = address(new DummyContract());
+        configuredSplitHookImpl = address(new DummyContract());
+        configuredDefaultSubmissionDepositStrategy = address(new DummyContract());
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
         factory = _newFactory(
@@ -49,7 +71,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -61,7 +83,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -85,7 +107,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenCobuildTerminalIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -97,7 +119,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -121,7 +143,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenCobuildTerminalHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -134,7 +156,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeCobuildTerminal = address(0xC0B1D);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeCobuildTerminal));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -157,8 +179,88 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         );
     }
 
+    function test_constructor_revertsWhenCobuildTerminalDirectoryMismatch() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        MockDirectory wrongDirectory = new MockDirectory();
+        CobuildTerminal mismatchedTerminal =
+            new CobuildTerminal(IJBDirectory(address(wrongDirectory)), address(cobuildToken), COBUILD_REVNET_ID);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_COBUILD_TERMINAL_DIRECTORY.selector, address(revnetDirectory), address(wrongDirectory)
+            )
+        );
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, address(mismatchedTerminal));
+    }
+
+    function test_constructor_revertsWhenCobuildTerminalTokenMismatch() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        MockToken wrongToken = new MockToken();
+        CobuildTerminal mismatchedTerminal =
+            new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(wrongToken), COBUILD_REVNET_ID);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_COBUILD_TERMINAL_TOKEN.selector, address(cobuildToken), address(wrongToken)
+            )
+        );
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, address(mismatchedTerminal));
+    }
+
+    function test_constructor_revertsWhenCobuildTerminalRevnetIdMismatch() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        uint256 wrongRevnetId = COBUILD_REVNET_ID + 1;
+        CobuildTerminal mismatchedTerminal =
+            new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(cobuildToken), wrongRevnetId);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_COBUILD_TERMINAL_REVNET_ID.selector, COBUILD_REVNET_ID, wrongRevnetId
+            )
+        );
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, address(mismatchedTerminal));
+    }
+
+    function test_constructor_revertsWhenCobuildRevnetTokenMismatch() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        MockToken wrongToken = new MockToken();
+        revnetTokens.setTokenOf(COBUILD_REVNET_ID, address(wrongToken));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_COBUILD_REVNET_TOKEN.selector,
+                address(cobuildToken),
+                address(wrongToken),
+                COBUILD_REVNET_ID
+            )
+        );
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, configuredCobuildTerminal);
+    }
+
+    function test_constructor_revertsWhenCobuildNativeTerminalMissing() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(0)));
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.INVALID_COBUILD_NATIVE_TERMINAL.selector, address(0)));
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, configuredCobuildTerminal);
+    }
+
+    function test_constructor_revertsWhenCobuildNativeTerminalIsCobuildTerminal() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        revnetDirectory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(configuredCobuildTerminal)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_COBUILD_NATIVE_TERMINAL.selector, configuredCobuildTerminal
+            )
+        );
+        _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, configuredCobuildTerminal);
+    }
+
     function test_constructor_revertsWhenBuybackHookDataHookIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -170,7 +272,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -194,7 +296,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenBuybackHookIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -206,7 +308,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -230,7 +332,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenBuybackHookDataHookHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -243,7 +345,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeBuybackHookDataHook = address(0xB00C);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBuybackHookDataHook));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -267,7 +369,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenBuybackHookHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -280,7 +382,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeBuybackHook = address(0xB00B);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBuybackHook));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -304,7 +406,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenPremiumEscrowImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -315,7 +417,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -339,7 +441,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenBudgetStakeLedgerImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -350,7 +452,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -374,7 +476,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenBudgetStakeLedgerImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -386,7 +488,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeBudgetStakeLedgerImpl = address(0xCA11AB1E);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBudgetStakeLedgerImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -410,7 +512,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenGoalFlowAllocationLedgerPipelineImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -421,7 +523,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -445,7 +547,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenGoalFlowAllocationLedgerPipelineImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -457,7 +559,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodePipelineImpl = address(0xDA7A);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodePipelineImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -481,7 +583,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenPremiumEscrowImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -493,7 +595,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodePremiumEscrowImpl = address(0xCAFE);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodePremiumEscrowImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -517,7 +619,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenJurorSlasherRouterImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -527,7 +629,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -551,7 +653,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenJurorSlasherRouterImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -562,7 +664,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeJurorRouterImpl = address(0xA11CE42);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeJurorRouterImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -586,7 +688,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenUnderwriterSlasherRouterImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -596,7 +698,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -620,7 +722,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenUnderwriterSlasherRouterImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -631,7 +733,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeRouterImpl = address(0xBEEF);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeRouterImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -655,7 +757,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenStakeVaultImplementationIsZero() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -665,7 +767,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -689,7 +791,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function test_constructor_revertsWhenStakeVaultImplementationHasNoCode() public {
-        MockToken cobuildToken = new MockToken();
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         DummyContract goalTreasuryImpl = new DummyContract();
         DummyContract flowImpl = new DummyContract();
         DummyContract splitHookImpl = new DummyContract();
@@ -700,7 +802,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeStakeVaultImpl = address(0xA11CE);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeStakeVaultImpl));
         new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
@@ -817,6 +919,42 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         });
     }
 
+    function _newCobuildTokenForRevnet() internal returns (MockToken cobuildToken) {
+        cobuildToken = new MockToken();
+        revnetTokens.setTokenOf(COBUILD_REVNET_ID, address(cobuildToken));
+        configuredCobuildTerminal =
+            address(new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(cobuildToken), COBUILD_REVNET_ID));
+    }
+
+    function _newFactoryForCobuildConfig(
+        address cobuildToken,
+        uint256 cobuildRevnetId,
+        address cobuildTerminal
+    ) internal returns (GoalFactory) {
+        return new GoalFactory(
+            IREVDeployer(address(revDeployer)),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            cobuildToken,
+            cobuildRevnetId,
+            cobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
+            configuredGoalTreasuryImpl,
+            configuredStakeVaultImpl,
+            configuredFlowImpl,
+            configuredSplitHookImpl,
+            configuredBudgetStakeLedgerImpl,
+            configuredGoalFlowAllocationLedgerPipelineImpl,
+            configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
+            configuredUnderwriterSlasherRouterImpl,
+            configuredDefaultSubmissionDepositStrategy,
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
     function _newFactory(
         address stakeVaultImpl,
         address budgetStakeLedgerImpl,
@@ -826,31 +964,26 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address underwriterSlasherRouterImpl,
         address allocationMechanismAdmin
     ) internal returns (GoalFactory) {
-        MockToken cobuildToken = new MockToken();
-        DummyContract goalTreasuryImpl = new DummyContract();
-        DummyContract flowImpl = new DummyContract();
-        DummyContract splitHookImpl = new DummyContract();
-        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
-
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
         return new GoalFactory(
-            IREVDeployer(REV_DEPLOYER),
+            IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
-            1,
+            COBUILD_REVNET_ID,
             configuredCobuildTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
-            address(goalTreasuryImpl),
+            configuredGoalTreasuryImpl,
             stakeVaultImpl,
-            address(flowImpl),
-            address(splitHookImpl),
+            configuredFlowImpl,
+            configuredSplitHookImpl,
             budgetStakeLedgerImpl,
             goalFlowAllocationLedgerPipelineImpl,
             premiumEscrowImpl,
             jurorSlasherRouterImpl,
             underwriterSlasherRouterImpl,
-            address(defaultSubmissionDepositStrategy),
+            configuredDefaultSubmissionDepositStrategy,
             allocationMechanismAdmin,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
@@ -864,5 +997,59 @@ contract MockToken is ERC20 {
 
     function decimals() public pure override returns (uint8) {
         return 18;
+    }
+}
+
+contract MockRevDeployer {
+    address internal immutable _directory;
+    address internal immutable _controller;
+
+    constructor(address directory_, address controller_) {
+        _directory = directory_;
+        _controller = controller_;
+    }
+
+    function DIRECTORY() external view returns (address) {
+        return _directory;
+    }
+
+    function CONTROLLER() external view returns (address) {
+        return _controller;
+    }
+}
+
+contract MockController {
+    address internal immutable _tokens;
+
+    constructor(address tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (address) {
+        return _tokens;
+    }
+}
+
+contract MockTokens {
+    mapping(uint256 => address) internal _tokenOf;
+
+    function setTokenOf(uint256 projectId, address token) external {
+        _tokenOf[projectId] = token;
+    }
+
+    function tokenOf(uint256 projectId) external view returns (address) {
+        return _tokenOf[projectId];
+    }
+}
+
+contract MockDirectory {
+    mapping(uint256 => mapping(address => IJBTerminal)) internal _primaryTerminalOf;
+
+    function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
+        _primaryTerminalOf[projectId][token] = terminal;
+    }
+
+    function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
+        return _primaryTerminalOf[projectId][token];
     }
 }

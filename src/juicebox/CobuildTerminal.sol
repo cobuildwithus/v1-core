@@ -28,6 +28,7 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
     error NO_COBUILD_ETH_TERMINAL();
     error NO_DEST_TERMINAL();
     error DEST_TERMINAL_IS_SELF();
+    error ZERO_COBUILD_OUT();
 
     constructor(IJBDirectory directory, address cobuildToken, uint256 cobuildRevnetId) {
         if (address(directory) == address(0)) revert ADDRESS_ZERO();
@@ -124,12 +125,13 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
             JBConstants.NATIVE_TOKEN,
             msg.value,
             address(this),
-            0,
+            1,
             memo,
             metadata
         );
 
         uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBalanceBefore;
+        if (cobuildReceived == 0) revert ZERO_COBUILD_OUT();
         IJBTerminal destinationTerminal = _destinationTerminalOf(projectId);
 
         beneficiaryTokenCount = _forwardCobuild(
@@ -151,6 +153,7 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         uint256 cobuildBalanceBefore = cobuildToken.balanceOf(address(this));
         cobuildToken.safeTransferFrom(msg.sender, address(this), amount);
         uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBalanceBefore;
+        if (cobuildReceived == 0) revert ZERO_COBUILD_OUT();
 
         beneficiaryTokenCount = _forwardCobuild(
             destinationTerminal, cobuildToken, cobuildReceived, projectId, beneficiary, minReturnedTokens, memo, metadata

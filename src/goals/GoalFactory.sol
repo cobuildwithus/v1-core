@@ -6,6 +6,11 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
+import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTokens} from "@bananapus/core-v5/interfaces/IJBTokens.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
+
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
@@ -19,6 +24,12 @@ import {GoalFactoryBudgetTcrDeploy} from "src/goals/library/GoalFactoryBudgetTcr
 import {GoalFactoryCoreStackDeploy} from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import {GoalFactoryRevnetDeploy} from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
+
+interface ICobuildTerminalConfig {
+    function DIRECTORY() external view returns (IJBDirectory);
+    function COBUILD_TOKEN() external view returns (address);
+    function COBUILD_REVNET_ID() external view returns (uint256);
+}
 
 contract GoalFactory {
     IREVDeployer public immutable REV_DEPLOYER;
@@ -140,6 +151,11 @@ contract GoalFactory {
     error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm, uint256 coverageLambda);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
     error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
+    error INVALID_COBUILD_TERMINAL_DIRECTORY(address expected, address actual);
+    error INVALID_COBUILD_TERMINAL_TOKEN(address expected, address actual);
+    error INVALID_COBUILD_TERMINAL_REVNET_ID(uint256 expected, uint256 actual);
+    error INVALID_COBUILD_REVNET_TOKEN(address expected, address actual, uint256 revnetId);
+    error INVALID_COBUILD_NATIVE_TERMINAL(address terminal);
 
     constructor(
         IREVDeployer revDeployer,
@@ -199,6 +215,7 @@ contract GoalFactory {
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
+        _validateCobuildConfig(revDeployer, cobuildToken, cobuildRevnetId, cobuildTerminal);
 
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;
@@ -224,6 +241,43 @@ contract GoalFactory {
         DEFAULT_SUBMISSION_DEPOSIT_STRATEGY = defaultSubmissionDepositStrategy;
         DEFAULT_ALLOCATION_MECHANISM_ADMIN = defaultAllocationMechanismAdmin;
         DEFAULT_INVALID_ROUND_REWARDS_SINK = defaultInvalidRoundRewardsSink;
+    }
+
+    function _validateCobuildConfig(
+        IREVDeployer revDeployer,
+        address cobuildToken,
+        uint256 cobuildRevnetId,
+        address cobuildTerminal
+    ) private view {
+        IJBDirectory directory = revDeployer.DIRECTORY();
+        ICobuildTerminalConfig cobuildTerminalConfig = ICobuildTerminalConfig(cobuildTerminal);
+
+        IJBDirectory terminalDirectory = cobuildTerminalConfig.DIRECTORY();
+        if (terminalDirectory != directory) {
+            revert INVALID_COBUILD_TERMINAL_DIRECTORY(address(directory), address(terminalDirectory));
+        }
+
+        address terminalToken = cobuildTerminalConfig.COBUILD_TOKEN();
+        if (terminalToken != cobuildToken) {
+            revert INVALID_COBUILD_TERMINAL_TOKEN(cobuildToken, terminalToken);
+        }
+
+        uint256 terminalRevnetId = cobuildTerminalConfig.COBUILD_REVNET_ID();
+        if (terminalRevnetId != cobuildRevnetId) {
+            revert INVALID_COBUILD_TERMINAL_REVNET_ID(cobuildRevnetId, terminalRevnetId);
+        }
+
+        IJBController controller = revDeployer.CONTROLLER();
+        IJBTokens tokens = controller.TOKENS();
+        address revnetToken = address(tokens.tokenOf(cobuildRevnetId));
+        if (revnetToken != cobuildToken) {
+            revert INVALID_COBUILD_REVNET_TOKEN(cobuildToken, revnetToken, cobuildRevnetId);
+        }
+
+        address nativeTerminal = address(directory.primaryTerminalOf(cobuildRevnetId, JBConstants.NATIVE_TOKEN));
+        if (nativeTerminal == address(0) || nativeTerminal == cobuildTerminal) {
+            revert INVALID_COBUILD_NATIVE_TERMINAL(nativeTerminal);
+        }
     }
 
     function deployGoal(DeployParams calldata p) external returns (DeployedGoalStack memory out) {
