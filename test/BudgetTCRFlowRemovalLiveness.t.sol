@@ -17,6 +17,9 @@ import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -115,7 +118,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer());
+        stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
@@ -422,6 +425,17 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
                 bondAmount: 10e18
             })
         });
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {

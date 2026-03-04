@@ -14,6 +14,9 @@ import {
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -97,7 +100,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer());
+        stackDeployer = address(_deployBudgetTcrDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
@@ -224,6 +227,17 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
             oracleSpecHash: keccak256("budget-oracle-spec"),
             assertionPolicyHash: keccak256("budget-assertion-policy")
         });
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
     }
 }
 

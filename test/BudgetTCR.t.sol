@@ -17,6 +17,9 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -124,7 +127,7 @@ contract BudgetTCRTest is TestUtils {
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer());
+        stackDeployer = address(_deployBudgetTcrDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
@@ -581,7 +584,7 @@ contract BudgetTCRTest is TestUtils {
         uint64 expectedLiveness = 4 days;
         uint256 expectedBond = 77e18;
 
-        address freshStackDeployer = address(new BudgetTCRDeployer());
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
         BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation);
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
@@ -2081,6 +2084,17 @@ contract BudgetTCRTest is TestUtils {
                 bondAmount: 10e18
             })
         });
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
     }
 
     function _approveRemoveCost(address who) internal returns (uint256 removeCost) {

@@ -7,6 +7,9 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
@@ -253,9 +256,20 @@ contract BudgetTCRFactoryCoverageTest is Test {
     function _realFactory() internal returns (BudgetTCRFactory) {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
+        BudgetTCRDeployer deployerImpl = _deployBudgetTcrDeployer();
         return new BudgetTCRFactory(
             address(budgetImpl), address(arbImpl), address(deployerImpl), address(this), DEFAULT_ESCROW_BOND_BPS
+        );
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
         );
     }
 

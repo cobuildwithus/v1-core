@@ -10,6 +10,9 @@ import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeplo
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
+import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
@@ -567,7 +570,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
     MockUnderwriterSlasherRouter internal underwriterSlasherRouter;
 
     function setUp() public {
-        deployer = new BudgetTCRDeployer();
+        deployer = _deployBudgetTcrDeployer();
         premiumEscrowImplementation = new PremiumEscrow();
         underwriterSlasherRouter = new MockUnderwriterSlasherRouter(address(this), address(0));
         deployer.initialize(address(this), address(premiumEscrowImplementation));
@@ -585,7 +588,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
     }
 
     function test_registerChildFlowRecipient_revertsWhenCallerIsNotBudgetTCR() public {
-        BudgetTCRDeployer guardedDeployer = new BudgetTCRDeployer();
+        BudgetTCRDeployer guardedDeployer = _deployBudgetTcrDeployer();
         guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation));
 
         vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
@@ -734,6 +737,17 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
             address(underwriterSlasherRouter),
             50_000,
             bytes32(uint256(3))
+        );
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
         );
     }
 }

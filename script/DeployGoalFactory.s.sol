@@ -15,6 +15,7 @@ import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
@@ -25,6 +26,8 @@ import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
 
@@ -85,14 +88,22 @@ contract DeployGoalFactory is DeployScript {
         BudgetStakeLedger budgetStakeLedgerImpl = new BudgetStakeLedger(deployerAddress);
         GoalFlowAllocationLedgerPipeline goalFlowAllocationLedgerPipelineImpl =
             new GoalFlowAllocationLedgerPipeline(address(0));
+        BudgetTCR budgetTcrImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbitratorImpl = new ERC20VotesArbitrator();
+        BudgetTreasury budgetTreasuryImpl = new BudgetTreasury();
+        RoundFactory roundFactoryImpl = new RoundFactory();
+        AllocationMechanismTCR allocationMechanismTcrImpl = new AllocationMechanismTCR();
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
-        BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer();
-        BudgetTCR budgetTcrImpl = new BudgetTCR();
-        ERC20VotesArbitrator arbitratorImpl = new ERC20VotesArbitrator();
+        BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(
+            address(budgetTreasuryImpl),
+            address(roundFactoryImpl),
+            address(allocationMechanismTcrImpl),
+            address(arbitratorImpl)
+        );
         uint256 nextDeployerNonce = vm.getNonce(deployerAddress);
         address predictedGoalFactory =
             vm.computeCreateAddress(deployerAddress, nextDeployerNonce + GOAL_FACTORY_CREATE_OFFSET);

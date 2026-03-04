@@ -7,6 +7,9 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -142,7 +145,7 @@ contract BudgetTCRFactoryTest is Test {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
 
     function test_budgetTCRDeployer_constructor_sets_budget_treasury_implementation() public {
-        BudgetTCRDeployer deployer = new BudgetTCRDeployer();
+        BudgetTCRDeployer deployer = _deployBudgetTcrDeployer();
         address implementation = deployer.budgetTreasuryImplementation();
 
         assertTrue(implementation != address(0));
@@ -1383,9 +1386,20 @@ contract BudgetTCRFactoryTest is Test {
     {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = new BudgetTCRDeployer();
+        BudgetTCRDeployer deployerImpl = _deployBudgetTcrDeployer();
         factory =
             new BudgetTCRFactory(address(budgetImpl), address(arbImpl), address(deployerImpl), authorizedCaller, escrowBondBps);
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
     }
 
     function _defaultArbitratorParams() internal pure returns (IArbitrator.ArbitratorParams memory params) {

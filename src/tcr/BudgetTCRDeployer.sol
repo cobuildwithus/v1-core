@@ -28,17 +28,28 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
 
     error BUDGET_STAKE_LEDGER_MISMATCH(address expectedLedger, address providedLedger);
     error SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
+    error IMPLEMENTATION_HAS_NO_CODE(address implementation);
 
     modifier onlyBudgetTCR() {
         if (msg.sender != budgetTCR) revert ONLY_BUDGET_TCR();
         _;
     }
 
-    constructor() {
-        budgetTreasuryImplementation = address(new BudgetTreasury());
-        roundFactory = address(new RoundFactory());
-        allocationMechanismTcrImplementation = address(new AllocationMechanismTCR());
-        allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
+    constructor(
+        address budgetTreasuryImplementation_,
+        address roundFactory_,
+        address allocationMechanismTcrImplementation_,
+        address allocationMechanismArbitratorImplementation_
+    ) {
+        _assertImplementationAddress(budgetTreasuryImplementation_);
+        _assertImplementationAddress(roundFactory_);
+        _assertImplementationAddress(allocationMechanismTcrImplementation_);
+        _assertImplementationAddress(allocationMechanismArbitratorImplementation_);
+
+        budgetTreasuryImplementation = budgetTreasuryImplementation_;
+        roundFactory = roundFactory_;
+        allocationMechanismTcrImplementation = allocationMechanismTcrImplementation_;
+        allocationMechanismArbitratorImplementation = allocationMechanismArbitratorImplementation_;
     }
 
     function initialize(address budgetTCR_, address premiumEscrowImplementation_) external {
@@ -130,5 +141,10 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) revert SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
         IBudgetFlowRouterStrategy(strategy).registerFlowRecipient(childFlow, recipientId);
+    }
+
+    function _assertImplementationAddress(address implementation) internal view {
+        if (implementation == address(0)) revert ADDRESS_ZERO();
+        if (implementation.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(implementation);
     }
 }
