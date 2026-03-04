@@ -893,7 +893,6 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function _baseDeployParams() internal pure returns (GoalFactory.DeployParams memory p) {
         p.revnet = GoalFactory.RevnetParams({
-            owner: address(0xAAAA),
             name: "Goal",
             ticker: "GOAL",
             uri: "ipfs://goal",

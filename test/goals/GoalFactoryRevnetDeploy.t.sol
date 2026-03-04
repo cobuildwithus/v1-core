@@ -34,7 +34,6 @@ contract GoalFactoryRevnetDeployTest is Test {
         uint8 cobuildDecimals = 18;
         uint256 cobuildRevnetId = 7;
         address splitHook = address(0x5157);
-        address owner = address(0xA11CE);
         address buybackHookDataHook = address(0x1111);
         address buybackHook = address(0x2222);
         uint24 buybackPoolFee = 3_000;
@@ -56,7 +55,6 @@ contract GoalFactoryRevnetDeployTest is Test {
             cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
             splitHook: splitHook,
-            owner: owner,
             name: "Goal",
             ticker: "GOAL",
             uri: "ipfs://goal",
@@ -108,7 +106,6 @@ contract GoalFactoryRevnetDeployTest is Test {
             cobuildRevnetId: 7,
             cobuildTerminal: address(new DummyTerminal()),
             splitHook: address(0x5157),
-            owner: address(0xA11CE),
             name: "Goal",
             ticker: "GOAL",
             uri: "ipfs://goal",
@@ -139,7 +136,6 @@ contract GoalFactoryRevnetDeployTest is Test {
             cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: address(0),
             splitHook: address(0x5157),
-            owner: address(0xA11CE),
             name: "Goal",
             ticker: "GOAL",
             uri: "ipfs://goal",
@@ -174,7 +170,6 @@ contract GoalFactoryRevnetDeployTest is Test {
             cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
             splitHook: address(0x5157),
-            owner: address(0xA11CE),
             name: "Goal",
             ticker: "GOAL",
             uri: "ipfs://goal",
@@ -191,6 +186,93 @@ contract GoalFactoryRevnetDeployTest is Test {
 
         vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
         GoalFactoryRevnetDeploy.deployRevnet(request);
+    }
+
+    function test_deployRevnet_saltUsesCallerAndSplitHook() public {
+        uint256 cobuildRevnetId = 7;
+        uint256 deployedRevnetId = 99;
+        address cobuildTerminal = address(new DummyTerminal());
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+        address splitHook = address(0x5157);
+
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+        revDeployer.setNextRevnetId(deployedRevnetId);
+        tokens.setTokenOf(deployedRevnetId, address(0xABCD));
+
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: cobuildTerminal,
+            splitHook: splitHook,
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+
+        assertEq(revDeployer.lastSalt(), _expectedSalt(splitHook));
+    }
+
+    function test_deployRevnet_saltVariesAcrossDistinctSplitHooks() public {
+        uint256 cobuildRevnetId = 7;
+        address cobuildTerminal = address(new DummyTerminal());
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+        address firstSplitHook = address(0x5157);
+        address secondSplitHook = address(0x5257);
+
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+
+        revDeployer.setNextRevnetId(99);
+        tokens.setTokenOf(99, address(0xABCD));
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory first = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: cobuildTerminal,
+            splitHook: firstSplitHook,
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+        GoalFactoryRevnetDeploy.deployRevnet(first);
+        bytes32 firstSalt = revDeployer.lastSalt();
+
+        revDeployer.setNextRevnetId(100);
+        tokens.setTokenOf(100, address(0xABCE));
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory second = first;
+        second.splitHook = secondSplitHook;
+        GoalFactoryRevnetDeploy.deployRevnet(second);
+        bytes32 secondSalt = revDeployer.lastSalt();
+
+        assertTrue(firstSalt != secondSalt);
+        assertEq(firstSalt, _expectedSalt(firstSplitHook));
+        assertEq(secondSalt, _expectedSalt(secondSplitHook));
+    }
+
+    function _expectedSalt(address splitHook) internal view returns (bytes32) {
+        return keccak256(abi.encode(address(this), splitHook));
     }
 }
 
@@ -209,6 +291,7 @@ contract MockRevDeployer {
     address internal _lastBuybackPoolToken;
     uint24 internal _lastBuybackPoolFee;
     uint32 internal _lastBuybackPoolTwapWindow;
+    bytes32 internal _lastSalt;
 
     uint256 internal _lastTerminalConfigCount;
     address internal _lastTerminal0;
@@ -237,6 +320,7 @@ contract MockRevDeployer {
         IREVDeployer.REVSuckerDeploymentConfig calldata
     ) external returns (uint256 revnetId) {
         _lastBaseCurrency = configuration.baseCurrency;
+        _lastSalt = configuration.description.salt;
 
         _lastBuybackDataHook = buybackHookConfiguration.dataHook;
         _lastBuybackHookToConfigure = buybackHookConfiguration.hookToConfigure;
@@ -306,6 +390,10 @@ contract MockRevDeployer {
 
     function lastBuybackPoolTwapWindow() external view returns (uint32) {
         return _lastBuybackPoolTwapWindow;
+    }
+
+    function lastSalt() external view returns (bytes32) {
+        return _lastSalt;
     }
 
     function lastTerminalConfigCount() external view returns (uint256) {

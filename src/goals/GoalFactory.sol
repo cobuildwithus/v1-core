@@ -62,7 +62,6 @@ contract GoalFactory {
     uint32 internal constant BUYBACK_TWAP_WINDOW = 1 hours;
 
     struct RevnetParams {
-        address owner;
         string name;
         string ticker;
         string uri;
@@ -284,7 +283,6 @@ contract GoalFactory {
     }
 
     function deployGoal(DeployParams calldata p) external returns (DeployedGoalStack memory out) {
-        if (p.revnet.owner == address(0)) revert ADDRESS_ZERO();
         if (p.revnet.durationSeconds == 0) revert INVALID_DURATION();
         if (p.revnet.reservedPercent > FlowProtocolConstants.BPS_SCALE) revert INVALID_RESERVED_PERCENT();
         if (p.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
@@ -379,7 +377,6 @@ contract GoalFactory {
                     cobuildRevnetId: COBUILD_REVNET_ID,
                     cobuildTerminal: COBUILD_TERMINAL,
                     splitHook: address(splitHook),
-                    owner: p.revnet.owner,
                     name: p.revnet.name,
                     ticker: p.revnet.ticker,
                     uri: p.revnet.uri,

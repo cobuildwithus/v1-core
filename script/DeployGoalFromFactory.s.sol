@@ -108,7 +108,6 @@ contract DeployGoalFromFactory is DeployScript {
 
         GoalFactory.DeployParams memory params = GoalFactory.DeployParams({
             revnet: GoalFactory.RevnetParams({
-                owner: goalOwner,
                 name: goalName,
                 ticker: goalTicker,
                 uri: goalUri,

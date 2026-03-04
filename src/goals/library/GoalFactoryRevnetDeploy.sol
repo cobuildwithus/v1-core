@@ -24,7 +24,6 @@ library GoalFactoryRevnetDeploy {
         uint256 cobuildRevnetId;
         address cobuildTerminal;
         address splitHook;
-        address owner;
         string name;
         string ticker;
         string uri;
@@ -45,6 +44,10 @@ library GoalFactoryRevnetDeploy {
         IJBRulesets rulesets;
         uint256 goalRevnetId;
         address goalToken;
+    }
+
+    function _deriveDeploymentSalt(address splitHook) private view returns (bytes32) {
+        return keccak256(abi.encode(address(this), splitHook));
     }
 
     function deployRevnet(RevnetDeploymentRequest memory request) external returns (RevnetDeploymentResult memory) {
@@ -131,7 +134,7 @@ library GoalFactoryRevnetDeploy {
                     name: request.name,
                     ticker: request.ticker,
                     uri: request.uri,
-                    salt: bytes32(uint256(uint160(request.owner)))
+                    salt: _deriveDeploymentSalt(request.splitHook)
                 }),
                 baseCurrency: cobuildCurrency,
                 splitOperator: request.burnAddress,
