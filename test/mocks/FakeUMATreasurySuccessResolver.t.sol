@@ -10,6 +10,7 @@ import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessRe
 import {ISuccessAssertionTreasury} from "src/interfaces/ISuccessAssertionTreasury.sol";
 import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
+import {DeployGoalFactoryImplementations} from "script/DeployGoalFactoryImplementations.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
@@ -236,7 +237,6 @@ contract FakeResolverMockERC20 is ERC20 {
 
 contract DeployGoalFactoryScriptWiringTest is Test {
     uint256 internal constant PRIVATE_KEY = 0xA11CE;
-    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 18;
     address internal constant REV_DEPLOYER = address(0x1001);
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant FAKE_UMA_OWNER = address(0xF00D);
@@ -246,24 +246,22 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     string internal constant HISTORY_DIR = "deploys/history";
 
     FakeResolverMockERC20 internal token;
-    DeployGoalFactory internal deployScript;
+    DeployGoalFactoryImplementations internal deployImplementationsScript;
+    DeployGoalFactory internal deployFactoryScript;
 
     function setUp() public {
         token = new FakeResolverMockERC20();
-        deployScript = new DeployGoalFactory();
+        deployImplementationsScript = new DeployGoalFactoryImplementations();
+        deployFactoryScript = new DeployGoalFactory();
     }
 
     function test_run_deploysFakeResolverWithConfiguredEnv() public {
         _setDeployEnv();
+        deployImplementationsScript.run();
 
-        address deployer = vm.addr(PRIVATE_KEY);
-        uint64 nonceBefore = vm.getNonce(deployer);
-        address expectedFakeResolver =
-            vm.computeCreateAddress(deployer, uint256(nonceBefore) + FAKE_RESOLVER_CREATE_OFFSET);
-
-        deployScript.run();
-
-        assertGt(expectedFakeResolver.code.length, 0);
+        string memory latestTomlPath = _latestImplementationsTomlPath();
+        string memory latestToml = vm.readFile(latestTomlPath);
+        address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
 
         FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
         assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);
@@ -272,7 +270,9 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertEq(address(fakeResolver.assertionCurrency()), address(token));
         assertEq(address(fakeResolver.optimisticOracle()), expectedFakeResolver);
 
-        string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+        address deployer = vm.addr(PRIVATE_KEY);
+        string memory artifactPath =
+            string.concat("deploys/DeployGoalFactoryImplementations.", vm.toString(block.chainid), ".txt");
         string memory artifact = vm.readFile(artifactPath);
         assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
         assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
@@ -313,7 +313,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 
-        string memory historyPath = _historyPathContainingResolver(expectedFakeResolver);
+        string memory historyPath = _historyPathContainingResolver(expectedFakeResolver, "DeployGoalFactoryImplementations");
         string memory historyArtifact = vm.readFile(historyPath);
         assertTrue(
             _stringContains(
@@ -324,13 +324,13 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
     function test_run_wiresFactoryCloneImplementations_andLocksImplementationInitialization() public {
         _setDeployEnv();
+        deployImplementationsScript.run();
 
         address deployer = vm.addr(PRIVATE_KEY);
         uint64 nonceBefore = vm.getNonce(deployer);
-        address expectedGoalFactory =
-            vm.computeCreateAddress(deployer, uint256(nonceBefore) + FAKE_RESOLVER_CREATE_OFFSET + 1);
+        address expectedGoalFactory = vm.computeCreateAddress(deployer, uint256(nonceBefore) + 1);
 
-        deployScript.run();
+        deployFactoryScript.run();
         assertGt(expectedGoalFactory.code.length, 0);
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
@@ -362,13 +362,13 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
     function test_run_retainsHistoricalImplementationArtifactsAcrossRuns() public {
         _setDeployEnv();
-        address deployer = vm.addr(PRIVATE_KEY);
-        uint64 nonceBeforeFirstRun = vm.getNonce(deployer);
-        address expectedFirstFakeResolver =
-            vm.computeCreateAddress(deployer, uint256(nonceBeforeFirstRun) + FAKE_RESOLVER_CREATE_OFFSET);
-        deployScript.run();
+        deployImplementationsScript.run();
 
-        string memory firstHistoryPath = _historyPathContainingResolver(expectedFirstFakeResolver);
+        string memory firstLatestToml = vm.readFile(_latestImplementationsTomlPath());
+        address expectedFirstFakeResolver = vm.parseTomlAddress(firstLatestToml, "$.fakeUma.resolver");
+
+        string memory firstHistoryPath =
+            _historyPathContainingResolver(expectedFirstFakeResolver, "DeployGoalFactoryImplementations");
         string memory firstHistoryArtifact = vm.readFile(firstHistoryPath);
         assertTrue(
             _stringContains(
@@ -378,10 +378,10 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         );
 
         vm.warp(block.timestamp + 1);
-        uint64 nonceBeforeSecondRun = vm.getNonce(deployer);
-        address expectedSecondFakeResolver =
-            vm.computeCreateAddress(deployer, uint256(nonceBeforeSecondRun) + FAKE_RESOLVER_CREATE_OFFSET);
-        deployScript.run();
+        deployImplementationsScript.run();
+
+        string memory secondLatestToml = vm.readFile(_latestImplementationsTomlPath());
+        address expectedSecondFakeResolver = vm.parseTomlAddress(secondLatestToml, "$.fakeUma.resolver");
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
         assertTrue(_stringContains(latestArtifact, "BudgetStakeLedgerImpl: 0x"));
@@ -391,16 +391,20 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 
-        string memory secondHistoryPath = _historyPathContainingResolver(expectedSecondFakeResolver);
+        string memory secondHistoryPath =
+            _historyPathContainingResolver(expectedSecondFakeResolver, "DeployGoalFactoryImplementations");
         assertTrue(bytes(secondHistoryPath).length > 0);
 
         // Historical snapshots are append-only; first run snapshot remains readable after later runs.
         assertEq(vm.readFile(firstHistoryPath), firstHistoryArtifact);
     }
 
-    function _historyPathContainingResolver(address resolver) internal view returns (string memory matchPath) {
+    function _historyPathContainingResolver(
+        address resolver,
+        string memory deploymentName
+    ) internal view returns (string memory matchPath) {
         Vm.DirEntry[] memory entries = vm.readDir(HISTORY_DIR);
-        string memory prefix = _goalFactoryHistoryPrefix();
+        string memory prefix = _historyPrefixFor(deploymentName);
         string memory resolverLine = string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(resolver));
 
         uint256 length = entries.length;
@@ -417,8 +421,15 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertGt(bytes(matchPath).length, 0);
     }
 
-    function _goalFactoryHistoryPrefix() internal view returns (string memory) {
-        return string.concat(HISTORY_DIR, "/DeployGoalFactory.", vm.toString(block.chainid), ".");
+    function _historyPrefixFor(string memory deploymentName) internal view returns (string memory) {
+        return string.concat(HISTORY_DIR, "/", deploymentName, ".", vm.toString(block.chainid), ".");
+    }
+
+    function _latestImplementationsTomlPath() internal view returns (string memory path) {
+        path = string.concat("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(block.chainid), ".toml");
+        if (!vm.isFile(path)) {
+            path = "deploys/LATEST_IMPLEMENTATIONS.toml";
+        }
     }
 
     function _isLexicographicallyAfter(string memory a, string memory b) internal pure returns (bool) {
