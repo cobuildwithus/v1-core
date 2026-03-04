@@ -32,6 +32,8 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
     uint64 public constant JUROR_EXIT_DELAY = 7 days;
     string public constant STRATEGY_KEY = "StakeVault";
+    uint16 private constant BPS_SCALE = 10_000;
+    uint8 private constant RULESET_RESERVED_PERCENT_OFFSET = 4;
 
     IERC20 public override goalToken;
     IERC20 public override cobuildToken;
@@ -41,6 +43,8 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     IJBRulesets public goalRulesets;
     uint256 public goalRevnetId;
     uint256 private _goalWeightScale;
+    uint112 public goalWeightSnapshot;
+    uint16 public reservedPercentSnapshot;
 
     bool public override goalResolved;
     uint64 public override goalResolvedAt;
@@ -152,6 +156,13 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
         goalRevnetId = goalRevnetId_;
         paymentTokenDecimals = paymentTokenDecimals_;
         _goalWeightScale = 10 ** paymentTokenDecimals_;
+
+        JBRuleset memory currentRuleset = _requireCurrentRuleset(goalRulesets_, goalRevnetId_);
+        goalWeightSnapshot = currentRuleset.weight;
+
+        uint16 reservedPercent = uint16(currentRuleset.metadata >> RULESET_RESERVED_PERCENT_OFFSET);
+        if (reservedPercent >= BPS_SCALE) revert INVALID_RESERVED_PERCENT(reservedPercent);
+        reservedPercentSnapshot = reservedPercent;
     }
 
     function depositGoal(uint256 amount) external override nonReentrant {
@@ -160,8 +171,8 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
         _safeTransferFromExact(goalToken, msg.sender, amount);
 
-        uint112 currentRulesetWeight = _requireStakingOpen();
-        uint256 weightDelta = _computeGoalStakeWeightDelta(amount, currentRulesetWeight);
+        _requireStakingOpen();
+        uint256 weightDelta = _computeGoalStakeWeightDelta(amount);
         // slither-disable-next-line incorrect-equality
         if (weightDelta == 0) revert ZERO_WEIGHT_DELTA();
 
@@ -676,89 +687,90 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
     function quoteGoalToCobuildWeightRatio(
         uint256 goalAmount
-    ) public view override returns (uint256 weightOut, uint112 currentRulesetWeight, uint256 weightScale) {
+    ) public view override returns (uint256 weightOut, uint112 snapshotGoalWeight, uint256 weightScale) {
         if (goalAmount == 0) return (0, 0, 0);
 
-        currentRulesetWeight = _requireStakingOpen();
+        _requireStakingOpen();
+        snapshotGoalWeight = goalWeightSnapshot;
         weightScale = _goalWeightScale;
 
         // Mirrors `depositGoal(...)` weight accounting.
         //
-        // Base weight is the inverse of JBX/Nana mint math:
+        // Base issuance weight is the inverse of JBX/Nana mint math:
         // tokenCount = amount * weight / weightScale  =>  amount = tokenCount * weightScale / weight.
         //
-        // When the goal is Active, new goal-token deposits are linearly downweighted from activation -> deadline
-        // towards a 1:1 goal-token:cobuild-token weight at deadline.
-        weightOut = _computeGoalStakeWeightDelta(goalAmount, currentRulesetWeight);
+        // We snapshot `weight` and `reservedPercent` once at init:
+        // - issuance pricing from snapped `weight` is always included,
+        // - the reserved-percent premium linearly decays from activation -> deadline.
+        weightOut = _computeGoalStakeWeightDelta(goalAmount);
     }
 
     /// @dev Compute the stake-weight delta for a goal-token deposit.
     ///
     /// Behavior:
-    /// - Before goal activation (Funding): no time-based downweight is applied.
-    /// - After activation: weight decays linearly from the base (inverse mint) weight at activation
-    ///   towards a 1:1 weight (goalAmount) at the goal's deadline.
+    /// - Issuance pricing is always applied using the snapshotted ruleset weight.
+    /// - Reserve premium is fully applied pre-activation, then decays linearly to zero by deadline.
     ///
     /// This is intentionally applied *at deposit time* to avoid requiring continuous weight syncs
     /// across Flow allocations.
-    function _computeGoalStakeWeightDelta(
-        uint256 goalAmount,
-        uint112 currentRulesetWeight
-    ) internal view returns (uint256 weightOut) {
-        // Base weight: inverse mint math.
-        uint256 base = Math.mulDiv(goalAmount, _goalWeightScale, currentRulesetWeight);
+    function _computeGoalStakeWeightDelta(uint256 goalAmount) internal view returns (uint256 weightOut) {
+        // Issuance-priced base weight from snapshotted ruleset weight.
+        uint256 issuanceBase = Math.mulDiv(goalAmount, _goalWeightScale, goalWeightSnapshot);
+        uint16 reserveBps = reservedPercentSnapshot;
+        if (reserveBps == 0) return issuanceBase;
 
-        // If goal token is already <= 1:1 relative to cobuild, skip time-based decay.
-        // This also avoids underflow in `base - goalAmount`.
-        if (base <= goalAmount) return base;
+        // Full reserve premium applied at activation/pre-activation.
+        // fullBoost = BPS/(BPS-reserveBps), so boosted = issuanceBase * fullBoost.
+        uint256 boosted = Math.mulDiv(issuanceBase, BPS_SCALE, BPS_SCALE - reserveBps);
+        uint256 reservePremium = boosted - issuanceBase;
+        if (reservePremium == 0) return issuanceBase;
 
         // Fetch activation + deadline from the treasury. These are best-effort: if unavailable or unset,
-        // fall back to base weight.
+        // fall back to fully reserve-boosted weight.
+        if (goalTreasury.code.length == 0) return boosted;
+
         uint64 activated;
         uint64 end;
-        if (goalTreasury.code.length != 0) {
-            IGoalTreasury treasury = IGoalTreasury(goalTreasury);
-            try treasury.activatedAt() returns (uint64 activatedAt_) {
-                activated = activatedAt_;
-            } catch {}
-            try treasury.deadline() returns (uint64 deadline_) {
-                end = deadline_;
-            } catch {}
-        }
+        IGoalTreasury treasury = IGoalTreasury(goalTreasury);
+        try treasury.activatedAt() returns (uint64 activatedAt_) {
+            activated = activatedAt_;
+        } catch {}
+        try treasury.deadline() returns (uint64 deadline_) {
+            end = deadline_;
+        } catch {}
 
         // Not yet activated or deadline unknown => no decay.
-        if (activated == 0 || end == 0) return base;
+        if (activated == 0 || end == 0) return boosted;
 
-        // If the activation/deadline window is degenerate, treat as fully decayed.
-        if (end <= activated) return goalAmount;
+        // If the activation/deadline window is degenerate, treat as fully decayed reserve premium.
+        if (end <= activated) return issuanceBase;
 
         uint256 nowTs = block.timestamp;
         uint256 activatedTs = uint256(activated);
         uint256 endTs = uint256(end);
-        if (nowTs <= activatedTs) return base;
-        if (nowTs >= endTs) return goalAmount;
+        if (nowTs <= activatedTs) return boosted;
+        if (nowTs >= endTs) return issuanceBase;
 
         uint256 remaining = endTs - nowTs;
         uint256 duration = endTs - activatedTs;
 
-        // Linear interpolation between:
-        // - base (at remaining == duration)
-        // - goalAmount (at remaining == 0)
-        uint256 delta = base - goalAmount;
-        return goalAmount + Math.mulDiv(delta, remaining, duration);
+        // Linear interpolation for reserve premium only:
+        // - boosted (at remaining == duration)
+        // - issuanceBase (at remaining == 0)
+        return issuanceBase + Math.mulDiv(reservePremium, remaining, duration);
     }
 
-    function _readCurrentWeight(IJBRulesets rulesets, uint256 projectId) internal view returns (uint112) {
+    function _requireCurrentRuleset(IJBRulesets rulesets, uint256 projectId) internal view returns (JBRuleset memory) {
         try rulesets.currentOf(projectId) returns (JBRuleset memory ruleset) {
-            return ruleset.weight;
+            if (ruleset.weight == 0) revert GOAL_STAKING_CLOSED();
+            return ruleset;
         } catch {
-            return 0;
+            revert GOAL_STAKING_CLOSED();
         }
     }
 
-    function _requireStakingOpen() internal view returns (uint112 currentRulesetWeight) {
-        currentRulesetWeight = _readCurrentWeight(goalRulesets, goalRevnetId);
-        if (currentRulesetWeight == 0) revert GOAL_STAKING_CLOSED();
+    function _requireStakingOpen() internal view {
+        _requireCurrentRuleset(goalRulesets, goalRevnetId);
     }
 
     function _goalTreasuryReportsResolved() private view returns (bool) {

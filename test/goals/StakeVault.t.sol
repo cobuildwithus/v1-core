@@ -339,6 +339,20 @@ contract StakeVaultTest is Test {
         );
     }
 
+    function test_constructor_revertsWhenReservedPercentIsFull() public {
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 10_000);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_RESERVED_PERCENT.selector, 10_000));
+        new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+    }
+
     function test_initialize_revertsOnConstructorDeployedInstance() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
@@ -425,6 +439,25 @@ contract StakeVaultTest is Test {
 
         assertEq(clone.stakedGoalOf(alice), 20e18);
         assertEq(clone.weightOf(alice), 10e18);
+    }
+
+    function test_clone_initialize_revertsWhenReservedPercentIsFull() public {
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 10_000);
+
+        StakeVault implementation = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
+        StakeVault clone = StakeVault(Clones.clone(address(implementation)));
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_RESERVED_PERCENT.selector, 10_000));
+        clone.initialize(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
     }
 
     function test_clone_initialize_revertsOnDecimalsMismatch() public {
@@ -588,6 +621,35 @@ contract StakeVaultTest is Test {
         assertEq(out, 5e18);
     }
 
+    function test_quoteGoalToCobuildWeight_usesSnapshottedGoalWeight() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 1e18);
+        (uint256 out, uint112 goalWeight, uint256 weightRatio) = vault.quoteGoalToCobuildWeightRatio(10e18);
+        // Snapshot remains at the setUp value (2e18), so quote output is unchanged.
+        assertEq(goalWeight, 2e18);
+        assertEq(weightRatio, 1e18);
+        assertEq(out, 5e18);
+    }
+
+    function test_quoteGoalToCobuildWeight_usesSnapshottedReservedPercent() public {
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
+        StakeVault snapshotVault = new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 0);
+
+        (uint256 out, uint112 goalWeight, uint256 weightRatio) = snapshotVault.quoteGoalToCobuildWeightRatio(10e18);
+        assertEq(goalWeight, 2e18);
+        assertEq(weightRatio, 1e18);
+        // Snapshot keeps the original 50% reserve boost (10e18 amount => 5e18 base => 10e18 boosted).
+        assertEq(out, 10e18);
+    }
+
     function test_quoteGoalToCobuildWeight_returnsZeroForZeroAmount() public view {
         (uint256 out, uint112 goalWeight, uint256 weightRatio) = vault.quoteGoalToCobuildWeightRatio(0);
         assertEq(out, 0);
@@ -629,6 +691,7 @@ contract StakeVaultTest is Test {
 
     function test_quoteGoalToCobuildWeight_decayInterpolatesFromActivationToDeadline() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
 
         VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
         StakeVault decayVault = new StakeVault(
@@ -645,24 +708,118 @@ contract StakeVaultTest is Test {
         metadataTreasury.setActivatedAt(activatedAt);
         metadataTreasury.setDeadline(deadline);
 
+        vm.warp(activatedAt - 1);
+        (uint256 preActivation,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(preActivation, 400e18);
+
         vm.warp(activatedAt);
         (uint256 atActivation, uint112 rulesetWeight, uint256 weightScale) =
             decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(atActivation, 200e18);
+        assertEq(atActivation, 400e18);
         assertEq(rulesetWeight, 5e17);
         assertEq(weightScale, 1e18);
 
         vm.warp(activatedAt + 500);
         (uint256 atMidpoint,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(atMidpoint, 150e18);
+        assertEq(atMidpoint, 300e18);
 
         vm.warp(deadline + 1);
         (uint256 afterDeadline,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(afterDeadline, 100e18);
+        assertEq(afterDeadline, 200e18);
+    }
+
+    function test_quoteAndDepositGoal_useSnapshottedValuesAfterRulesetMutation() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(decayVault), type(uint256).max);
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        uint64 deadline = activatedAt + 1_000;
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(deadline);
+
+        vm.warp(activatedAt + 500);
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 1e18);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 0);
+
+        (uint256 quotedAfterMutation,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(quotedAfterMutation, 300e18);
+
+        vm.prank(alice);
+        decayVault.depositGoal(100e18);
+        assertEq(decayVault.weightOf(alice), quotedAfterMutation);
+    }
+
+    function test_quoteGoalToCobuildWeight_whenDecayWindowDegenerate_returnsIssuanceBase() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(activatedAt);
+
+        vm.warp(activatedAt + 1);
+        (uint256 out,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(out, 200e18);
+    }
+
+    function test_quoteGoalToCobuildWeight_whenReservedIsZero_ignoresDecayWindow() public {
+        goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 0);
+
+        VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
+        StakeVault decayVault = new StakeVault(
+            address(metadataTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        uint64 activatedAt = uint64(block.timestamp + 100);
+        uint64 deadline = activatedAt + 1_000;
+        metadataTreasury.setActivatedAt(activatedAt);
+        metadataTreasury.setDeadline(deadline);
+
+        vm.warp(activatedAt - 1);
+        (uint256 preActivation,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(preActivation, 200e18);
+
+        vm.warp(activatedAt + 500);
+        (uint256 atMidpoint,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(atMidpoint, 200e18);
+
+        vm.warp(deadline + 1);
+        (uint256 postDeadline,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
+        assertEq(postDeadline, 200e18);
     }
 
     function test_depositGoal_decayAppliedOnlyAtDepositTime() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
 
         VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
         StakeVault decayVault = new StakeVault(
@@ -685,7 +842,7 @@ contract StakeVaultTest is Test {
         vm.warp(activatedAt);
         vm.prank(alice);
         decayVault.depositGoal(100e18);
-        assertEq(decayVault.weightOf(alice), 200e18);
+        assertEq(decayVault.weightOf(alice), 400e18);
 
         vm.warp(activatedAt + 500);
         vm.prank(alice);
@@ -693,12 +850,13 @@ contract StakeVaultTest is Test {
 
         // First deposit keeps its originally-accounted weight; only the second deposit is decayed.
         assertEq(decayVault.stakedGoalOf(alice), 200e18);
-        assertEq(decayVault.weightOf(alice), 350e18);
-        assertEq(decayVault.totalWeight(), 350e18);
+        assertEq(decayVault.weightOf(alice), 700e18);
+        assertEq(decayVault.totalWeight(), 700e18);
     }
 
-    function test_quoteGoalToCobuildWeight_fallsBackToBaseWeightWhenTreasuryMetadataUnavailable() public {
+    function test_quoteGoalToCobuildWeight_fallsBackToFullReserveBoostWhenTreasuryMetadataUnavailable() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 5e17);
+        goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 5_000);
 
         VaultGoalTreasuryDecayMetadata metadataTreasury = new VaultGoalTreasuryDecayMetadata();
         StakeVault decayVault = new StakeVault(
@@ -717,26 +875,26 @@ contract StakeVaultTest is Test {
 
         vm.warp(activatedAt + 500);
         (uint256 withMetadata,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(withMetadata, 150e18);
+        assertEq(withMetadata, 300e18);
 
         metadataTreasury.setRevertActivatedAt(true);
         (uint256 activatedReadReverts,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(activatedReadReverts, 200e18);
+        assertEq(activatedReadReverts, 400e18);
 
         metadataTreasury.setRevertActivatedAt(false);
         metadataTreasury.setActivatedAt(0);
         (uint256 activatedUnset,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(activatedUnset, 200e18);
+        assertEq(activatedUnset, 400e18);
 
         metadataTreasury.setActivatedAt(activatedAt);
         metadataTreasury.setRevertDeadline(true);
         (uint256 deadlineReadReverts,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(deadlineReadReverts, 200e18);
+        assertEq(deadlineReadReverts, 400e18);
 
         metadataTreasury.setRevertDeadline(false);
         metadataTreasury.setDeadline(0);
         (uint256 deadlineUnset,,) = decayVault.quoteGoalToCobuildWeightRatio(100e18);
-        assertEq(deadlineUnset, 200e18);
+        assertEq(deadlineUnset, 400e18);
     }
 
     function test_markGoalResolved_revertsForUnauthorizedWhenTreasuryNotResolved() public {
@@ -2698,29 +2856,43 @@ contract StakeVaultTest is Test {
     function test_slashJurorStake_doesNotOverslashGoalWeightFromRounding() public {
         goalRulesets.setWeight(GOAL_PROJECT_ID, 1);
 
+        StakeVault roundingVault = new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.prank(alice);
+        goalToken.approve(address(roundingVault), type(uint256).max);
+        vm.prank(alice);
+        cobuildToken.approve(address(roundingVault), type(uint256).max);
+
         vm.startPrank(alice);
-        vault.depositGoal(1);
-        vault.depositCobuild(1e18);
-        vault.optInAsJuror(1, 1e18, address(0));
+        roundingVault.depositGoal(1);
+        roundingVault.depositCobuild(1e18);
+        roundingVault.optInAsJuror(1, 1e18, address(0));
         vm.stopPrank();
 
-        vault.setJurorSlasher(address(this));
+        roundingVault.setJurorSlasher(address(this));
 
         uint256 collectorGoalBefore = goalToken.balanceOf(slashRecipient);
         uint256 collectorCobuildBefore = cobuildToken.balanceOf(slashRecipient);
 
-        vault.slashJurorStake(alice, 1e15, slashRecipient);
+        roundingVault.slashJurorStake(alice, 1e15, slashRecipient);
 
         assertEq(goalToken.balanceOf(slashRecipient) - collectorGoalBefore, 0);
         assertEq(cobuildToken.balanceOf(slashRecipient) - collectorCobuildBefore, 0);
 
-        assertEq(vault.stakedGoalOf(alice), 1);
-        assertEq(vault.jurorLockedGoalOf(alice), 1);
-        assertEq(vault.stakedCobuildOf(alice), 1e18);
-        assertEq(vault.jurorLockedCobuildOf(alice), 0);
-        assertEq(vault.jurorWeightOf(alice), 1e18);
-        assertEq(vault.weightOf(alice), 2e18);
-        assertEq(vault.totalWeight(), 2e18);
+        assertEq(roundingVault.stakedGoalOf(alice), 1);
+        assertEq(roundingVault.jurorLockedGoalOf(alice), 1);
+        assertEq(roundingVault.stakedCobuildOf(alice), 1e18);
+        assertEq(roundingVault.jurorLockedCobuildOf(alice), 0);
+        assertEq(roundingVault.jurorWeightOf(alice), 1e18);
+        assertEq(roundingVault.weightOf(alice), 2e18);
+        assertEq(roundingVault.totalWeight(), 2e18);
     }
 
     function test_getPastJurorWeight_revertsForCurrentBlock() public {
@@ -2792,6 +2964,7 @@ contract StakeVaultTest is Test {
 
 contract VaultMockRulesets {
     mapping(uint256 => uint112) internal _weightOf;
+    mapping(uint256 => uint16) internal _reservedPercentOf;
     bool internal _shouldRevertCurrent;
     IJBDirectory internal _directory;
 
@@ -2809,6 +2982,10 @@ contract VaultMockRulesets {
         _weightOf[projectId] = weight;
     }
 
+    function setReservedPercent(uint256 projectId, uint16 reservedPercent) external {
+        _reservedPercentOf[projectId] = reservedPercent;
+    }
+
     function setShouldRevertCurrent(bool shouldRevert) external {
         _shouldRevertCurrent = shouldRevert;
     }
@@ -2816,6 +2993,8 @@ contract VaultMockRulesets {
     function currentOf(uint256 projectId) external view returns (JBRuleset memory ruleset) {
         if (_shouldRevertCurrent) revert CURRENT_REVERT();
         ruleset.weight = _weightOf[projectId];
+        // Metadata version `1` in bits [0..3], reserved percent in bits [4..19].
+        ruleset.metadata = 1 | (uint256(_reservedPercentOf[projectId]) << 4);
     }
 }
 

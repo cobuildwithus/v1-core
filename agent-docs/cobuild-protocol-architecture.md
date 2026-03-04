@@ -157,6 +157,13 @@ Durable architecture reference for module boundaries, integration paths, and pro
 
 5. Stake and underwriting path
 - `StakeVault` tracks dual-asset stake and allocation weight.
+- Goal-token stake weight in `StakeVault` is snapshot-based:
+  - snapshot goal ruleset weight once at vault init and always apply issuance-price weighting (`goalAmount * weightScale / snappedWeight`),
+  - snapshot reserved percent once at vault init and apply only as a reserve premium,
+  - reserve premium is full pre-activation/at-activation, then decays linearly to zero by deadline,
+  - deadline endpoint equals issuance-priced base weight (not raw goal token amount),
+  - cobuild stake remains 1:1 weight with amount.
+- Goal/cobuild deposits still require live staking-open status (`goalRulesets.currentOf(goalRevnetId).weight > 0`) at call time.
 - `StakeVault` maps caller identity to live vault weight for goal-flow allocation via built-in strategy methods.
 - `BudgetFlowRouterStrategy` maps caller identity to per-budget stake tracked in `BudgetStakeLedger` using caller-flow context (`msg.sender` child flow -> registered recipient id); checkpointed stake is quantized to Flow unit-weight resolution so sub-unit dust is ignored.
 - `BudgetStakeLedger` is coverage-only accounting for per-budget allocated stake plus checkpoint history (no points/rent-time accrual subsystem).

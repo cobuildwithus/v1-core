@@ -12,6 +12,7 @@ interface IStakeVault {
     error GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address goalToken);
     error GOAL_TOKEN_REVNET_MISMATCH(address goalToken, uint256 expectedRevnetId, uint256 actualRevnetId);
     error INVALID_REVNET_CONTROLLER(address controller);
+    error INVALID_RESERVED_PERCENT(uint16 reservedPercent);
     error GOAL_ALREADY_RESOLVED();
     error INVALID_AMOUNT();
     error TRANSFER_AMOUNT_MISMATCH();

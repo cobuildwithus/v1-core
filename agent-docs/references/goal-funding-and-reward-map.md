@@ -57,6 +57,13 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Stake + Underwriting Path
 
 - `StakeVault` tracks goal + cobuild stake, supports juror locks/exits, and exposes live allocator weight.
+- Goal-token deposit weighting in `StakeVault` is composed of:
+  - issuance base from snapshotted init ruleset weight (`goalAmount * weightScale / snappedWeight`),
+  - plus a snapshotted reserved-percent premium that decays linearly from full at activation/pre-activation to zero at deadline.
+- `StakeVault` snapshots both goal ruleset weight and reserved percent once at initialization; later ruleset drift does not reprice existing or future deposits for that vault instance.
+- `reservedPercent == 10_000` at snapshot is invalid and vault initialization reverts.
+- Cobuild deposits remain 1:1 amount-to-weight.
+- Deposits still require live staking-open state (`currentOf(goalRevnetId).weight > 0`) when each deposit executes.
 - `BudgetStakeLedger` is coverage-only accounting (per-user and per-budget allocated stake plus checkpoint history for vote snapshots).
 - `PremiumEscrow` checkpoints per-underwriter budget coverage and accrues premium from indexed inflows.
 - Premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`).
