@@ -5,6 +5,9 @@ import { Test } from "forge-std/Test.sol";
 
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
+import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
+import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
@@ -176,7 +179,7 @@ contract AllocationMechanismTCRTest is Test {
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
-        roundFactory = new RoundFactory();
+        roundFactory = new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()));
 
         vm.mockCall(address(superToken), abi.encodeWithSignature("getHost()"), abi.encode(MOCK_SUPERFLUID_HOST));
         vm.mockCall(
@@ -514,7 +517,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_setMechanismFactoryAllowed_onlyFactoryManager() public {
-        address altFactory = address(new RoundFactory());
+        address altFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
 
         vm.prank(alice);
         vm.expectRevert(AllocationMechanismTCR.ONLY_FACTORY_MANAGER.selector);
@@ -544,7 +547,7 @@ contract AllocationMechanismTCRTest is Test {
             uint64(block.timestamp + 1),
             uint64(block.timestamp + 2)
         );
-        listing.deploymentConfig.mechanismFactory = address(new RoundFactory());
+        listing.deploymentConfig.mechanismFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
@@ -1322,21 +1325,27 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.releaseMechanismFunds(itemId, 0);
     }
 
-    function test_releaseMechanismFunds_allowsDirectEscrowBalanceWhenPoolBelowMin() public {
+    function test_releaseMechanismFunds_revertsWhenPoolBelowMinEvenIfEscrowBalanceMeetsMin() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = listing.minBudgetFunding;
+        uint256 underMinFunding = listing.minBudgetFunding - 1;
         superToken.mint(deployment.fundingEscrow, escrowed);
-        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, underMinFunding);
 
-        uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
-        assertEq(released, escrowed);
-        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
-        assertEq(superToken.balanceOf(deployment.payoutRecipient), escrowed);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AllocationMechanismTCR.MECHANISM_BELOW_MIN_FUNDING.selector, listing.minBudgetFunding, underMinFunding
+            )
+        );
+        mechanism.releaseMechanismFunds(itemId, 0);
+
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
+        assertEq(superToken.balanceOf(deployment.payoutRecipient), 0);
     }
 
-    function test_releaseMechanismFunds_allowsDirectEscrowBalanceAfterFundingDeadlineWhenPoolBelowMin() public {
+    function test_releaseMechanismFunds_refundsWhenPoolBelowMinAfterFundingDeadlineEvenIfEscrowBalanceMeetsMin() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1348,15 +1357,15 @@ contract AllocationMechanismTCRTest is Test {
         uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
         AllocationMechanismTCR.MechanismDeployment memory afterRelease = mechanism.mechanismDeployment(itemId);
 
-        assertEq(released, escrowed);
-        assertTrue(afterRelease.active);
-        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertEq(released, 0);
+        assertFalse(afterRelease.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
-        assertEq(superToken.balanceOf(deployment.payoutRecipient), escrowed);
-        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
+        assertEq(superToken.balanceOf(deployment.payoutRecipient), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
     }
 
-    function test_syncMechanismFunding_doesNotExpireAfterReleaseWhenMinWasMetByDirectEscrowBalance() public {
+    function test_syncMechanismFunding_refundsWhenPoolBelowMinAfterFundingDeadlineEvenIfEscrowBalanceMeetsMin() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1364,19 +1373,15 @@ contract AllocationMechanismTCRTest is Test {
         superToken.mint(deployment.fundingEscrow, escrowed);
         _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
 
-        uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
-        assertEq(released, escrowed);
-        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
-
         vm.warp(uint256(listing.fundingDeadline) + 1);
         _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
         mechanism.syncMechanismFunding(itemId);
 
         AllocationMechanismTCR.MechanismDeployment memory afterSync = mechanism.mechanismDeployment(itemId);
-        assertTrue(afterSync.active);
-        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
+        assertFalse(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
         assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
-        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
     }
 
     function test_releaseMechanismFunds_revertsWhenEscrowTransferReturnsFalse() public {
@@ -1560,24 +1565,6 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(mechanism.activeMechanismRecipientCount(), 0);
     }
 
-    function test_syncMechanismFunding_keepsActiveWhenPoolBelowMinButEscrowBalanceMeetsMinAfterDeadline() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
-
-        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
-        uint256 escrowed = listing.minBudgetFunding;
-        superToken.mint(deployment.fundingEscrow, escrowed);
-        _mockEscrowTotalReceived(deployment.fundingEscrow, listing.minBudgetFunding - 1);
-        vm.warp(uint256(listing.fundingDeadline) + 1);
-
-        mechanism.syncMechanismFunding(itemId);
-
-        AllocationMechanismTCR.MechanismDeployment memory afterSync = mechanism.mechanismDeployment(itemId);
-        assertTrue(afterSync.active);
-        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
-        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
-        assertEq(superToken.balanceOf(address(budgetFlow)), 0);
-    }
-
     function test_syncMechanismFunding_stopsAtCapWithoutRefundingEscrow() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),
@@ -1604,7 +1591,7 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(mechanism.activeMechanismRecipientCount(), 0);
     }
 
-    function test_syncMechanismFunding_stopsAtCapWhenEscrowBalanceHitsCapAndPoolBelowCap() public {
+    function test_syncMechanismFunding_doesNotStopAtCapWhenEscrowBalanceHitsCapButPoolBelowCap() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),
             uint64(block.timestamp + 30 days)
@@ -1616,17 +1603,11 @@ contract AllocationMechanismTCRTest is Test {
         superToken.mint(deployment.fundingEscrow, escrowed);
         _mockEscrowTotalReceived(deployment.fundingEscrow, listing.maxBudgetFunding - 1);
 
-        vm.expectEmit(true, true, false, true, address(mechanism));
-        emit AllocationMechanismTCR.MechanismFundingStopped(
-            itemId,
-            AllocationMechanismTCR.FundingStopReason.Capped,
-            escrowed
-        );
         mechanism.syncMechanismFunding(itemId);
 
         AllocationMechanismTCR.MechanismDeployment memory afterSync = mechanism.mechanismDeployment(itemId);
-        assertFalse(afterSync.active);
-        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertTrue(afterSync.active);
+        assertEq(budgetFlow.recipientById(itemId), deployment.fundingEscrow);
         assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
         assertEq(superToken.balanceOf(address(budgetFlow)), 0);
     }
