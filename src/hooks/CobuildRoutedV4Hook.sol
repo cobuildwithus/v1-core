@@ -109,6 +109,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
     error V3_CALLBACK_UNAUTHORIZED();
     error V3_POOL_NOT_FOUND();
     error INVALID_TWAP_TICK();
+    error CUSTOM_ROUTE_INPUT_UNAVAILABLE();
 
     enum Route {
         JB,
@@ -248,7 +249,13 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         }
 
         // For custom-accounted routes, source the input from PoolManager first.
-        poolManager.take(Currency.wrap(tokenIn), address(this), amountIn);
+        // If input cannot be borrowed (e.g. thin/empty pool balances), continue with V4 when possible.
+        if (!_tryTakeInput(Currency.wrap(tokenIn), amountIn)) {
+            if (expectedV4Out != 0) {
+                return _fallbackToV4(poolId, amountOutMin);
+            }
+            revert CUSTOM_ROUTE_INPUT_UNAVAILABLE();
+        }
 
         uint256 outputReceived;
         if (route == Route.V3) {
@@ -261,8 +268,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
                 if (expectedV4Out != 0) {
                     // Return custom-accounting input to PoolManager, then continue as a native v4 pool swap.
                     _settleOutput(Currency.wrap(tokenIn), amountIn);
-                    _enforceAfterSwapMinOut[poolId] = amountOutMin != 0;
-                    return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+                    return _fallbackToV4(poolId, amountOutMin);
                 }
 
                 if (address(jbTerminal) == address(0)) revert NO_TERMINAL();
@@ -324,8 +330,26 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
 
     function _decodeAmountOutMin(bytes calldata hookData) internal pure returns (uint256) {
         if (hookData.length == 0) return 0;
-        if (hookData.length != 32) revert INVALID_HOOKDATA();
-        return abi.decode(hookData, (uint256));
+        if (hookData.length == 32) return abi.decode(hookData, (uint256));
+        if (hookData.length == 64) {
+            (uint256 version, uint256 amountOutMin) = abi.decode(hookData, (uint256, uint256));
+            if (version != 1) revert INVALID_HOOKDATA();
+            return amountOutMin;
+        }
+        revert INVALID_HOOKDATA();
+    }
+
+    function _fallbackToV4(PoolId poolId, uint256 amountOutMin) internal returns (bytes4, BeforeSwapDelta, uint24) {
+        _enforceAfterSwapMinOut[poolId] = amountOutMin != 0;
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    function _tryTakeInput(Currency inCur, uint256 amountIn) internal returns (bool) {
+        try poolManager.take(inCur, address(this), amountIn) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     function _createSwapDelta(uint256 amountIn, uint256 amountOut) internal pure returns (BeforeSwapDelta) {
