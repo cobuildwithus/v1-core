@@ -67,7 +67,11 @@ contract RoundFactoryTest is Test {
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
-        factory = new RoundFactory();
+        factory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new ERC20VotesArbitrator())
+        );
     }
 
     function _deployRound(bytes32 roundId) internal returns (RoundFactory.DeployedRound memory deployed) {

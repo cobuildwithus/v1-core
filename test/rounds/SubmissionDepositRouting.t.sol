@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
+import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
@@ -63,7 +64,11 @@ contract SubmissionDepositRoutingTest is Test {
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
-        factory = new RoundFactory();
+        factory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new ERC20VotesArbitrator())
+        );
 
         underlying.mint(alice, 1000e18);
         underlying.mint(bob, 1000e18);

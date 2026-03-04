@@ -13,6 +13,7 @@ import { RoundTestArbitrator, RoundTestSuperToken } from "test/rounds/helpers/Ro
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract RoundPrizeVaultTest is Test {
     MockVotesToken internal underlying;
@@ -37,8 +38,8 @@ contract RoundPrizeVaultTest is Test {
         superToken = new RoundTestSuperToken("SuperGoal", "sGOAL", underlying);
         depositStrategy = new EscrowSubmissionDepositStrategy(underlying);
 
-        RoundSubmissionTCR implementation = new RoundSubmissionTCR();
-        submissions = RoundSubmissionTCR(Clones.clone(address(implementation)));
+        RoundSubmissionTCR submissionsImplementation = new RoundSubmissionTCR();
+        submissions = RoundSubmissionTCR(Clones.clone(address(submissionsImplementation)));
         arbitrator = new RoundTestArbitrator(IVotes(address(underlying)), address(submissions), 1, 1, 1, ARBITRATION_COST);
 
         RoundSubmissionTCR.RoundConfig memory roundCfg = RoundSubmissionTCR.RoundConfig({
@@ -62,7 +63,9 @@ contract RoundPrizeVaultTest is Test {
         });
         submissions.initialize(roundCfg, regCfg);
 
-        vault = new RoundPrizeVault(underlying, ISuperToken(address(superToken)), submissions, operator);
+        RoundPrizeVault prizeVaultImplementation = new RoundPrizeVault();
+        vault = _cloneVault(prizeVaultImplementation);
+        vault.initialize(underlying, ISuperToken(address(superToken)), submissions, operator);
 
         underlying.mint(alice, 1000e18);
         vm.prank(alice);
@@ -85,15 +88,30 @@ contract RoundPrizeVaultTest is Test {
         return abi.encode(uint8(0), DEFAULT_POST_ID, recipient);
     }
 
-    function test_constructor_revertsOnZeroAddresses() public {
-        vm.expectRevert(RoundPrizeVault.ADDRESS_ZERO.selector);
-        new RoundPrizeVault(MockVotesToken(address(0)), ISuperToken(address(superToken)), submissions, operator);
+    function _cloneVault(RoundPrizeVault implementation) internal returns (RoundPrizeVault cloned) {
+        cloned = RoundPrizeVault(Clones.clone(address(implementation)));
+    }
 
-        vm.expectRevert(RoundPrizeVault.ADDRESS_ZERO.selector);
-        new RoundPrizeVault(underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(address(0)), operator);
+    function test_implementation_isInitializationLocked() public {
+        RoundPrizeVault implementation = new RoundPrizeVault();
 
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize(underlying, ISuperToken(address(superToken)), submissions, operator);
+    }
+
+    function test_initialize_revertsOnZeroAddresses() public {
+        RoundPrizeVault implementation = new RoundPrizeVault();
+        RoundPrizeVault vault0 = _cloneVault(implementation);
         vm.expectRevert(RoundPrizeVault.ADDRESS_ZERO.selector);
-        new RoundPrizeVault(underlying, ISuperToken(address(superToken)), submissions, address(0));
+        vault0.initialize(MockVotesToken(address(0)), ISuperToken(address(superToken)), submissions, operator);
+
+        RoundPrizeVault vault1 = _cloneVault(implementation);
+        vm.expectRevert(RoundPrizeVault.ADDRESS_ZERO.selector);
+        vault1.initialize(underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(address(0)), operator);
+
+        RoundPrizeVault vault2 = _cloneVault(implementation);
+        vm.expectRevert(RoundPrizeVault.ADDRESS_ZERO.selector);
+        vault2.initialize(underlying, ISuperToken(address(superToken)), submissions, address(0));
     }
 
     function test_setOperator_onlyOperator() public {
@@ -316,7 +334,9 @@ contract RoundPrizeVaultTest is Test {
     }
 
     function test_downgrade_revertsWhenSuperTokenNotConfigured() public {
-        RoundPrizeVault vault2 = new RoundPrizeVault(underlying, ISuperToken(address(0)), submissions, operator);
+        RoundPrizeVault implementation = new RoundPrizeVault();
+        RoundPrizeVault vault2 = _cloneVault(implementation);
+        vault2.initialize(underlying, ISuperToken(address(0)), submissions, operator);
 
         vm.expectRevert(RoundPrizeVault.SUPER_TOKEN_NOT_CONFIGURED.selector);
         vault2.downgrade(1);

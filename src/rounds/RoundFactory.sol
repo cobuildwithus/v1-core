@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
@@ -100,11 +99,17 @@ contract RoundFactory is IAllocationMechanismFactory {
 
     /// @dev Clone targets.
     address public immutable roundSubmissionTcrImplementation;
+    address public immutable roundPrizeVaultImplementation;
     address public immutable arbitratorImplementation;
 
-    constructor() {
-        roundSubmissionTcrImplementation = address(new RoundSubmissionTCR());
-        arbitratorImplementation = address(new ERC20VotesArbitrator());
+    constructor(
+        address roundSubmissionTcrImplementation_,
+        address roundPrizeVaultImplementation_,
+        address arbitratorImplementation_
+    ) {
+        roundSubmissionTcrImplementation = _requireDeployedContract(roundSubmissionTcrImplementation_);
+        roundPrizeVaultImplementation = _requireDeployedContract(roundPrizeVaultImplementation_);
+        arbitratorImplementation = _requireDeployedContract(arbitratorImplementation_);
     }
 
     /// @notice Deploy a full round stack for a given budget.
@@ -142,6 +147,7 @@ contract RoundFactory is IAllocationMechanismFactory {
         IERC20 underlying = IStakeVault(stakeVault).goalToken();
         ISuperToken superTok = IFlow(budgetFlow).superToken();
         address expectedUnderlying = address(underlying);
+        address superTokenAddress = address(superTok);
         address superUnderlying = _resolveSuperUnderlying(superTok);
         if (superUnderlying != expectedUnderlying) {
             revert SUPER_TOKEN_UNDERLYING_MISMATCH(expectedUnderlying, superUnderlying);
@@ -150,8 +156,9 @@ contract RoundFactory is IAllocationMechanismFactory {
         // 1) Clone the per-round submission TCR.
         address submissionTcr = roundSubmissionTcrImplementation.clone();
 
-        // 2) Deploy prize vault (receives deposits + super token streams; pays underlying).
-        RoundPrizeVault prizeVault = new RoundPrizeVault(
+        // 2) Clone + initialize prize vault (receives deposits + super token streams; pays underlying).
+        address prizeVault = roundPrizeVaultImplementation.clone();
+        RoundPrizeVault(prizeVault).initialize(
             underlying,
             superTok,
             RoundSubmissionTCR(submissionTcr),
@@ -161,15 +168,15 @@ contract RoundFactory is IAllocationMechanismFactory {
         // 3) Deploy deposit strategy that routes accepted submission deposits into the prize vault.
         PrizePoolSubmissionDepositStrategy depositStrategy = new PrizePoolSubmissionDepositStrategy(
             underlying,
-            address(prizeVault)
+            prizeVault
         );
 
         // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
         address arbitrator = arbitratorImplementation.clone();
         IERC20VotesArbitrator(arbitrator).initializeWithConfig(
             IERC20VotesArbitrator.InitConfig({
-                invalidRoundRewardsSink: address(prizeVault), // keep unresolved/no-vote rewards in the round pool.
-                votingToken: address(underlying),
+                invalidRoundRewardsSink: prizeVault, // keep unresolved/no-vote rewards in the round pool.
+                votingToken: expectedUnderlying,
                 arbitrable: submissionTcr,
                 votingPeriod: arbConfig.votingPeriod,
                 votingDelay: arbConfig.votingDelay,
@@ -188,14 +195,14 @@ contract RoundFactory is IAllocationMechanismFactory {
                 roundId: roundId,
                 startAt: timing.startAt,
                 endAt: timing.endAt,
-                prizeVault: address(prizeVault)
+                prizeVault: prizeVault
             }),
             RoundSubmissionTCR.RegistryConfig({
                 arbitrator: IArbitrator(arbitrator),
                 arbitratorExtraData: tcrConfig.arbitratorExtraData,
                 registrationMetaEvidence: tcrConfig.registrationMetaEvidence,
                 clearingMetaEvidence: tcrConfig.clearingMetaEvidence,
-                votingToken: IVotes(address(underlying)),
+                votingToken: IVotes(expectedUnderlying),
                 submissionBaseDeposit: tcrConfig.submissionBaseDeposit,
                 submissionDepositStrategy: depositStrategy,
                 removalBaseDeposit: tcrConfig.removalBaseDeposit,
@@ -206,12 +213,12 @@ contract RoundFactory is IAllocationMechanismFactory {
         );
 
         out = DeployedRound({
-            prizeVault: address(prizeVault),
+            prizeVault: prizeVault,
             submissionTCR: submissionTcr,
             arbitrator: arbitrator,
             depositStrategy: address(depositStrategy),
-            underlyingToken: address(underlying),
-            superToken: address(superTok),
+            underlyingToken: expectedUnderlying,
+            superToken: superTokenAddress,
             stakeVault: stakeVault,
             goalTreasury: goalTreasury,
             goalFlow: goalFlow,
@@ -221,12 +228,12 @@ contract RoundFactory is IAllocationMechanismFactory {
         emit RoundDeployed(
             roundId,
             budgetTreasury,
-            address(prizeVault),
+            prizeVault,
             submissionTcr,
             arbitrator,
             address(depositStrategy),
-            address(underlying),
-            address(superTok)
+            expectedUnderlying,
+            superTokenAddress
         );
     }
 

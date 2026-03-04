@@ -8,7 +8,8 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 /**
  * @title RoundPrizeVault
@@ -22,7 +23,7 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
  *         available, it can downgrade on-demand.
  *         Unentitled balances intentionally remain in-vault; there is no sweep/closeout path.
  */
-contract RoundPrizeVault is ReentrancyGuard {
+contract RoundPrizeVault is Initializable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     error ADDRESS_ZERO();
@@ -41,9 +42,9 @@ contract RoundPrizeVault is ReentrancyGuard {
     event Claimed(bytes32 indexed submissionId, address indexed recipient, uint256 amount);
     event Downgraded(uint256 amount);
 
-    IERC20 public immutable underlyingToken;
-    ISuperToken public immutable superToken;
-    RoundSubmissionTCR public immutable submissionsTCR;
+    IERC20 public underlyingToken;
+    ISuperToken public superToken;
+    RoundSubmissionTCR public submissionsTCR;
 
     address public operator;
 
@@ -54,12 +55,18 @@ contract RoundPrizeVault is ReentrancyGuard {
     /// @notice Snapshotted payout recipient for a submission.
     mapping(bytes32 => address) public payoutRecipientOf;
 
-    constructor(
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         IERC20 underlyingToken_,
         ISuperToken superToken_,
         RoundSubmissionTCR submissionsTCR_,
         address operator_
-    ) {
+    ) external initializer {
+        __ReentrancyGuard_init();
+
         if (address(underlyingToken_) == address(0)) revert ADDRESS_ZERO();
         if (address(submissionsTCR_) == address(0)) revert ADDRESS_ZERO();
         if (operator_ == address(0)) revert ADDRESS_ZERO();
@@ -113,9 +120,9 @@ contract RoundPrizeVault is ReentrancyGuard {
         claimedOf[submissionId] = total;
 
         _ensureUnderlying(amount);
-        underlyingToken.safeTransfer(msg.sender, amount);
+        underlyingToken.safeTransfer(recipient, amount);
 
-        emit Claimed(submissionId, msg.sender, amount);
+        emit Claimed(submissionId, recipient, amount);
     }
 
     function _setEntitlement(bytes32 submissionId, uint256 entitlement) internal {
@@ -128,9 +135,7 @@ contract RoundPrizeVault is ReentrancyGuard {
 
     function _snapshotRecipientIfUnset(bytes32 submissionId, uint256 entitlement) internal {
         if (entitlement == 0 || payoutRecipientOf[submissionId] != address(0)) return;
-        address manager;
-        IGeneralizedTCR.Status status;
-        (manager, status) = submissionsTCR.itemManagerAndStatus(submissionId);
+        (address manager, IGeneralizedTCR.Status status) = submissionsTCR.itemManagerAndStatus(submissionId);
         if (manager == address(0) || status != IGeneralizedTCR.Status.Registered) revert SUBMISSION_NOT_REGISTERED();
         payoutRecipientOf[submissionId] = manager;
         emit EntitlementRecipientSnapshotted(submissionId, manager);
