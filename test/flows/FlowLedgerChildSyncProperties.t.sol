@@ -3,6 +3,8 @@ pragma solidity ^0.8.34;
 
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
@@ -69,6 +71,31 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         budgetTreasury = new FlowLedgerPropBudgetTreasury(address(childFlow), address(premiumEscrow));
 
         _registerBudgetRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, address(budgetTreasury));
+    }
+
+    function test_pipelineClone_initialize_setsLedgerOnce_andRejectsReinitialize() public {
+        GoalFlowAllocationLedgerPipeline implementation = new GoalFlowAllocationLedgerPipeline(address(0));
+        GoalFlowAllocationLedgerPipeline clone =
+            GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
+
+        assertEq(clone.allocationLedger(), address(0));
+        clone.initialize(address(ledger));
+        assertEq(clone.allocationLedger(), address(ledger));
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        clone.initialize(address(0xBEEF));
+    }
+
+    function test_pipelineClone_initialize_zeroAddress_allowedOnce_thenLocked() public {
+        GoalFlowAllocationLedgerPipeline implementation = new GoalFlowAllocationLedgerPipeline(address(0));
+        GoalFlowAllocationLedgerPipeline clone =
+            GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
+
+        clone.initialize(address(0));
+        assertEq(clone.allocationLedger(), address(0));
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        clone.initialize(address(ledger));
     }
 
     function testFuzz_allocate_withLedger_triggersCheckpointExactlyOncePerSuccessfulCall(

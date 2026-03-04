@@ -10,12 +10,13 @@ import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
  * @notice Allocation pipeline that checkpoints to BudgetStakeLedger and optionally executes child syncs.
  * @dev Bind one pipeline instance to one ledger via constructor (ledger may be zero to disable all behavior).
  */
-contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
+contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable {
     enum ChildSyncDebtWriteMode {
         OpenAndClear,
         ClearOnly
@@ -45,13 +46,11 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
     bytes32 private constant _CHILD_SYNC_DEBT_REASON_REPAIRED = "REPAIRED";
 
     address public allocationLedger;
-    bool private _initialized;
 
     mapping(address flow => GoalFlowLedgerMode.ValidationCache cache) private _validationCacheByFlow;
     mapping(address account => uint256 debtCount) private _childSyncDebtCount;
     mapping(address account => mapping(address budgetTreasury => ChildSyncDebt debt)) private _childSyncDebtByBudget;
 
-    error ALREADY_INITIALIZED();
     error INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(address strategy, uint256 allocationKey);
     error INVALID_BUDGET_PREMIUM_ESCROW(address budgetTreasury, address premiumEscrow);
     error ACCOUNT_HAS_CHILD_SYNC_DEBT(address account, uint256 debtCount);
@@ -103,15 +102,14 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline {
 
     constructor(address allocationLedger_) {
         _initialize(allocationLedger_);
+        _disableInitializers();
     }
 
-    function initialize(address allocationLedger_) external {
+    function initialize(address allocationLedger_) external initializer {
         _initialize(allocationLedger_);
     }
 
-    function _initialize(address allocationLedger_) internal {
-        if (_initialized) revert ALREADY_INITIALIZED();
-        _initialized = true;
+    function _initialize(address allocationLedger_) private {
         allocationLedger = allocationLedger_;
     }
 

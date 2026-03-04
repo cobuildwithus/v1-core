@@ -3,6 +3,9 @@ pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
 
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
@@ -34,6 +37,34 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
         vm.prank(MANAGER);
         ledger.registerBudget(RECIPIENT, address(budget));
+    }
+
+    function test_clone_initialize_setsGoalTreasuryOnce_andRejectsReinitialize() public {
+        BudgetStakeLedger implementation = new BudgetStakeLedger(address(goalTreasury));
+        BudgetStakeLedger clone = BudgetStakeLedger(Clones.clone(address(implementation)));
+
+        assertEq(clone.goalTreasury(), address(0));
+        clone.initialize(address(goalTreasury));
+        assertEq(clone.goalTreasury(), address(goalTreasury));
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        clone.initialize(address(0xBEEF));
+    }
+
+    function test_clone_initialize_zeroAddressRevert_doesNotConsumeInitializerSlot() public {
+        BudgetStakeLedger implementation = new BudgetStakeLedger(address(goalTreasury));
+        BudgetStakeLedger clone = BudgetStakeLedger(Clones.clone(address(implementation)));
+
+        vm.expectRevert(IBudgetStakeLedger.ADDRESS_ZERO.selector);
+        clone.initialize(address(0));
+
+        clone.initialize(address(goalTreasury));
+        assertEq(clone.goalTreasury(), address(goalTreasury));
+    }
+
+    function test_constructor_revertsWhenGoalTreasuryIsZero() public {
+        vm.expectRevert(IBudgetStakeLedger.ADDRESS_ZERO.selector);
+        new BudgetStakeLedger(address(0));
     }
 
     function test_checkpointAllocation_updatesCoverageOnlyStakeAccounting() public {

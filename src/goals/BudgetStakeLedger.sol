@@ -11,8 +11,9 @@ import { SortedRecipientMerge } from "../library/SortedRecipientMerge.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract BudgetStakeLedger is IBudgetStakeLedger {
+contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using Checkpoints for Checkpoints.Trace224;
 
@@ -32,9 +33,6 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
     }
 
     address public override goalTreasury;
-    bool private _initialized;
-
-    error ALREADY_INITIALIZED();
 
     mapping(address => mapping(address => UserBudgetCheckpoint)) private _userBudgetCheckpoints;
     mapping(address => BudgetCheckpoint) private _budgetCheckpoints;
@@ -49,16 +47,15 @@ contract BudgetStakeLedger is IBudgetStakeLedger {
 
     constructor(address goalTreasury_) {
         _initialize(goalTreasury_);
+        _disableInitializers();
     }
 
-    function initialize(address goalTreasury_) external {
+    function initialize(address goalTreasury_) external initializer {
         _initialize(goalTreasury_);
     }
 
-    function _initialize(address goalTreasury_) internal {
-        if (_initialized) revert ALREADY_INITIALIZED();
+    function _initialize(address goalTreasury_) private {
         if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
-        _initialized = true;
         goalTreasury = goalTreasury_;
     }
 
