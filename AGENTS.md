@@ -35,6 +35,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Never modify files under `lib/**`.
 - Never change submodule contents under `lib/`.
 - Never overwrite, revert, delete, or rewrite other people's changes under any circumstances without explicit confirmation from the user in this chat.
+- NEVER EVER read, open, parse, summarize, quote, or otherwise pull contents from `.env` or `.env.*` files into agent context.
 - Run completion workflow subagent passes before final handoff for non-trivial code changes: `simplify` -> `test-coverage-audit` -> `task-finish-review` (see `agent-docs/operations/completion-workflow.md`).
 - Docs-only changes must skip completion workflow subagent passes (`simplify`, `test-coverage-audit`, `task-finish-review`) unless the user explicitly asks to run them.
 - Other clearly small, low-risk changes (for example comment-only edits or narrowly scoped mechanical updates with no behavior change) may skip completion workflow subagent passes.
