@@ -1155,6 +1155,33 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(stakeVault.underwriterSlasher(), address(hook));
     }
 
+    function test_goalTreasuryCloneInitialize_emitsExpandedGoalConfiguredEvent() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        (JBRuleset memory terminal, ) = rulesets.latestQueuedOf(config.goalRevnetId);
+
+        vm.expectEmit(true, false, false, true, address(candidateTreasury));
+        emit IGoalTreasury.GoalConfigured(
+            address(this),
+            config.flow,
+            config.stakeVault,
+            config.budgetStakeLedger,
+            config.hook,
+            config.goalRulesets,
+            config.goalRevnetId,
+            config.minRaiseDeadline,
+            uint64(terminal.start),
+            config.minRaise,
+            config.jurorSlasher,
+            config.underwriterSlasher,
+            address(stakeVault.goalToken()),
+            address(stakeVault.cobuildToken())
+        );
+
+        candidateTreasury.initialize(address(this), config);
+    }
+
     function test_goalTreasuryImplementation_initializeRevertsInvalidInitialization() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         goalTreasuryImplementation.initialize(
