@@ -99,21 +99,27 @@ library GoalFactoryRevnetDeploy {
         });
 
         IJBDirectory directory = request.revDeployer.DIRECTORY();
-        IJBTerminal cobuildPaymentTerminal = directory.primaryTerminalOf(request.cobuildRevnetId, JBConstants.NATIVE_TOKEN);
+        IJBTerminal cobuildPaymentTerminal = directory.primaryTerminalOf(
+            request.cobuildRevnetId,
+            JBConstants.NATIVE_TOKEN
+        );
         if (address(cobuildPaymentTerminal) == address(0)) revert ADDRESS_ZERO();
         if (request.cobuildTerminal == address(0)) revert ADDRESS_ZERO();
-        IJBTerminal configuredCobuildTerminal = IJBTerminal(request.cobuildTerminal);
 
         JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](2);
         terminalConfigs[0] = JBTerminalConfig({
-            terminal: configuredCobuildTerminal,
+            terminal: IJBTerminal(request.cobuildTerminal),
             accountingContextsToAccept: nativeContexts
         });
-        terminalConfigs[1] =
-            JBTerminalConfig({ terminal: cobuildPaymentTerminal, accountingContextsToAccept: cobuildContexts });
-        IREVDeployer.REVBuybackPoolConfig[] memory buybackPoolConfigurations = new IREVDeployer.REVBuybackPoolConfig[](1);
+        terminalConfigs[1] = JBTerminalConfig({
+            terminal: cobuildPaymentTerminal,
+            accountingContextsToAccept: cobuildContexts
+        });
+        IREVDeployer.REVBuybackPoolConfig[] memory buybackPoolConfigurations = new IREVDeployer.REVBuybackPoolConfig[](
+            1
+        );
         buybackPoolConfigurations[0] = IREVDeployer.REVBuybackPoolConfig({
-            token: JBConstants.NATIVE_TOKEN,
+            token: request.cobuildToken,
             fee: request.buybackPoolFee,
             twapWindow: request.buybackTwapWindow
         });

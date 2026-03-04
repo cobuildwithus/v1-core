@@ -5,7 +5,7 @@ set -euo pipefail
 set -f
 
 usage() {
-  printf 'Usage: %s [--force] [--allow-non-conventional] "commit message" "file" ["file" ...]\n' "$(basename "$0")" >&2
+  printf 'Usage: %s [--force] [--allow-non-conventional] [--skip-hooks] "commit message" "file" ["file" ...]\n' "$(basename "$0")" >&2
   exit 2
 }
 
@@ -15,6 +15,7 @@ fi
 
 force_delete_lock=false
 allow_non_conventional=false
+skip_hooks=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force)
@@ -23,6 +24,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-non-conventional)
       allow_non_conventional=true
+      shift
+      ;;
+    --skip-hooks|--no-verify)
+      skip_hooks=true
       shift
       ;;
     --help|-h)
@@ -143,10 +148,15 @@ mkdir -p "$lock_dir"
 
 acquired_locks=()
 tmp_index=''
+tmp_commit_msg=''
 
 cleanup() {
   if [ -n "$tmp_index" ] && [ -f "$tmp_index" ]; then
     rm -f "$tmp_index"
+  fi
+
+  if [ -n "$tmp_commit_msg" ] && [ -f "$tmp_commit_msg" ]; then
+    rm -f "$tmp_commit_msg"
   fi
 
   for lock_path in "${acquired_locks[@]}"; do
@@ -165,6 +175,21 @@ create_lock() {
   fi
 
   return 1
+}
+
+run_husky_hook() {
+  local hook_name="$1"
+  shift || true
+
+  local hook_path=".husky/$hook_name"
+  if [ ! -f "$hook_path" ]; then
+    return 0
+  fi
+
+  if ! GIT_INDEX_FILE="$tmp_index" sh "$hook_path" "$@"; then
+    printf 'Error: Husky hook failed: %s\n' "$hook_name" >&2
+    exit 1
+  fi
 }
 
 for file in "${files[@]}"; do
@@ -205,6 +230,21 @@ GIT_INDEX_FILE="$tmp_index" git add -A -- "${files[@]}"
 if GIT_INDEX_FILE="$tmp_index" git diff --cached --quiet; then
   printf 'Warning: no changes detected for selected file paths\n' >&2
   exit 1
+fi
+
+if [ "$skip_hooks" != true ] && [ "${COMMITTER_SKIP_HOOKS:-0}" != "1" ]; then
+  tmp_commit_msg="$(mktemp "${TMPDIR:-/tmp}/committer-msg.XXXXXX")"
+  printf '%s\n' "$commit_message" >"$tmp_commit_msg"
+
+  run_husky_hook pre-commit
+  run_husky_hook prepare-commit-msg "$tmp_commit_msg" message
+  run_husky_hook commit-msg "$tmp_commit_msg"
+
+  commit_message="$(cat "$tmp_commit_msg")"
+  if [[ "$commit_message" != *[![:space:]]* ]]; then
+    printf 'Error: commit message must not be empty after hook processing\n' >&2
+    exit 1
+  fi
 fi
 
 new_tree="$(GIT_INDEX_FILE="$tmp_index" git write-tree)"

@@ -65,12 +65,10 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         revert UNSUPPORTED_TOKEN(token);
     }
 
-    function accountingContextForTokenOf(uint256, address token)
-        external
-        pure
-        override
-        returns (JBAccountingContext memory)
-    {
+    function accountingContextForTokenOf(
+        uint256,
+        address token
+    ) external pure override returns (JBAccountingContext memory) {
         if (token == JBConstants.NATIVE_TOKEN) {
             return _nativeAccountingContext();
         }
@@ -83,18 +81,25 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         contexts[0] = _nativeAccountingContext();
     }
 
-    function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256, uint256)
-        external
-        pure
-        override
-        returns (uint256)
-    {
+    function currentSurplusOf(
+        uint256,
+        JBAccountingContext[] memory,
+        uint256,
+        uint256
+    ) external pure override returns (uint256) {
         return 0;
     }
 
-    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override { }
+    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
 
-    function addToBalanceOf(uint256, address, uint256, bool, string calldata, bytes calldata) external payable override {
+    function addToBalanceOf(
+        uint256,
+        address,
+        uint256,
+        bool,
+        string calldata,
+        bytes calldata
+    ) external payable override {
         revert UNSUPPORTED_CALL();
     }
 
@@ -135,7 +140,14 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         IJBTerminal destinationTerminal = _destinationTerminalOf(projectId);
 
         beneficiaryTokenCount = _forwardCobuild(
-            destinationTerminal, cobuildToken, cobuildReceived, projectId, beneficiary, minReturnedTokens, memo, metadata
+            destinationTerminal,
+            cobuildToken,
+            cobuildReceived,
+            projectId,
+            beneficiary,
+            minReturnedTokens,
+            memo,
+            metadata
         );
     }
 
@@ -156,7 +168,14 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         if (cobuildReceived == 0) revert ZERO_COBUILD_OUT();
 
         beneficiaryTokenCount = _forwardCobuild(
-            destinationTerminal, cobuildToken, cobuildReceived, projectId, beneficiary, minReturnedTokens, memo, metadata
+            destinationTerminal,
+            cobuildToken,
+            cobuildReceived,
+            projectId,
+            beneficiary,
+            minReturnedTokens,
+            memo,
+            metadata
         );
     }
 
@@ -167,11 +186,12 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
     }
 
     function _nativeAccountingContext() internal pure returns (JBAccountingContext memory) {
-        return JBAccountingContext({
-            token: JBConstants.NATIVE_TOKEN,
-            decimals: 18,
-            currency: uint32(uint160(JBConstants.NATIVE_TOKEN))
-        });
+        return
+            JBAccountingContext({
+                token: JBConstants.NATIVE_TOKEN,
+                decimals: 18,
+                currency: uint32(uint160(JBConstants.NATIVE_TOKEN))
+            });
     }
 
     function _forwardCobuild(

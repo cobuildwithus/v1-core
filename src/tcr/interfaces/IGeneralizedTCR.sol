@@ -228,7 +228,9 @@ interface IGeneralizedTCR {
         uint256 _round,
         address _contributor
     ) external view returns (uint256[3] memory contributions);
-    function getItemInfo(bytes32 _itemID) external view returns (bytes memory data, Status status, uint256 numberOfRequests);
+    function getItemInfo(
+        bytes32 _itemID
+    ) external view returns (bytes memory data, Status status, uint256 numberOfRequests);
     function getRequestInfo(
         bytes32 _itemID,
         uint256 _request

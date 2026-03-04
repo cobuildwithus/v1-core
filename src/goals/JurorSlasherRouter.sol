@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import {IStakeVault} from "src/interfaces/IStakeVault.sol";
-import {IJurorSlasher} from "src/interfaces/IJurorSlasher.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { IJurorSlasher } from "src/interfaces/IJurorSlasher.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Per-goal router that allows multiple arbitrators to slash jurors via a
 /// single stake-vault `jurorSlasher` address.

@@ -20,3 +20,4 @@ Prior reading:
 - https://blog.ethereum.org/2014/05/06/daos-dacs-das-and-more-an-incomplete-terminology-guide#decentralized-organizations
 - https://vitalik.eth.limo/general/2022/09/20/daos.html
 - https://farcaster.xyz/vitalik.eth/0x87dbced4
+- https://blog.ethereum.org/2014/08/21/introduction-futarchy

@@ -111,8 +111,9 @@ contract RoundFactory is IAllocationMechanismFactory {
     ) {
         roundSubmissionTcrImplementation = _requireDeployedContract(roundSubmissionTcrImplementation_);
         roundPrizeVaultImplementation = _requireDeployedContract(roundPrizeVaultImplementation_);
-        prizePoolSubmissionDepositStrategyImplementation =
-            _requireDeployedContract(prizePoolSubmissionDepositStrategyImplementation_);
+        prizePoolSubmissionDepositStrategyImplementation = _requireDeployedContract(
+            prizePoolSubmissionDepositStrategyImplementation_
+        );
         arbitratorImplementation = _requireDeployedContract(arbitratorImplementation_);
     }
 
@@ -162,16 +163,12 @@ contract RoundFactory is IAllocationMechanismFactory {
 
         // 2) Clone + initialize prize vault (receives deposits + super token streams; pays underlying).
         address prizeVault = roundPrizeVaultImplementation.clone();
-        RoundPrizeVault(prizeVault).initialize(
-            underlying,
-            superTok,
-            RoundSubmissionTCR(submissionTcr),
-            roundOperator
-        );
+        RoundPrizeVault(prizeVault).initialize(underlying, superTok, RoundSubmissionTCR(submissionTcr), roundOperator);
 
         // 3) Clone + initialize deposit strategy that routes accepted submission deposits into the prize vault.
-        PrizePoolSubmissionDepositStrategy depositStrategy =
-            PrizePoolSubmissionDepositStrategy(prizePoolSubmissionDepositStrategyImplementation.clone());
+        PrizePoolSubmissionDepositStrategy depositStrategy = PrizePoolSubmissionDepositStrategy(
+            prizePoolSubmissionDepositStrategyImplementation.clone()
+        );
         depositStrategy.initialize(underlying, prizeVault);
 
         // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
