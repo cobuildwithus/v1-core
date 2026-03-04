@@ -217,16 +217,6 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Removes many recipients in one transaction
-     * @param recipientIds The IDs of the recipients to remove
-     */
-    // slither-disable-next-line reentrancy-no-eth
-    function bulkRemoveRecipients(bytes32[] calldata recipientIds) external onlyRecipientAdmin nonReentrant {
-        FlowRecipients.bulkRemoveRecipients(_cfgStorage(), _recipientsStorage(), _childFlowsSet(), recipientIds);
-        _bestEffortRefreshOutflowFromCachedTarget(targetOutflowRate());
-    }
-
-    /**
      * @notice Connects this contract to a Superfluid pool
      * @param poolAddress The address of the Superfluid pool to connect to
      * @dev Only callable by recipient admin or parent authority.

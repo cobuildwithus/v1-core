@@ -10,8 +10,6 @@ import {CustomFlow} from "src/flows/CustomFlow.sol";
 contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBase {
     function test_onlyRecipientAdmin_functions_revertForUnauthorized() public {
         bytes32 id = bytes32(uint256(1));
-        bytes32[] memory ids = new bytes32[](1);
-        ids[0] = id;
 
         vm.startPrank(other);
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
@@ -26,9 +24,6 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
 
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
         flow.removeRecipient(id);
-
-        vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
-        flow.bulkRemoveRecipients(ids);
         vm.stopPrank();
 
         vm.startPrank(allocator);
@@ -48,6 +43,18 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         bytes memory legacyCallData = abi.encodeWithSignature(
             "bulkAddRecipients(bytes32[],address[],(string,string,string,string,string)[])", ids, addrs, metas
         );
+
+        vm.prank(other);
+        _assertCallFails(address(flow), legacyCallData);
+
+        vm.prank(manager);
+        _assertCallFails(address(flow), legacyCallData);
+    }
+
+    function test_removedBulkRemoveRecipients_selector_notExposed_forAnyCaller() public {
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = bytes32(uint256(8002));
+        bytes memory legacyCallData = abi.encodeWithSignature("bulkRemoveRecipients(bytes32[])", ids);
 
         vm.prank(other);
         _assertCallFails(address(flow), legacyCallData);
