@@ -51,4 +51,7 @@ depth = 128
 [rpc_endpoints]
 base = "${RPC_BASE}"
 
+[etherscan]
+base = { key = "${BASESCAN_API_KEY}" }
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
