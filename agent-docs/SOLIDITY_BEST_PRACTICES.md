@@ -34,6 +34,7 @@ Canonical Solidity policy for this repo. `AGENTS.md` hard rules take precedence.
 
 6. Testing and verification:
 - If any `.sol` file is touched, run `pnpm -s verify:required` before handoff.
+- Then run `pnpm -s lint:solidity:warnings` to prevent net-new production lint warnings.
 - Add regression tests for bugfixes/high-risk behavior changes.
 - Do not add production-only helpers just to satisfy tests.
 

@@ -1,0 +1,8 @@
+unsafe-typecast	src/goals/UMATreasurySuccessResolver.sol:56:59
+unsafe-typecast	src/goals/library/TreasurySuccessAssertions.sol:9:61
+unsafe-typecast	src/library/AllocationSnapshot.sol:87:30
+unsafe-typecast	src/library/AllocationSnapshot.sol:88:34
+unsafe-typecast	src/library/AllocationSnapshot.sol:92:30
+unsafe-typecast	src/library/AllocationSnapshot.sol:93:34
+unsafe-typecast	src/library/AllocationSnapshot.sol:94:34
+unsafe-typecast	src/library/AllocationSnapshot.sol:95:34

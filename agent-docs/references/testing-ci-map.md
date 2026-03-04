@@ -3,6 +3,7 @@
 ## Local Verification Baseline
 
 - `pnpm -s verify:required`
+- `pnpm -s lint:solidity:warnings` (fails if production lint-warning set deviates from `scripts/solidity-lint-warning-baseline.tsv`)
 - `pnpm -s verify:required:ci` (optional local CI parity, includes invariants)
 - `verify:required` is queue-backed/coalesced to reduce duplicate concurrent local runs.
 - Queue `required` mode defaults to `FOUNDRY_PROFILE=default` and `TEST_SCOPE_SKIP_SHARED_BUILD=1` for a single-compile local gate path.

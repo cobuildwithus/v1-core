@@ -85,7 +85,7 @@ If instructions still conflict after applying this order, ask the user before ac
 | --- | --- | --- |
 | Docs-only (`*.md`, `agent-docs/**`, no `.sol` edits) | Do not run verification or completion workflow passes by default | Run checks/passes only if the user asks. |
 | Non-doc, non-Solidity changes only (no `.sol` edits; for example scripts/tooling/tests) | Skip `pnpm -s verify:required` by default | Run targeted checks only when requested or when the change itself requires them. |
-| Any `.sol` file touched | Run `pnpm -s verify:required` before handoff | Required gate for Solidity changes. |
+| Any `.sol` file touched | Run `pnpm -s verify:required` and `pnpm -s lint:solidity:warnings` before handoff | Required gate for Solidity changes; warning baseline check fails on new production lint warnings. |
 | User explicitly says to skip checks for this turn | Skip checks | User instruction takes precedence for that turn. |
 
 - `pnpm -s verify:required:full` is optional and only required when explicitly requested by the user.
@@ -94,6 +94,7 @@ If instructions still conflict after applying this order, ask the user before ac
 ## Quick Commands
 
 - Required Solidity gate (local-fast): `pnpm -s verify:required`
+- Solidity warning baseline gate: `pnpm -s lint:solidity:warnings`
 - Full gate (when requested): `pnpm -s verify:required:full`
 - Follow running full gate logs: `pnpm -s verify:full:tail`
 - Commit tool: `scripts/committer "type(scope): summary" path/to/file1 path/to/file2`

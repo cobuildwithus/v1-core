@@ -7,6 +7,7 @@
   "private": true,
   "scripts": {
     "build": "SHARED_BUILD_THREADS=${SHARED_BUILD_THREADS:-0} scripts/forge-build-shared.sh",
+    "lint:solidity:warnings": "scripts/check-solidity-lint-baseline.sh",
     "prettier:check": "prettier --check 'src/**/*.sol'",
     "prettier:write": "prettier --write 'src/**/*.sol'",
     "test": "forge test -vvv",
