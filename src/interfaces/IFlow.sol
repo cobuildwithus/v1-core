@@ -274,6 +274,20 @@ interface IFlow is IFlowEvents, IManagedFlow {
     function getTotalReceivedByMember(address memberAddr) external view returns (uint256 totalAmountReceived);
 
     /**
+     * @notice Returns the total number of recipient slots tracked by this flow.
+     * @dev This is the append-only recipient index table length (includes removed recipients).
+     */
+    function recipientCount() external view returns (uint256 count);
+
+    /**
+     * @notice Resolves recipient id by append-only recipient index.
+     * @param recipientIndex Zero-based recipient index.
+     * @return recipientId Recipient id at the provided index.
+     * @dev Reverts with `INVALID_RECIPIENT_ID` for out-of-range indices.
+     */
+    function recipientIdAtIndex(uint256 recipientIndex) external view returns (bytes32 recipientId);
+
+    /**
      * @notice Enables or disables a recipient while preserving virtual allocation intent.
      * @param recipientId The recipient id.
      * @param enabled Whether the recipient should be enabled.

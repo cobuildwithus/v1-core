@@ -489,6 +489,25 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
+     * @notice Returns the total number of tracked recipient index slots.
+     * @dev This count is append-only and includes removed recipients.
+     */
+    function recipientCount() external view returns (uint256 count) {
+        return _recipientsStorage().recipientIdByIndex.length;
+    }
+
+    /**
+     * @notice Resolves recipient id by append-only recipient index.
+     * @param recipientIndex The zero-based recipient index.
+     * @return recipientId The recipient id at the provided index.
+     */
+    function recipientIdAtIndex(uint256 recipientIndex) external view returns (bytes32 recipientId) {
+        RecipientsState storage recipientsState = _recipientsStorage();
+        if (recipientIndex >= recipientsState.recipientIdByIndex.length) revert INVALID_RECIPIENT_ID();
+        return recipientsState.recipientIdByIndex[recipientIndex];
+    }
+
+    /**
      * @notice Checks if a recipient exists
      * @param recipient The address of the recipient to check
      * @return exists True if the recipient exists, false otherwise
