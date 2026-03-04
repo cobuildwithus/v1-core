@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { IJurorSlasher } from "src/interfaces/IJurorSlasher.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {IJurorSlasher} from "src/interfaces/IJurorSlasher.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Per-goal router that allows multiple arbitrators to slash jurors via a
 /// single stake-vault `jurorSlasher` address.
-contract JurorSlasherRouter is IJurorSlasher {
+contract JurorSlasherRouter is IJurorSlasher, Initializable {
     error ADDRESS_ZERO();
     error ONLY_AUTHORITY();
     error ONLY_AUTHORIZED_SLASHER();
 
     event SlasherAuthorizationSet(address indexed slasher, bool authorized);
 
-    IStakeVault public immutable stakeVault;
-    address public immutable authority;
+    IStakeVault public stakeVault;
+    address public authority;
     mapping(address => bool) public isAuthorizedSlasher;
 
     constructor(IStakeVault stakeVault_, address authority_) {
+        if (address(stakeVault_) != address(0) || authority_ != address(0)) {
+            _initialize(stakeVault_, authority_);
+        }
+        _disableInitializers();
+    }
+
+    function initialize(IStakeVault stakeVault_, address authority_) external initializer {
+        _initialize(stakeVault_, authority_);
+    }
+
+    function _initialize(IStakeVault stakeVault_, address authority_) internal {
         if (address(stakeVault_) == address(0)) revert ADDRESS_ZERO();
         if (authority_ == address(0)) revert ADDRESS_ZERO();
         stakeVault = stakeVault_;
