@@ -150,7 +150,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _hook = config.hook;
         goalRulesets = IJBRulesets(config.goalRulesets);
         goalRevnetId = config.goalRevnetId;
-        cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, _stakeVault.cobuildToken(), goalRulesets, _hook);
+        IERC20 configuredGoalToken = _stakeVault.goalToken();
+        IERC20 configuredCobuildToken = _stakeVault.cobuildToken();
+        cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, configuredCobuildToken, goalRulesets, _hook);
 
         address configuredGoalTreasury = _stakeVault.goalTreasury();
         if (configuredGoalTreasury != address(this)) {
@@ -196,7 +198,11 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             config.goalRevnetId,
             config.minRaiseDeadline,
             derivedDeadline,
-            config.minRaise
+            config.minRaise,
+            config.jurorSlasher,
+            config.underwriterSlasher,
+            address(configuredGoalToken),
+            address(configuredCobuildToken)
         );
     }
 

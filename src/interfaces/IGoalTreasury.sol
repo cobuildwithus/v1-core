@@ -102,7 +102,11 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         uint256 goalRevnetId,
         uint64 minRaiseDeadline,
         uint64 deadline,
-        uint256 minRaise
+        uint256 minRaise,
+        address jurorSlasher,
+        address underwriterSlasher,
+        address goalToken,
+        address cobuildToken
     );
     event HookFundingRecorded(uint256 amount, uint256 totalRaised);
     event FlowRateSynced(int96 targetRate, int96 appliedRate, uint256 treasuryBalance, uint256 timeRemaining);
