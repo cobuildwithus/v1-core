@@ -24,6 +24,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredPremiumEscrowImpl;
     address internal configuredJurorSlasherRouterImpl;
     address internal configuredUnderwriterSlasherRouterImpl;
+    address internal configuredBuybackHookDataHook;
+    address internal configuredBuybackHook;
 
     function setUp() public {
         configuredCobuildTerminal = address(new DummyContract());
@@ -33,6 +35,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredPremiumEscrowImpl = address(new DummyContract());
         configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
+        configuredBuybackHookDataHook = address(new DummyContract());
+        configuredBuybackHook = address(new DummyContract());
         factory = _newFactory(
             configuredStakeVaultImpl,
             configuredBudgetStakeLedgerImpl,
@@ -63,6 +67,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -97,6 +103,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(0),
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -132,6 +140,81 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             noCodeCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenBuybackHookDataHookIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            address(0),
+            configuredBuybackHook,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenBuybackHookHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeBuybackHook = address(0xB00B);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBuybackHook));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            noCodeBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -165,6 +248,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -198,6 +283,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -232,6 +319,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -265,6 +354,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -299,6 +390,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -333,6 +426,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -365,6 +460,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -398,6 +495,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -430,6 +529,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -463,6 +564,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -495,6 +598,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             address(0),
             address(flowImpl),
@@ -528,6 +633,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             noCodeStakeVaultImpl,
             address(flowImpl),
@@ -659,6 +766,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
             address(goalTreasuryImpl),
             stakeVaultImpl,
             address(flowImpl),

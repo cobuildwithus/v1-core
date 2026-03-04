@@ -29,6 +29,8 @@ contract GoalFactory {
     uint8 public immutable COBUILD_DECIMALS;
     uint256 public immutable COBUILD_REVNET_ID;
     address public immutable COBUILD_TERMINAL;
+    address public immutable BUYBACK_HOOK_DATA_HOOK;
+    address public immutable BUYBACK_HOOK;
 
     address public immutable GOAL_TREASURY_IMPL;
     address public immutable STAKE_VAULT_IMPL;
@@ -45,6 +47,8 @@ contract GoalFactory {
     address public immutable DEFAULT_INVALID_ROUND_REWARDS_SINK;
 
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+    uint24 internal constant BUYBACK_POOL_FEE = 10_000;
+    uint32 internal constant BUYBACK_TWAP_WINDOW = 2 days;
 
     struct RevnetParams {
         address owner;
@@ -144,6 +148,8 @@ contract GoalFactory {
         address cobuildToken,
         uint256 cobuildRevnetId,
         address cobuildTerminal,
+        address buybackHookDataHook,
+        address buybackHook,
         address goalTreasuryImpl,
         address stakeVaultImpl,
         address flowImpl,
@@ -162,6 +168,8 @@ contract GoalFactory {
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
         if (cobuildToken == address(0)) revert ADDRESS_ZERO();
         if (cobuildTerminal == address(0)) revert ADDRESS_ZERO();
+        if (buybackHookDataHook == address(0)) revert ADDRESS_ZERO();
+        if (buybackHook == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
         if (stakeVaultImpl == address(0)) revert ADDRESS_ZERO();
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
@@ -186,6 +194,8 @@ contract GoalFactory {
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
         if (cobuildTerminal.code.length == 0) revert NOT_A_CONTRACT(cobuildTerminal);
+        if (buybackHookDataHook.code.length == 0) revert NOT_A_CONTRACT(buybackHookDataHook);
+        if (buybackHook.code.length == 0) revert NOT_A_CONTRACT(buybackHook);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
@@ -198,6 +208,8 @@ contract GoalFactory {
         COBUILD_DECIMALS = IERC20Metadata(cobuildToken).decimals();
         COBUILD_REVNET_ID = cobuildRevnetId;
         COBUILD_TERMINAL = cobuildTerminal;
+        BUYBACK_HOOK_DATA_HOOK = buybackHookDataHook;
+        BUYBACK_HOOK = buybackHook;
 
         GOAL_TREASURY_IMPL = goalTreasuryImpl;
         STAKE_VAULT_IMPL = stakeVaultImpl;
@@ -300,6 +312,10 @@ contract GoalFactory {
                 cashOutTaxRate: p.revnet.cashOutTaxRate,
                 reservedPercent: p.revnet.reservedPercent,
                 durationSeconds: p.revnet.durationSeconds,
+                buybackHookDataHook: BUYBACK_HOOK_DATA_HOOK,
+                buybackHook: BUYBACK_HOOK,
+                buybackPoolFee: BUYBACK_POOL_FEE,
+                buybackTwapWindow: BUYBACK_TWAP_WINDOW,
                 burnAddress: BURN_ADDRESS
             })
         );

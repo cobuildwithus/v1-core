@@ -45,6 +45,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
     address internal cobuildTerminalOut;
+    address internal buybackHookDataHookOut;
+    address internal buybackHookOut;
 
     address internal goalTreasuryImplOut;
     address internal stakeVaultImplOut;
@@ -87,6 +89,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         superfluidHostAddressOut = vm.envOr("SUPERFLUID_HOST", address(0x4C073B3baB6d8826b8C5b229f3cfdC1eC6E47E74));
         cobuildTokenAddressOut = vm.envOr("COBUILD_TOKEN", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb));
         cobuildRevnetIdOut = vm.envOr("COBUILD_REVNET_ID", uint256(138));
+        buybackHookDataHookOut = vm.envAddress("BUYBACK_HOOK_DATA_HOOK");
+        buybackHookOut = vm.envAddress("BUYBACK_HOOK");
 
         escrowBondBpsOut = vm.envOr("ESCROW_BOND_BPS", uint256(5000));
         defaultAllocationMechanismAdminOut = vm.envOr("DEFAULT_ALLOCATION_MECHANISM_ADMIN", deployerAddress);
@@ -174,6 +178,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
+        console2.log("BUYBACK_HOOK_DATA_HOOK:", buybackHookDataHookOut);
+        console2.log("BUYBACK_HOOK:", buybackHookOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("StakeVault impl:", stakeVaultImplOut);
@@ -227,6 +233,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
         _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
+        _writeAddressLine(filePath, "BUYBACK_HOOK_DATA_HOOK", buybackHookDataHookOut);
+        _writeAddressLine(filePath, "BUYBACK_HOOK", buybackHookOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "StakeVaultImpl", stakeVaultImplOut);
@@ -363,6 +371,12 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\n",
             "cobuildTerminal = \"",
             vm.toString(cobuildTerminalOut),
+            "\"\n",
+            "buybackHookDataHook = \"",
+            vm.toString(buybackHookDataHookOut),
+            "\"\n",
+            "buybackHook = \"",
+            vm.toString(buybackHookOut),
             "\"\n\n"
         );
 

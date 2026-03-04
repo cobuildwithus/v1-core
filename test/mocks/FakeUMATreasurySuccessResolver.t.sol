@@ -250,10 +250,14 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     DeployGoalFactoryImplementations internal deployImplementationsScript;
     DeployGoalFactory internal deployFactoryScript;
     address internal revDeployerAddress;
+    address internal buybackHookDataHookAddress;
+    address internal buybackHookAddress;
 
     function setUp() public {
         token = new FakeResolverMockERC20();
         revDeployerAddress = address(new MockRevDeployerForScript(address(new MockDirectoryForScript())));
+        buybackHookDataHookAddress = address(new FakeResolverNoop());
+        buybackHookAddress = address(new FakeResolverNoop());
         deployImplementationsScript = new DeployGoalFactoryImplementations();
         deployFactoryScript = new DeployGoalFactory();
     }
@@ -352,6 +356,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
         assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
+        assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
+        assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
 
         address stakeVaultImpl = deployedFactory.STAKE_VAULT_IMPL();
         address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
@@ -518,6 +524,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
         vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
         vm.setEnv("COBUILD_REVNET_ID", "138");
+        vm.setEnv("BUYBACK_HOOK_DATA_HOOK", vm.toString(buybackHookDataHookAddress));
+        vm.setEnv("BUYBACK_HOOK", vm.toString(buybackHookAddress));
         vm.setEnv("ESCROW_BOND_BPS", "5000");
         vm.setEnv("DEFAULT_ALLOCATION_MECHANISM_ADMIN", "0x000000000000000000000000000000000000dEaD");
         vm.setEnv("DEFAULT_INVALID_ROUND_REWARDS_SINK", "0x000000000000000000000000000000000000dEaD");

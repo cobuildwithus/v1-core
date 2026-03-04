@@ -32,6 +32,10 @@ library GoalFactoryRevnetDeploy {
         uint16 cashOutTaxRate;
         uint16 reservedPercent;
         uint32 durationSeconds;
+        address buybackHookDataHook;
+        address buybackHook;
+        uint24 buybackPoolFee;
+        uint32 buybackTwapWindow;
         address burnAddress;
     }
 
@@ -107,6 +111,12 @@ library GoalFactoryRevnetDeploy {
         });
         terminalConfigs[1] =
             JBTerminalConfig({ terminal: cobuildPaymentTerminal, accountingContextsToAccept: cobuildContexts });
+        IREVDeployer.REVBuybackPoolConfig[] memory buybackPoolConfigurations = new IREVDeployer.REVBuybackPoolConfig[](1);
+        buybackPoolConfigurations[0] = IREVDeployer.REVBuybackPoolConfig({
+            token: JBConstants.NATIVE_TOKEN,
+            fee: request.buybackPoolFee,
+            twapWindow: request.buybackTwapWindow
+        });
 
         uint256 goalRevnetId = request.revDeployer.deployFor(
             0,
@@ -125,9 +135,9 @@ library GoalFactoryRevnetDeploy {
             }),
             terminalConfigs,
             IREVDeployer.REVBuybackHookConfig({
-                dataHook: address(0),
-                hookToConfigure: address(0),
-                poolConfigurations: new IREVDeployer.REVBuybackPoolConfig[](0)
+                dataHook: request.buybackHookDataHook,
+                hookToConfigure: request.buybackHook,
+                poolConfigurations: buybackPoolConfigurations
             }),
             IREVDeployer.REVSuckerDeploymentConfig({
                 deployerConfigurations: new IREVDeployer.JBSuckerDeployerConfig[](0),

@@ -28,6 +28,8 @@ contract GoalFactoryPairDeployer {
         address cobuildToken;
         uint256 cobuildRevnetId;
         address cobuildTerminal;
+        address buybackHookDataHook;
+        address buybackHook;
         address goalTreasuryImpl;
         address stakeVaultImpl;
         address customFlowImpl;
@@ -63,6 +65,8 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.cobuildToken,
             goalFactoryConfig.cobuildRevnetId,
             goalFactoryConfig.cobuildTerminal,
+            goalFactoryConfig.buybackHookDataHook,
+            goalFactoryConfig.buybackHook,
             goalFactoryConfig.goalTreasuryImpl,
             goalFactoryConfig.stakeVaultImpl,
             goalFactoryConfig.customFlowImpl,
@@ -109,6 +113,8 @@ contract DeployGoalFactory is DeployScript {
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
     address internal cobuildTerminalOut;
+    address internal buybackHookDataHookOut;
+    address internal buybackHookOut;
 
     address internal goalTreasuryImplOut;
     address internal stakeVaultImplOut;
@@ -156,6 +162,8 @@ contract DeployGoalFactory is DeployScript {
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
         cobuildTerminalOut = _requireConfigAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal");
+        buybackHookDataHookOut = _requireConfigAddress("BUYBACK_HOOK_DATA_HOOK", "$.core.buybackHookDataHook");
+        buybackHookOut = _requireConfigAddress("BUYBACK_HOOK", "$.core.buybackHook");
 
         escrowBondBpsOut = _resolveUint("ESCROW_BOND_BPS", "$.defaults.escrowBondBps", 5000);
         defaultAllocationMechanismAdminOut = _resolveAddress(
@@ -208,6 +216,8 @@ contract DeployGoalFactory is DeployScript {
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
+        console2.log("BUYBACK_HOOK_DATA_HOOK:", buybackHookDataHookOut);
+        console2.log("BUYBACK_HOOK:", buybackHookOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("StakeVault impl:", stakeVaultImplOut);
@@ -242,6 +252,8 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
         _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
+        _writeAddressLine(filePath, "BUYBACK_HOOK_DATA_HOOK", buybackHookDataHookOut);
+        _writeAddressLine(filePath, "BUYBACK_HOOK", buybackHookOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "StakeVaultImpl", stakeVaultImplOut);
@@ -309,6 +321,8 @@ contract DeployGoalFactory is DeployScript {
                 cobuildToken: cobuildTokenAddressOut,
                 cobuildRevnetId: cobuildRevnetIdOut,
                 cobuildTerminal: cobuildTerminalOut,
+                buybackHookDataHook: buybackHookDataHookOut,
+                buybackHook: buybackHookOut,
                 goalTreasuryImpl: goalTreasuryImplOut,
                 stakeVaultImpl: stakeVaultImplOut,
                 customFlowImpl: customFlowImplOut,
