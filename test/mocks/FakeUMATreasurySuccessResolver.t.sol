@@ -358,13 +358,13 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
         BudgetStakeLedger budgetStakeLedger = BudgetStakeLedger(budgetStakeLedgerImpl);
         assertEq(budgetStakeLedger.goalTreasury(), deployer);
-        vm.expectRevert(BudgetStakeLedger.ALREADY_INITIALIZED.selector);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         budgetStakeLedger.initialize(address(0xBEEF));
 
         GoalFlowAllocationLedgerPipeline allocationPipeline =
             GoalFlowAllocationLedgerPipeline(goalFlowAllocationLedgerPipelineImpl);
         assertEq(allocationPipeline.allocationLedger(), address(0));
-        vm.expectRevert(GoalFlowAllocationLedgerPipeline.ALREADY_INITIALIZED.selector);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         allocationPipeline.initialize(address(0xBEEF));
     }
 
