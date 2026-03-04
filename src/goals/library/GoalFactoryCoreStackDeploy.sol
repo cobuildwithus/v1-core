@@ -133,8 +133,9 @@ library GoalFactoryCoreStackDeploy {
         address jurorSlasher = address(
             new JurorSlasherRouter(IStakeVault(address(out.stakeVault)), request.budgetTcrFactory)
         );
-        UnderwriterSlasherRouter underwriterSlasherRouter =
-            UnderwriterSlasherRouter(Clones.clone(request.underwriterSlasherRouterImpl));
+        UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
+            Clones.clone(request.underwriterSlasherRouterImpl)
+        );
         underwriterSlasherRouter.initialize(
             IStakeVault(address(out.stakeVault)),
             request.predictedBudgetTcr,

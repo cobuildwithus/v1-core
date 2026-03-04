@@ -8,27 +8,9 @@ importers:
 
   .:
     devDependencies:
-      '@bananapus/permission-ids-v5':
-        specifier: ^0.0.2
-        version: 0.0.2
       '@cobuild/review-gpt':
         specifier: ^0.2.7
         version: 0.2.7
-      '@openzeppelin/contracts':
-        specifier: 5.4.0
-        version: 5.4.0
-      '@openzeppelin/contracts-upgradeable':
-        specifier: 5.4.0
-        version: 5.4.0(@openzeppelin/contracts@5.4.0)
-      '@prb/math':
-        specifier: ^4.1.1
-        version: 4.1.1
-      '@uniswap/v4-core':
-        specifier: 1.0.2
-        version: 1.0.2
-      '@uniswap/v4-periphery':
-        specifier: 1.0.3
-        version: 1.0.3
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -41,33 +23,12 @@ importers:
 
 packages:
 
-  '@bananapus/permission-ids-v5@0.0.2':
-    resolution: {integrity: sha512-BZDwUUES7kIEwqsXUMn7B/yc7Xdvn+Sun+Huk6GtXSxgKZwhguL2YSqdOksFcsOqA/YZFKHqBbRh2hi3M+f3Ag==}
-    engines: {node: '>=20.0.0'}
-
   '@cobuild/review-gpt@0.2.7':
     resolution: {integrity: sha512-KtkyovdaRci2zXwjiSXFEOJa5F5KOdpleIBC+4nL5UapzOlN8AktSKUG8yQ2wdF7mcP3XpezFpba/eMXNTdRcQ==}
     hasBin: true
 
-  '@openzeppelin/contracts-upgradeable@5.4.0':
-    resolution: {integrity: sha512-STJKyDzUcYuB35Zub1JpWW58JxvrFFVgQ+Ykdr8A9PGXgtq/obF5uoh07k2XmFyPxfnZdPdBdhkJ/n2YxJ87HQ==}
-    peerDependencies:
-      '@openzeppelin/contracts': 5.4.0
-
-  '@openzeppelin/contracts@5.4.0':
-    resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
-
-  '@prb/math@4.1.1':
-    resolution: {integrity: sha512-3945t7yS+4M3S2+aO+H3+N4pFLQijyhHInmp9hiMXMRq9lyAMnAfrgGodwhaccCPcSNScSh7qIJO5aCa8fPh1Q==}
-
   '@solidity-parser/parser@0.20.2':
     resolution: {integrity: sha512-rbu0bzwNvMcwAjH86hiEAcOeRI2EeK8zCkHDrFykh/Al8mvJeFmjy3UrE7GYQjNwOgbGUUtCn5/k8CB8zIu7QA==}
-
-  '@uniswap/v4-core@1.0.2':
-    resolution: {integrity: sha512-X15Tm2wWd+USAzEExMbo+g9naA6QN6mPgWm0MzDwRNlOfaNlepfUpSyt9RSrUfEODspwbyWbcLg6t5nwc/e7lg==}
-
-  '@uniswap/v4-periphery@1.0.3':
-    resolution: {integrity: sha512-JxLL0Djv9XcMvI2PatEnWrCrxuEaYNVhHxstndBOP+aJfh1XLg5ec8SDZ0xyoVfg2ElJTvuKpBgnu90bNValsg==}
 
   husky@8.0.3:
     resolution: {integrity: sha512-+dQSyqPh4x1hlO1swXBiNb2HzTDN1I2IGLQx1GrBuiqFJfoMrnZWwVmatvSiO+Iz8fBUnf+lekwNo4c2LlXItg==}
@@ -92,23 +53,9 @@ packages:
 
 snapshots:
 
-  '@bananapus/permission-ids-v5@0.0.2': {}
-
   '@cobuild/review-gpt@0.2.7': {}
 
-  '@openzeppelin/contracts-upgradeable@5.4.0(@openzeppelin/contracts@5.4.0)':
-    dependencies:
-      '@openzeppelin/contracts': 5.4.0
-
-  '@openzeppelin/contracts@5.4.0': {}
-
-  '@prb/math@4.1.1': {}
-
   '@solidity-parser/parser@0.20.2': {}
-
-  '@uniswap/v4-core@1.0.2': {}
-
-  '@uniswap/v4-periphery@1.0.3': {}
 
   husky@8.0.3: {}
 
