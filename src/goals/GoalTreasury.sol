@@ -57,7 +57,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     IStakeVault private _stakeVault;
     address private _budgetStakeLedger;
     address private _hook;
-    address private _authority;
 
     IJBRulesets public override goalRulesets;
     uint256 public override goalRevnetId;
@@ -112,6 +111,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (initialOwner == address(0)) revert ADDRESS_ZERO();
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
+        if (config.jurorSlasher == address(0)) revert ADDRESS_ZERO();
+        if (config.underwriterSlasher == address(0)) revert ADDRESS_ZERO();
+        if (config.jurorSlasher.code.length == 0) revert NOT_A_CONTRACT(config.jurorSlasher);
+        if (config.underwriterSlasher.code.length == 0) revert NOT_A_CONTRACT(config.underwriterSlasher);
         if (config.budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (config.budgetStakeLedger.code.length == 0) revert NOT_A_CONTRACT(config.budgetStakeLedger);
         if (config.hook == address(0)) revert ADDRESS_ZERO();
@@ -145,7 +148,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _stakeVault = IStakeVault(config.stakeVault);
         _budgetStakeLedger = config.budgetStakeLedger;
         _hook = config.hook;
-        _authority = initialOwner;
         goalRulesets = IJBRulesets(config.goalRulesets);
         goalRevnetId = config.goalRevnetId;
         cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, _stakeVault.cobuildToken(), goalRulesets, _hook);
@@ -158,6 +160,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (ledgerGoalTreasury != address(this)) {
             revert BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address(this), ledgerGoalTreasury);
         }
+        _stakeVault.setJurorSlasher(config.jurorSlasher);
+        _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();
@@ -234,7 +238,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
 
         if (path == HookSplitPath.SuccessSettlement) {
-            burnAmount = _processSuccessSettlement(sourceToken, sourceAmount);
+            burnAmount = _processSuccessSettlement(sourceAmount);
             return (HookSplitAction.SuccessSettled, 0, burnAmount);
         }
 
@@ -332,22 +336,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
         _settleResidual(finalState);
         _settleDeferredHookFunding(finalState);
-    }
-
-    function configureJurorSlasher(address slasher) external override {
-        if (msg.sender != _authority) revert ONLY_AUTHORITY();
-        _stakeVault.setJurorSlasher(slasher);
-        emit JurorSlasherConfigured(msg.sender, slasher);
-    }
-
-    function configureUnderwriterSlasher(address slasher) external override {
-        if (msg.sender != _authority) revert ONLY_AUTHORITY();
-        _stakeVault.setUnderwriterSlasher(slasher);
-        emit UnderwriterSlasherConfigured(msg.sender, slasher);
-    }
-
-    function authority() external view override returns (address) {
-        return _authority;
     }
 
     function resolved() external view override returns (bool) {
@@ -674,7 +662,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
     }
 
-    function _settleSuccessHookSplit(address sourceToken, uint256 sourceAmount) internal returns (uint256 burnAmount) {
+    function _settleSuccessHookSplit(uint256 sourceAmount) internal returns (uint256 burnAmount) {
         burnAmount = sourceAmount;
 
         if (burnAmount != 0) {
@@ -692,11 +680,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         emit HookFundingRecorded(superTokenAmount, totalRaised);
     }
 
-    function _processSuccessSettlement(
-        address sourceToken,
-        uint256 sourceAmount
-    ) internal returns (uint256 burnAmount) {
-        burnAmount = _settleSuccessHookSplit(sourceToken, sourceAmount);
+    function _processSuccessSettlement(uint256 sourceAmount) internal returns (uint256 burnAmount) {
+        burnAmount = _settleSuccessHookSplit(sourceAmount);
     }
 
     function _processTerminalSettlement(

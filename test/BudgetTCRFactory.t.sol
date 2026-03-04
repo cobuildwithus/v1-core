@@ -11,6 +11,7 @@ import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
+import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -33,7 +34,6 @@ contract _MockImplementation {}
 contract _MockGoalTreasuryForFactory {
     address internal _stakeVault;
     address internal immutable _budgetStakeLedger;
-    address internal _authority;
     address public configuredSlasher;
     address public configuredUnderwriterSlasher;
 
@@ -51,14 +51,6 @@ contract _MockGoalTreasuryForFactory {
 
     function budgetStakeLedger() external view returns (address) {
         return _budgetStakeLedger;
-    }
-
-    function setAuthority(address authority_) external {
-        _authority = authority_;
-    }
-
-    function authority() external view returns (address) {
-        return _authority;
     }
 
     function configureJurorSlasher(address slasher) external {
@@ -257,7 +249,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -297,7 +288,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -337,7 +327,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -380,7 +369,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -433,7 +421,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -484,7 +471,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -531,7 +517,7 @@ contract BudgetTCRFactoryTest is Test {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
-    function test_deployBudgetTCRStackForGoal_reverts_when_underwriter_router_authority_mismatch_and_factory_not_treasury_authority()
+    function test_deployBudgetTCRStackForGoal_reverts_when_underwriter_router_mismatches_stake_vault_configuration()
         public
     {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
@@ -541,7 +527,6 @@ contract BudgetTCRFactoryTest is Test {
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
-        goalTreasury.setAuthority(makeAddr("external-authority"));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
@@ -574,13 +559,15 @@ contract BudgetTCRFactoryTest is Test {
             deploymentConfig.goalRevnetId,
             address(registryConfig.votingToken)
         );
-        address unexpectedAuthority = makeAddr("unexpected-underwriter-authority");
-        deploymentConfig.underwriterSlasherRouter =
-            address(new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), unexpectedAuthority));
+        address mismatchedRouter =
+            address(new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), expectedBudgetTCR));
+        deploymentConfig.underwriterSlasherRouter = mismatchedRouter;
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                BudgetTCRFactory.INVALID_UNDERWRITER_SLASHER_AUTHORITY.selector, expectedBudgetTCR, unexpectedAuthority
+                BudgetTCRFactory.UNDERWRITER_SLASHER_MISMATCH.selector,
+                mismatchedRouter,
+                stakeVault.underwriterSlasher()
             )
         );
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
@@ -597,7 +584,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -648,7 +634,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -700,7 +685,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
@@ -779,7 +763,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         JurorSlasherRouter existingRouter = new JurorSlasherRouter(IStakeVault(address(stakeVault)), address(factory));
         goalTreasury.configureJurorSlasher(address(existingRouter));
@@ -825,7 +808,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         address unsupportedSlasher = address(new _MockImplementation());
         goalTreasury.configureJurorSlasher(unsupportedSlasher);
@@ -869,7 +851,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         address unexpectedAuthority = makeAddr("unexpected-authority");
         JurorSlasherRouter wrongAuthorityRouter =
@@ -917,7 +898,6 @@ contract BudgetTCRFactoryTest is Test {
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
-        goalTreasury.setAuthority(address(factory));
 
         _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory otherStakeVault = new _MockStakeVaultForFactory(address(otherGoalTreasury));
@@ -956,7 +936,7 @@ contract BudgetTCRFactoryTest is Test {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
-    function test_deployBudgetTCRStackForGoal_skipsSlasherConfigureWhenFactoryNotAuthority() public {
+    function test_deployBudgetTCRStackForGoal_reverts_when_juror_slasher_not_preconfigured() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
@@ -989,16 +969,10 @@ contract BudgetTCRFactoryTest is Test {
             IERC20(address(votingToken)),
             IERC20(address(votingToken))
         );
+        goalTreasury.configureJurorSlasher(address(0));
 
-        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
-            factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
-
-        assertTrue(deployed.budgetTCR != address(0));
-        assertTrue(deployed.arbitrator != address(0));
-        assertEq(goalTreasury.configuredSlasher(), address(0));
-        assertEq(stakeVault.jurorSlasher(), address(0));
-        assertEq(goalTreasury.configuredUnderwriterSlasher(), address(0));
-        assertEq(stakeVault.underwriterSlasher(), address(0));
+        vm.expectRevert(BudgetTCRFactory.JUROR_SLASHER_NOT_CONFIGURED.selector);
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
     function test_deployBudgetTCRStackForGoal_wiresCloneFirstStackDeployer_withoutNonceGetter() public {
@@ -1116,6 +1090,7 @@ contract BudgetTCRFactoryTest is Test {
         deploymentConfig.underwriterSlasherRouter = address(
             new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), expectedBudgetTCR)
         );
+        goalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
 
         IArbitrator.ArbitratorParams memory arbitratorParams = _defaultArbitratorParams();
 
@@ -1398,7 +1373,8 @@ contract BudgetTCRFactoryTest is Test {
                 address(new BudgetTreasury()),
                 address(new RoundFactory()),
                 address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
-                address(new ERC20VotesArbitrator())
+                address(new ERC20VotesArbitrator()),
+                address(new BudgetFlowRouterStrategy(address(0), address(0)))
             )
         );
     }
@@ -1460,8 +1436,15 @@ contract BudgetTCRFactoryTest is Test {
             deploymentConfig.goalRevnetId,
             address(votingToken)
         );
+        _MockGoalTreasuryForFactory mockGoalTreasury = _MockGoalTreasuryForFactory(address(goalTreasury));
+        if (_MockStakeVaultForFactory(address(stakeVault)).jurorSlasher() == address(0)) {
+            mockGoalTreasury.configureJurorSlasher(address(new JurorSlasherRouter(stakeVault, address(factory))));
+        }
         deploymentConfig.underwriterSlasherRouter = address(
             new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR)
         );
+        if (_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher() == address(0)) {
+            mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
+        }
     }
 }
