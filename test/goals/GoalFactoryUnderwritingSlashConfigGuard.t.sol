@@ -17,6 +17,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
 
     GoalFactory internal factory;
+    address internal configuredCobuildTerminal;
     address internal configuredStakeVaultImpl;
     address internal configuredBudgetStakeLedgerImpl;
     address internal configuredGoalFlowAllocationLedgerPipelineImpl;
@@ -25,6 +26,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredUnderwriterSlasherRouterImpl;
 
     function setUp() public {
+        configuredCobuildTerminal = address(new DummyContract());
         configuredStakeVaultImpl = address(new DummyContract());
         configuredBudgetStakeLedgerImpl = address(new DummyContract());
         configuredGoalFlowAllocationLedgerPipelineImpl = address(new DummyContract());
@@ -60,6 +62,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -71,6 +74,75 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             address(0),
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenCobuildTerminalIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(0),
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenCobuildTerminalHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeCobuildTerminal = address(0xC0B1D);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeCobuildTerminal));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            noCodeCobuildTerminal,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
     }
@@ -92,6 +164,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -124,6 +197,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -157,6 +231,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -189,6 +264,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -222,6 +298,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -255,6 +332,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -286,6 +364,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -318,6 +397,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -349,6 +429,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -381,6 +462,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             configuredStakeVaultImpl,
             address(flowImpl),
@@ -412,6 +494,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             address(0),
             address(flowImpl),
@@ -444,6 +527,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             noCodeStakeVaultImpl,
             address(flowImpl),
@@ -481,6 +565,10 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_constructor_setsUnderwriterSlasherRouterImplementationImmutable() public view {
         assertEq(factory.UNDERWRITER_SLASHER_ROUTER_IMPL(), configuredUnderwriterSlasherRouterImpl);
+    }
+
+    function test_constructor_setsCobuildTerminalImmutable() public view {
+        assertEq(factory.COBUILD_TERMINAL(), configuredCobuildTerminal);
     }
 
     function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
@@ -570,6 +658,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
             address(cobuildToken),
             1,
+            configuredCobuildTerminal,
             address(goalTreasuryImpl),
             stakeVaultImpl,
             address(flowImpl),
