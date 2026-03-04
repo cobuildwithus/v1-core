@@ -23,7 +23,7 @@ library FlowUnitMath {
 
     function floorToUnitWeightScale(uint256 amount) internal pure returns (uint256) {
         uint256 scale = FlowProtocolConstants.UNIT_WEIGHT_SCALE;
-        return amount - (amount % scale);
+        return Math.mulDiv(amount, 1, scale) * scale;
     }
 
     function effectiveAllocatedStake(
