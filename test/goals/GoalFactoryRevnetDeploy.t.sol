@@ -225,6 +225,94 @@ contract GoalFactoryRevnetDeployTest is Test {
         assertEq(revDeployer.lastSalt(), _expectedSalt(splitHook));
     }
 
+    function test_deployRevnet_saltIgnoresExternalInvokerAndUsesCallerContext() public {
+        uint256 cobuildRevnetId = 7;
+        uint256 deployedRevnetId = 99;
+        address cobuildTerminal = address(new DummyTerminal());
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+        address splitHook = address(0x5157);
+        address externalInvoker = address(0xBEEF);
+
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+        revDeployer.setNextRevnetId(deployedRevnetId);
+        tokens.setTokenOf(deployedRevnetId, address(0xABCD));
+
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: cobuildTerminal,
+            splitHook: splitHook,
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+
+        vm.prank(externalInvoker);
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+
+        bytes32 expectedFactorySeeded = _expectedSalt(splitHook);
+        bytes32 expectedInvokerSeeded = keccak256(abi.encode(externalInvoker, splitHook));
+
+        assertEq(revDeployer.lastSalt(), expectedFactorySeeded);
+        assertTrue(revDeployer.lastSalt() != expectedInvokerSeeded);
+    }
+
+    function test_deployRevnet_saltStableAcrossDistinctInvokersForSameSplitHook() public {
+        uint256 cobuildRevnetId = 7;
+        address cobuildTerminal = address(new DummyTerminal());
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+        address splitHook = address(0x5157);
+
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: cobuildTerminal,
+            splitHook: splitHook,
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+
+        revDeployer.setNextRevnetId(99);
+        tokens.setTokenOf(99, address(0xABCD));
+        vm.prank(address(0xA11CE));
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+        bytes32 firstSalt = revDeployer.lastSalt();
+
+        revDeployer.setNextRevnetId(100);
+        tokens.setTokenOf(100, address(0xABCE));
+        vm.prank(address(0xB0B));
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+        bytes32 secondSalt = revDeployer.lastSalt();
+
+        assertEq(firstSalt, secondSalt);
+        assertEq(firstSalt, _expectedSalt(splitHook));
+    }
+
     function test_deployRevnet_saltVariesAcrossDistinctSplitHooks() public {
         uint256 cobuildRevnetId = 7;
         address cobuildTerminal = address(new DummyTerminal());

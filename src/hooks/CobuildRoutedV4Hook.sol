@@ -209,6 +209,8 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         if (params.amountSpecified >= 0) revert EXACT_OUTPUT_UNSUPPORTED();
 
         uint256 amountIn = uint256(-params.amountSpecified);
+        // `amountOutMin` is the route-agnostic slippage guard for custom-accounted routes.
+        // JB terminals do not expose a `sqrtPriceLimitX96` input.
         uint256 amountOutMin = _decodeAmountOutMin(hookData);
 
         address tokenIn = Currency.unwrap(params.zeroForOne ? key.currency0 : key.currency1);
@@ -259,7 +261,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
 
         uint256 outputReceived;
         if (route == Route.V3) {
-            (bool v3Success, uint256 v3Output) = _routeThroughV3(tokenIn, tokenOut, amountIn);
+            (bool v3Success, uint256 v3Output) = _routeThroughV3(key, params, tokenIn, tokenOut, amountIn);
 
             if (v3Success) {
                 outputReceived = v3Output;
@@ -330,13 +332,21 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
 
     function _decodeAmountOutMin(bytes calldata hookData) internal pure returns (uint256) {
         if (hookData.length == 0) return 0;
-        if (hookData.length == 32) return abi.decode(hookData, (uint256));
-        if (hookData.length == 64) {
-            (uint256 version, uint256 amountOutMin) = abi.decode(hookData, (uint256, uint256));
-            if (version != 1) revert INVALID_HOOKDATA();
-            return amountOutMin;
+        if (hookData.length < 32) revert INVALID_HOOKDATA();
+
+        uint256 firstWord;
+        assembly ("memory-safe") {
+            firstWord := calldataload(hookData.offset)
         }
-        revert INVALID_HOOKDATA();
+
+        // Backward compatibility for legacy versioned encoding: abi.encode(uint256(1), amountOutMin)
+        if (hookData.length == 64 && firstWord == 1) {
+            assembly ("memory-safe") {
+                firstWord := calldataload(add(hookData.offset, 32))
+            }
+        }
+
+        return firstWord;
     }
 
     function _fallbackToV4(PoolId poolId, uint256 amountOutMin) internal returns (bytes4, BeforeSwapDelta, uint24) {
@@ -390,6 +400,8 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
     }
 
     function _routeThroughV3(
+        PoolKey calldata key,
+        SwapParams calldata params,
         address tokenIn,
         address tokenOut,
         uint256 amountIn
@@ -398,7 +410,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         if (pool == address(0)) return (false, 0);
 
         bool zeroForOne = tokenIn < tokenOut;
-        uint160 sqrtPriceLimit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+        uint160 sqrtPriceLimit = _resolveV3SqrtPriceLimit(key, params, zeroForOne);
 
         try
             IUniswapV3Pool(pool).swap(
@@ -414,6 +426,23 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         } catch {
             return (false, 0);
         }
+    }
+
+    function _resolveV3SqrtPriceLimit(
+        PoolKey calldata key,
+        SwapParams calldata params,
+        bool v3ZeroForOne
+    ) internal pure returns (uint160) {
+        uint160 defaultLimit = v3ZeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+        uint160 requestedLimit = params.sqrtPriceLimitX96;
+        if (requestedLimit == 0) return defaultLimit;
+
+        (address ordered0, address ordered1, ) = _order(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1));
+        bool orderingMatchesV3 = Currency.unwrap(key.currency0) == ordered0 &&
+            Currency.unwrap(key.currency1) == ordered1;
+        if (!orderingMatchesV3) return defaultLimit;
+
+        return requestedLimit;
     }
 
     function _settleOutput(Currency outCur, uint256 amount) internal {
@@ -535,7 +564,8 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         if (!latest.initialized) return 0;
 
         uint32 nowTs = uint32(block.timestamp);
-        uint32 targetTs = nowTs > TWAP_WINDOW ? nowTs - TWAP_WINDOW : 0;
+        (bool hasWindow, uint32 targetTs) = _effectiveV4TwapTargetTimestamp(poolId, state, nowTs);
+        if (!hasWindow) return 0;
 
         (bool found, Observation memory past) = _findObservationAtOrBefore(poolId, state, targetTs);
         if (!found) return 0;
@@ -550,6 +580,31 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         if (delta < 0 && (delta % divisor != 0)) twapTick--;
 
         return TickMath.getSqrtPriceAtTick(twapTick);
+    }
+
+    function _effectiveV4TwapTargetTimestamp(
+        PoolId poolId,
+        OracleState memory state,
+        uint32 nowTs
+    ) internal view returns (bool hasWindow, uint32 targetTs) {
+        Observation memory oldest = _oldestObservation(poolId, state);
+        if (!oldest.initialized || nowTs <= oldest.timestamp) return (false, 0);
+
+        uint32 available = nowTs - oldest.timestamp;
+        uint32 window = TWAP_WINDOW > available ? available : TWAP_WINDOW;
+        if (window == 0) return (false, 0);
+
+        return (true, nowTs - window);
+    }
+
+    function _oldestObservation(
+        PoolId poolId,
+        OracleState memory state
+    ) internal view returns (Observation memory oldest) {
+        uint16 oldestIndex = state.cardinality < ORACLE_CARDINALITY
+            ? 0
+            : uint16((uint256(state.index) + 1) % ORACLE_CARDINALITY);
+        oldest = observations[poolId][oldestIndex];
     }
 
     function _findObservationAtOrBefore(
