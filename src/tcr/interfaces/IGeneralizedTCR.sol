@@ -204,6 +204,54 @@ interface IGeneralizedTCR {
         IArbitrable.Party ruling
     );
 
+    function addItem(bytes calldata _item) external returns (bytes32 itemID);
+    function removeItem(bytes32 _itemID, string calldata _evidence) external;
+    function challengeRequest(bytes32 _itemID, string calldata _evidence) external;
+    function withdrawFeesAndRewards(address _beneficiary, bytes32 _itemID, uint256 _request, uint256 _round) external;
+    function executeRequest(bytes32 _itemID) external;
+    function executeRequestTimeout(bytes32 _itemID) external;
+    function submitEvidence(bytes32 _itemID, string calldata _evidence) external;
+    function getTotalCosts()
+        external
+        view
+        returns (
+            uint256 addItemCost,
+            uint256 removeItemCost,
+            uint256 challengeSubmissionCost,
+            uint256 challengeRemovalCost,
+            uint256 arbitrationCost
+        );
+    function itemCount() external view returns (uint256 count);
+    function getContributions(
+        bytes32 _itemID,
+        uint256 _request,
+        uint256 _round,
+        address _contributor
+    ) external view returns (uint256[3] memory contributions);
+    function getItemInfo(bytes32 _itemID) external view returns (bytes memory data, Status status, uint256 numberOfRequests);
+    function getRequestInfo(
+        bytes32 _itemID,
+        uint256 _request
+    )
+        external
+        view
+        returns (
+            bool disputed,
+            uint256 disputeID,
+            uint256 submissionTime,
+            bool resolved,
+            address[3] memory parties,
+            uint256 numberOfRounds,
+            IArbitrable.Party ruling,
+            IArbitrator arbitrator,
+            bytes memory arbitratorExtraData,
+            uint256 metaEvidenceID
+        );
+    function getRoundInfo(
+        bytes32 _itemID,
+        uint256 _request,
+        uint256 _round
+    ) external view returns (uint256[3] memory amountPaid, bool[3] memory hasPaid, uint256 feeRewards);
     function getLatestRequestIndex(bytes32 _itemID) external view returns (bool exists, uint256 requestIndex);
     function getRequestSnapshot(
         bytes32 _itemID,
