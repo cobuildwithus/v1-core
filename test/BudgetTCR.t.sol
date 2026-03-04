@@ -2095,7 +2095,7 @@ contract BudgetTCRTest is TestUtils {
             address(new RoundFactory()),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
-            address(new BudgetFlowRouterStrategy(address(0), address(0)))
+            address(new BudgetFlowRouterStrategy())
         );
         return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }

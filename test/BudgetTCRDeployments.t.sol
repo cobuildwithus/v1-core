@@ -213,7 +213,9 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
         cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
         budgetStakeLedger = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
-        sharedStrategy = new BudgetFlowRouterStrategy(address(budgetStakeLedger), address(this));
+        BudgetFlowRouterStrategy strategyImplementation = new BudgetFlowRouterStrategy();
+        sharedStrategy = BudgetFlowRouterStrategy(Clones.clone(address(strategyImplementation)));
+        sharedStrategy.initialize(address(budgetStakeLedger), address(this));
         budgetTreasuryImplementation = new BudgetTreasury();
         premiumEscrowImplementation = new PremiumEscrow();
         goalFlow = new BudgetTCRStackDeploymentLibMockGoalFlow(address(goalToken));
@@ -606,11 +608,34 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
             address(new RoundFactory()),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
-            address(new BudgetFlowRouterStrategy(address(0), address(0)))
+            address(new BudgetFlowRouterStrategy())
         );
 
         vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
         implementation.initialize(address(this), premiumEscrowImplementationAddress);
+    }
+
+    function test_strategyImplementation_revertsWhenInitializedDirectly() public {
+        BudgetFlowRouterStrategy implementation = new BudgetFlowRouterStrategy();
+
+        vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
+        implementation.initialize(address(budgetStakeLedgerA), address(this));
+    }
+
+    function test_strategyCloneInitialize_revertsWhenLedgerIsZero() public {
+        BudgetFlowRouterStrategy implementation = new BudgetFlowRouterStrategy();
+        BudgetFlowRouterStrategy clone = BudgetFlowRouterStrategy(Clones.clone(address(implementation)));
+
+        vm.expectRevert(abi.encodeWithSelector(IAllocationStrategy.ADDRESS_ZERO.selector));
+        clone.initialize(address(0), address(this));
+    }
+
+    function test_strategyCloneInitialize_revertsWhenRegistrarIsZero() public {
+        BudgetFlowRouterStrategy implementation = new BudgetFlowRouterStrategy();
+        BudgetFlowRouterStrategy clone = BudgetFlowRouterStrategy(Clones.clone(address(implementation)));
+
+        vm.expectRevert(abi.encodeWithSelector(IAllocationStrategy.ADDRESS_ZERO.selector));
+        clone.initialize(address(budgetStakeLedgerA), address(0));
     }
 
     function test_registerChildFlowRecipient_revertsWhenCallerIsNotBudgetTCR() public {
@@ -847,7 +872,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
             address(new RoundFactory()),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
-            address(new BudgetFlowRouterStrategy(address(0), address(0)))
+            address(new BudgetFlowRouterStrategy())
         );
         return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }

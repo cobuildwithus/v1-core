@@ -21,18 +21,11 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
     mapping(address flow => bytes32 recipientId) private _recipientIdByFlow;
     mapping(address flow => bool registered) private _flowRegistered;
 
-    constructor(address budgetStakeLedger_, address registrar_) {
-        if (budgetStakeLedger_ != address(0) || registrar_ != address(0)) {
-            _initialize(budgetStakeLedger_, registrar_);
-        }
+    constructor() {
         _disableInitializers();
     }
 
     function initialize(address budgetStakeLedger_, address registrar_) external initializer {
-        _initialize(budgetStakeLedger_, registrar_);
-    }
-
-    function _initialize(address budgetStakeLedger_, address registrar_) internal {
         if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (registrar_ == address(0)) revert ADDRESS_ZERO();
         budgetStakeLedger = IBudgetStakeLedger(budgetStakeLedger_);

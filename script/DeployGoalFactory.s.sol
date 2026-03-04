@@ -102,7 +102,7 @@ contract DeployGoalFactory is DeployScript {
         RoundFactory roundFactoryImpl = new RoundFactory();
         AllocationMechanismTCR allocationMechanismTcrImpl =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
-        BudgetFlowRouterStrategy budgetFlowRouterStrategyImpl = new BudgetFlowRouterStrategy(address(0), address(0));
+        BudgetFlowRouterStrategy budgetFlowRouterStrategyImpl = new BudgetFlowRouterStrategy();
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();

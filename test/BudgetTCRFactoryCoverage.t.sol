@@ -272,7 +272,7 @@ contract BudgetTCRFactoryCoverageTest is Test {
                 address(new RoundFactory()),
                 address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
                 address(new ERC20VotesArbitrator()),
-                address(new BudgetFlowRouterStrategy(address(0), address(0)))
+                address(new BudgetFlowRouterStrategy())
             )
         );
     }
