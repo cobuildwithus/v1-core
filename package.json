@@ -32,6 +32,7 @@
     "test:flows:fast": "FOUNDRY_PROFILE=fast-local TEST_SCOPE_THREADS=${TEST_SCOPE_THREADS:-0} TEST_SCOPE_BUILD_THREADS=${TEST_SCOPE_BUILD_THREADS:-0} scripts/test-scope.sh flows",
     "test:goals:fast": "FOUNDRY_PROFILE=fast-local TEST_SCOPE_THREADS=${TEST_SCOPE_THREADS:-0} TEST_SCOPE_BUILD_THREADS=${TEST_SCOPE_BUILD_THREADS:-0} scripts/test-scope.sh goals",
     "deploy:implementations": "forge script script/DeployGoalFactoryImplementations.s.sol:DeployGoalFactoryImplementations --chain base --rpc-url base --broadcast --verify",
+    "deploy:factory": "forge script script/DeployGoalFactory.s.sol:DeployGoalFactory --chain base --rpc-url base --broadcast --verify",
     "verify:full": "FULL_GATE_BUILD_THREADS=${FULL_GATE_BUILD_THREADS:-0} scripts/verify-full-gate.sh",
     "verify:full:strict": "FULL_GATE_BUILD_THREADS=${FULL_GATE_BUILD_THREADS:-0} scripts/verify-full-gate.sh --fail-on-stale",
     "verify:full:nowait": "FULL_GATE_BUILD_THREADS=${FULL_GATE_BUILD_THREADS:-0} scripts/verify-full-gate.sh --no-wait",
