@@ -18,16 +18,17 @@ If instructions still conflict after applying this order, ask the user before ac
 
 1. `agent-docs/index.md`
 2. `ARCHITECTURE.md`
-3. `agent-docs/cobuild-protocol-architecture.md`
-4. `agent-docs/product-specs/protocol-lifecycle-and-invariants.md`
-5. `agent-docs/RELIABILITY.md`
-6. `agent-docs/SECURITY.md`
-7. `agent-docs/references/module-boundary-map.md`
-8. `agent-docs/references/goal-funding-and-reward-map.md`
-9. `agent-docs/references/testing-ci-map.md`
-10. `agent-docs/operations/verification-and-runtime.md`
-11. `agent-docs/operations/completion-workflow.md`
-12. `AGENT_MEMORY.md` (historical context when needed)
+3. `agent-docs/SOLIDITY_BEST_PRACTICES.md`
+4. `agent-docs/cobuild-protocol-architecture.md`
+5. `agent-docs/product-specs/protocol-lifecycle-and-invariants.md`
+6. `agent-docs/RELIABILITY.md`
+7. `agent-docs/SECURITY.md`
+8. `agent-docs/references/module-boundary-map.md`
+9. `agent-docs/references/goal-funding-and-reward-map.md`
+10. `agent-docs/references/testing-ci-map.md`
+11. `agent-docs/operations/verification-and-runtime.md`
+12. `agent-docs/operations/completion-workflow.md`
+13. `AGENT_MEMORY.md` (historical context when needed)
 
 ## Hard Rules (Non-Negotiable)
 
@@ -43,13 +44,13 @@ If instructions still conflict after applying this order, ask the user before ac
 - Release ownership is user-operated: do not run release/version-bump/publish flows (including tag-push release triggers) unless the user explicitly asks in the current turn.
 - Never lower CI coverage minimums without explicit user approval in the current chat; keep both `COVERAGE_LINES_MIN` and `COVERAGE_BRANCHES_MIN` at `85` or higher.
 - If a task appears to require a `lib/**` change, stop and ask the user for explicit approval and an alternative approach first.
+- For any Solidity-affecting task, read and follow `agent-docs/SOLIDITY_BEST_PRACTICES.md` before implementation.
 - Use canonical external interfaces: import from local `lib/**` packages when available; otherwise copy exact canonical interface files from upstream (do not invent minimal/approximate variants).
 - Do not inline helper interfaces or externally consumed structs inside concrete contracts; define/reuse them in `src/interfaces/**` (for example `IFlow`/`ICustomFlow`) and import from there.
 - In protocol lifecycle code, prefer typed interface calls over low-level selector `.call` helpers; when best-effort behavior is required, use typed `try/catch` with explicit failure observability.
 - Do not add internal/private production helpers solely to satisfy tests. Test-specific composition belongs in `test/**` harnesses/mocks, or tests should exercise existing production entry points.
 - Historical docs are immutable snapshots. Do not edit past/historical plan docs (especially under `agent-docs/exec-plans/completed/`); create a new plan for new work instead.
 - Treat upgrade auth, funds flow, and cross-contract callback paths as security-critical.
-- Clone/proxy safety invariant: never rely on constructor-baked `immutable` values for per-instance configuration in clone/proxy implementations; clones/proxies read implementation bytecode, so per-instance config must be initializer-set storage. Constructor immutables are only allowed when intentionally deployment-wide constants shared by every instance.
 - Assume trusted core deployments for this repo: avoid adding compatibility shims that silently continue when required selectors/interfaces are missing; prefer strict interface calls and explicit failures.
 - Use a hard cutover approach and never implement backward compatibility unless explicitly asked.
 - Deployment status (as of 2026-02-20): there are no live protocol deployments yet.

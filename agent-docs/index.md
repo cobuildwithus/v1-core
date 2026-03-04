@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-01
+Last verified: 2026-03-04
 
 ## Purpose
 
@@ -15,6 +15,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/product-specs/index.md` | Index for protocol behavior contracts. | `agent-docs/product-specs/**` | Protocol + Product Maintainers | Monthly | High | 2026-02-18 |
 | `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per behavior-change PR | High | 2026-02-27 |
 | `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
+| `agent-docs/SOLIDITY_BEST_PRACTICES.md` | Canonical Solidity engineering practices (forge-first toolchain, clone/proxy safety, boundaries, verification rules). | `AGENTS.md`, `ARCHITECTURE.md`, lifecycle/security/reliability/deployment docs | Protocol Maintainers | Per Solidity policy/process change | High | 2026-03-04 |
 | `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
 | `agent-docs/protocol-audit-deep-dive.md` | Auditor guide to lifecycle states, fund routes, underwriting/slash paths, unlock gates, and review anchors. | `src/goals/**`, `src/hooks/**`, `src/Flow.sol`, `src/tcr/**`, `test/**` | Protocol Maintainers | Per protocol behavior PR | High | 2026-03-01 |
 | `agent-docs/references/known-design-intent-edge-cases.md` | Consolidated high-sensitivity design-intent edge cases and accepted-risk semantics for audit-facing context. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per security-risk PR | High | 2026-02-27 |
