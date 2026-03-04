@@ -12,8 +12,12 @@ import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3
 import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 function _stringContains(string memory haystack, string memory needle) pure returns (bool) {
     bytes memory haystackBytes = bytes(haystack);
@@ -232,7 +236,7 @@ contract FakeResolverMockERC20 is ERC20 {
 
 contract DeployGoalFactoryScriptWiringTest is Test {
     uint256 internal constant PRIVATE_KEY = 0xA11CE;
-    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 12;
+    uint256 internal constant FAKE_RESOLVER_CREATE_OFFSET = 18;
     address internal constant REV_DEPLOYER = address(0x1001);
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant FAKE_UMA_OWNER = address(0xF00D);
@@ -277,6 +281,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
         assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
         assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
+        assertTrue(_stringContains(artifact, "StakeVaultImpl: 0x"));
         assertTrue(_stringContains(artifact, "BudgetStakeLedgerImpl: 0x"));
         assertTrue(_stringContains(artifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
         assertTrue(_stringContains(artifact, "PremiumEscrowImpl: 0x"));
@@ -300,6 +305,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID))));
 
         string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
+        assertTrue(_stringContains(latestArtifact, "StakeVaultImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "BudgetStakeLedgerImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
         assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
@@ -329,10 +335,18 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
 
+        address stakeVaultImpl = deployedFactory.STAKE_VAULT_IMPL();
         address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
         address goalFlowAllocationLedgerPipelineImpl = deployedFactory.GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL();
+        assertGt(stakeVaultImpl.code.length, 0);
         assertGt(budgetStakeLedgerImpl.code.length, 0);
         assertGt(goalFlowAllocationLedgerPipelineImpl.code.length, 0);
+
+        StakeVault stakeVault = StakeVault(stakeVaultImpl);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        stakeVault.initialize(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
 
         BudgetStakeLedger budgetStakeLedger = BudgetStakeLedger(budgetStakeLedgerImpl);
         assertEq(budgetStakeLedger.goalTreasury(), deployer);

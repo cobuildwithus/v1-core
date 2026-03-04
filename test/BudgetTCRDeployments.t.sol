@@ -16,7 +16,6 @@ import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
-import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -214,7 +213,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
         cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
         budgetStakeLedger = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
-        sharedStrategy = new BudgetFlowRouterStrategy(IBudgetStakeLedger(address(budgetStakeLedger)), address(this));
+        sharedStrategy = new BudgetFlowRouterStrategy(address(budgetStakeLedger), address(this));
         budgetTreasuryImplementation = new BudgetTreasury();
         premiumEscrowImplementation = new PremiumEscrow();
         goalFlow = new BudgetTCRStackDeploymentLibMockGoalFlow(address(goalToken));
@@ -588,6 +587,32 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         deployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
     }
 
+    function test_initialize_revertsOnSecondCall() public {
+        address initialBudgetTcr = deployer.budgetTCR();
+        address initialPremiumEscrowImplementation = deployer.premiumEscrowImplementation();
+        address nextPremiumEscrowImplementation = address(new PremiumEscrow());
+
+        vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
+        deployer.initialize(makeAddr("next-budget-tcr"), nextPremiumEscrowImplementation);
+
+        assertEq(deployer.budgetTCR(), initialBudgetTcr);
+        assertEq(deployer.premiumEscrowImplementation(), initialPremiumEscrowImplementation);
+    }
+
+    function test_initialize_revertsWhenCalledOnImplementation() public {
+        address premiumEscrowImplementationAddress = address(new PremiumEscrow());
+        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(new RoundFactory()),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy(address(0), address(0)))
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
+        implementation.initialize(address(this), premiumEscrowImplementationAddress);
+    }
+
     function test_registerChildFlowRecipient_revertsWhenCallerIsNotBudgetTCR() public {
         BudgetTCRDeployer guardedDeployer = _deployBudgetTcrDeployer();
         guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation));
@@ -741,14 +766,89 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         );
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
-        return BudgetTCRDeployer(
-            new BudgetTCRDeployer(
-                address(new BudgetTreasury()),
-                address(new RoundFactory()),
-                address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
-                address(new ERC20VotesArbitrator())
-            )
+    function test_prepareBudgetStack_initializesClonedStrategyAndLocksStrategyInitializer() public {
+        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(budgetStakeLedgerA),
+            address(goalFlow),
+            address(underwriterSlasherRouter),
+            50_000,
+            bytes32(uint256(1))
         );
+
+        BudgetFlowRouterStrategy strategy = BudgetFlowRouterStrategy(prepared.strategy);
+        assertEq(address(strategy.budgetStakeLedger()), address(budgetStakeLedgerA));
+        assertEq(strategy.registrar(), address(deployer));
+        assertNotEq(prepared.strategy, deployer.budgetFlowRouterStrategyImplementation());
+
+        vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
+        strategy.initialize(address(budgetStakeLedgerB), address(this));
+    }
+
+    function test_prepareBudgetStack_revertsWhenBudgetStakeLedgerIsZeroWithoutMutatingSharedState() public {
+        vm.expectRevert();
+        deployer.prepareBudgetStack(
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(0x1234)),
+            1,
+            18,
+            address(0),
+            address(goalFlow),
+            address(underwriterSlasherRouter),
+            50_000,
+            bytes32(uint256(1))
+        );
+
+        assertEq(deployer.sharedBudgetFlowStrategy(), address(0));
+        assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(0));
+    }
+
+    function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationIsZero() public {
+        address budgetTreasuryImplementation = address(new BudgetTreasury());
+        address roundFactory = address(new RoundFactory());
+        address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
+        address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
+
+        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
+        new BudgetTCRDeployer(
+            budgetTreasuryImplementation,
+            roundFactory,
+            allocationMechanismTcrImplementation,
+            allocationMechanismArbitratorImplementation,
+            address(0)
+        );
+    }
+
+    function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationHasNoCode() public {
+        address budgetTreasuryImplementation = address(new BudgetTreasury());
+        address roundFactory = address(new RoundFactory());
+        address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
+        address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
+        address noCode = makeAddr("no-code");
+
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRDeployer.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
+        new BudgetTCRDeployer(
+            budgetTreasuryImplementation,
+            roundFactory,
+            allocationMechanismTcrImplementation,
+            allocationMechanismArbitratorImplementation,
+            noCode
+        );
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(new RoundFactory()),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy(address(0), address(0)))
+        );
+        return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }
 }

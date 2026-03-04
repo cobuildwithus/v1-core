@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
@@ -14,6 +15,7 @@ import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
@@ -27,6 +29,7 @@ import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -43,6 +46,7 @@ contract DeployGoalFactory is DeployScript {
     uint256 internal cobuildRevnetIdOut;
 
     address internal goalTreasuryImplOut;
+    address internal stakeVaultImplOut;
     address internal budgetStakeLedgerImplOut;
     address internal goalFlowAllocationLedgerPipelineImplOut;
     address internal premiumEscrowImplOut;
@@ -86,6 +90,9 @@ contract DeployGoalFactory is DeployScript {
         bytes32 fakeUmaDomainId = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
+        StakeVault stakeVaultImpl = new StakeVault(
+            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
+        );
         BudgetStakeLedger budgetStakeLedgerImpl = new BudgetStakeLedger(deployerAddress);
         GoalFlowAllocationLedgerPipeline goalFlowAllocationLedgerPipelineImpl =
             new GoalFlowAllocationLedgerPipeline(address(0));
@@ -95,6 +102,7 @@ contract DeployGoalFactory is DeployScript {
         RoundFactory roundFactoryImpl = new RoundFactory();
         AllocationMechanismTCR allocationMechanismTcrImpl =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
+        BudgetFlowRouterStrategy budgetFlowRouterStrategyImpl = new BudgetFlowRouterStrategy(address(0), address(0));
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
@@ -104,7 +112,8 @@ contract DeployGoalFactory is DeployScript {
             address(budgetTreasuryImpl),
             address(roundFactoryImpl),
             address(allocationMechanismTcrImpl),
-            address(arbitratorImpl)
+            address(arbitratorImpl),
+            address(budgetFlowRouterStrategyImpl)
         );
         uint256 nextDeployerNonce = vm.getNonce(deployerAddress);
         address predictedGoalFactory =
@@ -130,6 +139,7 @@ contract DeployGoalFactory is DeployScript {
             cobuildToken,
             cobuildRevnetId,
             address(goalTreasuryImpl),
+            address(stakeVaultImpl),
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -150,6 +160,7 @@ contract DeployGoalFactory is DeployScript {
         cobuildRevnetIdOut = cobuildRevnetId;
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
+        stakeVaultImplOut = address(stakeVaultImpl);
         budgetStakeLedgerImplOut = address(budgetStakeLedgerImpl);
         goalFlowAllocationLedgerPipelineImplOut = address(goalFlowAllocationLedgerPipelineImpl);
         premiumEscrowImplOut = address(premiumEscrowImpl);
@@ -179,6 +190,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
+        console2.log("StakeVault impl:", stakeVaultImplOut);
         console2.log("BudgetStakeLedger impl:", budgetStakeLedgerImplOut);
         console2.log("GoalFlowAllocationLedgerPipeline impl:", goalFlowAllocationLedgerPipelineImplOut);
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
@@ -222,6 +234,7 @@ contract DeployGoalFactory is DeployScript {
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
+        _writeAddressLine(filePath, "StakeVaultImpl", stakeVaultImplOut);
         _writeAddressLine(filePath, "BudgetStakeLedgerImpl", budgetStakeLedgerImplOut);
         _writeAddressLine(filePath, "GoalFlowAllocationLedgerPipelineImpl", goalFlowAllocationLedgerPipelineImplOut);
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);

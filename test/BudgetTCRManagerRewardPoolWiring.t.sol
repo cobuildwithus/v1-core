@@ -18,6 +18,7 @@ import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
+import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -31,6 +32,7 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -231,14 +233,14 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
-        return BudgetTCRDeployer(
-            new BudgetTCRDeployer(
-                address(new BudgetTreasury()),
-                address(new RoundFactory()),
-                address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
-                address(new ERC20VotesArbitrator())
-            )
+        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(new RoundFactory()),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy(address(0), address(0)))
         );
+        return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }
 }
 

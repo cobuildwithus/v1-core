@@ -4,25 +4,23 @@ pragma solidity ^0.8.34;
 import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
-import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 
 import { BudgetTCRStackDeploymentLib } from "./library/BudgetTCRStackDeploymentLib.sol";
 
-contract BudgetTCRDeployer is IBudgetTCRDeployer {
+contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public override budgetTCR;
     address public premiumEscrowImplementation;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable override allocationMechanismTcrImplementation;
     address public immutable override allocationMechanismArbitratorImplementation;
+    address public immutable budgetFlowRouterStrategyImplementation;
     address public sharedBudgetFlowStrategy;
     address public sharedBudgetFlowStrategyLedger;
 
@@ -39,25 +37,28 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
         address budgetTreasuryImplementation_,
         address roundFactory_,
         address allocationMechanismTcrImplementation_,
-        address allocationMechanismArbitratorImplementation_
+        address allocationMechanismArbitratorImplementation_,
+        address budgetFlowRouterStrategyImplementation_
     ) {
         _assertImplementationAddress(budgetTreasuryImplementation_);
         _assertImplementationAddress(roundFactory_);
         _assertImplementationAddress(allocationMechanismTcrImplementation_);
         _assertImplementationAddress(allocationMechanismArbitratorImplementation_);
+        _assertImplementationAddress(budgetFlowRouterStrategyImplementation_);
 
         budgetTreasuryImplementation = budgetTreasuryImplementation_;
         roundFactory = roundFactory_;
         allocationMechanismTcrImplementation = allocationMechanismTcrImplementation_;
         allocationMechanismArbitratorImplementation = allocationMechanismArbitratorImplementation_;
+        budgetFlowRouterStrategyImplementation = budgetFlowRouterStrategyImplementation_;
+        _disableInitializers();
     }
 
-    function initialize(address budgetTCR_, address premiumEscrowImplementation_) external {
+    function initialize(address budgetTCR_, address premiumEscrowImplementation_) external initializer {
         if (budgetTCR_ == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrowImplementation_ == address(0) || premiumEscrowImplementation_.code.length == 0) {
             revert ADDRESS_ZERO();
         }
-        if (budgetTCR != address(0)) revert ALREADY_INITIALIZED();
 
         budgetTCR = budgetTCR_;
         premiumEscrowImplementation = premiumEscrowImplementation_;
@@ -77,7 +78,8 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer {
     ) external onlyBudgetTCR returns (PreparationResult memory result) {
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) {
-            strategy = address(new BudgetFlowRouterStrategy(IBudgetStakeLedger(budgetStakeLedger), address(this)));
+            strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
+            BudgetFlowRouterStrategy(strategy).initialize(budgetStakeLedger, address(this));
             sharedBudgetFlowStrategy = strategy;
             sharedBudgetFlowStrategyLedger = budgetStakeLedger;
         } else if (sharedBudgetFlowStrategyLedger != budgetStakeLedger) {

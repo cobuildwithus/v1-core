@@ -7,23 +7,35 @@ import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IManagedFlow } from "../interfaces/IManagedFlow.sol";
 import { AddressKeyAllocationStrategy } from "./AddressKeyAllocationStrategy.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Shared budget-flow strategy that resolves budget context from the caller flow address.
 /// @dev The `IAllocationStrategy` view hooks use `msg.sender` as flow context because runtime calls come from
 ///      the flow itself. Off-chain callers (EOAs/indexers/simulators) should prefer the explicit `*ForFlow` views.
-contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRouterStrategy {
-    IBudgetStakeLedger public immutable override budgetStakeLedger;
-    address public immutable override registrar;
+contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRouterStrategy, Initializable {
+    IBudgetStakeLedger public override budgetStakeLedger;
+    address public override registrar;
 
     string public constant STRATEGY_KEY = "BudgetStake";
 
     mapping(address flow => bytes32 recipientId) private _recipientIdByFlow;
     mapping(address flow => bool registered) private _flowRegistered;
 
-    constructor(IBudgetStakeLedger budgetStakeLedger_, address registrar_) {
-        if (address(budgetStakeLedger_) == address(0)) revert ADDRESS_ZERO();
+    constructor(address budgetStakeLedger_, address registrar_) {
+        if (budgetStakeLedger_ != address(0) || registrar_ != address(0)) {
+            _initialize(budgetStakeLedger_, registrar_);
+        }
+        _disableInitializers();
+    }
+
+    function initialize(address budgetStakeLedger_, address registrar_) external initializer {
+        _initialize(budgetStakeLedger_, registrar_);
+    }
+
+    function _initialize(address budgetStakeLedger_, address registrar_) internal {
+        if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (registrar_ == address(0)) revert ADDRESS_ZERO();
-        budgetStakeLedger = budgetStakeLedger_;
+        budgetStakeLedger = IBudgetStakeLedger(budgetStakeLedger_);
         registrar = registrar_;
     }
 

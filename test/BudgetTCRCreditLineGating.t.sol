@@ -21,6 +21,7 @@ import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -33,6 +34,7 @@ import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissi
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -431,14 +433,14 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
-        return BudgetTCRDeployer(
-            new BudgetTCRDeployer(
-                address(new BudgetTreasury()),
-                address(new RoundFactory()),
-                address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
-                address(new ERC20VotesArbitrator())
-            )
+        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(new RoundFactory()),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy(address(0), address(0)))
         );
+        return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {
