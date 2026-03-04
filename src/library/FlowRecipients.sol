@@ -2,9 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { FlowTypes } from "../storage/FlowStorage.sol";
-import { IFlow, IFlowEvents } from "../interfaces/IFlow.sol";
+import { IFlow } from "../interfaces/IFlow.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import { FlowPools } from "./FlowPools.sol";
 
 library FlowRecipients {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -162,45 +161,6 @@ library FlowRecipients {
         address memberAddr
     ) external view returns (uint256) {
         return cfg.distributionPool.getTotalAmountReceivedByMember(memberAddr);
-    }
-
-    /**
-     * @notice Removes many recipients in one transaction
-     * @dev Emits RecipientRemoved for each, snapshots before zeroing units
-     * @param cfg Config storage
-     * @param recipientsState Recipient storage
-     * @param _childFlows Set of child flows
-     * @param recipientIds Ids to remove
-     */
-    function bulkRemoveRecipients(
-        FlowTypes.Config storage cfg,
-        FlowTypes.RecipientsState storage recipientsState,
-        EnumerableSet.AddressSet storage _childFlows,
-        bytes32[] calldata recipientIds
-    ) public {
-        uint256 n = recipientIds.length;
-        if (n == 0) revert IFlow.TOO_FEW_RECIPIENTS();
-
-        address[] memory removedAddrs = new address[](n);
-
-        // Phase 1 — mark removed (no units changed yet)
-        for (uint256 i = 0; i < n; ) {
-            address recipientAddr = markRecipientRemoved(recipientsState, _childFlows, recipientIds[i]);
-            removedAddrs[i] = recipientAddr;
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // Phase 2 — zero units and emit events
-        for (uint256 i = 0; i < n; ) {
-            emit IFlowEvents.RecipientRemoved(removedAddrs[i], recipientIds[i]);
-            FlowPools.removeFromPools(cfg, removedAddrs[i]);
-            unchecked {
-                ++i;
-            }
-        }
     }
 
     function _appendRecipientIndex(
