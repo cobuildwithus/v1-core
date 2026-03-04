@@ -5,8 +5,8 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in AllocationMechanismTCR.activateRound(bytes32) (src/tcr/AllocationMechanismTCR.sol#181-238):\n\tExternal calls:\n\t- deployed = roundFactory.createRoundForBudget(itemID,budgetTreasury,RoundFactory.RoundTiming({startAt:listing.startAt,endAt:listing.endAt}),roundDefaults.roundOperator,RoundFactory.SubmissionTcrConfig({arbitratorExtraData:roundDefaults.arbitratorExtraData,registrationMetaEvidence:roundDefaults.registrationMetaEvidence,clearingMetaEvidence:roundDefaults.clearingMetaEvidence,governor:roundDefaults.governor,submissionBaseDeposit:roundDefaults.submissionBaseDeposit,removalBaseDeposit:roundDefaults.removalBaseDeposit,submissionChallengeBaseDeposit:roundDefaults.submissionChallengeBaseDeposit,removalChallengeBaseDeposit:roundDefaults.removalChallengeBaseDeposit,challengePeriodDuration:roundDefaults.challengePeriodDuration}),RoundFactory.ArbitratorConfig({votingPeriod:roundDefaults.votingPeriod,votingDelay:roundDefaults.votingDelay,revealPeriod:roundDefaults.revealPeriod,arbitrationCost:roundDefaults.arbitrationCost,wrongOrMissedSlashBps:roundDefaults.wrongOrMissedSlashBps,slashCallerBountyBps:roundDefaults.slashCallerBountyBps})) (src/tcr/AllocationMechanismTCR.sol#192-216)\n\tState variables written after the call(s):\n\t- _roundDeployment[itemID] = RoundDeployment({prizeVault:deployed.prizeVault,submissionTCR:deployed.submissionTCR,arbitrator:deployed.arbitrator,depositStrategy:deployed.depositStrategy,active:true}) (src/tcr/AllocationMechanismTCR.sol#220-226)\n\tAllocationMechanismTCR._roundDeployment (src/tcr/AllocationMechanismTCR.sol#130) can be used in cross function reentrancies:\n\t- AllocationMechanismTCR.roundDeployment(bytes32) (src/tcr/AllocationMechanismTCR.sol#253-255)\n\t- activationQueued[itemID] = false (src/tcr/AllocationMechanismTCR.sol#218)\n\tAllocationMechanismTCR.activationQueued (src/tcr/AllocationMechanismTCR.sol#128) can be used in cross function reentrancies:\n\t- AllocationMechanismTCR.activationQueued (src/tcr/AllocationMechanismTCR.sol#128)\n",
-    "reviewed_on": "2026-03-01",
-    "triage_note": "Function is nonReentrant; remaining finding is due required factory deployment call before persisting returned round addresses.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: current activateMechanism path is nonReentrant; finding text references older activateRound fingerprint.",
     "safety_assumptions": [
       "RoundFactory and budgetFlow are canonical trusted-core deployments",
       "Activation lifecycle remains gated by queue/deployment invariants and nonReentrant entry"
@@ -18,8 +18,8 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in BudgetTreasury.sync() (src/goals/BudgetTreasury.sol#128-149):\n\tExternal calls:\n\t- _activateAndSync() (src/goals/BudgetTreasury.sol#134)\n\t\t- appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow,targetRate) (src/goals/BudgetTreasury.sol#332)\n\t\t- flow.refreshTargetOutflowRate() (src/goals/library/TreasuryFlowRateSync.sol#30-46)\n\t\t- flow.setTargetOutflowRate(targetRate) (src/goals/library/TreasuryFlowRateSync.sol#49-85)\n\t\t- flow.setTargetOutflowRate(fallbackRate) (src/goals/library/TreasuryFlowRateSync.sol#58-67)\n\t\t- flow.setTargetOutflowRate(0) (src/goals/library/TreasuryFlowRateSync.sol#74-84)\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#136)\n\t\t- this.settleResidualToParentForFinalize() (src/goals/BudgetTreasury.sol#376-378)\n\t\t- IPremiumEscrow(escrow).close(finalState,activatedAt,resolvedAt) (src/goals/BudgetTreasury.sol#370-372)\n\t\t- flowContract.setTargetOutflowRate(0) (src/goals/TreasuryBase.sol#58-63)\n\t\t- IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) (src/goals/BudgetTreasury.sol#454)\n\tState variables written after the call(s):\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#136)\n\t\t- _state = newState (src/goals/BudgetTreasury.sol#388)\n\tBudgetTreasury._state (src/goals/BudgetTreasury.sol#25) can be used in cross function reentrancies:\n\t- BudgetTreasury._deriveBudgetDerivedState() (src/goals/BudgetTreasury.sol#399-405)\n\t- BudgetTreasury._tryActivateReassertGrace(bytes32) (src/goals/BudgetTreasury.sol#464-473)\n\t- BudgetTreasury.initialize(address,IBudgetTreasury.BudgetConfig) (src/goals/BudgetTreasury.sol#62-122)\n\t- BudgetTreasury.lifecycleStatus() (src/goals/BudgetTreasury.sol#284-306)\n\t- BudgetTreasury.registerSuccessAssertion(bytes32) (src/goals/BudgetTreasury.sol#214-225)\n\t- BudgetTreasury.resolved() (src/goals/BudgetTreasury.sol#248-250)\n\t- BudgetTreasury.state() (src/goals/BudgetTreasury.sol#252-254)\n\t- BudgetTreasury.targetFlowRate() (src/goals/BudgetTreasury.sol#274-282)\n",
-    "reviewed_on": "2026-03-01",
-    "triage_note": "Drifted fingerprint of previously accepted trusted-core sync callgraph; mutating entrypoints are nonReentrant with role-gated side effects.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: sync remains nonReentrant and sets terminal state before side-effect attempts; trusted-core callgraph assumptions unchanged.",
     "safety_assumptions": [
       "Flow/superfluid dependencies remain canonical/trusted",
       "Controller/resolver authorization boundaries remain unchanged"
@@ -31,8 +31,8 @@
     "impact": "High",
     "confidence": "High",
     "description": "TreasuryDonations.donateUnderlyingAndUpgradeToFlow(ISuperToken,address,address,uint256) (src/goals/library/TreasuryDonations.sol#11-33) uses arbitrary from in transferFrom: underlyingToken.safeTransferFrom(donor,address(this),amount) (src/goals/library/TreasuryDonations.sol#21)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Explicit donor-forwarding helper; current production callsite passes msg.sender as donor.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: helper is internal and production callsite binds donor = msg.sender, so no external arbitrary-from path.",
     "safety_assumptions": [
       "TreasuryBase remains sole caller in src/ and continues passing msg.sender",
       "No untrusted adapter path forwards arbitrary donor without explicit authorization"
@@ -44,24 +44,11 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "FlowUnitMath.floorToUnitWeightScale(uint256) (src/library/FlowUnitMath.sol#24-26) performs a multiplication on the result of a division:\n\t- (amount / FlowProtocolConstants.UNIT_WEIGHT_SCALE) * FlowProtocolConstants.UNIT_WEIGHT_SCALE (src/library/FlowUnitMath.sol#25)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Intentional unit-scale flooring/quantization; dust truncation is deterministic and documented.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: intentional UNIT_WEIGHT_SCALE flooring/quantization; deterministic dust truncation is protocol-defined.",
     "safety_assumptions": [
       "UNIT_WEIGHT_SCALE quantization remains protocol invariant",
       "No requirement for sub-unit exactness in allocation accounting"
-    ]
-  },
-  {
-    "id": "45a6178e7da147734144c1e4076cbb9d87f8b2d8666b1ecdfb7df9483785372b",
-    "check": "reentrancy-no-eth",
-    "impact": "Medium",
-    "confidence": "Medium",
-    "description": "Reentrancy in RewardEscrow.finalizeStep(uint256) (src/goals/RewardEscrow.sol#254-261):\n\tExternal calls:\n\t- (done,processed) = _budgetStakeLedger.finalizeStep(maxBudgets) (src/goals/RewardEscrow.sol#257)\n\tState variables written after the call(s):\n\t- _completeFinalization() (src/goals/RewardEscrow.sol#259)\n\t\t- finalizationInProgress = false (src/goals/RewardEscrow.sol#406)\n\tRewardEscrow.finalizationInProgress (src/goals/RewardEscrow.sol#31) can be used in cross function reentrancies:\n\t- RewardEscrow.finalizationInProgress (src/goals/RewardEscrow.sol#31)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Entry is nonReentrant and calls immutable trusted ledger in canonical deployment.",
-    "safety_assumptions": [
-      "BudgetStakeLedger reference is canonical/trusted",
-      "No untrusted ledger implementation is wired into RewardEscrow"
     ]
   },
   {
@@ -70,8 +57,8 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in ERC20VotesArbitrator.slashVoter(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#723-769):\n\tExternal calls:\n\t- _stakeVault.slashJurorStake(voter,callerBountyWeight,msg.sender) (src/tcr/ERC20VotesArbitrator.sol#760)\n\t- _stakeVault.slashJurorStake(voter,rewardEscrowWeight,rewardEscrow) (src/tcr/ERC20VotesArbitrator.sol#763)\n\tState variables written after the call(s):\n\t- _voterSlashedOrProcessed[disputeId][round][voter] = true (src/tcr/ERC20VotesArbitrator.sol#767)\n\tArbitratorStorageV1._voterSlashedOrProcessed (src/tcr/storage/ArbitratorStorageV1.sol#240) can be used in cross function reentrancies:\n\t- ERC20VotesArbitrator.getVoterRoundStatus(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#439-455)\n\t- ERC20VotesArbitrator.isVoterSlashedOrProcessed(uint256,uint256,address) (src/tcr/ERC20VotesArbitrator.sol#457-464)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Caller and callee are both nonReentrant with role checks; no practical duplicate-slash reentry path.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: slashVoter marks processed before external slash calls and entrypoints are nonReentrant.",
     "safety_assumptions": [
       "Configured stake vault enforces jurorSlasher authorization",
       "Arbitrator and stake vault remain canonical implementations"
@@ -83,8 +70,8 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in UMATreasurySuccessResolver.settleAndFinalize(bytes32) (src/goals/UMATreasurySuccessResolver.sol#157-166):\n\tExternal calls:\n\t- optimisticOracle.settleAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#162)\n\t- _finalizeAssertion(assertionId,meta) (src/goals/UMATreasurySuccessResolver.sol#165)\n\t\t- successTreasury.resolveSuccess() (src/goals/UMATreasurySuccessResolver.sol#224-228)\n\t\t- successTreasury.clearSuccessAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#231-235)\n\tState variables written after the call(s):\n\t- _finalizeAssertion(assertionId,meta) (src/goals/UMATreasurySuccessResolver.sol#165)\n\t\t- meta.finalized = true (src/goals/UMATreasurySuccessResolver.sol#179)\n\tUMATreasurySuccessResolver.assertionMeta (src/goals/UMATreasurySuccessResolver.sol#64) can be used in cross function reentrancies:\n\t- UMATreasurySuccessResolver.assertionDisputedCallback(bytes32) (src/goals/UMATreasurySuccessResolver.sol#199-208)\n\t- UMATreasurySuccessResolver.assertionMeta (src/goals/UMATreasurySuccessResolver.sol#64)\n\t- UMATreasurySuccessResolver.assertionResolvedCallback(bytes32,bool) (src/goals/UMATreasurySuccessResolver.sol#187-197)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "nonReentrant plus CEI in finalize path; treasury callbacks cannot bypass guard.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: settle/finalize flow is nonReentrant with CEI ordering and oracle-only callback permissions.",
     "safety_assumptions": [
       "UMA oracle address remains trusted",
       "Treasury resolver authorization remains strict"
@@ -96,8 +83,8 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in BudgetTCR._deployBudgetStack(bytes32,bytes) (src/tcr/BudgetTCR.sol#220-273):\n\tExternal calls:\n\t- prepared = IBudgetTCRStackDeployer(stackDeployer).prepareBudgetStack(goalToken,cobuildToken,goalRulesets,goalRevnetId,paymentTokenDecimals,budgetStakeLedger,itemID) (src/tcr/BudgetTCR.sol#225-234)\n\t- (None,childFlow) = goalFlow.addFlowRecipient(itemID,listing.metadata,prepared.budgetTreasury,prepared.budgetTreasury,prepared.budgetTreasury,localManagerRewardPool,childStrategies) (src/tcr/BudgetTCR.sol#242-250)\n\t- deployedBudgetTreasury = IBudgetTCRStackDeployer(stackDeployer).deployBudgetTreasury(prepared.stakeVault,childFlow,listing,budgetSuccessResolver,oracleValidationBounds.liveness,oracleValidationBounds.bondAmount) (src/tcr/BudgetTCR.sol#255-262)\n\t- IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID,deployedBudgetTreasury) (src/tcr/BudgetTCR.sol#264)\n\tState variables written after the call(s):\n\t- _budgetDeployments[itemID] = BudgetDeployment({childFlow:childFlow,budgetTreasury:deployedBudgetTreasury,stakeVault:prepared.stakeVault,strategy:prepared.strategy,active:true}) (src/tcr/BudgetTCR.sol#266-272)\n\tBudgetTCRStorageV1._budgetDeployments (src/tcr/storage/BudgetTCRStorageV1.sol#37) can be used in cross function reentrancies:\n\t- BudgetTCR.retryRemovedBudgetResolution(bytes32) (src/tcr/BudgetTCR.sol#164-181)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Deployment path is entered via nonReentrant flow; practical reentry to harmful state transition not reachable before deployment state write.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: deployment now routes via BudgetTCRStackActions from nonReentrant activation; report text is stale fingerprint drift.",
     "safety_assumptions": [
       "Stack deployer and goal flow are canonical/trusted",
       "No external untrusted module is inserted into deployment pipeline"
@@ -109,24 +96,11 @@
     "impact": "Medium",
     "confidence": "Medium",
     "description": "Reentrancy in UMATreasurySuccessResolver.assertSuccess(address,string) (src/goals/UMATreasurySuccessResolver.sol#81-144):\n\tExternal calls:\n\t- optimisticOracle.syncUmaParams(UMA_ASSERT_TRUTH_IDENTIFIER,address(assertionCurrency)) (src/goals/UMATreasurySuccessResolver.sol#106)\n\t- assertionId = optimisticOracle.assertTruth(claim,msg.sender,address(this),escalationManager,liveness,assertionCurrency,bond,UMA_ASSERT_TRUTH_IDENTIFIER,domainId) (src/goals/UMATreasurySuccessResolver.sol#116-126)\n\t- successTreasury.registerSuccessAssertion(assertionId) (src/goals/UMATreasurySuccessResolver.sol#129)\n\tState variables written after the call(s):\n\t- activeAssertionOfTreasury[treasury] = assertionId (src/goals/UMATreasurySuccessResolver.sol#131)\n\tUMATreasurySuccessResolver.activeAssertionOfTreasury (src/goals/UMATreasurySuccessResolver.sol#63) can be used in cross function reentrancies:\n\t- UMATreasurySuccessResolver.activeAssertionOfTreasury (src/goals/UMATreasurySuccessResolver.sol#63)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "Mutating resolver entrypoints are nonReentrant; callback surface is gated to oracle only.",
+    "reviewed_on": "2026-03-04",
+    "triage_note": "Refreshed: assertSuccess is nonReentrant and callback surface is restricted to the configured oracle.",
     "safety_assumptions": [
       "UMA oracle is trusted boundary",
       "No alternate oracle callbacks are permitted"
-    ]
-  },
-  {
-    "id": "ecf401eb9cc0e2a000199aa4cf143adcda99c4cab19c9f98944fa3537fced929",
-    "check": "reentrancy-no-eth",
-    "impact": "Medium",
-    "confidence": "Medium",
-    "description": "Reentrancy in BudgetTreasury.sync() (src/goals/BudgetTreasury.sol#127-148):\n\tExternal calls:\n\t- _activateAndSync() (src/goals/BudgetTreasury.sol#133)\n\t\t- appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow,targetRate) (src/goals/BudgetTreasury.sol#326)\n\t\t- flow.refreshTargetOutflowRate() (src/goals/library/TreasuryFlowRateSync.sol#30-46)\n\t\t- flow.setTargetOutflowRate(targetRate) (src/goals/library/TreasuryFlowRateSync.sol#49-85)\n\t\t- flow.setTargetOutflowRate(fallbackRate) (src/goals/library/TreasuryFlowRateSync.sol#58-67)\n\t\t- flow.setTargetOutflowRate(0) (src/goals/library/TreasuryFlowRateSync.sol#74-84)\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#135)\n\t\t- this.settleResidualToParentForFinalize() (src/goals/BudgetTreasury.sol#357-359)\n\t\t- _stakeVault.markGoalResolved() (src/goals/BudgetTreasury.sol#372-374)\n\t\t- flowContract.setTargetOutflowRate(0) (src/goals/TreasuryBase.sol#58-63)\n\tState variables written after the call(s):\n\t- _tryFinalizePostDeadline() (src/goals/BudgetTreasury.sol#135)\n\t\t- _state = newState (src/goals/BudgetTreasury.sol#384)\n\tBudgetTreasury._state (src/goals/BudgetTreasury.sol#22) can be used in cross function reentrancies:\n\t- BudgetTreasury._deriveBudgetDerivedState() (src/goals/BudgetTreasury.sol#395-401)\n\t- BudgetTreasury._tryActivateReassertGrace(bytes32) (src/goals/BudgetTreasury.sol#457-469)\n\t- BudgetTreasury.initialize(address,IBudgetTreasury.BudgetConfig) (src/goals/BudgetTreasury.sol#60-121)\n\t- BudgetTreasury.lifecycleStatus() (src/goals/BudgetTreasury.sol#276-297)\n\t- BudgetTreasury.registerSuccessAssertion(bytes32) (src/goals/BudgetTreasury.sol#201-213)\n\t- BudgetTreasury.resolved() (src/goals/BudgetTreasury.sol#236-238)\n\t- BudgetTreasury.state() (src/goals/BudgetTreasury.sol#240-242)\n\t- BudgetTreasury.targetFlowRate() (src/goals/BudgetTreasury.sol#266-274)\n",
-    "reviewed_on": "2026-02-26",
-    "triage_note": "sync and core mutators are nonReentrant; terminal state is set before finalization side effects.",
-    "safety_assumptions": [
-      "Flow/superfluid dependencies are canonical/trusted",
-      "Privileged unguarded functions remain restricted to controller/resolver roles"
     ]
   }
 ]
