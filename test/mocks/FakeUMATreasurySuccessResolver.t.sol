@@ -13,6 +13,7 @@ import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
 import {DeployGoalFactoryImplementations} from "script/DeployGoalFactoryImplementations.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
@@ -244,6 +245,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     bytes32 internal constant FAKE_UMA_DOMAIN_ID = bytes32(uint256(0x4d2));
     string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
     string internal constant HISTORY_DIR = "deploys/history";
+    error ARTIFACT_KEY_NOT_FOUND(string key);
 
     FakeResolverMockERC20 internal token;
     DeployGoalFactoryImplementations internal deployImplementationsScript;
@@ -325,13 +327,19 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     function test_run_wiresFactoryCloneImplementations_andLocksImplementationInitialization() public {
         _setDeployEnv();
         deployImplementationsScript.run();
-
         address deployer = vm.addr(PRIVATE_KEY);
-        uint64 nonceBefore = vm.getNonce(deployer);
-        address expectedGoalFactory = vm.computeCreateAddress(deployer, uint256(nonceBefore) + 1);
 
         deployFactoryScript.run();
+        string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+        string memory artifact = vm.readFile(artifactPath);
+        address expectedGoalFactory = _artifactAddressForKey(artifact, "GoalFactory");
+        address budgetTcrFactory = _artifactAddressForKey(artifact, "BudgetTCRFactory");
+        address pairDeployer = _artifactAddressForKey(artifact, "GoalFactoryPairDeployer");
+
+        assertGt(pairDeployer.code.length, 0);
         assertGt(expectedGoalFactory.code.length, 0);
+        assertGt(budgetTcrFactory.code.length, 0);
+        assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), expectedGoalFactory);
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
 
@@ -430,6 +438,43 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         if (!vm.isFile(path)) {
             path = "deploys/LATEST_IMPLEMENTATIONS.toml";
         }
+    }
+
+    function _artifactAddressForKey(string memory artifact, string memory key) internal pure returns (address) {
+        return vm.parseAddress(_artifactValueForKey(artifact, key));
+    }
+
+    function _artifactValueForKey(string memory artifact, string memory key) internal pure returns (string memory value) {
+        bytes memory artifactBytes = bytes(artifact);
+        bytes memory prefixBytes = bytes(string.concat(key, ": "));
+        uint256 artifactLength = artifactBytes.length;
+        uint256 prefixLength = prefixBytes.length;
+
+        for (uint256 i = 0; i + prefixLength <= artifactLength; i++) {
+            if (i != 0 && artifactBytes[i - 1] != bytes1("\n")) continue;
+
+            bool isMatch = true;
+            for (uint256 j = 0; j < prefixLength; j++) {
+                if (artifactBytes[i + j] != prefixBytes[j]) {
+                    isMatch = false;
+                    break;
+                }
+            }
+            if (!isMatch) continue;
+
+            uint256 valueStart = i + prefixLength;
+            uint256 valueEnd = valueStart;
+            while (valueEnd < artifactLength && artifactBytes[valueEnd] != bytes1("\n")) {
+                valueEnd++;
+            }
+            bytes memory valueBytes = new bytes(valueEnd - valueStart);
+            for (uint256 k = 0; k < valueBytes.length; k++) {
+                valueBytes[k] = artifactBytes[valueStart + k];
+            }
+            return string(valueBytes);
+        }
+
+        revert ARTIFACT_KEY_NOT_FOUND(key);
     }
 
     function _isLexicographicallyAfter(string memory a, string memory b) internal pure returns (bool) {

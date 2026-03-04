@@ -3,13 +3,79 @@ pragma solidity ^0.8.34;
 
 import "forge-std/console2.sol";
 
-import { ISuperfluid } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
-import { DeployScript } from "script/DeployScript.s.sol";
-import { GoalFactory } from "src/goals/GoalFactory.sol";
-import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
-import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
+import {DeployScript} from "script/DeployScript.s.sol";
+import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
+import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+
+contract GoalFactoryPairDeployer {
+    struct BudgetTcrFactoryConfig {
+        address budgetTcrImplementation;
+        address arbitratorImplementation;
+        address stackDeployerImplementation;
+        uint256 escrowBondBps;
+    }
+
+    struct GoalFactoryConfig {
+        address revDeployer;
+        address superfluidHost;
+        address cobuildToken;
+        uint256 cobuildRevnetId;
+        address goalTreasuryImpl;
+        address stakeVaultImpl;
+        address customFlowImpl;
+        address splitHookImpl;
+        address budgetStakeLedgerImpl;
+        address goalFlowAllocationLedgerPipelineImpl;
+        address premiumEscrowImpl;
+        address jurorSlasherRouterImpl;
+        address underwriterSlasherRouterImpl;
+        address defaultSubmissionDepositStrategy;
+        address defaultAllocationMechanismAdmin;
+        address defaultInvalidRoundRewardsSink;
+    }
+
+    address public immutable budgetTcrFactory;
+    address public immutable goalFactory;
+
+    constructor(BudgetTcrFactoryConfig memory budgetTcrConfig, GoalFactoryConfig memory goalFactoryConfig) {
+        BudgetTCRFactory budgetTcrFactory_ = new BudgetTCRFactory(
+            budgetTcrConfig.budgetTcrImplementation,
+            budgetTcrConfig.arbitratorImplementation,
+            budgetTcrConfig.stackDeployerImplementation,
+            address(0),
+            budgetTcrConfig.escrowBondBps
+        );
+
+        GoalFactory goalFactory_ = new GoalFactory(
+            IREVDeployer(goalFactoryConfig.revDeployer),
+            ISuperfluid(goalFactoryConfig.superfluidHost),
+            budgetTcrFactory_,
+            goalFactoryConfig.cobuildToken,
+            goalFactoryConfig.cobuildRevnetId,
+            goalFactoryConfig.goalTreasuryImpl,
+            goalFactoryConfig.stakeVaultImpl,
+            goalFactoryConfig.customFlowImpl,
+            goalFactoryConfig.splitHookImpl,
+            goalFactoryConfig.budgetStakeLedgerImpl,
+            goalFactoryConfig.goalFlowAllocationLedgerPipelineImpl,
+            goalFactoryConfig.premiumEscrowImpl,
+            goalFactoryConfig.jurorSlasherRouterImpl,
+            goalFactoryConfig.underwriterSlasherRouterImpl,
+            goalFactoryConfig.defaultSubmissionDepositStrategy,
+            goalFactoryConfig.defaultAllocationMechanismAdmin,
+            goalFactoryConfig.defaultInvalidRoundRewardsSink
+        );
+
+        budgetTcrFactory_.setAuthorizedCaller(address(goalFactory_));
+
+        budgetTcrFactory = address(budgetTcrFactory_);
+        goalFactory = address(goalFactory_);
+    }
+}
 
 /// @notice Factory-stage deployment script.
 /// @dev Expects implementations to be predeployed (for example by DeployGoalFactoryImplementations).
@@ -26,6 +92,7 @@ contract DeployGoalFactory is DeployScript {
     address internal budgetStakeLedgerImplOut;
     address internal goalFlowAllocationLedgerPipelineImplOut;
     address internal premiumEscrowImplOut;
+    address internal jurorSlasherRouterImplOut;
     address internal underwriterSlasherRouterImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
@@ -34,6 +101,7 @@ contract DeployGoalFactory is DeployScript {
     address internal budgetTcrDeployerImplOut;
 
     uint256 internal escrowBondBpsOut;
+    address internal goalFactoryPairDeployerOut;
     address internal budgetTcrFactoryOut;
     address internal defaultSubmissionDepositStrategyOut;
     address internal goalFactoryOut;
@@ -44,124 +112,67 @@ contract DeployGoalFactory is DeployScript {
     string internal implementationsTomlPathOut;
     string internal implementationsTomlContent;
 
-    error GOAL_FACTORY_ADDRESS_MISMATCH(address predicted, address actual);
+    error BUDGET_TCR_FACTORY_CALLER_MISMATCH(address expectedCaller, address actualCaller, address budgetTcrFactory);
     error IMPLEMENTATIONS_TOML_NOT_FOUND(string path);
     error IMPLEMENTATIONS_CHAIN_ID_MISSING(string sourcePath);
     error IMPLEMENTATIONS_CHAIN_ID_MISMATCH(uint256 expectedChainId, uint256 configuredChainId, string sourcePath);
     error REQUIRED_CONFIG_MISSING(string envKey, string tomlKey, string tomlPath);
     error SUBMISSION_DEPOSIT_STRATEGY_NOT_CONTRACT(address strategy);
-    error SUBMISSION_DEPOSIT_STRATEGY_TOKEN_MISMATCH(
-        address expectedToken,
-        address actualToken,
-        address strategy
-    );
+    error SUBMISSION_DEPOSIT_STRATEGY_TOKEN_MISMATCH(address expectedToken, address actualToken, address strategy);
 
     function deploy() internal override {
         _loadImplementationsToml();
 
-        revDeployerAddressOut = _resolveAddress(
-            "REV_DEPLOYER",
-            "$.core.revDeployer",
-            address(0x2cA27BDe7e7D33E353b44c27aCfCf6c78ddE251d)
-        );
+        revDeployerAddressOut =
+            _resolveAddress("REV_DEPLOYER", "$.core.revDeployer", address(0x2cA27BDe7e7D33E353b44c27aCfCf6c78ddE251d));
         superfluidHostAddressOut = _resolveAddress(
-            "SUPERFLUID_HOST",
-            "$.core.superfluidHost",
-            address(0x4C073B3baB6d8826b8C5b229f3cfdC1eC6E47E74)
+            "SUPERFLUID_HOST", "$.core.superfluidHost", address(0x4C073B3baB6d8826b8C5b229f3cfdC1eC6E47E74)
         );
         cobuildTokenAddressOut = _resolveAddress(
-            "COBUILD_TOKEN",
-            "$.core.cobuildToken",
-            address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb)
+            "COBUILD_TOKEN", "$.core.cobuildToken", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb)
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
 
         escrowBondBpsOut = _resolveUint("ESCROW_BOND_BPS", "$.defaults.escrowBondBps", 5000);
         defaultAllocationMechanismAdminOut = _resolveAddress(
-            "DEFAULT_ALLOCATION_MECHANISM_ADMIN",
-            "$.defaults.allocationMechanismAdmin",
-            deployerAddress
+            "DEFAULT_ALLOCATION_MECHANISM_ADMIN", "$.defaults.allocationMechanismAdmin", deployerAddress
         );
-        defaultInvalidRoundRewardsSinkOut = _resolveAddress(
-            "DEFAULT_INVALID_ROUND_REWARDS_SINK",
-            "$.defaults.invalidRoundRewardsSink",
-            BURN
-        );
+        defaultInvalidRoundRewardsSinkOut =
+            _resolveAddress("DEFAULT_INVALID_ROUND_REWARDS_SINK", "$.defaults.invalidRoundRewardsSink", BURN);
 
         goalTreasuryImplOut = _requireConfigAddress("GOAL_TREASURY_IMPL", "$.implementations.goalTreasury");
         stakeVaultImplOut = _requireConfigAddress("STAKE_VAULT_IMPL", "$.implementations.stakeVault");
-        budgetStakeLedgerImplOut = _requireConfigAddress("BUDGET_STAKE_LEDGER_IMPL", "$.implementations.budgetStakeLedger");
+        budgetStakeLedgerImplOut =
+            _requireConfigAddress("BUDGET_STAKE_LEDGER_IMPL", "$.implementations.budgetStakeLedger");
         goalFlowAllocationLedgerPipelineImplOut = _requireConfigAddress(
-            "GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL",
-            "$.implementations.goalFlowAllocationLedgerPipeline"
+            "GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL", "$.implementations.goalFlowAllocationLedgerPipeline"
         );
         premiumEscrowImplOut = _requireConfigAddress("PREMIUM_ESCROW_IMPL", "$.implementations.premiumEscrow");
-        underwriterSlasherRouterImplOut = _requireConfigAddress(
-            "UNDERWRITER_SLASHER_ROUTER_IMPL",
-            "$.implementations.underwriterSlasherRouter"
-        );
+        jurorSlasherRouterImplOut =
+            _requireConfigAddress("JUROR_SLASHER_ROUTER_IMPL", "$.implementations.jurorSlasherRouter");
+        underwriterSlasherRouterImplOut =
+            _requireConfigAddress("UNDERWRITER_SLASHER_ROUTER_IMPL", "$.implementations.underwriterSlasherRouter");
         customFlowImplOut = _requireConfigAddress("CUSTOM_FLOW_IMPL", "$.implementations.customFlow");
         splitHookImplOut = _requireConfigAddress("GOAL_REVNET_SPLIT_HOOK_IMPL", "$.implementations.goalRevnetSplitHook");
         budgetTcrImplOut = _requireConfigAddress("BUDGET_TCR_IMPL", "$.implementations.budgetTCR");
-        erc20VotesArbitratorImplOut = _requireConfigAddress(
-            "ERC20_VOTES_ARBITRATOR_IMPL",
-            "$.implementations.erc20VotesArbitrator"
-        );
-        budgetTcrDeployerImplOut = _requireConfigAddress("BUDGET_TCR_DEPLOYER_IMPL", "$.implementations.budgetTCRDeployer");
-        defaultSubmissionDepositStrategyOut = _requireConfigAddress(
-            "DEFAULT_SUBMISSION_DEPOSIT_STRATEGY",
-            "$.defaults.submissionDepositStrategy"
-        );
+        erc20VotesArbitratorImplOut =
+            _requireConfigAddress("ERC20_VOTES_ARBITRATOR_IMPL", "$.implementations.erc20VotesArbitrator");
+        budgetTcrDeployerImplOut =
+            _requireConfigAddress("BUDGET_TCR_DEPLOYER_IMPL", "$.implementations.budgetTCRDeployer");
+        defaultSubmissionDepositStrategyOut =
+            _requireConfigAddress("DEFAULT_SUBMISSION_DEPOSIT_STRATEGY", "$.defaults.submissionDepositStrategy");
         if (defaultSubmissionDepositStrategyOut.code.length == 0) {
             revert SUBMISSION_DEPOSIT_STRATEGY_NOT_CONTRACT(defaultSubmissionDepositStrategyOut);
         }
         address strategyToken = address(ISubmissionDepositStrategy(defaultSubmissionDepositStrategyOut).token());
         if (strategyToken != cobuildTokenAddressOut) {
             revert SUBMISSION_DEPOSIT_STRATEGY_TOKEN_MISMATCH(
-                cobuildTokenAddressOut,
-                strategyToken,
-                defaultSubmissionDepositStrategyOut
+                cobuildTokenAddressOut, strategyToken, defaultSubmissionDepositStrategyOut
             );
         }
 
-        // The factory-authorized-caller invariant is cyclic:
-        // BudgetTCRFactory needs GoalFactory address in constructor, while GoalFactory needs BudgetTCRFactory address.
-        // Keep the prediction minimal (+1) by deploying no intermediate contracts between these two creates.
-        uint256 nextDeployerNonce = vm.getNonce(deployerAddress);
-        address predictedGoalFactory = vm.computeCreateAddress(deployerAddress, nextDeployerNonce + 1);
-
-        BudgetTCRFactory budgetTcrFactory = new BudgetTCRFactory(
-            budgetTcrImplOut,
-            erc20VotesArbitratorImplOut,
-            budgetTcrDeployerImplOut,
-            predictedGoalFactory,
-            escrowBondBpsOut
-        );
-
-        GoalFactory goalFactory = new GoalFactory(
-            IREVDeployer(revDeployerAddressOut),
-            ISuperfluid(superfluidHostAddressOut),
-            budgetTcrFactory,
-            cobuildTokenAddressOut,
-            cobuildRevnetIdOut,
-            goalTreasuryImplOut,
-            stakeVaultImplOut,
-            customFlowImplOut,
-            splitHookImplOut,
-            budgetStakeLedgerImplOut,
-            goalFlowAllocationLedgerPipelineImplOut,
-            premiumEscrowImplOut,
-            underwriterSlasherRouterImplOut,
-            defaultSubmissionDepositStrategyOut,
-            defaultAllocationMechanismAdminOut,
-            defaultInvalidRoundRewardsSinkOut
-        );
-        if (address(goalFactory) != predictedGoalFactory) {
-            revert GOAL_FACTORY_ADDRESS_MISMATCH(predictedGoalFactory, address(goalFactory));
-        }
-
-        budgetTcrFactoryOut = address(budgetTcrFactory);
-        goalFactoryOut = address(goalFactory);
+        (goalFactoryPairDeployerOut, budgetTcrFactoryOut, goalFactoryOut) = _deployFactoryPair();
+        _assertBudgetTcrFactoryAuthorizedCaller(goalFactoryOut);
 
         console2.log("Deployer:", deployerAddress);
         if (bytes(implementationsTomlPathOut).length != 0) {
@@ -178,6 +189,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("BudgetStakeLedger impl:", budgetStakeLedgerImplOut);
         console2.log("GoalFlowAllocationLedgerPipeline impl:", goalFlowAllocationLedgerPipelineImplOut);
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
+        console2.log("JurorSlasherRouter impl:", jurorSlasherRouterImplOut);
         console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
@@ -185,6 +197,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("ERC20VotesArbitrator impl:", erc20VotesArbitratorImplOut);
         console2.log("BudgetTCRDeployer impl:", budgetTcrDeployerImplOut);
         console2.log("--- BudgetTCR stack ---");
+        console2.log("FactoryPairDeployer:", goalFactoryPairDeployerOut);
         console2.log("BudgetTCRFactory:", budgetTcrFactoryOut);
         console2.log("DepositStrategy:", defaultSubmissionDepositStrategyOut);
         console2.log("--- Goal factory ---");
@@ -209,6 +222,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "BudgetStakeLedgerImpl", budgetStakeLedgerImplOut);
         _writeAddressLine(filePath, "GoalFlowAllocationLedgerPipelineImpl", goalFlowAllocationLedgerPipelineImplOut);
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
+        _writeAddressLine(filePath, "JurorSlasherRouterImpl", jurorSlasherRouterImplOut);
         _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
@@ -217,6 +231,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "BudgetTCRDeployerImpl", budgetTcrDeployerImplOut);
 
         _writeAddressLine(filePath, "BudgetTCRFactory", budgetTcrFactoryOut);
+        _writeAddressLine(filePath, "GoalFactoryPairDeployer", goalFactoryPairDeployerOut);
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
         _writeUintLine(filePath, "ESCROW_BOND_BPS", escrowBondBpsOut);
         _writeAddressLine(filePath, "GoalFactory", goalFactoryOut);
@@ -235,7 +250,8 @@ contract DeployGoalFactory is DeployScript {
             return;
         }
 
-        string memory chainScopedPath = string(abi.encodePacked("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(chainId), ".toml"));
+        string memory chainScopedPath =
+            string(abi.encodePacked("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(chainId), ".toml"));
         if (vm.isFile(chainScopedPath)) {
             implementationsTomlPathOut = chainScopedPath;
             implementationsTomlContent = vm.readFile(chainScopedPath);
@@ -250,21 +266,64 @@ contract DeployGoalFactory is DeployScript {
         }
     }
 
-    function _resolveAddress(
-        string memory envKey,
-        string memory tomlKey,
-        address fallbackValue
-    ) internal view returns (address value) {
+    function _deployFactoryPair()
+        internal
+        returns (address pairDeployer, address budgetTcrFactory, address goalFactory)
+    {
+        GoalFactoryPairDeployer deployedPair = new GoalFactoryPairDeployer(
+            GoalFactoryPairDeployer.BudgetTcrFactoryConfig({
+                budgetTcrImplementation: budgetTcrImplOut,
+                arbitratorImplementation: erc20VotesArbitratorImplOut,
+                stackDeployerImplementation: budgetTcrDeployerImplOut,
+                escrowBondBps: escrowBondBpsOut
+            }),
+            GoalFactoryPairDeployer.GoalFactoryConfig({
+                revDeployer: revDeployerAddressOut,
+                superfluidHost: superfluidHostAddressOut,
+                cobuildToken: cobuildTokenAddressOut,
+                cobuildRevnetId: cobuildRevnetIdOut,
+                goalTreasuryImpl: goalTreasuryImplOut,
+                stakeVaultImpl: stakeVaultImplOut,
+                customFlowImpl: customFlowImplOut,
+                splitHookImpl: splitHookImplOut,
+                budgetStakeLedgerImpl: budgetStakeLedgerImplOut,
+                goalFlowAllocationLedgerPipelineImpl: goalFlowAllocationLedgerPipelineImplOut,
+                premiumEscrowImpl: premiumEscrowImplOut,
+                jurorSlasherRouterImpl: jurorSlasherRouterImplOut,
+                underwriterSlasherRouterImpl: underwriterSlasherRouterImplOut,
+                defaultSubmissionDepositStrategy: defaultSubmissionDepositStrategyOut,
+                defaultAllocationMechanismAdmin: defaultAllocationMechanismAdminOut,
+                defaultInvalidRoundRewardsSink: defaultInvalidRoundRewardsSinkOut
+            })
+        );
+
+        pairDeployer = address(deployedPair);
+        budgetTcrFactory = deployedPair.budgetTcrFactory();
+        goalFactory = deployedPair.goalFactory();
+    }
+
+    function _assertBudgetTcrFactoryAuthorizedCaller(address expectedCaller) internal view {
+        address configuredAuthorizedCaller = BudgetTCRFactory(budgetTcrFactoryOut).authorizedCaller();
+        if (configuredAuthorizedCaller != expectedCaller) {
+            revert BUDGET_TCR_FACTORY_CALLER_MISMATCH(expectedCaller, configuredAuthorizedCaller, budgetTcrFactoryOut);
+        }
+    }
+
+    function _resolveAddress(string memory envKey, string memory tomlKey, address fallbackValue)
+        internal
+        view
+        returns (address value)
+    {
         if (vm.envExists(envKey)) return vm.envAddress(envKey);
         if (_hasTomlKey(tomlKey)) return vm.parseTomlAddress(implementationsTomlContent, tomlKey);
         return fallbackValue;
     }
 
-    function _resolveUint(
-        string memory envKey,
-        string memory tomlKey,
-        uint256 fallbackValue
-    ) internal view returns (uint256 value) {
+    function _resolveUint(string memory envKey, string memory tomlKey, uint256 fallbackValue)
+        internal
+        view
+        returns (uint256 value)
+    {
         if (vm.envExists(envKey)) return vm.envUint(envKey);
         if (_hasTomlKey(tomlKey)) return vm.parseTomlUint(implementationsTomlContent, tomlKey);
         return fallbackValue;
