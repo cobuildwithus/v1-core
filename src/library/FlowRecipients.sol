@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 library FlowRecipients {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -171,7 +172,7 @@ library FlowRecipients {
         if (count >= type(uint32).max) revert IFlow.OVERFLOW();
         recipientsState.recipientIdByIndex.push(recipientId);
         unchecked {
-            indexPlusOne = uint32(count + 1);
+            indexPlusOne = SafeCast.toUint32(count + 1);
         }
     }
 }

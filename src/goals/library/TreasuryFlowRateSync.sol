@@ -6,6 +6,7 @@ import { ITreasuryFlowRateSyncEvents } from "../../interfaces/ITreasuryFlowRateS
 import { ISuperAgreement, ISuperfluid, ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 library TreasuryFlowRateSync {
     bytes32 private constant CFA_V1_TYPE = keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1");
@@ -114,7 +115,7 @@ library TreasuryFlowRateSync {
         // Keep proactive caps in play even when the target exceeds the current buffer-affordable limit.
         if (cappedRate > maxBufferRate) cappedRate = maxBufferRate;
 
-        uint256 maxBufferRateU = uint256(uint96(maxBufferRate));
+        uint256 maxBufferRateU = SafeCast.toUint256(maxBufferRate);
 
         // If arithmetic overflows, skip this proactive cap and rely on write-time fallback behavior.
         if (timeRemaining > type(uint256).max / maxBufferRateU) return cappedRate;
@@ -126,7 +127,7 @@ library TreasuryFlowRateSync {
             linearSafeRate = uint256(uint96(type(int96).max));
         }
 
-        int96 linearSafeRate96 = int96(uint96(linearSafeRate));
+        int96 linearSafeRate96 = SafeCast.toInt96(SafeCast.toInt256(linearSafeRate));
         if (cappedRate > linearSafeRate96) {
             cappedRate = linearSafeRate96;
         }

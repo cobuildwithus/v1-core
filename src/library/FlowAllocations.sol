@@ -9,6 +9,7 @@ import { AllocationCommitment } from "./AllocationCommitment.sol";
 import { AllocationSnapshot } from "./AllocationSnapshot.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 import { FlowUnitMath } from "./FlowUnitMath.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 library FlowAllocations {
     uint8 internal constant SNAPSHOT_VERSION_V1 = 1;
@@ -257,12 +258,12 @@ library FlowAllocations {
                 : cfg.distributionPool.getUnits(recipientAddress);
             uint128 target;
             if (delta < 0) {
-                uint256 dec = uint256(-delta);
-                target = dec >= current ? 0 : current - uint128(dec);
+                uint256 dec = SafeCast.toUint256(-delta);
+                target = dec >= current ? 0 : current - SafeCast.toUint128(dec);
             } else {
-                uint256 sum = uint256(current) + uint256(delta);
+                uint256 sum = uint256(current) + SafeCast.toUint256(delta);
                 if (sum > type(uint128).max) revert IFlow.OVERFLOW();
-                target = uint128(sum);
+                target = SafeCast.toUint128(sum);
             }
 
             if (target != current) {
@@ -327,7 +328,7 @@ library FlowAllocations {
             FlowProtocolConstants.PPM_SCALE_UINT256
         );
         if (units > type(uint128).max) revert IFlow.OVERFLOW();
-        return uint128(units);
+        return SafeCast.toUint128(units);
     }
 
     function _weightToPlusOne(uint256 weight) private pure returns (uint256) {

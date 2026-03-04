@@ -8,6 +8,7 @@ import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasu
 import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
 import { IBudgetTCR } from "../tcr/interfaces/IBudgetTCR.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
@@ -325,7 +326,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function _linearBalanceSpenddownFlowRate(uint256 balance, uint256 remaining) internal pure returns (int96) {
         uint256 rawRate = balance / remaining;
         if (rawRate > INT96_MAX_UINT) return type(int96).max;
-        return int96(uint96(rawRate));
+        return SafeCast.toInt96(SafeCast.toInt256(rawRate));
     }
 
     function _composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) internal pure returns (int96) {
@@ -333,13 +334,13 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             revert NEGATIVE_FLOW_COMPONENT(incomingRate, spenddownRate);
         }
 
-        uint256 incoming = uint256(uint96(incomingRate));
+        uint256 incoming = SafeCast.toUint256(incomingRate);
         if (incoming >= INT96_MAX_UINT) return type(int96).max;
 
-        uint256 spenddown = uint256(uint96(spenddownRate));
+        uint256 spenddown = SafeCast.toUint256(spenddownRate);
         if (spenddown > INT96_MAX_UINT - incoming) return type(int96).max;
 
-        return int96(uint96(incoming + spenddown));
+        return SafeCast.toInt96(SafeCast.toInt256(incoming + spenddown));
     }
 
     function _activateAndSync() internal {
@@ -351,7 +352,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
         uint256 computedDeadline = uint256(fundingDeadline) + uint256(executionDuration);
         if (computedDeadline > type(uint64).max) revert INVALID_DEADLINES();
-        deadline = uint64(computedDeadline);
+        deadline = SafeCast.toUint64(computedDeadline);
         activatedAt = uint64(block.timestamp);
 
         _setState(BudgetState.Active);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @notice Compact onchain allocation snapshot packing utilities.
 library AllocationSnapshot {
@@ -17,7 +18,7 @@ library AllocationSnapshot {
         if (count > type(uint16).max) revert IFlow.OVERFLOW();
 
         packed = new bytes(2 + (count * 8));
-        _writeUint16(packed, 0, uint16(count));
+        _writeUint16(packed, 0, SafeCast.toUint16(count));
 
         uint256 cursor = 2;
         for (uint256 i = 0; i < count; ) {

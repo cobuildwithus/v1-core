@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 library TreasuryReassertGrace {
     struct State {
         uint64 deadline;
@@ -34,7 +36,7 @@ library TreasuryReassertGrace {
 
         uint256 computedDeadline = block.timestamp + graceDuration;
         if (computedDeadline > type(uint64).max) computedDeadline = type(uint64).max;
-        graceDeadline = uint64(computedDeadline);
+        graceDeadline = SafeCast.toUint64(computedDeadline);
         self.deadline = graceDeadline;
 
         return (true, graceDeadline);

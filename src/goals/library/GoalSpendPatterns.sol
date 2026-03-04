@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 library GoalSpendPatterns {
     enum SpendPattern {
         Linear
@@ -24,6 +26,6 @@ library GoalSpendPatterns {
     function _linearTargetFlowRate(uint256 treasuryBalance, uint256 timeRemaining) private pure returns (int96) {
         uint256 rate = treasuryBalance / timeRemaining;
         if (rate > uint256(uint96(type(int96).max))) return type(int96).max;
-        return int96(uint96(rate));
+        return SafeCast.toInt96(SafeCast.toInt256(rate));
     }
 }

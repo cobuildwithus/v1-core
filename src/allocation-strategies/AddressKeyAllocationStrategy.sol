@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccountResolver.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 abstract contract AddressKeyAllocationStrategy is IAllocationStrategy, IAllocationKeyAccountResolver {
     error INVALID_ALLOCATION_KEY(uint256 key);
@@ -17,6 +18,6 @@ abstract contract AddressKeyAllocationStrategy is IAllocationStrategy, IAllocati
 
     function _accountForKey(uint256 key) internal pure returns (address) {
         if (key > type(uint160).max) revert INVALID_ALLOCATION_KEY(key);
-        return address(uint160(key));
+        return address(SafeCast.toUint160(key));
     }
 }

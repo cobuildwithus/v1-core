@@ -33,7 +33,7 @@ library FlowRates {
 
         if (managerRewardFlowRateShare > type(int96).max) revert IFlow.FLOW_RATE_TOO_HIGH();
 
-        managerRewardFlowRate = int96(managerRewardFlowRateShare);
+        managerRewardFlowRate = SafeCast.toInt96(managerRewardFlowRateShare);
         distributionFlowRate = _flowRate - managerRewardFlowRate;
     }
 
@@ -81,7 +81,7 @@ library FlowRates {
     function getClaimableBalance(FlowTypes.Config storage cfg, address member) external view returns (uint256) {
         (int256 distributionClaimable, ) = cfg.distributionPool.getClaimableNow(member);
         if (distributionClaimable <= 0) return 0;
-        return uint256(distributionClaimable);
+        return SafeCast.toUint256(distributionClaimable);
     }
 
     /**

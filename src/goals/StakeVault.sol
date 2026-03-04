@@ -896,7 +896,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
     function _accountForKey(uint256 key) internal pure returns (address) {
         if (key > type(uint160).max) revert INVALID_ALLOCATION_KEY(key);
-        return address(uint160(key));
+        return address(SafeCast.toUint160(key));
     }
 
     function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal {
