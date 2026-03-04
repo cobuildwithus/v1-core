@@ -21,8 +21,6 @@ contract BudgetTCRFactory {
 
     error ADDRESS_ZERO();
     error UNAUTHORIZED_CALLER(address caller);
-    error UNAUTHORIZED_CALLER_SETTER(address caller);
-    error AUTHORIZED_CALLER_ALREADY_SET(address currentCaller);
     error INVALID_ESCROW_BOND_BPS(uint256 escrowBondBps);
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
     error JUROR_SLASHER_NOT_CONFIGURED();
@@ -64,13 +62,11 @@ contract BudgetTCRFactory {
         address goalFlow,
         address goalTreasury
     );
-    event AuthorizedCallerSet(address indexed caller);
 
     address public immutable budgetTCRImplementation;
     address public immutable arbitratorImplementation;
     address public immutable stackDeployerImplementation;
-    address public immutable authorizedCallerSetter;
-    address public authorizedCaller;
+    address public immutable authorizedCaller;
     uint256 public immutable escrowBondBps;
 
     constructor(
@@ -83,6 +79,7 @@ contract BudgetTCRFactory {
         if (budgetTCRImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (arbitratorImplementation_ == address(0)) revert ADDRESS_ZERO();
         if (stackDeployerImplementation_ == address(0)) revert ADDRESS_ZERO();
+        if (authorizedCaller_ == address(0)) revert ADDRESS_ZERO();
         if (escrowBondBps_ == 0 || escrowBondBps_ > FlowProtocolConstants.BPS_SCALE_UINT256) {
             revert INVALID_ESCROW_BOND_BPS(escrowBondBps_);
         }
@@ -93,18 +90,8 @@ contract BudgetTCRFactory {
         budgetTCRImplementation = budgetTCRImplementation_;
         arbitratorImplementation = arbitratorImplementation_;
         stackDeployerImplementation = stackDeployerImplementation_;
-        authorizedCallerSetter = msg.sender;
-        if (authorizedCaller_ != address(0)) {
-            _setAuthorizedCaller(authorizedCaller_);
-        }
+        authorizedCaller = authorizedCaller_;
         escrowBondBps = escrowBondBps_;
-    }
-
-    function setAuthorizedCaller(address authorizedCaller_) external {
-        if (msg.sender != authorizedCallerSetter) revert UNAUTHORIZED_CALLER_SETTER(msg.sender);
-        if (authorizedCaller_ == address(0)) revert ADDRESS_ZERO();
-        if (authorizedCaller != address(0)) revert AUTHORIZED_CALLER_ALREADY_SET(authorizedCaller);
-        _setAuthorizedCaller(authorizedCaller_);
     }
 
     function deployBudgetTCRStackForGoal(
@@ -216,11 +203,6 @@ contract BudgetTCRFactory {
         if (implementation.code.length == 0) {
             revert IMPLEMENTATION_HAS_NO_CODE(implementation);
         }
-    }
-
-    function _setAuthorizedCaller(address authorizedCaller_) internal {
-        authorizedCaller = authorizedCaller_;
-        emit AuthorizedCallerSet(authorizedCaller_);
     }
 
     function _resolveConfiguredJurorSlasherRouter(address stakeVault) internal view returns (address router) {

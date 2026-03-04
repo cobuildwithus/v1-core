@@ -53,61 +53,10 @@ contract BudgetTCRFactoryCoverageTest is Test {
         new BudgetTCRFactory(budgetImpl, arbImpl, address(0), address(this), DEFAULT_ESCROW_BOND_BPS);
     }
 
-    function test_constructor_allowsDeferredAuthorizedCallerBinding() public {
+    function test_constructor_revertsWhenAuthorizedCallerIsZero() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-        address authorizedCaller = makeAddr("authorized-caller");
-
-        assertEq(factory.authorizedCaller(), address(0));
-        assertEq(factory.authorizedCallerSetter(), address(this));
-
-        factory.setAuthorizedCaller(authorizedCaller);
-        assertEq(factory.authorizedCaller(), authorizedCaller);
-    }
-
-    function test_setAuthorizedCaller_revertsWhenCallerNotSetter() public {
-        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-        address unauthorizedCaller = makeAddr("unauthorized-caller");
-
-        vm.prank(unauthorizedCaller);
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER_SETTER.selector, unauthorizedCaller)
-        );
-        factory.setAuthorizedCaller(address(this));
-    }
-
-    function test_setAuthorizedCaller_revertsWhenAlreadySet() public {
-        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
-        address anotherCaller = makeAddr("another-caller");
-
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.AUTHORIZED_CALLER_ALREADY_SET.selector, address(this))
-        );
-        factory.setAuthorizedCaller(anotherCaller);
-    }
-
-    function test_deployBudgetTCRStackForGoal_revertsUntilDeferredAuthorizedCallerBound() public {
-        (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-        address authorizedCaller = makeAddr("authorized-caller");
-
-        BudgetTCRFactory.RegistryConfigInput memory registryConfig;
-        IBudgetTCR.DeploymentConfig memory deploymentConfig;
-        IArbitrator.ArbitratorParams memory arbitratorParams;
-
-        vm.prank(authorizedCaller);
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER.selector, authorizedCaller)
-        );
-        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
-
-        factory.setAuthorizedCaller(authorizedCaller);
-
-        vm.prank(authorizedCaller);
         vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_deployBudgetTCRStackForGoal_revertsWhenCallerUnauthorized() public {

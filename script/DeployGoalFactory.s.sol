@@ -12,6 +12,9 @@ import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 
 contract GoalFactoryPairDeployer {
+    error GOAL_FACTORY_PREDICTION_MISMATCH(address predicted, address actual);
+    error UNSUPPORTED_CREATE_NONCE(uint256 nonce);
+
     struct BudgetTcrFactoryConfig {
         address budgetTcrImplementation;
         address arbitratorImplementation;
@@ -42,11 +45,13 @@ contract GoalFactoryPairDeployer {
     address public immutable goalFactory;
 
     constructor(BudgetTcrFactoryConfig memory budgetTcrConfig, GoalFactoryConfig memory goalFactoryConfig) {
+        address predictedGoalFactory = _computeCreateAddress(address(this), 2);
+
         BudgetTCRFactory budgetTcrFactory_ = new BudgetTCRFactory(
             budgetTcrConfig.budgetTcrImplementation,
             budgetTcrConfig.arbitratorImplementation,
             budgetTcrConfig.stackDeployerImplementation,
-            address(0),
+            predictedGoalFactory,
             budgetTcrConfig.escrowBondBps
         );
 
@@ -70,10 +75,25 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.defaultInvalidRoundRewardsSink
         );
 
-        budgetTcrFactory_.setAuthorizedCaller(address(goalFactory_));
+        if (address(goalFactory_) != predictedGoalFactory) {
+            revert GOAL_FACTORY_PREDICTION_MISMATCH(predictedGoalFactory, address(goalFactory_));
+        }
 
         budgetTcrFactory = address(budgetTcrFactory_);
         goalFactory = address(goalFactory_);
+    }
+
+    function _computeCreateAddress(address deployer, uint256 nonce) internal pure returns (address predicted) {
+        if (nonce > 0x7f) revert UNSUPPORTED_CREATE_NONCE(nonce);
+        predicted = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(uint8(nonce)))
+                    )
+                )
+            )
+        );
     }
 }
 
