@@ -438,9 +438,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     }
 
     function _effectiveEscrowFunding(address fundingEscrow) internal view returns (uint256) {
-        uint256 totalReceived = _totalEscrowReceived(fundingEscrow);
-        uint256 escrowBalance = MechanismFundingEscrow(fundingEscrow).superToken().balanceOf(fundingEscrow);
-        return totalReceived >= escrowBalance ? totalReceived : escrowBalance;
+        return _totalEscrowReceived(fundingEscrow);
     }
 
     function _policyFundingLevel(MechanismDeployment storage dep) internal returns (uint256) {

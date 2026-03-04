@@ -1384,6 +1384,33 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
     }
 
+    function test_syncMechanismFunding_preDeadlineEscrowTopUpCannotPoisonMinPolicyAfterDeadline() public {
+        AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
+
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+        uint256 escrowed = listing.minBudgetFunding;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+
+        mechanism.syncMechanismFunding(itemId);
+
+        AllocationMechanismTCR.MechanismDeployment memory afterPreDeadlineSync = mechanism.mechanismDeployment(itemId);
+        assertTrue(afterPreDeadlineSync.active);
+        assertEq(afterPreDeadlineSync.maxEffectiveFundingObserved, 0);
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), escrowed);
+
+        vm.warp(uint256(listing.fundingDeadline) + 1);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+        mechanism.syncMechanismFunding(itemId);
+
+        AllocationMechanismTCR.MechanismDeployment memory afterDeadlineSync = mechanism.mechanismDeployment(itemId);
+        assertFalse(afterDeadlineSync.active);
+        assertEq(afterDeadlineSync.maxEffectiveFundingObserved, 0);
+        assertEq(budgetFlow.recipientById(itemId), address(0));
+        assertEq(superToken.balanceOf(deployment.fundingEscrow), 0);
+        assertEq(superToken.balanceOf(address(budgetFlow)), escrowed);
+    }
+
     function test_releaseMechanismFunds_revertsWhenEscrowTransferReturnsFalse() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(
             uint64(block.timestamp + 1),
