@@ -114,6 +114,11 @@ contract RoundPrizeVaultTest is Test {
         vault2.initialize(underlying, ISuperToken(address(superToken)), submissions, address(0));
     }
 
+    function test_initialize_revertsOnReinitializeClone() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        vault.initialize(underlying, ISuperToken(address(superToken)), submissions, operator);
+    }
+
     function test_setOperator_onlyOperator() public {
         vm.prank(alice);
         vm.expectRevert(RoundPrizeVault.ONLY_OPERATOR.selector);

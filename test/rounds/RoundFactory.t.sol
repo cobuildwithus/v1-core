@@ -8,6 +8,8 @@ import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import {
@@ -19,6 +21,10 @@ import {
     RoundTestBudgetStakeLedger,
     RoundTestJurorSlasher
 } from "test/rounds/helpers/RoundTestMocks.sol";
+
+import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract RoundTestZeroUnderlyingSuperToken {
     function getUnderlyingToken() external pure returns (address) {
@@ -72,6 +78,32 @@ contract RoundFactoryTest is Test {
             address(new RoundPrizeVault()),
             address(new ERC20VotesArbitrator())
         );
+    }
+
+    function test_constructor_revertsOnInvalidImplementationAddresses() public {
+        address submissionImpl = address(new RoundSubmissionTCR());
+        address vaultImpl = address(new RoundPrizeVault());
+        address arbitratorImpl = address(new ERC20VotesArbitrator());
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(address(0), vaultImpl, arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, address(0), arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, vaultImpl, address(0));
+
+        address undeployed = makeAddr("undeployed-implementation");
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(undeployed, vaultImpl, arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, undeployed, arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, vaultImpl, undeployed);
     }
 
     function _deployRound(bytes32 roundId) internal returns (RoundFactory.DeployedRound memory deployed) {
@@ -232,6 +264,37 @@ contract RoundFactoryTest is Test {
         assertEq(arb.slashCallerBountyBps(), 0);
         assertEq(arb.fixedBudgetTreasury(), address(budgetTreasury));
         assertEq(arb.stakeVault(), address(stakeVault));
+    }
+
+    function test_createRoundForBudget_initializesClonesAndGuardsReinitialize() public {
+        RoundFactory.DeployedRound memory deployed = _deployRound(keccak256("round-reinitialize-guard"));
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        RoundPrizeVault(deployed.prizeVault).initialize(
+            underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(deployed.submissionTCR), roundOperator
+        );
+
+        RoundSubmissionTCR.RoundConfig memory roundCfg = RoundSubmissionTCR.RoundConfig({
+            roundId: bytes32("reinit"),
+            startAt: uint64(block.timestamp),
+            endAt: uint64(block.timestamp + 1 days),
+            prizeVault: deployed.prizeVault
+        });
+        RoundSubmissionTCR.RegistryConfig memory regCfg = RoundSubmissionTCR.RegistryConfig({
+            arbitrator: IArbitrator(deployed.arbitrator),
+            arbitratorExtraData: "",
+            registrationMetaEvidence: "reg",
+            clearingMetaEvidence: "clr",
+            votingToken: IVotes(address(underlying)),
+            submissionBaseDeposit: 1e18,
+            submissionDepositStrategy: ISubmissionDepositStrategy(deployed.depositStrategy),
+            removalBaseDeposit: 0,
+            submissionChallengeBaseDeposit: 0,
+            removalChallengeBaseDeposit: 0,
+            challengePeriodDuration: 1 days
+        });
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        RoundSubmissionTCR(deployed.submissionTCR).initialize(roundCfg, regCfg);
     }
 
     function test_createRoundForBudget_wiresSubmissionConfig_and_governor_surface_is_absent() public {

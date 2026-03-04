@@ -19,6 +19,8 @@ import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmis
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
+import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
@@ -433,7 +435,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory()),
+            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

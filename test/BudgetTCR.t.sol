@@ -19,6 +19,8 @@ import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
+import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
+import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
@@ -2092,7 +2094,7 @@ contract BudgetTCRTest is TestUtils {
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory()),
+            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
