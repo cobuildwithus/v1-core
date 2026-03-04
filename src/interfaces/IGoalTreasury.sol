@@ -105,6 +105,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         uint256 minRaise,
         address jurorSlasher,
         address underwriterSlasher,
+        address successResolver,
         address goalToken,
         address cobuildToken
     );

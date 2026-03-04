@@ -1159,6 +1159,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.jurorSlasher = address(assertionOracle);
         (JBRuleset memory terminal, ) = rulesets.latestQueuedOf(config.goalRevnetId);
 
         vm.expectEmit(true, false, false, true, address(candidateTreasury));
@@ -1175,11 +1176,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             config.minRaise,
             config.jurorSlasher,
             config.underwriterSlasher,
+            config.successResolver,
             address(stakeVault.goalToken()),
             address(stakeVault.cobuildToken())
         );
 
         candidateTreasury.initialize(address(this), config);
+        assertEq(candidateTreasury.successResolver(), config.successResolver);
     }
 
     function test_goalTreasuryImplementation_initializeRevertsInvalidInitialization() public {

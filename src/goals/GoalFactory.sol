@@ -135,6 +135,9 @@ contract GoalFactory {
         address stakeVault;
         address budgetStakeLedger;
         address splitHook;
+        address jurorSlasherRouter;
+        address underwriterSlasherRouter;
+        address successResolver;
         address budgetTCR;
         address arbitrator;
     }
@@ -339,6 +342,9 @@ contract GoalFactory {
             stakeVault: address(core.stakeVault),
             budgetStakeLedger: address(core.budgetStakeLedger),
             splitHook: address(core.splitHook),
+            jurorSlasherRouter: core.jurorSlasherRouter,
+            underwriterSlasherRouter: core.underwriterSlasherRouter,
+            successResolver: p.success.successResolver,
             budgetTCR: tcrStack.budgetTCR,
             arbitrator: tcrStack.arbitrator
         });

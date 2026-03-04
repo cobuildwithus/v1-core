@@ -201,6 +201,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             config.minRaise,
             config.jurorSlasher,
             config.underwriterSlasher,
+            config.successResolver,
             address(configuredGoalToken),
             address(configuredCobuildToken)
         );

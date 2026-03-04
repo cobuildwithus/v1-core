@@ -75,6 +75,7 @@ library GoalFactoryCoreStackDeploy {
         ISuperToken goalSuperToken;
         StakeVault stakeVault;
         BudgetStakeLedger budgetStakeLedger;
+        address jurorSlasherRouter;
         address underwriterSlasherRouter;
     }
 
@@ -135,6 +136,7 @@ library GoalFactoryCoreStackDeploy {
 
         JurorSlasherRouter jurorSlasherRouter = JurorSlasherRouter(Clones.clone(request.jurorSlasherRouterImpl));
         jurorSlasherRouter.initialize(stakeVaultRef, request.budgetTcrFactory);
+        out.jurorSlasherRouter = address(jurorSlasherRouter);
         UnderwriterSlasherRouter underwriterSlasherRouter =
             UnderwriterSlasherRouter(Clones.clone(request.underwriterSlasherRouterImpl));
         underwriterSlasherRouter.initialize(
