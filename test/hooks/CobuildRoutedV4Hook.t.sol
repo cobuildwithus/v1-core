@@ -124,6 +124,10 @@ contract CobuildRoutedV4HookTest is Test {
         assertEq(hook.exposedDecodeAmountOutMin(abi.encode(uint256(123), uint256(999))), 123);
     }
 
+    function test_decodeAmountOutMin_treatsLegacyVersionPrefixAsLegacyOnlyAtExact64Bytes() public view {
+        assertEq(hook.exposedDecodeAmountOutMin(abi.encode(uint256(1), uint256(654_321), uint256(777))), 1);
+    }
+
     function test_selectRoute_prefersV4ThenV3AndFallsBackToJb() public view {
         assertEq(hook.exposedSelectRoute(0, 0, 0), 0); // JB
         assertEq(hook.exposedSelectRoute(10, 10, 10), 2); // V4 tie-break
@@ -585,6 +589,71 @@ contract CobuildRoutedV4HookTest is Test {
         });
         localHook.exposedBeforeSwap(key, params, bytes(""));
         assertEq(v3Pool.lastSqrtPriceLimitX96(), sqrtPriceLimitX96);
+    }
+
+    function test_beforeSwap_v3Route_defaultsSqrtPriceLimitWhenV4KeyOrderingDiffersFromV3() public {
+        address projectToken = address(new MockERC20());
+        uint256 projectId = 80_15;
+        uint256 amountIn = 1_000;
+        uint256 amountOut = 700;
+        uint160 requestedSqrtPriceLimitX96 = TickMath.MIN_SQRT_PRICE + 123;
+
+        tokens.setProjectId(projectToken, projectId);
+
+        MockPoolManager poolManager = new MockPoolManager();
+        MockDirectory directory = new MockDirectory();
+        MockV3Factory localV3Factory = new MockV3Factory();
+        MockV3PoolLimitAware v3Pool = new MockV3PoolLimitAware(amountOut, requestedSqrtPriceLimitX96, false);
+        MockERC20 backingToken = new MockERC20();
+        address backingTokenAddress = address(backingToken);
+        (address token0, address token1) = _sort(projectToken, backingTokenAddress);
+        localV3Factory.setPool(token0, token1, V3_FEE_TIER, address(v3Pool));
+
+        CobuildRoutedV4HookHarness localHook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(poolManager)),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(localV3Factory)),
+            backingTokenAddress,
+            1 hours
+        );
+
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(token1), // intentionally reverse v3's canonical token ordering
+            currency1: Currency.wrap(token0),
+            fee: 10_000, // prefer V3 for estimate
+            tickSpacing: 60,
+            hooks: IHooks(address(localHook))
+        });
+        PoolId poolId = key.toId();
+
+        poolManager.setPoolState(poolId, uint128(1), uint160(FixedPoint96.Q96), 0);
+        address tokenIn = Currency.unwrap(key.currency0);
+        address tokenOut = Currency.unwrap(key.currency1);
+        if (tokenIn == projectToken) {
+            MockERC20(projectToken).mint(address(poolManager), amountIn);
+        } else {
+            backingToken.mint(address(poolManager), amountIn);
+        }
+        if (tokenOut == projectToken) {
+            MockERC20(projectToken).mint(address(localHook), amountOut);
+        } else {
+            backingToken.mint(address(localHook), amountOut);
+        }
+        vm.warp(1_000);
+
+        // zeroForOne=true makes tokenIn=currency0=token1 and tokenOut=currency1=token0.
+        // Since key order is intentionally reversed from v3 canonical ordering, requested limit must be ignored.
+        // The requested v4 key-space limit must be ignored and replaced with v3 default direction limit.
+        SwapParams memory params = SwapParams({
+            zeroForOne: true,
+            amountSpecified: -int256(amountIn),
+            sqrtPriceLimitX96: requestedSqrtPriceLimitX96
+        });
+        localHook.exposedBeforeSwap(key, params, bytes(""));
+
+        assertEq(v3Pool.lastSqrtPriceLimitX96(), TickMath.MAX_SQRT_PRICE - 1);
     }
 
     function test_beforeSwap_v3Route_revertsWhenProvidedSqrtPriceLimitIsCrossed() public {

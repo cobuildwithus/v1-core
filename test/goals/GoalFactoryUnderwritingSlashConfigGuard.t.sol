@@ -12,9 +12,12 @@ import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
+import {JBTerminalConfig} from "@bananapus/core-v5/structs/JBTerminalConfig.sol";
 
 contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     uint256 internal constant COBUILD_REVNET_ID = 1;
+    uint24 internal constant DEFAULT_BUYBACK_POOL_FEE = 3_000;
+    uint32 internal constant DEFAULT_BUYBACK_POOL_TWAP_WINDOW = 1 hours;
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant BUDGET_TCR_FACTORY = address(0x1003);
     address internal constant DEFAULT_ALLOCATION_MECHANISM_ADMIN = address(0x1004);
@@ -59,6 +62,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredDefaultSubmissionDepositStrategy = address(new DummyContract());
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
+        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
         factory = _newFactory(
             configuredStakeVaultImpl,
             configuredBudgetStakeLedgerImpl,
@@ -891,6 +895,23 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_forwardsBuybackDefaultsAndFactorySeededSaltToRevDeployer() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        revDeployer.setRevertWithObserved(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockRevDeployer.DeployForForwarding.selector,
+                DEFAULT_BUYBACK_POOL_FEE,
+                DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
+                true
+            )
+        );
+        factory.deployGoal(p);
+    }
+
     function _baseDeployParams() internal pure returns (GoalFactory.DeployParams memory p) {
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
@@ -1000,12 +1021,73 @@ contract MockToken is ERC20 {
 }
 
 contract MockRevDeployer {
+    error DeployForForwarding(
+        uint24 buybackPoolFee,
+        uint32 buybackPoolTwapWindow,
+        bool saltMatchesFactorySeed,
+        bool splitHookForwarded,
+        bool buybackHooksForwarded
+    );
+
     address internal immutable _directory;
     address internal immutable _controller;
+    bool internal _revertWithObserved;
+    address internal _expectedBuybackDataHook;
+    address internal _expectedBuybackHook;
 
     constructor(address directory_, address controller_) {
         _directory = directory_;
         _controller = controller_;
+    }
+
+    function setRevertWithObserved(bool value) external {
+        _revertWithObserved = value;
+    }
+
+    function setExpectedBuybackHooks(address dataHook, address hookToConfigure) external {
+        _expectedBuybackDataHook = dataHook;
+        _expectedBuybackHook = hookToConfigure;
+    }
+
+    function deployFor(
+        uint256,
+        IREVDeployer.REVConfig calldata configuration,
+        JBTerminalConfig[] calldata,
+        IREVDeployer.REVBuybackHookConfig calldata buybackHookConfiguration,
+        IREVDeployer.REVSuckerDeploymentConfig calldata
+    ) external returns (uint256 revnetId) {
+        address splitHook = address(0);
+        if (
+            configuration.stageConfigurations.length != 0 &&
+            configuration.stageConfigurations[0].splits.length != 0
+        ) {
+            splitHook = configuration.stageConfigurations[0].splits[0].beneficiary;
+        }
+
+        uint24 observedFee;
+        uint32 observedTwapWindow;
+        if (buybackHookConfiguration.poolConfigurations.length != 0) {
+            IREVDeployer.REVBuybackPoolConfig calldata poolConfiguration = buybackHookConfiguration.poolConfigurations[0];
+            observedFee = poolConfiguration.fee;
+            observedTwapWindow = poolConfiguration.twapWindow;
+        }
+
+        if (_revertWithObserved) {
+            bool saltMatchesFactorySeed = configuration.description.salt == keccak256(abi.encode(msg.sender, splitHook));
+            bool splitHookForwarded = splitHook != address(0);
+            bool buybackHooksForwarded = buybackHookConfiguration.dataHook == _expectedBuybackDataHook
+                && buybackHookConfiguration.hookToConfigure == _expectedBuybackHook;
+
+            revert DeployForForwarding(
+                observedFee,
+                observedTwapWindow,
+                saltMatchesFactorySeed,
+                splitHookForwarded,
+                buybackHooksForwarded
+            );
+        }
+
+        revnetId = 1;
     }
 
     function DIRECTORY() external view returns (address) {
@@ -1026,6 +1108,10 @@ contract MockController {
 
     function TOKENS() external view returns (address) {
         return _tokens;
+    }
+
+    function RULESETS() external pure returns (address) {
+        return address(0x1234);
     }
 }
 
