@@ -19,6 +19,8 @@ import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 function _stringContains(string memory haystack, string memory needle) pure returns (bool) {
@@ -252,10 +254,19 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     address internal revDeployerAddress;
     address internal buybackHookDataHookAddress;
     address internal buybackHookAddress;
+    MockDirectoryForScript internal revnetDirectory;
+    MockTokensForScript internal revnetTokens;
+    MockControllerForScript internal revnetController;
 
     function setUp() public {
         token = new FakeResolverMockERC20();
-        revDeployerAddress = address(new MockRevDeployerForScript(address(new MockDirectoryForScript())));
+        revnetDirectory = new MockDirectoryForScript();
+        revnetTokens = new MockTokensForScript();
+        revnetController = new MockControllerForScript(address(revnetTokens));
+        revDeployerAddress = address(new MockRevDeployerForScript(address(revnetDirectory), address(revnetController)));
+        address nativeTerminal = address(new FakeResolverNoop());
+        revnetDirectory.setPrimaryTerminal(138, JBConstants.NATIVE_TOKEN, IJBTerminal(nativeTerminal));
+        revnetTokens.setTokenOf(138, address(token));
         buybackHookDataHookAddress = address(new FakeResolverNoop());
         buybackHookAddress = address(new FakeResolverNoop());
         deployImplementationsScript = new DeployGoalFactoryImplementations();
@@ -360,6 +371,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
         assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
+        assertEq(deployedFactory.COBUILD_TOKEN(), address(token));
+        assertEq(deployedFactory.COBUILD_REVNET_ID(), 138);
         assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
         assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
 
@@ -672,14 +685,54 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
     contract MockRevDeployerForScript {
         address internal immutable _directory;
+        address internal immutable _controller;
 
-        constructor(address directory_) {
+        constructor(address directory_, address controller_) {
             _directory = directory_;
+            _controller = controller_;
         }
 
         function DIRECTORY() external view returns (address) {
             return _directory;
         }
+
+        function CONTROLLER() external view returns (address) {
+            return _controller;
+        }
     }
 
-    contract MockDirectoryForScript {}
+    contract MockControllerForScript {
+        address internal immutable _tokens;
+
+        constructor(address tokens_) {
+            _tokens = tokens_;
+        }
+
+        function TOKENS() external view returns (address) {
+            return _tokens;
+        }
+    }
+
+    contract MockTokensForScript {
+        mapping(uint256 => address) internal _tokenOf;
+
+        function setTokenOf(uint256 projectId, address token) external {
+            _tokenOf[projectId] = token;
+        }
+
+        function tokenOf(uint256 projectId) external view returns (address) {
+            return _tokenOf[projectId];
+        }
+    }
+
+    contract MockDirectoryForScript {
+        mapping(uint256 => mapping(address => IJBTerminal)) internal _primaryTerminalOf;
+
+        function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
+            _primaryTerminalOf[projectId][token] = terminal;
+        }
+
+        function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
+            return _primaryTerminalOf[projectId][token];
+        }
+    }

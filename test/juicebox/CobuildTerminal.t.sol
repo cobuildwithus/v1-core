@@ -46,6 +46,7 @@ contract CobuildTerminalTest is Test {
         );
 
         assertEq(sourceTerminal.lastPaidAmount(), ethAmount);
+        assertEq(sourceTerminal.lastMinReturnedTokens(), 1);
         assertEq(destinationTerminal.lastReceivedCobuild(), ethAmount);
         assertEq(beneficiaryTokenCount, ethAmount);
     }
@@ -104,6 +105,38 @@ contract CobuildTerminalTest is Test {
         );
     }
 
+    function test_payWithEth_revertsWhenCobuildConversionReturnsZero() public {
+        MockCobuildEthTerminalNoMint zeroOutTerminal = new MockCobuildEthTerminalNoMint();
+        directory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(zeroOutTerminal)));
+
+        vm.expectRevert(CobuildTerminal.ZERO_COBUILD_OUT.selector);
+        cobuildTerminal.pay{ value: 1 ether }(
+            GOAL_REVNET_ID,
+            JBConstants.NATIVE_TOKEN,
+            1 ether,
+            address(this),
+            0,
+            "memo",
+            bytes("")
+        );
+    }
+
+    function test_payWithEth_revertsWhenCobuildTerminalReturnsAmountWithoutMinting() public {
+        MockCobuildEthTerminalReturnsAmountNoMint zeroBalanceTerminal = new MockCobuildEthTerminalReturnsAmountNoMint();
+        directory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(zeroBalanceTerminal)));
+
+        vm.expectRevert(CobuildTerminal.ZERO_COBUILD_OUT.selector);
+        cobuildTerminal.pay{ value: 1 ether }(
+            GOAL_REVNET_ID,
+            JBConstants.NATIVE_TOKEN,
+            1 ether,
+            address(this),
+            0,
+            "memo",
+            bytes("")
+        );
+    }
+
     function test_pay_revertsWhenDestinationTerminalMissing() public {
         directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(0)));
 
@@ -122,6 +155,23 @@ contract CobuildTerminalTest is Test {
     function test_pay_revertsWhenUnsupportedToken() public {
         vm.expectRevert(abi.encodeWithSelector(CobuildTerminal.UNSUPPORTED_TOKEN.selector, address(0xBEEF)));
         cobuildTerminal.pay(GOAL_REVNET_ID, address(0xBEEF), 1, address(this), 0, "memo", bytes(""));
+    }
+
+    function test_payWithCobuild_revertsWhenZeroCobuildTransferred() public {
+        vm.expectRevert(CobuildTerminal.ZERO_COBUILD_OUT.selector);
+        cobuildTerminal.pay(GOAL_REVNET_ID, address(cobuildToken), 0, address(this), 0, "memo", bytes(""));
+    }
+
+    function test_payWithCobuild_revertsWhenNonZeroAmountTransfersZero() public {
+        MockNoTransferCobuildToken noTransferToken = new MockNoTransferCobuildToken();
+        CobuildTerminal localTerminal =
+            new CobuildTerminal(IJBDirectory(address(directory)), address(noTransferToken), COBUILD_REVNET_ID);
+        directory.setPrimaryTerminal(
+            GOAL_REVNET_ID, address(noTransferToken), IJBTerminal(address(new MockDestinationTerminalNoop()))
+        );
+
+        vm.expectRevert(CobuildTerminal.ZERO_COBUILD_OUT.selector);
+        localTerminal.pay(GOAL_REVNET_ID, address(noTransferToken), 1 ether, address(this), 0, "memo", bytes(""));
     }
 
     function test_payWithEth_revertsWhenDestinationIsSelf() public {
@@ -168,12 +218,21 @@ contract MockMintableERC20 is ERC20 {
 contract MockCobuildEthTerminal {
     MockMintableERC20 internal immutable _token;
     uint256 internal _lastPaidAmount;
+    uint256 internal _lastMinReturnedTokens;
 
     constructor(MockMintableERC20 token_) {
         _token = token_;
     }
 
-    function pay(uint256, address token, uint256 amount, address beneficiary, uint256, string calldata, bytes calldata)
+    function pay(
+        uint256,
+        address token,
+        uint256 amount,
+        address beneficiary,
+        uint256 minReturnedTokens,
+        string calldata,
+        bytes calldata
+    )
         external
         payable
         returns (uint256)
@@ -181,12 +240,17 @@ contract MockCobuildEthTerminal {
         require(token == JBConstants.NATIVE_TOKEN, "token");
         require(msg.value == amount, "value");
         _lastPaidAmount = amount;
+        _lastMinReturnedTokens = minReturnedTokens;
         _token.mint(beneficiary, amount);
         return amount;
     }
 
     function lastPaidAmount() external view returns (uint256) {
         return _lastPaidAmount;
+    }
+
+    function lastMinReturnedTokens() external view returns (uint256) {
+        return _lastMinReturnedTokens;
     }
 }
 
@@ -211,5 +275,49 @@ contract MockDestinationTerminal {
 
     function lastReceivedCobuild() external view returns (uint256) {
         return _lastReceivedCobuild;
+    }
+}
+
+contract MockCobuildEthTerminalNoMint {
+    function pay(uint256, address token, uint256 amount, address, uint256, string calldata, bytes calldata)
+        external
+        payable
+        returns (uint256)
+    {
+        require(token == JBConstants.NATIVE_TOKEN, "token");
+        require(msg.value == amount, "value");
+        return 0;
+    }
+}
+
+contract MockCobuildEthTerminalReturnsAmountNoMint {
+    function pay(uint256, address token, uint256 amount, address, uint256, string calldata, bytes calldata)
+        external
+        payable
+        returns (uint256)
+    {
+        require(token == JBConstants.NATIVE_TOKEN, "token");
+        require(msg.value == amount, "value");
+        return amount;
+    }
+}
+
+contract MockNoTransferCobuildToken {
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return true;
+    }
+}
+
+contract MockDestinationTerminalNoop {
+    function pay(uint256, address, uint256 amount, address, uint256, string calldata, bytes calldata)
+        external
+        payable
+        returns (uint256)
+    {
+        return amount;
     }
 }
