@@ -9,9 +9,7 @@ coverage/
 .vscode/
 
 # Deployment artifacts
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
+/broadcast/
 /deploys/history/
 
 # Docs
