@@ -23,6 +23,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -182,6 +183,151 @@ contract CobuildRoutedV4HookIntegrationTest is Test {
         assertEq(BeforeSwapDeltaLibrary.getSpecifiedDelta(delta), 0);
         assertEq(BeforeSwapDeltaLibrary.getUnspecifiedDelta(delta), 0);
     }
+
+    function test_beforeSwap_takeFailureFallsBackToV4WhenJbRouteSelected() public {
+        uint256 projectId = 404;
+        uint256 amountIn = 25e18;
+        uint256 amountOutMin = 10e18;
+
+        MockERC20 backingToken = new MockERC20();
+        MockERC20 projectToken = new MockERC20();
+
+        MockTokens tokens = new MockTokens();
+        tokens.setProjectId(address(projectToken), projectId);
+
+        MockPoolManager poolManager = new MockPoolManager();
+        MockDirectory directory = new MockDirectory();
+        MockV3Factory v3Factory = new MockV3Factory();
+
+        // If JB route executes this counter increments.
+        PayTerminal terminal = new PayTerminal(address(projectToken), amountIn);
+        directory.setPrimaryTerminal(projectId, address(backingToken), address(terminal));
+        directory.setController(
+            projectId, address(new MockControllerRuleset(1e18, uint32(uint160(address(backingToken))), 0, 1e24))
+        );
+
+        CobuildRoutedV4HookHarness hook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(poolManager)),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            address(backingToken),
+            1 hours
+        );
+
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(backingToken)),
+            currency1: Currency.wrap(address(projectToken)),
+            fee: 10_000, // keep V4 estimate below JB estimate.
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        PoolId poolId = key.toId();
+        poolManager.setPoolState(poolId, uint128(1), uint160(FixedPoint96.Q96), 0);
+
+        // No backing token minted to poolManager => take() fails before custom route executes.
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -int256(amountIn), sqrtPriceLimitX96: 0});
+        (bytes4 selector, BeforeSwapDelta delta, uint24 lpFeeOverride) =
+            hook.exposedBeforeSwap(key, params, abi.encode(amountOutMin));
+
+        assertEq(selector, BaseHook.beforeSwap.selector);
+        assertEq(BeforeSwapDeltaLibrary.getSpecifiedDelta(delta), 0);
+        assertEq(BeforeSwapDeltaLibrary.getUnspecifiedDelta(delta), 0);
+        assertEq(lpFeeOverride, 0);
+        assertEq(terminal.payCalls(), 0);
+        assertTrue(hook.exposedEnforceAfterSwapMinOut(poolId));
+    }
+
+    function test_beforeSwap_revertsWhenTakeFailsAndV4Unavailable() public {
+        uint256 projectId = 405;
+        uint256 amountIn = 25e18;
+
+        MockERC20 backingToken = new MockERC20();
+        MockERC20 projectToken = new MockERC20();
+
+        MockTokens tokens = new MockTokens();
+        tokens.setProjectId(address(projectToken), projectId);
+
+        MockPoolManager poolManager = new MockPoolManager();
+        MockDirectory directory = new MockDirectory();
+        MockV3Factory v3Factory = new MockV3Factory();
+
+        PayTerminal terminal = new PayTerminal(address(projectToken), amountIn);
+        directory.setPrimaryTerminal(projectId, address(backingToken), address(terminal));
+        directory.setController(
+            projectId, address(new MockControllerRuleset(1e18, uint32(uint160(address(backingToken))), 0, 1e24))
+        );
+
+        CobuildRoutedV4HookHarness hook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(poolManager)),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            address(backingToken),
+            1 hours
+        );
+
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(backingToken)),
+            currency1: Currency.wrap(address(projectToken)),
+            fee: 3_000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        poolManager.setPoolState(key.toId(), 0, uint160(FixedPoint96.Q96), 0); // no V4 fallback available.
+
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -int256(amountIn), sqrtPriceLimitX96: 0});
+        vm.expectRevert(CobuildRoutedV4Hook.CUSTOM_ROUTE_INPUT_UNAVAILABLE.selector);
+        hook.exposedBeforeSwap(key, params, bytes(""));
+    }
+
+    function test_afterSwap_v4RouteMinOutSupportsVersionedHookData() public {
+        uint256 projectId = 406;
+        uint256 amountIn = 1_000;
+        uint256 amountOutMin = 500;
+
+        MockERC20 backingToken = new MockERC20();
+        MockERC20 projectToken = new MockERC20();
+
+        MockTokens tokens = new MockTokens();
+        tokens.setProjectId(address(projectToken), projectId);
+
+        MockPoolManager poolManager = new MockPoolManager();
+        MockDirectory directory = new MockDirectory();
+        MockV3Factory v3Factory = new MockV3Factory();
+
+        CobuildRoutedV4HookHarness hook = new CobuildRoutedV4HookHarness(
+            IPoolManager(address(poolManager)),
+            IJBDirectory(address(directory)),
+            IJBPrices(address(new DummyContract())),
+            IJBTokens(address(tokens)),
+            IUniswapV3Factory(address(v3Factory)),
+            address(backingToken),
+            1 hours
+        );
+
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(backingToken)),
+            currency1: Currency.wrap(address(projectToken)),
+            fee: 3_000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        PoolId poolId = key.toId();
+        poolManager.setPoolState(poolId, uint128(1), uint160(FixedPoint96.Q96), 0);
+
+        bytes memory hookData = abi.encode(uint256(1), amountOutMin);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -int256(amountIn), sqrtPriceLimitX96: 0});
+        hook.exposedBeforeSwap(key, params, hookData);
+        assertTrue(hook.exposedEnforceAfterSwapMinOut(poolId));
+
+        (bytes4 selector, int128 returnedDelta) = hook.exposedAfterSwap(key, params, toBalanceDelta(0, 500), hookData);
+        assertEq(selector, BaseHook.afterSwap.selector);
+        assertEq(returnedDelta, 0);
+        assertFalse(hook.exposedEnforceAfterSwapMinOut(poolId));
+    }
 }
 
 contract CobuildRoutedV4HookHarness is CobuildRoutedV4Hook {
@@ -200,6 +346,17 @@ contract CobuildRoutedV4HookHarness is CobuildRoutedV4Hook {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         return _beforeSwap(msg.sender, key, params, hookData);
+    }
+
+    function exposedAfterSwap(PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata hookData)
+        external
+        returns (bytes4, int128)
+    {
+        return _afterSwap(msg.sender, key, params, delta, hookData);
+    }
+
+    function exposedEnforceAfterSwapMinOut(PoolId poolId) external view returns (bool) {
+        return _enforceAfterSwapMinOut[poolId];
     }
 
     function validateHookAddress(BaseHook) internal pure override {}
