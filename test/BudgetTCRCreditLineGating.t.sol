@@ -17,6 +17,9 @@ import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -106,7 +109,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
-        stackDeployer = address(new BudgetTCRDeployer());
+        stackDeployer = address(_deployBudgetTcrDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit =
@@ -279,6 +282,81 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertEq(succeeded, 1);
     }
 
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenExecutionDurationReadReverts_andRunwayFallbackDisablesRecipient()
+        public
+    {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "DURATION_READ_FAIL");
+
+        goalTreasury.setCoverageLambda(10);
+        vm.mockCall(
+            address(budgetStakeLedger),
+            abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
+            abi.encode(1_000e18)
+        );
+        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.executionDuration.selector), reason);
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(1_000e18)
+        );
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), abi.encode()
+        );
+        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false));
+
+        vm.expectEmit(true, true, true, true, address(budgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID,
+            budgetTreasury,
+            budgetTreasury,
+            IBudgetTreasury.executionDuration.selector,
+            reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+    }
+
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRunwayCapReadReverts_andLambdaZeroForcesEnable()
+        public
+    {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "RUNWAY_READ_FAIL");
+
+        goalTreasury.setCoverageLambda(0);
+        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.runwayCap.selector), reason);
+        vm.mockCall(
+            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true), abi.encode()
+        );
+        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true));
+
+        vm.expectEmit(true, true, true, true, address(budgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID,
+            budgetTreasury,
+            budgetTreasury,
+            IBudgetTreasury.runwayCap.selector,
+            reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+    }
+
     function _approveAddCost(address who) internal returns (uint256 addCost) {
         (addCost,,,,) = budgetTcr.getTotalCosts();
         vm.prank(who);
@@ -349,6 +427,17 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
                 bondAmount: 10e18
             })
         });
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        return BudgetTCRDeployer(
+            new BudgetTCRDeployer(
+                address(new BudgetTreasury()),
+                address(new RoundFactory()),
+                address(new AllocationMechanismTCR()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {
