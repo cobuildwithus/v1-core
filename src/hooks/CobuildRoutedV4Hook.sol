@@ -98,6 +98,7 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
 
     mapping(PoolId poolId => Observation[ORACLE_CARDINALITY] observations) public observations;
     mapping(PoolId poolId => OracleState state) public oracleStates;
+    mapping(PoolId poolId => bool enforceAfterSwapMinOut) internal _enforceAfterSwapMinOut;
 
     error EXACT_OUTPUT_UNSUPPORTED();
     error NOT_BACKING_PAIR();
@@ -234,40 +235,61 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         uint256 expectedV3Out = _estimateV3Out(tokenIn, tokenOut, amountIn);
 
         uint256 expectedV4Out;
-        if (poolManager.getLiquidity(key.toId()) != 0) {
+        PoolId poolId = key.toId();
+        if (poolManager.getLiquidity(poolId) != 0) {
             expectedV4Out = _estimateV4Out(key, params.zeroForOne, amountIn);
         }
 
         Route route = _selectRoute(expectedJbOut, expectedV3Out, expectedV4Out);
+        _enforceAfterSwapMinOut[poolId] = route == Route.V4 && amountOutMin != 0;
 
         if (route == Route.V4) {
             return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
+        // For custom-accounted routes, source the input from PoolManager first.
+        poolManager.take(Currency.wrap(tokenIn), address(this), amountIn);
+
         uint256 outputReceived;
         if (route == Route.V3) {
-            outputReceived = _routeThroughV3(tokenIn, tokenOut, amountIn);
-            if (amountOutMin != 0 && outputReceived < amountOutMin) revert SLIPPAGE();
-            _settleOutput(Currency.wrap(tokenOut), outputReceived);
+            (bool v3Success, uint256 v3Output) = _routeThroughV3(tokenIn, tokenOut, amountIn);
+
+            if (v3Success) {
+                outputReceived = v3Output;
+                if (amountOutMin != 0 && outputReceived < amountOutMin) revert SLIPPAGE();
+            } else {
+                if (expectedV4Out != 0) {
+                    // Return custom-accounting input to PoolManager, then continue as a native v4 pool swap.
+                    _settleOutput(Currency.wrap(tokenIn), amountIn);
+                    _enforceAfterSwapMinOut[poolId] = amountOutMin != 0;
+                    return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+                }
+
+                if (address(jbTerminal) == address(0)) revert NO_TERMINAL();
+
+                if (buyingProjectToken) {
+                    outputReceived = _routeThroughJuiceboxPay(jbTerminal, projectId, tokenIn, amountIn, amountOutMin);
+                } else {
+                    outputReceived = _routeThroughJuiceboxCashOut(
+                        jbTerminal,
+                        projectId,
+                        amountIn,
+                        tokenOut,
+                        amountOutMin
+                    );
+                }
+            }
         } else {
             if (address(jbTerminal) == address(0)) revert NO_TERMINAL();
 
             if (buyingProjectToken) {
                 outputReceived = _routeThroughJuiceboxPay(jbTerminal, projectId, tokenIn, amountIn, amountOutMin);
-                _settleOutput(Currency.wrap(tokenOut), outputReceived);
             } else {
-                outputReceived = _routeThroughJuiceboxCashOut(
-                    jbTerminal,
-                    projectId,
-                    tokenIn,
-                    amountIn,
-                    tokenOut,
-                    amountOutMin
-                );
-                _settleOutput(Currency.wrap(tokenOut), outputReceived);
+                outputReceived = _routeThroughJuiceboxCashOut(jbTerminal, projectId, amountIn, tokenOut, amountOutMin);
             }
         }
 
+        _settleOutput(Currency.wrap(tokenOut), outputReceived);
         return (BaseHook.beforeSwap.selector, _createSwapDelta(amountIn, outputReceived), 0);
     }
 
@@ -280,8 +302,10 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
     ) internal override returns (bytes4, int128) {
         _recordObservation(key.toId());
 
-        uint256 amountOutMin = _decodeAmountOutMin(hookData);
-        if (amountOutMin != 0) {
+        PoolId poolId = key.toId();
+        if (_enforceAfterSwapMinOut[poolId]) {
+            _enforceAfterSwapMinOut[poolId] = false;
+            uint256 amountOutMin = _decodeAmountOutMin(hookData);
             int128 outDelta = params.zeroForOne
                 ? BalanceDeltaLibrary.amount1(delta)
                 : BalanceDeltaLibrary.amount0(delta);
@@ -315,8 +339,6 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         uint256 amountIn,
         uint256 amountOutMin
     ) internal returns (uint256 out) {
-        poolManager.take(Currency.wrap(tokenIn), address(this), amountIn);
-
         IERC20(tokenIn).forceApprove(address(terminal), 0);
         IERC20(tokenIn).forceApprove(address(terminal), amountIn);
 
@@ -328,12 +350,10 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
     function _routeThroughJuiceboxCashOut(
         IJBTerminal terminal,
         uint256 projectId,
-        address tokenIn,
         uint256 amountIn,
         address tokenOut,
         uint256 amountOutMin
     ) internal returns (uint256 out) {
-        poolManager.take(Currency.wrap(tokenIn), address(this), amountIn);
         out = IJBMultiTerminalLike(address(terminal)).cashOutTokensOf(
             address(this),
             projectId,
@@ -345,24 +365,31 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
         );
     }
 
-    function _routeThroughV3(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256 out) {
-        poolManager.take(Currency.wrap(tokenIn), address(this), amountIn);
-
+    function _routeThroughV3(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) internal returns (bool success, uint256 out) {
         address pool = _getV3Pool(tokenIn, tokenOut, V3_FEE_TIER);
-        if (pool == address(0)) revert V3_POOL_NOT_FOUND();
+        if (pool == address(0)) return (false, 0);
 
         bool zeroForOne = tokenIn < tokenOut;
         uint160 sqrtPriceLimit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
 
-        (int256 amount0, int256 amount1) = IUniswapV3Pool(pool).swap(
-            address(this),
-            zeroForOne,
-            amountIn.toInt256(),
-            sqrtPriceLimit,
-            abi.encode(CallbackData({ tokenIn: tokenIn, tokenOut: tokenOut, fee: V3_FEE_TIER }))
-        );
-
-        out = zeroForOne ? _negativeInt256ToUint256(amount1) : _negativeInt256ToUint256(amount0);
+        try
+            IUniswapV3Pool(pool).swap(
+                address(this),
+                zeroForOne,
+                amountIn.toInt256(),
+                sqrtPriceLimit,
+                abi.encode(CallbackData({ tokenIn: tokenIn, tokenOut: tokenOut, fee: V3_FEE_TIER }))
+            )
+        returns (int256 amount0, int256 amount1) {
+            out = zeroForOne ? _negativeInt256ToUint256(amount1) : _negativeInt256ToUint256(amount0);
+            success = true;
+        } catch {
+            return (false, 0);
+        }
     }
 
     function _settleOutput(Currency outCur, uint256 amount) internal {

@@ -126,6 +126,72 @@ contract GoalFactoryRevnetDeployTest is Test {
         vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
         GoalFactoryRevnetDeploy.deployRevnet(request);
     }
+
+    function test_deployRevnet_revertsWhenCobuildTerminalIsZero() public {
+        uint256 cobuildRevnetId = 7;
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: address(0),
+            splitHook: address(0x5157),
+            owner: address(0xA11CE),
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+
+        vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+    }
+
+    function test_deployRevnet_revertsWhenGoalTokenMissingAfterDeploy() public {
+        uint256 cobuildRevnetId = 7;
+        uint256 deployedRevnetId = 99;
+        address cobuildTerminal = address(new DummyTerminal());
+        address cobuildNativePaymentTerminal = address(new DummyTerminal());
+
+        directory.setPrimaryTerminal(cobuildRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativePaymentTerminal));
+        revDeployer.setNextRevnetId(deployedRevnetId);
+
+        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
+            revDeployer: IREVDeployer(address(revDeployer)),
+            cobuildToken: address(0xC0B1D),
+            cobuildDecimals: 18,
+            cobuildRevnetId: cobuildRevnetId,
+            cobuildTerminal: cobuildTerminal,
+            splitHook: address(0x5157),
+            owner: address(0xA11CE),
+            name: "Goal",
+            ticker: "GOAL",
+            uri: "ipfs://goal",
+            initialIssuance: 123,
+            cashOutTaxRate: 250,
+            reservedPercent: 500,
+            durationSeconds: 7 days,
+            buybackHookDataHook: address(0x1111),
+            buybackHook: address(0x2222),
+            buybackPoolFee: 3_000,
+            buybackTwapWindow: 1 hours,
+            burnAddress: address(0xB0A1)
+        });
+
+        vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
+        GoalFactoryRevnetDeploy.deployRevnet(request);
+    }
 }
 
 contract DummyTerminal {}
