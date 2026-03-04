@@ -15,6 +15,7 @@ import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
+    error BUDGET_TREASURY_MISMATCH();
 
     constructor() {
         _disableInitializers();
