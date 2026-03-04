@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import { GoalFactory } from "src/goals/GoalFactory.sol";
-import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
-import { ISuperfluid } from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
+import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
+import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 
 contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal constant REV_DEPLOYER = address(0x1001);
@@ -22,6 +21,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredBudgetStakeLedgerImpl;
     address internal configuredGoalFlowAllocationLedgerPipelineImpl;
     address internal configuredPremiumEscrowImpl;
+    address internal configuredJurorSlasherRouterImpl;
     address internal configuredUnderwriterSlasherRouterImpl;
 
     function setUp() public {
@@ -29,12 +29,14 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredBudgetStakeLedgerImpl = address(new DummyContract());
         configuredGoalFlowAllocationLedgerPipelineImpl = address(new DummyContract());
         configuredPremiumEscrowImpl = address(new DummyContract());
+        configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
         factory = _newFactory(
             configuredStakeVaultImpl,
             configuredBudgetStakeLedgerImpl,
             configuredGoalFlowAllocationLedgerPipelineImpl,
             configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
             DEFAULT_ALLOCATION_MECHANISM_ADMIN
         );
@@ -65,6 +67,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             address(0),
@@ -96,6 +99,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             address(0),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -127,6 +131,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(0),
             address(goalFlowAllocationLedgerPipelineImpl),
             address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -145,9 +150,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         DummyContract defaultSubmissionDepositStrategy = new DummyContract();
 
         address noCodeBudgetStakeLedgerImpl = address(0xCA11AB1E);
-        vm.expectRevert(
-            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBudgetStakeLedgerImpl)
-        );
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBudgetStakeLedgerImpl));
         new GoalFactory(
             IREVDeployer(REV_DEPLOYER),
             ISuperfluid(SUPERFLUID_HOST),
@@ -161,6 +164,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             noCodeBudgetStakeLedgerImpl,
             address(goalFlowAllocationLedgerPipelineImpl),
             address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -192,6 +196,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(0),
             address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -224,6 +229,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             noCodePipelineImpl,
             address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -256,7 +262,71 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             noCodePremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenJurorSlasherRouterImplementationIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
+            address(0),
+            configuredUnderwriterSlasherRouterImpl,
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenJurorSlasherRouterImplementationHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeJurorRouterImpl = address(0xA11CE42);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeJurorRouterImpl));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
+            noCodeJurorRouterImpl,
+            configuredUnderwriterSlasherRouterImpl,
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
@@ -286,6 +356,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             address(0),
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -317,6 +388,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             noCodeRouterImpl,
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -347,6 +419,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -378,6 +451,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(budgetStakeLedgerImpl),
             address(goalFlowAllocationLedgerPipelineImpl),
             configuredPremiumEscrowImpl,
+            configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
             address(defaultSubmissionDepositStrategy),
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
@@ -391,6 +465,10 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_constructor_setsPremiumEscrowImplementationImmutable() public view {
         assertEq(factory.PREMIUM_ESCROW_IMPL(), configuredPremiumEscrowImpl);
+    }
+
+    function test_constructor_setsJurorSlasherRouterImplementationImmutable() public view {
+        assertEq(factory.JUROR_SLASHER_ROUTER_IMPL(), configuredJurorSlasherRouterImpl);
     }
 
     function test_constructor_setsBudgetStakeLedgerImplementationImmutable() public view {
@@ -454,7 +532,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             reservedPercent: 0,
             durationSeconds: 7 days
         });
-        p.timing = GoalFactory.GoalTimingParams({ minRaise: 0, minRaiseDurationSeconds: 0 });
+        p.timing = GoalFactory.GoalTimingParams({minRaise: 0, minRaiseDurationSeconds: 0});
         p.success = GoalFactory.SuccessParams({
             successResolver: address(0xBBBB),
             successAssertionLiveness: 1 days,
@@ -476,6 +554,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address budgetStakeLedgerImpl,
         address goalFlowAllocationLedgerPipelineImpl,
         address premiumEscrowImpl,
+        address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
         address allocationMechanismAdmin
     ) internal returns (GoalFactory) {
@@ -498,6 +577,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             budgetStakeLedgerImpl,
             goalFlowAllocationLedgerPipelineImpl,
             premiumEscrowImpl,
+            jurorSlasherRouterImpl,
             underwriterSlasherRouterImpl,
             address(defaultSubmissionDepositStrategy),
             allocationMechanismAdmin,
@@ -506,10 +586,10 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 }
 
-contract DummyContract { }
+contract DummyContract {}
 
 contract MockToken is ERC20 {
-    constructor() ERC20("Cobuild", "CBD") { }
+    constructor() ERC20("Cobuild", "CBD") {}
 
     function decimals() public pure override returns (uint8) {
         return 18;
