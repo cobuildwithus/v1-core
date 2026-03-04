@@ -33,6 +33,7 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
+import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -435,7 +436,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
+            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

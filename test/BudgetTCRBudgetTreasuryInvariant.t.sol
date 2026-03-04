@@ -13,6 +13,7 @@ import {
 } from "test/mocks/MockBudgetTCRSystem.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
+import { BudgetTCRStackActions } from "src/tcr/library/BudgetTCRStackActions.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
@@ -27,6 +28,7 @@ import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -53,7 +55,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         deployedBudgetTreasury = deployedBudgetTreasury_;
         strategy = address(0x2222222222222222222222222222222222222222);
         premiumEscrow = address(new BudgetTCRInvariantPremiumEscrowConnectMock());
-        _roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
+        _roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
         _mechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
@@ -201,7 +203,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         budgetTcr.executeRequest(itemID);
         assertTrue(budgetTcr.isRegistrationPending(itemID));
 
-        vm.expectRevert(BudgetTCR.BUDGET_TREASURY_MISMATCH.selector);
+        vm.expectRevert(BudgetTCRStackActions.BUDGET_TREASURY_MISMATCH.selector);
         budgetTcr.activateRegisteredBudget(itemID);
     }
 

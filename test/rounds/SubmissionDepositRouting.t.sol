@@ -36,6 +36,7 @@ contract SubmissionDepositRoutingTest is Test {
     RoundTestGoalTreasury internal goalTreasury;
     RoundTestStakeVault internal stakeVault;
     RoundTestBudgetTreasury internal budgetTreasury;
+    PrizePoolSubmissionDepositStrategy internal prizePoolStrategyImplementation;
 
     RoundFactory internal factory;
 
@@ -63,10 +64,12 @@ contract SubmissionDepositRoutingTest is Test {
 
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
+        prizePoolStrategyImplementation = new PrizePoolSubmissionDepositStrategy();
 
         factory = new RoundFactory(
             address(new RoundSubmissionTCR()),
             address(new RoundPrizeVault()),
+            address(prizePoolStrategyImplementation),
             address(new ERC20VotesArbitrator())
         );
 
@@ -122,7 +125,7 @@ contract SubmissionDepositRoutingTest is Test {
 
     function test_challengerRuling_transfersSubmissionDepositToChallenger() public {
         address prizePool = address(0xBADA55);
-        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(underlying, prizePool);
+        PrizePoolSubmissionDepositStrategy strategy = _deployPrizePoolStrategy(prizePool);
 
         RoundSubmissionTCR implementation = new RoundSubmissionTCR();
         RoundSubmissionTCR tcr = RoundSubmissionTCR(Clones.clone(address(implementation)));
@@ -178,7 +181,7 @@ contract SubmissionDepositRoutingTest is Test {
 
     function test_noneRuling_refundsSubmissionDepositToRequester() public {
         address prizePool = address(0xBADA55);
-        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(underlying, prizePool);
+        PrizePoolSubmissionDepositStrategy strategy = _deployPrizePoolStrategy(prizePool);
 
         RoundSubmissionTCR implementation = new RoundSubmissionTCR();
         RoundSubmissionTCR tcr = RoundSubmissionTCR(Clones.clone(address(implementation)));
@@ -237,7 +240,7 @@ contract SubmissionDepositRoutingTest is Test {
 
     function test_noneRuling_refundsRequester_notPayloadRecipient_whenDifferent() public {
         address prizePool = address(0xBADA55);
-        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(underlying, prizePool);
+        PrizePoolSubmissionDepositStrategy strategy = _deployPrizePoolStrategy(prizePool);
 
         RoundSubmissionTCR implementation = new RoundSubmissionTCR();
         RoundSubmissionTCR tcr = RoundSubmissionTCR(Clones.clone(address(implementation)));
@@ -296,5 +299,10 @@ contract SubmissionDepositRoutingTest is Test {
 
     function _submissionItem(address recipient) internal pure returns (bytes memory) {
         return abi.encode(uint8(0), DEFAULT_POST_ID, recipient);
+    }
+
+    function _deployPrizePoolStrategy(address prizePool) internal returns (PrizePoolSubmissionDepositStrategy strategy) {
+        strategy = PrizePoolSubmissionDepositStrategy(Clones.clone(address(prizePoolStrategyImplementation)));
+        strategy.initialize(underlying, prizePool);
     }
 }

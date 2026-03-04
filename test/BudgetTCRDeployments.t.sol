@@ -15,6 +15,7 @@ import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -607,7 +608,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         address premiumEscrowImplementationAddress = address(new PremiumEscrow());
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
+            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
@@ -837,7 +838,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
     function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationIsZero() public {
         address budgetTreasuryImplementation = address(new BudgetTreasury());
-        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
+        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
         address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
 
@@ -853,7 +854,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
     function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationHasNoCode() public {
         address budgetTreasuryImplementation = address(new BudgetTreasury());
-        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
+        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
         address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
         address noCode = makeAddr("no-code");
@@ -871,7 +872,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
+            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

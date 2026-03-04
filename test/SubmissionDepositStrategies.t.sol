@@ -10,9 +10,12 @@ import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissi
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract SubmissionDepositStrategiesTest is Test {
     MockVotesToken internal token;
+    PrizePoolSubmissionDepositStrategy internal prizePoolStrategyImplementation;
 
     address internal manager = makeAddr("manager");
     address internal requester = makeAddr("requester");
@@ -21,15 +24,23 @@ contract SubmissionDepositStrategiesTest is Test {
 
     function setUp() public {
         token = new MockVotesToken("MockVotes", "MV");
+        prizePoolStrategyImplementation = new PrizePoolSubmissionDepositStrategy();
+    }
+
+    function test_prize_pool_strategy_implementation_is_initialization_locked() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        prizePoolStrategyImplementation.initialize(token, prizePool);
     }
 
     function test_prize_pool_strategy_reverts_on_zero_prize_pool() public {
+        PrizePoolSubmissionDepositStrategy strategy = _clonePrizePoolStrategy();
         vm.expectRevert(PrizePoolSubmissionDepositStrategy.PRIZE_POOL_ZERO.selector);
-        new PrizePoolSubmissionDepositStrategy(token, address(0));
+        strategy.initialize(token, address(0));
     }
 
     function test_prize_pool_strategy_actions() public {
-        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(token, prizePool);
+        PrizePoolSubmissionDepositStrategy strategy = _clonePrizePoolStrategy();
+        strategy.initialize(token, prizePool);
 
         (ISubmissionDepositStrategy.DepositAction action, address recipient) = strategy.getSubmissionDepositAction(
             bytes32("item"),
@@ -90,6 +101,14 @@ contract SubmissionDepositStrategiesTest is Test {
         );
         assertEq(uint8(action), uint8(ISubmissionDepositStrategy.DepositAction.Hold));
         assertEq(recipient, address(0));
+    }
+
+    function test_prize_pool_strategy_reverts_on_reinitialize_clone() public {
+        PrizePoolSubmissionDepositStrategy strategy = _clonePrizePoolStrategy();
+        strategy.initialize(token, prizePool);
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        strategy.initialize(token, prizePool);
     }
 
     function test_escrow_strategy_actions() public {
@@ -178,5 +197,9 @@ contract SubmissionDepositStrategiesTest is Test {
         );
         assertEq(uint8(action), uint8(ISubmissionDepositStrategy.DepositAction.Hold));
         assertEq(recipient, address(0));
+    }
+
+    function _clonePrizePoolStrategy() internal returns (PrizePoolSubmissionDepositStrategy strategy) {
+        strategy = PrizePoolSubmissionDepositStrategy(Clones.clone(address(prizePoolStrategyImplementation)));
     }
 }

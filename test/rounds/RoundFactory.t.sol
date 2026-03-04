@@ -76,6 +76,7 @@ contract RoundFactoryTest is Test {
         factory = new RoundFactory(
             address(new RoundSubmissionTCR()),
             address(new RoundPrizeVault()),
+            address(new PrizePoolSubmissionDepositStrategy()),
             address(new ERC20VotesArbitrator())
         );
     }
@@ -83,27 +84,34 @@ contract RoundFactoryTest is Test {
     function test_constructor_revertsOnInvalidImplementationAddresses() public {
         address submissionImpl = address(new RoundSubmissionTCR());
         address vaultImpl = address(new RoundPrizeVault());
+        address depositStrategyImpl = address(new PrizePoolSubmissionDepositStrategy());
         address arbitratorImpl = address(new ERC20VotesArbitrator());
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(address(0), vaultImpl, arbitratorImpl);
+        new RoundFactory(address(0), vaultImpl, depositStrategyImpl, arbitratorImpl);
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(submissionImpl, address(0), arbitratorImpl);
+        new RoundFactory(submissionImpl, address(0), depositStrategyImpl, arbitratorImpl);
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(submissionImpl, vaultImpl, address(0));
+        new RoundFactory(submissionImpl, vaultImpl, address(0), arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, vaultImpl, depositStrategyImpl, address(0));
 
         address undeployed = makeAddr("undeployed-implementation");
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(undeployed, vaultImpl, arbitratorImpl);
+        new RoundFactory(undeployed, vaultImpl, depositStrategyImpl, arbitratorImpl);
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(submissionImpl, undeployed, arbitratorImpl);
+        new RoundFactory(submissionImpl, undeployed, depositStrategyImpl, arbitratorImpl);
 
         vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
-        new RoundFactory(submissionImpl, vaultImpl, undeployed);
+        new RoundFactory(submissionImpl, vaultImpl, undeployed, arbitratorImpl);
+
+        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        new RoundFactory(submissionImpl, vaultImpl, depositStrategyImpl, undeployed);
     }
 
     function _deployRound(bytes32 roundId) internal returns (RoundFactory.DeployedRound memory deployed) {
@@ -274,6 +282,9 @@ contract RoundFactoryTest is Test {
             underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(deployed.submissionTCR), roundOperator
         );
 
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        PrizePoolSubmissionDepositStrategy(deployed.depositStrategy).initialize(underlying, deployed.prizeVault);
+
         RoundSubmissionTCR.RoundConfig memory roundCfg = RoundSubmissionTCR.RoundConfig({
             roundId: bytes32("reinit"),
             startAt: uint64(block.timestamp),
@@ -295,6 +306,25 @@ contract RoundFactoryTest is Test {
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         RoundSubmissionTCR(deployed.submissionTCR).initialize(roundCfg, regCfg);
+    }
+
+    function test_createRoundForBudget_createsIsolatedDepositStrategyClonePerRound() public {
+        RoundFactory.DeployedRound memory first = _deployRound(keccak256("round-one"));
+        RoundFactory.DeployedRound memory second = _deployRound(keccak256("round-two"));
+
+        assertTrue(first.depositStrategy != second.depositStrategy);
+        assertTrue(first.prizeVault != second.prizeVault);
+
+        PrizePoolSubmissionDepositStrategy firstStrategy = PrizePoolSubmissionDepositStrategy(first.depositStrategy);
+        PrizePoolSubmissionDepositStrategy secondStrategy = PrizePoolSubmissionDepositStrategy(second.depositStrategy);
+
+        assertEq(address(firstStrategy.token()), address(underlying));
+        assertEq(address(secondStrategy.token()), address(underlying));
+        assertEq(firstStrategy.prizePool(), first.prizeVault);
+        assertEq(secondStrategy.prizePool(), second.prizeVault);
+        assertTrue(firstStrategy.prizePool() != secondStrategy.prizePool());
+        assertEq(address(RoundSubmissionTCR(first.submissionTCR).submissionDepositStrategy()), first.depositStrategy);
+        assertEq(address(RoundSubmissionTCR(second.submissionTCR).submissionDepositStrategy()), second.depositStrategy);
     }
 
     function test_createRoundForBudget_wiresSubmissionConfig_and_governor_surface_is_absent() public {

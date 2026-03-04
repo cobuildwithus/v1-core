@@ -100,15 +100,19 @@ contract RoundFactory is IAllocationMechanismFactory {
     /// @dev Clone targets.
     address public immutable roundSubmissionTcrImplementation;
     address public immutable roundPrizeVaultImplementation;
+    address public immutable prizePoolSubmissionDepositStrategyImplementation;
     address public immutable arbitratorImplementation;
 
     constructor(
         address roundSubmissionTcrImplementation_,
         address roundPrizeVaultImplementation_,
+        address prizePoolSubmissionDepositStrategyImplementation_,
         address arbitratorImplementation_
     ) {
         roundSubmissionTcrImplementation = _requireDeployedContract(roundSubmissionTcrImplementation_);
         roundPrizeVaultImplementation = _requireDeployedContract(roundPrizeVaultImplementation_);
+        prizePoolSubmissionDepositStrategyImplementation =
+            _requireDeployedContract(prizePoolSubmissionDepositStrategyImplementation_);
         arbitratorImplementation = _requireDeployedContract(arbitratorImplementation_);
     }
 
@@ -165,11 +169,10 @@ contract RoundFactory is IAllocationMechanismFactory {
             roundOperator
         );
 
-        // 3) Deploy deposit strategy that routes accepted submission deposits into the prize vault.
-        PrizePoolSubmissionDepositStrategy depositStrategy = new PrizePoolSubmissionDepositStrategy(
-            underlying,
-            prizeVault
-        );
+        // 3) Clone + initialize deposit strategy that routes accepted submission deposits into the prize vault.
+        PrizePoolSubmissionDepositStrategy depositStrategy =
+            PrizePoolSubmissionDepositStrategy(prizePoolSubmissionDepositStrategyImplementation.clone());
+        depositStrategy.initialize(underlying, prizeVault);
 
         // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
         address arbitrator = arbitratorImplementation.clone();

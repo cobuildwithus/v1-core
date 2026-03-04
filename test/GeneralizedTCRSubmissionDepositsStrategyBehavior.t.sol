@@ -10,6 +10,7 @@ import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositS
 import {GeneralizedTCRSubmissionDepositsBase} from "test/GeneralizedTCRSubmissionDeposits.t.sol";
 import {MockGeneralizedTCR} from "test/mocks/MockGeneralizedTCR.sol";
 import {MockSubmissionDepositStrategy} from "test/mocks/MockSubmissionDepositStrategy.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract GeneralizedTCRSubmissionDepositsStrategyBehaviorTest is GeneralizedTCRSubmissionDepositsBase {
     function test_add_item_collects_submission_deposit_separately() public {
@@ -33,7 +34,10 @@ contract GeneralizedTCRSubmissionDepositsStrategyBehaviorTest is GeneralizedTCRS
     }
 
     function test_prize_pool_strategy_transfers_on_accepted_registration() public {
-        PrizePoolSubmissionDepositStrategy strategy = new PrizePoolSubmissionDepositStrategy(token, prizePool);
+        PrizePoolSubmissionDepositStrategy implementation = new PrizePoolSubmissionDepositStrategy();
+        PrizePoolSubmissionDepositStrategy strategy =
+            PrizePoolSubmissionDepositStrategy(Clones.clone(address(implementation)));
+        strategy.initialize(token, prizePool);
         (MockGeneralizedTCR tcr,) = _deployTCRWithStrategy(strategy);
 
         uint256 prizePoolBefore = token.balanceOf(prizePool);

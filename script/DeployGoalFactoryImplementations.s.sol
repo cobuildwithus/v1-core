@@ -3,33 +3,35 @@ pragma solidity ^0.8.34;
 
 import "forge-std/console2.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
-import { DeployScript } from "script/DeployScript.s.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { StakeVault } from "src/goals/StakeVault.sol";
-import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
-import { CustomFlow } from "src/flows/CustomFlow.sol";
-import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
-import { GoalFlowAllocationLedgerPipeline } from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
-import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { FakeUMATreasurySuccessResolver } from "src/mocks/FakeUMATreasurySuccessResolver.sol";
+import {DeployScript} from "script/DeployScript.s.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {JurorSlasherRouter} from "src/goals/JurorSlasherRouter.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
+import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
+import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
 
 contract DeployGoalFactoryImplementations is DeployScript {
     string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
@@ -46,6 +48,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal budgetStakeLedgerImplOut;
     address internal goalFlowAllocationLedgerPipelineImplOut;
     address internal premiumEscrowImplOut;
+    address internal jurorSlasherRouterImplOut;
     address internal underwriterSlasherRouterImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
@@ -55,6 +58,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal budgetTreasuryImplOut;
     address internal roundSubmissionTcrImplOut;
     address internal roundPrizeVaultImplOut;
+    address internal prizePoolSubmissionDepositStrategyImplOut;
     address internal roundFactoryImplOut;
     address internal allocationMechanismTcrImplOut;
     address internal budgetFlowRouterStrategyImplOut;
@@ -100,15 +104,19 @@ contract DeployGoalFactoryImplementations is DeployScript {
         BudgetTreasury budgetTreasuryImpl = new BudgetTreasury();
         RoundSubmissionTCR roundSubmissionTcrImpl = new RoundSubmissionTCR();
         RoundPrizeVault roundPrizeVaultImpl = new RoundPrizeVault();
+        PrizePoolSubmissionDepositStrategy prizePoolSubmissionDepositStrategyImpl =
+            new PrizePoolSubmissionDepositStrategy();
         RoundFactory roundFactoryImpl = new RoundFactory(
             address(roundSubmissionTcrImpl),
             address(roundPrizeVaultImpl),
+            address(prizePoolSubmissionDepositStrategyImpl),
             address(arbitratorImpl)
         );
         AllocationMechanismTCR allocationMechanismTcrImpl =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         BudgetFlowRouterStrategy budgetFlowRouterStrategyImpl = new BudgetFlowRouterStrategy();
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
+        JurorSlasherRouter jurorSlasherRouterImpl = _deployJurorSlasherRouterImplementation();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
@@ -121,13 +129,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
             address(budgetFlowRouterStrategyImpl)
         );
 
-        PrizePoolSubmissionDepositStrategy depositStrategy =
-            new PrizePoolSubmissionDepositStrategy(IERC20(cobuildTokenAddressOut), BURN);
+        PrizePoolSubmissionDepositStrategy defaultSubmissionDepositStrategy =
+            PrizePoolSubmissionDepositStrategy(Clones.clone(address(prizePoolSubmissionDepositStrategyImpl)));
+        defaultSubmissionDepositStrategy.initialize(IERC20(cobuildTokenAddressOut), BURN);
         FakeUMATreasurySuccessResolver fakeUmaResolver = new FakeUMATreasurySuccessResolver(
-            IERC20(cobuildTokenAddressOut),
-            fakeUmaEscalationManagerOut,
-            fakeUmaDomainIdOut,
-            fakeUmaOwnerOut
+            IERC20(cobuildTokenAddressOut), fakeUmaEscalationManagerOut, fakeUmaDomainIdOut, fakeUmaOwnerOut
         );
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
@@ -135,6 +141,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         budgetStakeLedgerImplOut = address(budgetStakeLedgerImpl);
         goalFlowAllocationLedgerPipelineImplOut = address(goalFlowAllocationLedgerPipelineImpl);
         premiumEscrowImplOut = address(premiumEscrowImpl);
+        jurorSlasherRouterImplOut = address(jurorSlasherRouterImpl);
         underwriterSlasherRouterImplOut = address(underwriterSlasherRouterImpl);
         customFlowImplOut = address(flowImpl);
         splitHookImplOut = address(splitHookImpl);
@@ -144,11 +151,12 @@ contract DeployGoalFactoryImplementations is DeployScript {
         budgetTreasuryImplOut = address(budgetTreasuryImpl);
         roundSubmissionTcrImplOut = address(roundSubmissionTcrImpl);
         roundPrizeVaultImplOut = address(roundPrizeVaultImpl);
+        prizePoolSubmissionDepositStrategyImplOut = address(prizePoolSubmissionDepositStrategyImpl);
         roundFactoryImplOut = address(roundFactoryImpl);
         allocationMechanismTcrImplOut = address(allocationMechanismTcrImpl);
         budgetFlowRouterStrategyImplOut = address(budgetFlowRouterStrategyImpl);
 
-        defaultSubmissionDepositStrategyOut = address(depositStrategy);
+        defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
         fakeUmaResolverOut = address(fakeUmaResolver);
 
         console2.log("Deployer:", deployerAddress);
@@ -163,6 +171,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("BudgetStakeLedger impl:", budgetStakeLedgerImplOut);
         console2.log("GoalFlowAllocationLedgerPipeline impl:", goalFlowAllocationLedgerPipelineImplOut);
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
+        console2.log("JurorSlasherRouter impl:", jurorSlasherRouterImplOut);
         console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
@@ -172,6 +181,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("--- Shared runtime deps ---");
         console2.log("RoundSubmissionTCR impl:", roundSubmissionTcrImplOut);
         console2.log("RoundPrizeVault impl:", roundPrizeVaultImplOut);
+        console2.log("PrizePoolSubmissionDepositStrategy impl:", prizePoolSubmissionDepositStrategyImplOut);
         console2.log("RoundFactory impl:", roundFactoryImplOut);
         console2.log("AllocationMechanismTCR impl:", allocationMechanismTcrImplOut);
         console2.log("BudgetFlowRouterStrategy impl:", budgetFlowRouterStrategyImplOut);
@@ -194,6 +204,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         );
     }
 
+    function _deployJurorSlasherRouterImplementation() internal returns (JurorSlasherRouter) {
+        return new JurorSlasherRouter(IStakeVault(address(0)), address(0));
+    }
+
     function deploymentName() internal pure override returns (string memory) {
         return "DeployGoalFactoryImplementations";
     }
@@ -209,6 +223,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "BudgetStakeLedgerImpl", budgetStakeLedgerImplOut);
         _writeAddressLine(filePath, "GoalFlowAllocationLedgerPipelineImpl", goalFlowAllocationLedgerPipelineImplOut);
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
+        _writeAddressLine(filePath, "JurorSlasherRouterImpl", jurorSlasherRouterImplOut);
         _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
@@ -218,6 +233,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "BudgetTreasuryImpl", budgetTreasuryImplOut);
         _writeAddressLine(filePath, "RoundSubmissionTCRImpl", roundSubmissionTcrImplOut);
         _writeAddressLine(filePath, "RoundPrizeVaultImpl", roundPrizeVaultImplOut);
+        _writeAddressLine(filePath, "PrizePoolSubmissionDepositStrategyImpl", prizePoolSubmissionDepositStrategyImplOut);
         _writeAddressLine(filePath, "RoundFactoryImpl", roundFactoryImplOut);
         _writeAddressLine(filePath, "AllocationMechanismTCRImpl", allocationMechanismTcrImplOut);
         _writeAddressLine(filePath, "BudgetFlowRouterStrategyImpl", budgetFlowRouterStrategyImplOut);
@@ -263,11 +279,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeHistorySnapshot(artifact, ".toml", "Implementation TOML snapshot written:");
     }
 
-    function _writeHistorySnapshot(
-        string memory artifact,
-        string memory extension,
-        string memory logLabel
-    ) internal {
+    function _writeHistorySnapshot(string memory artifact, string memory extension, string memory logLabel) internal {
         vm.createDir(HISTORY_DIR, true);
         uint256 unixTimeMs = vm.unixTime();
         uint256 collisionIndex;
@@ -282,11 +294,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log(logLabel, snapshotFilePath);
     }
 
-    function _snapshotFilePath(
-        uint256 unixTimeMs,
-        uint256 collisionIndex,
-        string memory extension
-    ) internal view returns (string memory) {
+    function _snapshotFilePath(uint256 unixTimeMs, uint256 collisionIndex, string memory extension)
+        internal
+        view
+        returns (string memory)
+    {
         if (collisionIndex == 0) {
             return string(
                 abi.encodePacked(
@@ -359,6 +371,9 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "premiumEscrow = \"",
             vm.toString(premiumEscrowImplOut),
             "\"\n",
+            "jurorSlasherRouter = \"",
+            vm.toString(jurorSlasherRouterImplOut),
+            "\"\n",
             "underwriterSlasherRouter = \"",
             vm.toString(underwriterSlasherRouterImplOut),
             "\"\n",
@@ -389,6 +404,9 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "roundPrizeVault = \"",
             vm.toString(roundPrizeVaultImplOut),
+            "\"\n",
+            "prizePoolSubmissionDepositStrategy = \"",
+            vm.toString(prizePoolSubmissionDepositStrategyImplOut),
             "\"\n",
             "roundFactory = \"",
             vm.toString(roundFactoryImplOut),

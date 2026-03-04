@@ -28,6 +28,7 @@ import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
@@ -171,11 +172,13 @@ contract BudgetTCRFactoryTest is Test {
         new BudgetTCRFactory(budgetImpl, arbImpl, noCode, address(this), DEFAULT_ESCROW_BOND_BPS);
     }
 
-    function test_constructor_reverts_when_authorized_caller_is_zero() public {
+    function test_constructor_allows_zero_authorized_caller_for_deferred_binding() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
-        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+
+        assertEq(factory.authorizedCaller(), address(0));
+        assertEq(factory.authorizedCallerSetter(), address(this));
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_is_zero() public {
@@ -220,7 +223,43 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(factory.arbitratorImplementation(), arbImpl);
         assertEq(factory.stackDeployerImplementation(), deployerImpl);
         assertEq(factory.authorizedCaller(), address(this));
+        assertEq(factory.authorizedCallerSetter(), address(this));
         assertEq(factory.escrowBondBps(), DEFAULT_ESCROW_BOND_BPS);
+    }
+
+    function test_setAuthorizedCaller_reverts_when_caller_not_setter() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+        address unauthorizedCaller = makeAddr("unauthorized-caller");
+
+        vm.prank(unauthorizedCaller);
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER_SETTER.selector, unauthorizedCaller)
+        );
+        factory.setAuthorizedCaller(address(this));
+    }
+
+    function test_setAuthorizedCaller_reverts_when_authorized_caller_is_zero() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+
+        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
+        factory.setAuthorizedCaller(address(0));
+    }
+
+    function test_setAuthorizedCaller_sets_caller_once() public {
+        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
+        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
+        address authorizedCaller = makeAddr("authorized-caller");
+        address anotherCaller = makeAddr("another-caller");
+
+        factory.setAuthorizedCaller(authorizedCaller);
+        assertEq(factory.authorizedCaller(), authorizedCaller);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.AUTHORIZED_CALLER_ALREADY_SET.selector, authorizedCaller)
+        );
+        factory.setAuthorizedCaller(anotherCaller);
     }
 
     function test_deployBudgetTCRStackForGoal_reverts_when_caller_not_authorized() public {
@@ -1071,9 +1110,8 @@ contract BudgetTCRFactoryTest is Test {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         MockVotesToken goalToken = new MockVotesToken("Goal", "GOAL");
         MockVotesToken cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
-        ISubmissionDepositStrategy submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new PrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool")))
-        );
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            _deployPrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool"));
         address budgetStakeLedger = address(new _MockImplementation());
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
@@ -1343,9 +1381,8 @@ contract BudgetTCRFactoryTest is Test {
 
     function test_deployBudgetTCRStackForGoal_preservesManualDeposits_forNonEscrowStrategy() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
-        ISubmissionDepositStrategy submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new PrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool")))
-        );
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            _deployPrizePoolSubmissionDepositStrategy(IERC20(address(votingToken)), makeAddr("prize-pool"));
         address budgetStakeLedger = address(new _MockImplementation());
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
@@ -1398,6 +1435,16 @@ contract BudgetTCRFactoryTest is Test {
         c = address(new _MockImplementation());
     }
 
+    function _deployPrizePoolSubmissionDepositStrategy(
+        IERC20 token,
+        address prizePool
+    ) internal returns (ISubmissionDepositStrategy strategy) {
+        PrizePoolSubmissionDepositStrategy implementation = new PrizePoolSubmissionDepositStrategy();
+        address clone = Clones.clone(address(implementation));
+        PrizePoolSubmissionDepositStrategy(clone).initialize(token, prizePool);
+        return ISubmissionDepositStrategy(clone);
+    }
+
     function _newRealFactory(address authorizedCaller, uint256 escrowBondBps)
         internal
         returns (BudgetTCRFactory factory)
@@ -1413,7 +1460,7 @@ contract BudgetTCRFactoryTest is Test {
         return BudgetTCRDeployer(
             new BudgetTCRDeployer(
                 address(new BudgetTreasury()),
-                address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()))),
+                address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
                 address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
                 address(new ERC20VotesArbitrator()),
                 address(new BudgetFlowRouterStrategy())

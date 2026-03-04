@@ -2,19 +2,28 @@
 pragma solidity ^0.8.34;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import { IArbitrable } from "../interfaces/IArbitrable.sol";
 import { IGeneralizedTCR } from "../interfaces/IGeneralizedTCR.sol";
 import { ISubmissionDepositStrategy } from "../interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "../interfaces/ISubmissionDepositStrategyCapabilities.sol";
 
-contract PrizePoolSubmissionDepositStrategy is ISubmissionDepositStrategy, ISubmissionDepositStrategyCapabilities {
+contract PrizePoolSubmissionDepositStrategy is
+    Initializable,
+    ISubmissionDepositStrategy,
+    ISubmissionDepositStrategyCapabilities
+{
     error PRIZE_POOL_ZERO();
 
-    IERC20 public immutable override token;
-    address public immutable prizePool;
+    IERC20 public override token;
+    address public prizePool;
 
-    constructor(IERC20 token_, address prizePool_) {
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(IERC20 token_, address prizePool_) external initializer {
         if (prizePool_ == address(0)) revert PRIZE_POOL_ZERO();
         token = token_;
         prizePool = prizePool_;

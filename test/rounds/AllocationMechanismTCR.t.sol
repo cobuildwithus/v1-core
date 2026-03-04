@@ -12,6 +12,7 @@ import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -179,7 +180,7 @@ contract AllocationMechanismTCRTest is Test {
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
-        roundFactory = new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator()));
+        roundFactory = new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()));
 
         vm.mockCall(address(superToken), abi.encodeWithSignature("getHost()"), abi.encode(MOCK_SUPERFLUID_HOST));
         vm.mockCall(
@@ -517,7 +518,7 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_setMechanismFactoryAllowed_onlyFactoryManager() public {
-        address altFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
+        address altFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
 
         vm.prank(alice);
         vm.expectRevert(AllocationMechanismTCR.ONLY_FACTORY_MANAGER.selector);
@@ -547,7 +548,7 @@ contract AllocationMechanismTCRTest is Test {
             uint64(block.timestamp + 1),
             uint64(block.timestamp + 2)
         );
-        listing.deploymentConfig.mechanismFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new ERC20VotesArbitrator())));
+        listing.deploymentConfig.mechanismFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
