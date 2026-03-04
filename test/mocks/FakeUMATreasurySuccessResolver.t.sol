@@ -335,11 +335,15 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         address expectedGoalFactory = _artifactAddressForKey(artifact, "GoalFactory");
         address budgetTcrFactory = _artifactAddressForKey(artifact, "BudgetTCRFactory");
         address pairDeployer = _artifactAddressForKey(artifact, "GoalFactoryPairDeployer");
+        address predictedBudgetTcrFactory = _predictCreateAddress(pairDeployer, 1);
+        address predictedGoalFactory = _predictCreateAddress(pairDeployer, 2);
 
         assertGt(pairDeployer.code.length, 0);
         assertGt(expectedGoalFactory.code.length, 0);
         assertGt(budgetTcrFactory.code.length, 0);
-        assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), expectedGoalFactory);
+        assertEq(budgetTcrFactory, predictedBudgetTcrFactory);
+        assertEq(expectedGoalFactory, predictedGoalFactory);
+        assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), predictedGoalFactory);
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
 
@@ -438,6 +442,18 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         if (!vm.isFile(path)) {
             path = "deploys/LATEST_IMPLEMENTATIONS.toml";
         }
+    }
+
+    function _predictCreateAddress(address deployer, uint256 nonce) internal pure returns (address predicted) {
+        predicted = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(uint8(nonce)))
+                    )
+                )
+            )
+        );
     }
 
     function _artifactAddressForKey(string memory artifact, string memory key) internal pure returns (address) {

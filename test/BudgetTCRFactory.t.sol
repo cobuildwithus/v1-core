@@ -172,13 +172,11 @@ contract BudgetTCRFactoryTest is Test {
         new BudgetTCRFactory(budgetImpl, arbImpl, noCode, address(this), DEFAULT_ESCROW_BOND_BPS);
     }
 
-    function test_constructor_allows_zero_authorized_caller_for_deferred_binding() public {
+    function test_constructor_reverts_when_authorized_caller_is_zero() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
 
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-
-        assertEq(factory.authorizedCaller(), address(0));
-        assertEq(factory.authorizedCallerSetter(), address(this));
+        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
+        new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
     }
 
     function test_constructor_reverts_when_escrow_bond_bps_is_zero() public {
@@ -223,43 +221,21 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(factory.arbitratorImplementation(), arbImpl);
         assertEq(factory.stackDeployerImplementation(), deployerImpl);
         assertEq(factory.authorizedCaller(), address(this));
-        assertEq(factory.authorizedCallerSetter(), address(this));
         assertEq(factory.escrowBondBps(), DEFAULT_ESCROW_BOND_BPS);
     }
 
-    function test_setAuthorizedCaller_reverts_when_caller_not_setter() public {
+    function test_setAuthorizedCaller_selector_is_not_supported_and_authorized_caller_remains_immutable() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-        address unauthorizedCaller = makeAddr("unauthorized-caller");
+        address immutableCaller = makeAddr("immutable-caller");
+        BudgetTCRFactory factory =
+            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, immutableCaller, DEFAULT_ESCROW_BOND_BPS);
 
-        vm.prank(unauthorizedCaller);
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER_SETTER.selector, unauthorizedCaller)
+        (bool success,) = address(factory).call(
+            abi.encodeWithSelector(bytes4(keccak256("setAuthorizedCaller(address)")), makeAddr("attempted-caller"))
         );
-        factory.setAuthorizedCaller(address(this));
-    }
 
-    function test_setAuthorizedCaller_reverts_when_authorized_caller_is_zero() public {
-        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-
-        vm.expectRevert(BudgetTCRFactory.ADDRESS_ZERO.selector);
-        factory.setAuthorizedCaller(address(0));
-    }
-
-    function test_setAuthorizedCaller_sets_caller_once() public {
-        (address budgetImpl, address arbImpl, address deployerImpl) = _validImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(0), DEFAULT_ESCROW_BOND_BPS);
-        address authorizedCaller = makeAddr("authorized-caller");
-        address anotherCaller = makeAddr("another-caller");
-
-        factory.setAuthorizedCaller(authorizedCaller);
-        assertEq(factory.authorizedCaller(), authorizedCaller);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.AUTHORIZED_CALLER_ALREADY_SET.selector, authorizedCaller)
-        );
-        factory.setAuthorizedCaller(anotherCaller);
+        assertFalse(success);
+        assertEq(factory.authorizedCaller(), immutableCaller);
     }
 
     function test_deployBudgetTCRStackForGoal_reverts_when_caller_not_authorized() public {
