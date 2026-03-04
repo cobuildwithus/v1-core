@@ -41,7 +41,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
     error STAKE_VAULT_NOT_SET();
     error STAKE_VAULT_ALREADY_SET();
 
-    event StakeVaultConfigured(address indexed stakeVault);
     event VoterSlashed(
         uint256 indexed disputeId,
         uint256 indexed round,
@@ -61,7 +60,7 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         _initializeFromConfig(config);
     }
 
-    function _initializeFromConfig(InitConfig memory config) internal {
+    function _initializeFromConfig(InitConfig calldata config) internal {
         _initialize(
             config.votingToken,
             config.arbitrable,
@@ -106,10 +105,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         if (slashCallerBountyBps_ > MAX_SLASH_CALLER_BOUNTY_BPS) revert INVALID_SLASH_CALLER_BOUNTY_BPS();
         __ReentrancyGuard_init();
 
-        emit VotingPeriodSet(_votingPeriod, votingPeriod_);
-        emit VotingDelaySet(_votingDelay, votingDelay_);
-        emit RevealPeriodSet(_revealPeriod, revealPeriod_);
-        emit ArbitrationCostSet(_arbitrationCost, arbitrationCost_);
         emit WrongOrMissedSlashBpsSet(wrongOrMissedSlashBps, wrongOrMissedSlashBps_);
         emit SlashCallerBountyBpsSet(slashCallerBountyBps, slashCallerBountyBps_);
 
@@ -122,41 +117,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         wrongOrMissedSlashBps = wrongOrMissedSlashBps_;
         slashCallerBountyBps = slashCallerBountyBps_;
         invalidRoundRewardsSink = invalidRoundRewardsSink_;
-    }
-
-    function configureStakeVault(address stakeVault_) external {
-        if (msg.sender != address(arbitrable)) revert ONLY_ARBITRABLE();
-        _setStakeVault(stakeVault_);
-    }
-
-    function setVotingPeriod(uint256 votingPeriod_) external onlyArbitrable {
-        if (votingPeriod_ < MIN_VOTING_PERIOD || votingPeriod_ > MAX_VOTING_PERIOD) revert INVALID_VOTING_PERIOD();
-
-        emit VotingPeriodSet(_votingPeriod, votingPeriod_);
-        _votingPeriod = votingPeriod_;
-    }
-
-    function setVotingDelay(uint256 votingDelay_) external onlyArbitrable {
-        if (votingDelay_ < MIN_VOTING_DELAY || votingDelay_ > MAX_VOTING_DELAY) revert INVALID_VOTING_DELAY();
-
-        emit VotingDelaySet(_votingDelay, votingDelay_);
-        _votingDelay = votingDelay_;
-    }
-
-    function setRevealPeriod(uint256 revealPeriod_) external onlyArbitrable {
-        if (revealPeriod_ < MIN_REVEAL_PERIOD || revealPeriod_ > MAX_REVEAL_PERIOD) revert INVALID_REVEAL_PERIOD();
-
-        emit RevealPeriodSet(_revealPeriod, revealPeriod_);
-        _revealPeriod = revealPeriod_;
-    }
-
-    function setArbitrationCost(uint256 arbitrationCost_) external onlyArbitrable {
-        if (arbitrationCost_ < MIN_ARBITRATION_COST || arbitrationCost_ > MAX_ARBITRATION_COST) {
-            revert INVALID_ARBITRATION_COST();
-        }
-
-        emit ArbitrationCostSet(_arbitrationCost, arbitrationCost_);
-        _arbitrationCost = arbitrationCost_;
     }
 
     /**
@@ -1005,7 +965,6 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         }
 
         _stakeVault = IStakeVault(stakeVault_);
-        emit StakeVaultConfigured(stakeVault_);
     }
 
     function _setFixedBudgetTreasury(address fixedBudgetTreasury_) internal {

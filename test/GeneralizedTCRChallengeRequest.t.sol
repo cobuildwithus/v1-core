@@ -120,8 +120,8 @@ contract GeneralizedTCRChallengeRequestTest is GeneralizedTCRTestBase {
             tcr.getRequestInfo(itemID, 0);
         assertEq(requestArbitrator.arbitrationCost(requestExtraData), arbitrationCost);
 
-        vm.prank(address(tcr));
-        arb.setArbitrationCost(arbitrationCost * 2);
+        stdstore.target(address(arb)).sig(arb._arbitrationCost.selector).checked_write(arbitrationCost * 2);
+        assertEq(arb._arbitrationCost(), arbitrationCost * 2);
         assertEq(requestArbitrator.arbitrationCost(requestExtraData), arbitrationCost);
 
         _approveChallengeSubmissionCost(challenger);

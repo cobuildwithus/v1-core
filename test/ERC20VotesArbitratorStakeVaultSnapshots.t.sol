@@ -147,8 +147,21 @@ contract ERC20VotesArbitratorStakeVaultSnapshotsTest is ERC20VotesArbitratorTest
             new StakeVaultSnapshotGoalTreasuryMock(address(budgetStakeLedger));
         stakeVault = new StakeVaultSnapshotStakeVaultMock(address(goalTreasury));
 
-        vm.prank(address(arbitrable));
-        arb.configureStakeVault(address(stakeVault));
+        ArbitratorHarness impl = new ArbitratorHarness();
+        IERC20VotesArbitrator.InitConfig memory cfg = _defaultArbitratorInitConfig(
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
+        cfg.stakeVault = address(stakeVault);
+
+        arb = ERC20VotesArbitrator(_deployProxy(address(impl), _arbitratorInitData(cfg)));
+        arbitrable.setArbitrator(arb);
+        arbitrable.approveArbitrator(arbitrationCost * 10);
     }
 
     function test_createDispute_stakeVaultMode_excludesSameBlockWeightIncrease() public {

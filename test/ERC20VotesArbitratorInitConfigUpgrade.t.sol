@@ -49,6 +49,36 @@ contract InitConfigAuditStakeVaultMock {
 }
 
 contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBase {
+    function test_removedRuntimeConfigSetterSelectors_notExposed() public {
+        IArbitrator.ArbitratorParams memory beforeParams = arb.getArbitratorParamsForFactory();
+        address beforeStakeVault = arb.stakeVault();
+
+        bytes[] memory removedSetterCalls = new bytes[](5);
+        removedSetterCalls[0] = abi.encodeWithSignature("configureStakeVault(address)", address(0xBEEF));
+        removedSetterCalls[1] = abi.encodeWithSignature("setVotingPeriod(uint256)", beforeParams.votingPeriod + 1);
+        removedSetterCalls[2] = abi.encodeWithSignature("setVotingDelay(uint256)", beforeParams.votingDelay + 1);
+        removedSetterCalls[3] = abi.encodeWithSignature("setRevealPeriod(uint256)", beforeParams.revealPeriod + 1);
+        removedSetterCalls[4] = abi.encodeWithSignature("setArbitrationCost(uint256)", beforeParams.arbitrationCost + 1);
+
+        for (uint256 i = 0; i < removedSetterCalls.length; ) {
+            (bool success, bytes memory revertData) = address(arb).call(removedSetterCalls[i]);
+            assertFalse(success);
+            assertEq(revertData.length, 0);
+            unchecked {
+                ++i;
+            }
+        }
+
+        IArbitrator.ArbitratorParams memory afterParams = arb.getArbitratorParamsForFactory();
+        assertEq(afterParams.votingPeriod, beforeParams.votingPeriod);
+        assertEq(afterParams.votingDelay, beforeParams.votingDelay);
+        assertEq(afterParams.revealPeriod, beforeParams.revealPeriod);
+        assertEq(afterParams.arbitrationCost, beforeParams.arbitrationCost);
+        assertEq(afterParams.wrongOrMissedSlashBps, beforeParams.wrongOrMissedSlashBps);
+        assertEq(afterParams.slashCallerBountyBps, beforeParams.slashCallerBountyBps);
+        assertEq(arb.stakeVault(), beforeStakeVault);
+    }
+
     function test_initialize_reverts_on_invalid_params() public {
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
         uint256 minVotingPeriod = arb.MIN_VOTING_PERIOD();
@@ -341,6 +371,43 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         _deployProxy(address(impl), _arbitratorInitData(cfg));
     }
 
+    function test_initialize_config_reverts_when_stakeVault_goalTreasury_missing() public {
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        InitConfigAuditStakeVaultMock badStakeVault = new InitConfigAuditStakeVaultMock(address(0));
+        IERC20VotesArbitrator.InitConfig memory cfg = _defaultArbitratorInitConfig(
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
+        cfg.stakeVault = address(badStakeVault);
+
+        vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_GOAL_TREASURY.selector);
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
+    }
+
+    function test_initialize_config_reverts_when_stakeVault_budgetLedger_missing() public {
+        ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
+        InitConfigAuditGoalTreasuryMock badGoalTreasury = new InitConfigAuditGoalTreasuryMock(address(0), address(0));
+        InitConfigAuditStakeVaultMock badStakeVault = new InitConfigAuditStakeVaultMock(address(badGoalTreasury));
+        IERC20VotesArbitrator.InitConfig memory cfg = _defaultArbitratorInitConfig(
+            owner,
+            address(token),
+            address(arbitrable),
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
+        cfg.stakeVault = address(badStakeVault);
+
+        vm.expectRevert(ERC20VotesArbitrator.INVALID_STAKE_VAULT_BUDGET_STAKE_LEDGER.selector);
+        _deployProxy(address(impl), _arbitratorInitData(cfg));
+    }
+
     function test_initialize_config_sets_stake_vault_and_fixed_budget_context() public {
         ERC20VotesArbitrator impl = new ERC20VotesArbitrator();
         (address stakeVault_, address budgetTreasury_) = _deployValidFixedBudgetContext();
@@ -449,102 +516,6 @@ contract ERC20VotesArbitratorInitConfigUpgradeTest is ERC20VotesArbitratorTestBa
         cfg.slashCallerBountyBps = 501;
         vm.expectRevert(IERC20VotesArbitrator.INVALID_SLASH_CALLER_BOUNTY_BPS.selector);
         _deployProxy(address(impl), _arbitratorInitData(cfg));
-    }
-
-    function test_setters_onlyArbitrable_and_ranges() public {
-        uint256 minVotingPeriod = arb.MIN_VOTING_PERIOD();
-        uint256 minVotingDelay = arb.MIN_VOTING_DELAY();
-        uint256 minRevealPeriod = arb.MIN_REVEAL_PERIOD();
-        uint256 minArbitrationCost = arb.MIN_ARBITRATION_COST();
-        uint256 maxArbitrationCost = arb.MAX_ARBITRATION_COST();
-        uint256 maxVotingDelay = arb.MAX_VOTING_DELAY();
-        uint256 maxRevealPeriod = arb.MAX_REVEAL_PERIOD();
-
-        // setVotingPeriod range check
-        vm.expectRevert(IERC20VotesArbitrator.ONLY_ARBITRABLE.selector);
-        arb.setVotingPeriod(minVotingPeriod); // non-arbitrable
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_PERIOD.selector);
-        arb.setVotingPeriod(minVotingPeriod - 1);
-
-        vm.prank(address(arbitrable));
-        arb.setVotingPeriod(minVotingPeriod);
-
-        // setVotingDelay range check
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_DELAY.selector);
-        arb.setVotingDelay(maxVotingDelay + 1);
-
-        vm.prank(address(arbitrable));
-        arb.setVotingDelay(minVotingDelay);
-
-        // setRevealPeriod range check
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_REVEAL_PERIOD.selector);
-        arb.setRevealPeriod(maxRevealPeriod + 1);
-
-        vm.prank(address(arbitrable));
-        arb.setRevealPeriod(minRevealPeriod);
-
-        // setArbitrationCost range + access control
-        vm.expectRevert(IERC20VotesArbitrator.ONLY_ARBITRABLE.selector);
-        arb.setArbitrationCost(minArbitrationCost);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
-        arb.setArbitrationCost(minArbitrationCost - 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
-        arb.setArbitrationCost(maxArbitrationCost + 1);
-
-        vm.prank(address(arbitrable));
-        arb.setArbitrationCost(minArbitrationCost);
-        assertEq(arb.arbitrationCost(""), minArbitrationCost);
-    }
-
-    function test_setters_range_checks_both_sides() public {
-        uint256 minDelay = arb.MIN_VOTING_DELAY();
-        uint256 maxDelay = arb.MAX_VOTING_DELAY();
-        uint256 minReveal = arb.MIN_REVEAL_PERIOD();
-        uint256 maxReveal = arb.MAX_REVEAL_PERIOD();
-        uint256 minPeriod = arb.MIN_VOTING_PERIOD();
-        uint256 maxPeriod = arb.MAX_VOTING_PERIOD();
-        uint256 minCost = arb.MIN_ARBITRATION_COST();
-        uint256 maxCost = arb.MAX_ARBITRATION_COST();
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_DELAY.selector);
-        arb.setVotingDelay(minDelay - 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_DELAY.selector);
-        arb.setVotingDelay(maxDelay + 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_REVEAL_PERIOD.selector);
-        arb.setRevealPeriod(minReveal - 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_REVEAL_PERIOD.selector);
-        arb.setRevealPeriod(maxReveal + 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_PERIOD.selector);
-        arb.setVotingPeriod(minPeriod - 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_VOTING_PERIOD.selector);
-        arb.setVotingPeriod(maxPeriod + 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
-        arb.setArbitrationCost(minCost - 1);
-
-        vm.prank(address(arbitrable));
-        vm.expectRevert(IERC20VotesArbitrator.INVALID_ARBITRATION_COST.selector);
-        arb.setArbitrationCost(maxCost + 1);
     }
 
     function test_internal_helpers_via_harness() public {

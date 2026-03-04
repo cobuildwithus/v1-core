@@ -147,27 +147,6 @@ interface IERC20VotesArbitrator is IArbitrator {
     function invalidRoundRewardsSink() external view returns (address sink);
 
     /**
-     * @notice Emitted when the voting period is set
-     * @param oldVotingPeriod The previous voting period
-     * @param newVotingPeriod The new voting period
-     */
-    event VotingPeriodSet(uint256 oldVotingPeriod, uint256 newVotingPeriod);
-
-    /**
-     * @notice Emitted when the voting delay is set
-     * @param oldVotingDelay The previous voting delay
-     * @param newVotingDelay The new voting delay
-     */
-    event VotingDelaySet(uint256 oldVotingDelay, uint256 newVotingDelay);
-
-    /**
-     * @notice Emitted when the reveal period is set
-     * @param oldRevealPeriod The previous reveal period
-     * @param newRevealPeriod The new reveal period
-     */
-    event RevealPeriodSet(uint256 oldRevealPeriod, uint256 newRevealPeriod);
-
-    /**
      * @notice Emitted when a voter withdraws their proportional share of the cost for a voting round
      * @param disputeId The ID of the dispute
      * @param round The round number
@@ -176,12 +155,6 @@ interface IERC20VotesArbitrator is IArbitrator {
      */
     event RewardWithdrawn(uint256 indexed disputeId, uint256 indexed round, address indexed voter, uint256 amount);
 
-    /**
-     * @notice Emitted when the arbitration cost is set
-     * @param oldArbitrationCost The previous arbitration cost
-     * @param newArbitrationCost The new arbitration cost
-     */
-    event ArbitrationCostSet(uint256 oldArbitrationCost, uint256 newArbitrationCost);
     event WrongOrMissedSlashBpsSet(uint256 oldWrongOrMissedSlashBps, uint256 newWrongOrMissedSlashBps);
     event SlashCallerBountyBpsSet(uint256 oldSlashCallerBountyBps, uint256 newSlashCallerBountyBps);
     event SlashRewardsWithdrawn(

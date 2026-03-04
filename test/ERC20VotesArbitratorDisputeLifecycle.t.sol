@@ -104,9 +104,6 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         uint256 snapshotCost = arbitrationCost / 2;
         bytes memory extraData = ArbitrationCostExtraData.encode(snapshotCost, hex"deadbeef");
 
-        vm.prank(address(arbitrable));
-        arb.setArbitrationCost(arbitrationCost * 2);
-
         uint256 balBefore = token.balanceOf(address(arb));
         uint256 arbBalBefore = token.balanceOf(address(arbitrable));
 
@@ -170,11 +167,8 @@ contract ERC20VotesArbitratorDisputeLifecycleTest is ERC20VotesArbitratorTestBas
         uint256 snapshotCost = arbitrationCost / 3;
         bytes memory extraData = ArbitrationCostExtraData.encode(snapshotCost, hex"1234");
 
-        vm.prank(address(arbitrable));
-        arb.setArbitrationCost(arbitrationCost * 2);
-
         assertEq(arb.arbitrationCost(extraData), snapshotCost);
-        assertEq(arb.arbitrationCost(""), arbitrationCost * 2);
+        assertEq(arb.arbitrationCost(""), arbitrationCost);
     }
 
     function test_arbitrationCost_snapshot_out_of_range_reverts() public {

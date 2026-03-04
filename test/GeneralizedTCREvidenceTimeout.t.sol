@@ -397,10 +397,10 @@ contract GeneralizedTCREvidenceTimeoutTest is GeneralizedTCRTestBase {
     }
 
     function test_executeRequestTimeout_reverts_when_arbitrator_not_solved() public {
-        vm.startPrank(address(tcr));
-        arb.setVotingDelay(2 days);
-        arb.setVotingPeriod(2 days);
-        vm.stopPrank();
+        stdstore.target(address(arb)).sig(arb._votingDelay.selector).checked_write(2 days);
+        stdstore.target(address(arb)).sig(arb._votingPeriod.selector).checked_write(2 days);
+        assertEq(arb._votingDelay(), 2 days);
+        assertEq(arb._votingPeriod(), 2 days);
 
         _approveAddItemCost(requester);
         bytes memory item = abi.encodePacked("item-timeout-unsolved");
