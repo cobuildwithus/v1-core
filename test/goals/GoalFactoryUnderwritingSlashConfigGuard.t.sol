@@ -18,17 +18,20 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
 
     GoalFactory internal factory;
+    address internal configuredStakeVaultImpl;
     address internal configuredBudgetStakeLedgerImpl;
     address internal configuredGoalFlowAllocationLedgerPipelineImpl;
     address internal configuredPremiumEscrowImpl;
     address internal configuredUnderwriterSlasherRouterImpl;
 
     function setUp() public {
+        configuredStakeVaultImpl = address(new DummyContract());
         configuredBudgetStakeLedgerImpl = address(new DummyContract());
         configuredGoalFlowAllocationLedgerPipelineImpl = address(new DummyContract());
         configuredPremiumEscrowImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
         factory = _newFactory(
+            configuredStakeVaultImpl,
             configuredBudgetStakeLedgerImpl,
             configuredGoalFlowAllocationLedgerPipelineImpl,
             configuredPremiumEscrowImpl,
@@ -56,6 +59,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -86,6 +90,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -116,6 +121,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(0),
@@ -149,6 +155,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             noCodeBudgetStakeLedgerImpl,
@@ -179,6 +186,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -210,6 +218,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -241,6 +250,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -270,6 +280,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -300,6 +311,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             address(budgetStakeLedgerImpl),
@@ -310,6 +322,71 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
+    }
+
+    function test_constructor_revertsWhenStakeVaultImplementationIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            address(0),
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
+            configuredUnderwriterSlasherRouterImpl,
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenStakeVaultImplementationHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeStakeVaultImpl = address(0xA11CE);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeStakeVaultImpl));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            address(goalTreasuryImpl),
+            noCodeStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            configuredPremiumEscrowImpl,
+            configuredUnderwriterSlasherRouterImpl,
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_setsStakeVaultImplementationImmutable() public view {
+        assertEq(factory.STAKE_VAULT_IMPL(), configuredStakeVaultImpl);
     }
 
     function test_constructor_setsPremiumEscrowImplementationImmutable() public view {
@@ -395,6 +472,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function _newFactory(
+        address stakeVaultImpl,
         address budgetStakeLedgerImpl,
         address goalFlowAllocationLedgerPipelineImpl,
         address premiumEscrowImpl,
@@ -414,6 +492,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(goalTreasuryImpl),
+            stakeVaultImpl,
             address(flowImpl),
             address(splitHookImpl),
             budgetStakeLedgerImpl,
