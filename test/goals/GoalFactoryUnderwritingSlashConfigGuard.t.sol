@@ -65,6 +65,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredBuybackHook = address(new DummyContract());
         configuredJbMultiTerminal = address(new DummyContract());
         revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
+        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
         factory = _newFactory(
             configuredStakeVaultImpl,
             configuredBudgetStakeLedgerImpl,
@@ -74,6 +75,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredUnderwriterSlasherRouterImpl,
             DEFAULT_ALLOCATION_MECHANISM_ADMIN
         );
+        revDeployer.setExpectedCobuildTerminal(configuredCobuildTerminal);
     }
 
     function test_constructor_revertsWhenDefaultAllocationMechanismAdminIsZero() public {
@@ -1009,6 +1011,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
                 true,
                 true,
+                true,
+                true,
                 true
             )
         );
@@ -1028,6 +1032,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 MockRevDeployer.DeployForForwarding.selector,
                 DEFAULT_BUYBACK_POOL_FEE,
                 DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
                 true,
                 true,
                 true
@@ -1161,7 +1167,9 @@ contract MockRevDeployer {
         uint32 buybackPoolTwapWindow,
         bool saltMatchesFactorySeed,
         bool splitHookMatchesExpected,
-        bool buybackHooksForwarded
+        bool buybackHooksForwarded,
+        bool cobuildTerminalForwarded,
+        bool jbMultiTerminalForwarded
     );
 
     address internal immutable _directory;
@@ -1170,6 +1178,8 @@ contract MockRevDeployer {
     address internal _expectedBuybackDataHook;
     address internal _expectedBuybackHook;
     address internal _expectedSplitHook;
+    address internal _expectedCobuildTerminal;
+    address internal _expectedJbMultiTerminal;
 
     constructor(address directory_, address controller_) {
         _directory = directory_;
@@ -1189,10 +1199,18 @@ contract MockRevDeployer {
         _expectedSplitHook = splitHook;
     }
 
+    function setExpectedCobuildTerminal(address terminal) external {
+        _expectedCobuildTerminal = terminal;
+    }
+
+    function setExpectedJbMultiTerminal(address terminal) external {
+        _expectedJbMultiTerminal = terminal;
+    }
+
     function deployFor(
         uint256,
         IREVDeployer.REVConfig calldata configuration,
-        JBTerminalConfig[] calldata,
+        JBTerminalConfig[] calldata terminalConfigurations,
         IREVDeployer.REVBuybackHookConfig calldata buybackHookConfiguration,
         IREVDeployer.REVSuckerDeploymentConfig calldata
     ) external returns (uint256 revnetId) {
@@ -1217,13 +1235,19 @@ contract MockRevDeployer {
             bool splitHookMatchesExpected = splitHook == _expectedSplitHook;
             bool buybackHooksForwarded = buybackHookConfiguration.dataHook == _expectedBuybackDataHook
                 && buybackHookConfiguration.hookToConfigure == _expectedBuybackHook;
+            bool cobuildTerminalForwarded = terminalConfigurations.length > 0
+                && address(terminalConfigurations[0].terminal) == _expectedCobuildTerminal;
+            bool jbMultiTerminalForwarded = terminalConfigurations.length > 1
+                && address(terminalConfigurations[1].terminal) == _expectedJbMultiTerminal;
 
             revert DeployForForwarding(
                 observedFee,
                 observedTwapWindow,
                 saltMatchesFactorySeed,
                 splitHookMatchesExpected,
-                buybackHooksForwarded
+                buybackHooksForwarded,
+                cobuildTerminalForwarded,
+                jbMultiTerminalForwarded
             );
         }
 

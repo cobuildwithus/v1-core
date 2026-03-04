@@ -49,6 +49,50 @@ Even without a reward-points subsystem, late coordinated delist actions can stil
 - Increase late-window challenge costs dynamically.
 - Strengthen keeper automation and explicit operator runbooks for terminalization + slash settlement retries.
 
+### Registered-Budget Growth Exit Tax on Underwriter Withdrawals [Acknowledged / Open]
+
+### Scenario
+
+An actor repeatedly activates and removes budgets for a goal. `BudgetStakeLedger` retains an append-only historical
+`registeredBudgets` list, so removed budgets still increase withdrawal-preparation work forever.
+
+### Why it matters
+
+`StakeVault.withdrawGoal`/`withdrawCobuild` require caller-scoped completion of
+`prepareUnderwriterWithdrawal(maxBudgets)`, and preparation iterates registered budgets by index. Even stakers with no
+budget exposure pay work proportional to total historical registrations.
+
+### Mechanism path (high level)
+
+1. Budget registrations append to `registeredBudgets`; removals do not shrink history.
+2. After goal resolution, each caller must advance `prepareUnderwriterWithdrawal` cursor to `registeredBudgetCount`.
+3. Exit cost is O(total historical registered budgets), not O(caller exposure set).
+
+### Measured profile (2026-03-04, local GoalFactory full-stack harness)
+
+- Sampled prepare gas growth: `100 -> 1,082,511`, `800 -> 8,367,263`, `1,600 -> 16,882,466`, `3,200 -> 34,520,361`.
+- One-shot prepare at 5,000 registered budgets: `55,351,248` gas.
+- Max budgets processed per prepare call in this profile:
+  - under 15M cap: `1,402`,
+  - under 30M cap: `2,754`.
+
+### 16M-cap operational math (conservative)
+
+Using the 15M measured bound as a conservative Base-like caller cap proxy:
+
+- `prepareCalls ~= ceil(registeredBudgetCount / 1,402)`
+- 5,000 budgets -> 4 prepare transactions before withdrawal.
+- 10,000 budgets -> 8 prepare transactions before withdrawal.
+- 50,000 budgets -> 36 prepare transactions before withdrawal.
+
+This does not strictly hard-lock funds, but it creates a monotonic, attacker-amplifiable exit tax.
+
+### Mitigation directions
+
+- Track per-underwriter budgets-with-exposure and prepare only that sparse set.
+- Add `prepareUnderwriterWithdrawalFor(address)` so keepers can advance cursor work for users (optional bounty).
+- Add non-refundable per-activation fee or partial bond burn on self-removal to internalize registry-growth externality.
+
 ### UMA Dispute-Latency Delay on Pending Success Assertions [Open]
 
 ### Scenario
