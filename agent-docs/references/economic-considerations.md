@@ -8,11 +8,11 @@ This note tracks protocol-level incentive risks that are economically rational u
 
 ### Scenario
 
-A wealthy actor funds or influences a goal, waits until allocators have established underwriting coverage, then pushes synchronized budget removals/challenges near late lifecycle windows. If enough budgets are removed or failed in a short window, effective insured capacity and underwriting distribution can shift abruptly.
+A wealthy actor funds or influences a goal, waits until allocators have established underwriting coverage, then pushes synchronized budget delist/challenge actions near late lifecycle windows. If enough budgets are delisted or failed in a short window, effective insured capacity and underwriting distribution can shift abruptly.
 
 ### Why it matters
 
-Even without a reward-points subsystem, late coordinated removals can still:
+Even without a reward-points subsystem, late coordinated delist actions can still:
 
 - reduce useful budget execution windows,
 - force rapid reallocation/re-coverage behavior,
@@ -21,7 +21,7 @@ Even without a reward-points subsystem, late coordinated removals can still:
 ### Mechanism path (high level)
 
 1. Budgets are challenged/cleared through Budget TCR lifecycle.
-2. Removed budgets are detached from goal-flow recipient/ledger paths and may disable budget success resolution (pre-activation branch).
+2. Delisted budgets are detached from goal-flow recipient/ledger paths and may disable budget success resolution (pre-activation branch).
 3. Goal coverage shape and downstream budget underwriting obligations shift abruptly.
 4. Keepers/participants must process terminalization and caller-scoped underwriter withdrawal preparation under tighter time pressure.
 
@@ -29,7 +29,7 @@ Even without a reward-points subsystem, late coordinated removals can still:
 
 - Attacker can repeatedly fund challenges (or coordinate challengers).
 - Defender participation is weak or slow in dispute windows.
-- Removals/failures cluster near high-sensitivity lifecycle windows.
+- Delist/failure events cluster near high-sensitivity lifecycle windows.
 
 ### Impact
 
@@ -40,12 +40,12 @@ Even without a reward-points subsystem, late coordinated removals can still:
 ### Monitoring signals
 
 - Spikes in Budget TCR challenges shortly before budget/goal deadlines.
-- Clusters of removals against high-stake or high-throughput budgets.
+- Clusters of delist actions against high-stake or high-throughput budgets.
 - Rising ratio of late challenged listings vs. successfully finalized listings.
 
 ### Mitigation directions
 
-- Add anti-grief timing windows for removal effectiveness near terminal cutoffs.
+- Add anti-grief timing windows for delist effectiveness near terminal cutoffs.
 - Increase late-window challenge costs dynamically.
 - Strengthen keeper automation and explicit operator runbooks for terminalization + slash settlement retries.
 

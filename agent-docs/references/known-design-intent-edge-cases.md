@@ -15,6 +15,6 @@ This file captures protocol-level behaviors that are easy to misread and intenti
 - Goal treasury terminal states are `Succeeded` and `Expired`; there is no goal-level `Failed` terminal state or manual failure entrypoint.
 - Goal success finalization does not require all budgets to be resolved before treasury success state.
   - Point-accrual cutoff snapshots are anchored at the goal success timestamp, while budget reward eligibility is evaluated from terminal budget outcome (not `resolvedAt <= successAt`).
-- Accepted pre-activation removals disable budget success resolution and strict-finalize to `Failed`; activation-locked removals preserve success-resolution eligibility and do not auto-force failure.
+- Accepted pre-activation delistings (on-chain remove/finalize-removed path) disable budget success resolution and strict-finalize to `Failed`; activation-locked delistings preserve success-resolution eligibility and do not auto-force failure.
 - Direct flow balance can satisfy activation thresholds even without hook funding telemetry.
 - Child-allocation pipeline failures are observable but non-fatal to parent allocation maintenance.

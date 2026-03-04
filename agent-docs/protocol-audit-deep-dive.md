@@ -118,12 +118,12 @@ Transitions:
   - Trigger: `sync()`.
   - Guard: deadline reached with no pending success assertion (and post-deadline grace rules exhausted).
 
-Budget removal interaction:
+Budget delisting interaction (on-chain remove/finalize-removed path):
 
-- Accepted budget removal in `BudgetTCR` first marks the budget pending finalization.
+- Accepted budget delisting in `BudgetTCR` first marks the budget pending finalization.
 - `finalizeRemovedBudget()` removes the recipient and attempts terminal resolution with branch-specific handling:
-  - pre-activation removals disable success resolution (`disableSuccessResolution()`), permanently blocking later budget success,
-  - activation-locked removals preserve success-resolution eligibility while force-zeroing forward spend.
+  - pre-activation delistings disable success resolution (`disableSuccessResolution()`), permanently blocking later budget success,
+  - activation-locked delistings preserve success-resolution eligibility while force-zeroing forward spend.
 
 ### TCR item/request lifecycle (`GeneralizedTCR`)
 
@@ -266,7 +266,7 @@ Juror locks:
 2. Flow-rate sync liveness under revert/fallback scenarios.
 3. Hook routing correctness by treasury state and minting window.
 4. Premium-escrow checkpoint/accrual/slash invariants and idempotence.
-5. Budget removal guarantees: recipient removed + retryable terminalization; success disablement is branch-specific (pre-activation only).
+5. Budget delist guarantees: recipient removed + retryable terminalization; success disablement is branch-specific (pre-activation only).
 6. Underwriter withdrawal preparation accounting and caller isolation.
 7. Arbitrator slash routing, invalid-round sink behavior, and one-shot withdrawal semantics.
 8. Submission deposit strategy behavior in TCR (fail-closed surface).

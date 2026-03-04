@@ -50,6 +50,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
    - premium escrow close with terminal metadata,
    - residual sweep back to parent goal flow.
 6. `BudgetTCR.syncBudgetTreasuries(itemIDs)` provides permissionless best-effort treasury sync batching for liveness.
+7. Budget delisting semantics (on-chain remove/finalize-removed path) are split:
+   - pre-activation delist is fail-closed and terminalizes,
+   - activation-locked delist detaches parent funding and forces spend-stop, but is not itself guaranteed permanent shutdown until treasury terminalization.
 
 ## Stake + Underwriting Path
 
