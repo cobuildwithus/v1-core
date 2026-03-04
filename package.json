@@ -48,7 +48,7 @@
     "coverage:check": "node scripts/coverage-check.mjs coverage/lcov.info",
     "dev": "forge test --watch -vvv",
     "build:sizes": "scripts/build-sizes-project.sh",
-    "build:sizes:all": "forge build --sizes",
+    "build:sizes:all": "forge build --sizes --contracts src --skip test --skip 'test/**' --skip script --skip 'script/**'",
     "slither": "scripts/slither.sh",
     "copy:changed-sol": "scripts/copy-sol-to-clipboard.sh --changed-non-tests",
     "copy:changed-sol-tests": "scripts/copy-sol-to-clipboard.sh --changed-tests",
@@ -62,17 +62,11 @@
     "review:gpt:direct:flows": "bash scripts/run-review-gpt-direct.sh flows",
     "review:gpt:direct:all": "bash scripts/run-review-gpt-direct.sh all",
     "prepare": "husky install",
-    "build:sizes:raw": "forge build --sizes --contracts src --skip 'test/**'",
+    "build:sizes:raw": "forge build --sizes --contracts src --skip test --skip 'test/**' --skip script --skip 'script/**'",
     "review:gpt:nozip:run": "scripts/run-review-gpt-nozip.sh"
   },
   "devDependencies": {
-    "@bananapus/permission-ids-v5": "^0.0.2",
     "@cobuild/review-gpt": "^0.2.7",
-    "@openzeppelin/contracts": "5.4.0",
-    "@openzeppelin/contracts-upgradeable": "5.4.0",
-    "@prb/math": "^4.1.1",
-    "@uniswap/v4-core": "1.0.2",
-    "@uniswap/v4-periphery": "1.0.3",
     "husky": "^8.0.0",
     "prettier": "^3.0.3",
     "prettier-plugin-solidity": "^1.3.1"

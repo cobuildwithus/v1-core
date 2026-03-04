@@ -32,7 +32,7 @@ search_pattern '^[[:space:]]*(contract|library)[[:space:]]+[A-Za-z_][A-Za-z0-9_]
 
 set +e
 FOUNDRY_DISABLE_NIGHTLY_WARNING="${FOUNDRY_DISABLE_NIGHTLY_WARNING:-1}" \
-    forge build --sizes --contracts src --skip 'test/**' > "$tmp_output" 2>&1
+    forge build --sizes --contracts src --skip test --skip 'test/**' --skip script --skip 'script/**' > "$tmp_output" 2>&1
 status=$?
 set -e
 

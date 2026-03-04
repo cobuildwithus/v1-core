@@ -48,9 +48,9 @@ jobs:
           pnpm -s prettier:check
         id: prettier
 
-      - name: Run Forge build
+      - name: Run Forge build (src-only size gate)
         run: |
-          pnpm -s build:sizes
+          pnpm -s build:sizes:raw
         id: build
 
       - name: Run Forge invariants (required lane)
