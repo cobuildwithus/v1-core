@@ -58,6 +58,7 @@
     "copy:all-sol": "scripts/copy-all-sol.sh",
     "zip:src": "scripts/package-audit-context.sh",
     "review:gpt": "scripts/chatgpt-oracle-review.sh",
+    "review-gpt:ensure-published": "bash scripts/review-gpt-ensure-published.sh",
     "review:gpt:nozip": "scripts/build-nozip-review-prompt.sh",
     "review:gpt:nozip:list": "scripts/build-nozip-review-prompt.sh --list-profiles",
     "review:gpt:direct": "bash scripts/run-review-gpt-direct.sh",
@@ -69,7 +70,7 @@
     "review:gpt:nozip:run": "scripts/run-review-gpt-nozip.sh"
   },
   "devDependencies": {
-    "@cobuild/review-gpt": "^0.2.7",
+    "@cobuild/review-gpt": "^0.2.8",
     "husky": "^8.0.0",
     "prettier": "^3.0.3",
     "prettier-plugin-solidity": "^1.3.1"

@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@cobuild/review-gpt':
-        specifier: ^0.2.7
-        version: 0.2.7
+        specifier: ^0.2.8
+        version: 0.2.8
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -23,8 +23,8 @@ importers:
 
 packages:
 
-  '@cobuild/review-gpt@0.2.7':
-    resolution: {integrity: sha512-KtkyovdaRci2zXwjiSXFEOJa5F5KOdpleIBC+4nL5UapzOlN8AktSKUG8yQ2wdF7mcP3XpezFpba/eMXNTdRcQ==}
+  '@cobuild/review-gpt@0.2.8':
+    resolution: {integrity: sha512-eElYGlcoemlHnTncxPa7KbMEmbPW4buVs9draM564W57GZO01imSO/Nhfb3GAuvdg+3M+2357TD2gsyAk85kSw==}
     hasBin: true
 
   '@solidity-parser/parser@0.20.2':
@@ -53,7 +53,7 @@ packages:
 
 snapshots:
 
-  '@cobuild/review-gpt@0.2.7': {}
+  '@cobuild/review-gpt@0.2.8': {}
 
   '@solidity-parser/parser@0.20.2': {}
 
