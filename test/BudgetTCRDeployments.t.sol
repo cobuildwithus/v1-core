@@ -13,6 +13,7 @@ import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
+import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
@@ -745,7 +746,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
             new BudgetTCRDeployer(
                 address(new BudgetTreasury()),
                 address(new RoundFactory()),
-                address(new AllocationMechanismTCR()),
+                address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
                 address(new ERC20VotesArbitrator())
             )
         );

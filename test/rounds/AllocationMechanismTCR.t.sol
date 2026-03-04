@@ -143,6 +143,23 @@ contract AllocationMechanismTCRTest is Test {
 
     uint256 internal constant ARBITRATION_COST = 1e14;
 
+    function test_constructor_revertsWhenEscrowImplementationIsZero() public {
+        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        new AllocationMechanismTCR(address(0));
+    }
+
+    function test_constructor_revertsWhenEscrowImplementationHasNoCode() public {
+        address noCode = makeAddr("no-code-escrow-implementation");
+        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.IMPLEMENTATION_HAS_NO_CODE.selector, noCode));
+        new AllocationMechanismTCR(noCode);
+    }
+
+    function test_constructor_setsEscrowImplementation() public {
+        MechanismFundingEscrow escrowImplementation = new MechanismFundingEscrow();
+        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR(address(escrowImplementation));
+        assertEq(mechanismImplementation.mechanismFundingEscrowImplementation(), address(escrowImplementation));
+    }
+
     function setUp() public {
         underlying = new MockVotesToken("Goal", "GOAL");
         superToken = new RoundTestSuperToken("SuperGoal", "sGOAL", underlying);
@@ -171,7 +188,8 @@ contract AllocationMechanismTCRTest is Test {
         vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(MOCK_DISTRIBUTION_POOL));
 
         mechanismDepositStrategy = new EscrowSubmissionDepositStrategy(underlying);
-        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         mechanism = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
 
         budgetFlow.setRecipientAdmin(address(mechanism));
@@ -321,7 +339,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_initialize_revertsWhenBudgetFlowRecipientAdminMismatch() public {
-        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
         RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
             IVotes(address(underlying)),
@@ -339,7 +358,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_initialize_revertsWhenRoundFactoryIsNotContract() public {
-        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
         RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
             IVotes(address(underlying)),
@@ -357,7 +377,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_initialize_revertsWhenFactoryManagerIsZero() public {
-        AllocationMechanismTCR mechanismImplementation = new AllocationMechanismTCR();
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
         RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
             IVotes(address(underlying)),

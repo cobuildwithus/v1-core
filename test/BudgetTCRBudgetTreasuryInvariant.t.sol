@@ -15,6 +15,7 @@ import {
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
+import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -51,7 +52,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         strategy = address(0x2222222222222222222222222222222222222222);
         premiumEscrow = address(new BudgetTCRInvariantPremiumEscrowConnectMock());
         _roundFactory = address(new RoundFactory());
-        _mechanismTcrImplementation = address(new AllocationMechanismTCR());
+        _mechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
 

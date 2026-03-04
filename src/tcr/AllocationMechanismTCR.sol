@@ -117,6 +117,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error INVALID_FACTORY(address factory);
     error ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED(uint256 maxRecipients);
     error ACTIVE_MECHANISM_RECIPIENT_COUNT_UNDERFLOW();
+    error IMPLEMENTATION_HAS_NO_CODE(address implementation);
 
     // ---------------------------
     // Events
@@ -153,8 +154,13 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     mapping(bytes32 => MechanismDeployment) internal _mechanismDeployment;
     uint256 public activeMechanismRecipientCount;
 
-    constructor() {
-        mechanismFundingEscrowImplementation = address(new MechanismFundingEscrow());
+    constructor(address mechanismFundingEscrowImplementation_) {
+        if (mechanismFundingEscrowImplementation_ == address(0)) revert ADDRESS_ZERO();
+        if (mechanismFundingEscrowImplementation_.code.length == 0) {
+            revert IMPLEMENTATION_HAS_NO_CODE(mechanismFundingEscrowImplementation_);
+        }
+
+        mechanismFundingEscrowImplementation = mechanismFundingEscrowImplementation_;
         _disableInitializers();
     }
 

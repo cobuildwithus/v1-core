@@ -27,6 +27,7 @@ import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
@@ -92,7 +93,8 @@ contract DeployGoalFactory is DeployScript {
         ERC20VotesArbitrator arbitratorImpl = new ERC20VotesArbitrator();
         BudgetTreasury budgetTreasuryImpl = new BudgetTreasury();
         RoundFactory roundFactoryImpl = new RoundFactory();
-        AllocationMechanismTCR allocationMechanismTcrImpl = new AllocationMechanismTCR();
+        AllocationMechanismTCR allocationMechanismTcrImpl =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();

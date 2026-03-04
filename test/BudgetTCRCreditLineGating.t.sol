@@ -20,6 +20,7 @@ import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -434,7 +435,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
             new BudgetTCRDeployer(
                 address(new BudgetTreasury()),
                 address(new RoundFactory()),
-                address(new AllocationMechanismTCR()),
+                address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
                 address(new ERC20VotesArbitrator())
             )
         );
