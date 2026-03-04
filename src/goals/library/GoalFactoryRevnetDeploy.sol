@@ -22,6 +22,7 @@ library GoalFactoryRevnetDeploy {
         address cobuildToken;
         uint8 cobuildDecimals;
         uint256 cobuildRevnetId;
+        address cobuildTerminal;
         address splitHook;
         address owner;
         string name;
@@ -80,19 +81,32 @@ library GoalFactoryRevnetDeploy {
             extraMetadata: 0
         });
 
-        JBAccountingContext[] memory contexts = new JBAccountingContext[](1);
-        contexts[0] = JBAccountingContext({
+        JBAccountingContext[] memory cobuildContexts = new JBAccountingContext[](1);
+        cobuildContexts[0] = JBAccountingContext({
             token: request.cobuildToken,
             decimals: request.cobuildDecimals,
             currency: cobuildCurrency
         });
+        JBAccountingContext[] memory nativeContexts = new JBAccountingContext[](1);
+        nativeContexts[0] = JBAccountingContext({
+            token: JBConstants.NATIVE_TOKEN,
+            decimals: 18,
+            currency: uint32(uint160(JBConstants.NATIVE_TOKEN))
+        });
 
         IJBDirectory directory = request.revDeployer.DIRECTORY();
-        IJBTerminal goalTerminal = directory.primaryTerminalOf(request.cobuildRevnetId, request.cobuildToken);
-        if (address(goalTerminal) == address(0)) revert ADDRESS_ZERO();
+        IJBTerminal cobuildPaymentTerminal = directory.primaryTerminalOf(request.cobuildRevnetId, JBConstants.NATIVE_TOKEN);
+        if (address(cobuildPaymentTerminal) == address(0)) revert ADDRESS_ZERO();
+        if (request.cobuildTerminal == address(0)) revert ADDRESS_ZERO();
+        IJBTerminal configuredCobuildTerminal = IJBTerminal(request.cobuildTerminal);
 
-        JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](1);
-        terminalConfigs[0] = JBTerminalConfig({ terminal: goalTerminal, accountingContextsToAccept: contexts });
+        JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](2);
+        terminalConfigs[0] = JBTerminalConfig({
+            terminal: configuredCobuildTerminal,
+            accountingContextsToAccept: nativeContexts
+        });
+        terminalConfigs[1] =
+            JBTerminalConfig({ terminal: cobuildPaymentTerminal, accountingContextsToAccept: cobuildContexts });
 
         uint256 goalRevnetId = request.revDeployer.deployFor(
             0,

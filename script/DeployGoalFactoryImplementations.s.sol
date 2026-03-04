@@ -10,6 +10,8 @@ import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
+import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
+import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
@@ -42,6 +44,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal superfluidHostAddressOut;
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
+    address internal cobuildTerminalOut;
 
     address internal goalTreasuryImplOut;
     address internal stakeVaultImplOut;
@@ -92,6 +95,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         fakeUmaOwnerOut = vm.envOr("FAKE_UMA_OWNER", deployerAddress);
         fakeUmaEscalationManagerOut = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
         fakeUmaDomainIdOut = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
+
+        CobuildTerminal cobuildTerminal = new CobuildTerminal(
+            IREVDeployer(revDeployerAddressOut).DIRECTORY(), cobuildTokenAddressOut, cobuildRevnetIdOut
+        );
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
         StakeVault stakeVaultImpl =
@@ -157,6 +164,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         budgetFlowRouterStrategyImplOut = address(budgetFlowRouterStrategyImpl);
 
         defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
+        cobuildTerminalOut = address(cobuildTerminal);
         fakeUmaResolverOut = address(fakeUmaResolver);
 
         console2.log("Deployer:", deployerAddress);
@@ -165,6 +173,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("SUPERFLUID_HOST:", superfluidHostAddressOut);
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
+        console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("StakeVault impl:", stakeVaultImplOut);
@@ -217,6 +226,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "SUPERFLUID_HOST", superfluidHostAddressOut);
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
+        _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "StakeVaultImpl", stakeVaultImplOut);
@@ -350,7 +360,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "cobuildRevnetId = ",
             vm.toString(cobuildRevnetIdOut),
-            "\n\n"
+            "\n",
+            "cobuildTerminal = \"",
+            vm.toString(cobuildTerminalOut),
+            "\"\n\n"
         );
 
         artifact = string.concat(

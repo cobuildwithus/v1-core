@@ -138,6 +138,11 @@ contract CobuildTerminalTest is Test {
             bytes("")
         );
     }
+
+    function test_addToBalanceOf_revertsUnsupportedCall() public {
+        vm.expectRevert(CobuildTerminal.UNSUPPORTED_CALL.selector);
+        cobuildTerminal.addToBalanceOf{ value: 1 }(GOAL_REVNET_ID, JBConstants.NATIVE_TOKEN, 1, false, "memo", bytes(""));
+    }
 }
 
 contract MockDirectory {

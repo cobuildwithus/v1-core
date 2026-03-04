@@ -238,7 +238,6 @@ contract FakeResolverMockERC20 is ERC20 {
 
 contract DeployGoalFactoryScriptWiringTest is Test {
     uint256 internal constant PRIVATE_KEY = 0xA11CE;
-    address internal constant REV_DEPLOYER = address(0x1001);
     address internal constant SUPERFLUID_HOST = address(0x1002);
     address internal constant FAKE_UMA_OWNER = address(0xF00D);
     address internal constant FAKE_UMA_ESCALATION_MANAGER = address(0xBEEF);
@@ -250,9 +249,11 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     FakeResolverMockERC20 internal token;
     DeployGoalFactoryImplementations internal deployImplementationsScript;
     DeployGoalFactory internal deployFactoryScript;
+    address internal revDeployerAddress;
 
     function setUp() public {
         token = new FakeResolverMockERC20();
+        revDeployerAddress = address(new MockRevDeployerForScript(address(new MockDirectoryForScript())));
         deployImplementationsScript = new DeployGoalFactoryImplementations();
         deployFactoryScript = new DeployGoalFactory();
     }
@@ -264,6 +265,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         string memory latestTomlPath = _latestImplementationsTomlPath();
         string memory latestToml = vm.readFile(latestTomlPath);
         address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
+        address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
 
         FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
         assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);
@@ -278,10 +280,11 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         string memory artifact = vm.readFile(artifactPath);
         assertTrue(_stringContains(artifact, string.concat("ChainID: ", vm.toString(block.chainid))));
         assertTrue(_stringContains(artifact, string.concat("Deployer: ", vm.toString(deployer))));
-        assertTrue(_stringContains(artifact, string.concat("REV_DEPLOYER: ", vm.toString(REV_DEPLOYER))));
+        assertTrue(_stringContains(artifact, string.concat("REV_DEPLOYER: ", vm.toString(revDeployerAddress))));
         assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
         assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
         assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
+        assertTrue(_stringContains(artifact, string.concat("COBUILD_TERMINAL: ", vm.toString(expectedCobuildTerminal))));
         assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
         assertTrue(_stringContains(artifact, "StakeVaultImpl: 0x"));
         assertTrue(_stringContains(artifact, "BudgetStakeLedgerImpl: 0x"));
@@ -330,6 +333,8 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         address deployer = vm.addr(PRIVATE_KEY);
 
         deployFactoryScript.run();
+        string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
+        address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
         string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
         string memory artifact = vm.readFile(artifactPath);
         address expectedGoalFactory = _artifactAddressForKey(artifact, "GoalFactory");
@@ -346,6 +351,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), predictedGoalFactory);
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
+        assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
 
         address stakeVaultImpl = deployedFactory.STAKE_VAULT_IMPL();
         address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
@@ -508,7 +514,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
     function _setDeployEnv() internal {
         vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
-        vm.setEnv("REV_DEPLOYER", vm.toString(REV_DEPLOYER));
+        vm.setEnv("REV_DEPLOYER", vm.toString(revDeployerAddress));
         vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
         vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
         vm.setEnv("COBUILD_REVNET_ID", "138");
@@ -651,3 +657,17 @@ contract DeployGoalFactoryScriptWiringTest is Test {
             out.arbitrator = address(0x10);
         }
     }
+
+    contract MockRevDeployerForScript {
+        address internal immutable _directory;
+
+        constructor(address directory_) {
+            _directory = directory_;
+        }
+
+        function DIRECTORY() external view returns (address) {
+            return _directory;
+        }
+    }
+
+    contract MockDirectoryForScript {}

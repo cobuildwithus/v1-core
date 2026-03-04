@@ -28,6 +28,7 @@ contract GoalFactory {
     address public immutable COBUILD_TOKEN;
     uint8 public immutable COBUILD_DECIMALS;
     uint256 public immutable COBUILD_REVNET_ID;
+    address public immutable COBUILD_TERMINAL;
 
     address public immutable GOAL_TREASURY_IMPL;
     address public immutable STAKE_VAULT_IMPL;
@@ -142,6 +143,7 @@ contract GoalFactory {
         BudgetTCRFactory budgetTcrFactory,
         address cobuildToken,
         uint256 cobuildRevnetId,
+        address cobuildTerminal,
         address goalTreasuryImpl,
         address stakeVaultImpl,
         address flowImpl,
@@ -159,6 +161,7 @@ contract GoalFactory {
         if (address(superfluidHost) == address(0)) revert ADDRESS_ZERO();
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
         if (cobuildToken == address(0)) revert ADDRESS_ZERO();
+        if (cobuildTerminal == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
         if (stakeVaultImpl == address(0)) revert ADDRESS_ZERO();
         if (flowImpl == address(0)) revert ADDRESS_ZERO();
@@ -182,6 +185,7 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
+        if (cobuildTerminal.code.length == 0) revert NOT_A_CONTRACT(cobuildTerminal);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
@@ -193,6 +197,7 @@ contract GoalFactory {
         COBUILD_TOKEN = cobuildToken;
         COBUILD_DECIMALS = IERC20Metadata(cobuildToken).decimals();
         COBUILD_REVNET_ID = cobuildRevnetId;
+        COBUILD_TERMINAL = cobuildTerminal;
 
         GOAL_TREASURY_IMPL = goalTreasuryImpl;
         STAKE_VAULT_IMPL = stakeVaultImpl;
@@ -285,6 +290,7 @@ contract GoalFactory {
                 cobuildToken: COBUILD_TOKEN,
                 cobuildDecimals: COBUILD_DECIMALS,
                 cobuildRevnetId: COBUILD_REVNET_ID,
+                cobuildTerminal: COBUILD_TERMINAL,
                 splitHook: address(splitHook),
                 owner: p.revnet.owner,
                 name: p.revnet.name,

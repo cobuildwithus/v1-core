@@ -27,6 +27,7 @@ contract GoalFactoryPairDeployer {
         address superfluidHost;
         address cobuildToken;
         uint256 cobuildRevnetId;
+        address cobuildTerminal;
         address goalTreasuryImpl;
         address stakeVaultImpl;
         address customFlowImpl;
@@ -61,6 +62,7 @@ contract GoalFactoryPairDeployer {
             budgetTcrFactory_,
             goalFactoryConfig.cobuildToken,
             goalFactoryConfig.cobuildRevnetId,
+            goalFactoryConfig.cobuildTerminal,
             goalFactoryConfig.goalTreasuryImpl,
             goalFactoryConfig.stakeVaultImpl,
             goalFactoryConfig.customFlowImpl,
@@ -106,6 +108,7 @@ contract DeployGoalFactory is DeployScript {
     address internal superfluidHostAddressOut;
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
+    address internal cobuildTerminalOut;
 
     address internal goalTreasuryImplOut;
     address internal stakeVaultImplOut;
@@ -152,6 +155,7 @@ contract DeployGoalFactory is DeployScript {
             "COBUILD_TOKEN", "$.core.cobuildToken", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb)
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
+        cobuildTerminalOut = _requireConfigAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal");
 
         escrowBondBpsOut = _resolveUint("ESCROW_BOND_BPS", "$.defaults.escrowBondBps", 5000);
         defaultAllocationMechanismAdminOut = _resolveAddress(
@@ -203,6 +207,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("SUPERFLUID_HOST:", superfluidHostAddressOut);
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
+        console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
         console2.log("--- Impl addresses ---");
         console2.log("GoalTreasury impl:", goalTreasuryImplOut);
         console2.log("StakeVault impl:", stakeVaultImplOut);
@@ -236,6 +241,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "SUPERFLUID_HOST", superfluidHostAddressOut);
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
+        _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
 
         _writeAddressLine(filePath, "GoalTreasuryImpl", goalTreasuryImplOut);
         _writeAddressLine(filePath, "StakeVaultImpl", stakeVaultImplOut);
@@ -302,6 +308,7 @@ contract DeployGoalFactory is DeployScript {
                 superfluidHost: superfluidHostAddressOut,
                 cobuildToken: cobuildTokenAddressOut,
                 cobuildRevnetId: cobuildRevnetIdOut,
+                cobuildTerminal: cobuildTerminalOut,
                 goalTreasuryImpl: goalTreasuryImplOut,
                 stakeVaultImpl: stakeVaultImplOut,
                 customFlowImpl: customFlowImplOut,
