@@ -49,6 +49,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Do not add internal/private production helpers solely to satisfy tests. Test-specific composition belongs in `test/**` harnesses/mocks, or tests should exercise existing production entry points.
 - Historical docs are immutable snapshots. Do not edit past/historical plan docs (especially under `agent-docs/exec-plans/completed/`); create a new plan for new work instead.
 - Treat upgrade auth, funds flow, and cross-contract callback paths as security-critical.
+- Clone/proxy safety invariant: never rely on constructor-baked `immutable` values for per-instance configuration in clone/proxy implementations; clones/proxies read implementation bytecode, so per-instance config must be initializer-set storage. Constructor immutables are only allowed when intentionally deployment-wide constants shared by every instance.
 - Assume trusted core deployments for this repo: avoid adding compatibility shims that silently continue when required selectors/interfaces are missing; prefer strict interface calls and explicit failures.
 - Use a hard cutover approach and never implement backward compatibility unless explicitly asked.
 - Deployment status (as of 2026-02-20): there are no live protocol deployments yet.
