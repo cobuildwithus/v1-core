@@ -270,6 +270,10 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         string memory latestToml = vm.readFile(latestTomlPath);
         address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
         address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
+        address expectedBuybackHookDataHook = vm.parseTomlAddress(latestToml, "$.core.buybackHookDataHook");
+        address expectedBuybackHook = vm.parseTomlAddress(latestToml, "$.core.buybackHook");
+        assertEq(expectedBuybackHookDataHook, buybackHookDataHookAddress);
+        assertEq(expectedBuybackHook, buybackHookAddress);
 
         FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
         assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);

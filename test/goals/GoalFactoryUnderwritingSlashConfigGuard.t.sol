@@ -193,6 +193,79 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         );
     }
 
+    function test_constructor_revertsWhenBuybackHookIsZero() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            configuredBuybackHookDataHook,
+            address(0),
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenBuybackHookDataHookHasNoCode() public {
+        MockToken cobuildToken = new MockToken();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeBuybackHookDataHook = address(0xB00C);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeBuybackHookDataHook));
+        new GoalFactory(
+            IREVDeployer(REV_DEPLOYER),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            noCodeBuybackHookDataHook,
+            configuredBuybackHook,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
     function test_constructor_revertsWhenBuybackHookHasNoCode() public {
         MockToken cobuildToken = new MockToken();
         DummyContract goalTreasuryImpl = new DummyContract();
