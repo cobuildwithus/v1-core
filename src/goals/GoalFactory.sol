@@ -40,6 +40,7 @@ contract GoalFactory {
     uint8 public immutable COBUILD_DECIMALS;
     uint256 public immutable COBUILD_REVNET_ID;
     address public immutable COBUILD_TERMINAL;
+    address public immutable JB_MULTI_TERMINAL;
     address public immutable BUYBACK_HOOK_DATA_HOOK;
     address public immutable BUYBACK_HOOK;
 
@@ -166,6 +167,7 @@ contract GoalFactory {
         address cobuildToken,
         uint256 cobuildRevnetId,
         address cobuildTerminal,
+        address jbMultiTerminal,
         address buybackHookDataHook,
         address buybackHook,
         address goalTreasuryImpl,
@@ -186,6 +188,7 @@ contract GoalFactory {
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
         if (cobuildToken == address(0)) revert ADDRESS_ZERO();
         if (cobuildTerminal == address(0)) revert ADDRESS_ZERO();
+        if (jbMultiTerminal == address(0)) revert ADDRESS_ZERO();
         if (buybackHookDataHook == address(0)) revert ADDRESS_ZERO();
         if (buybackHook == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl == address(0)) revert ADDRESS_ZERO();
@@ -212,6 +215,7 @@ contract GoalFactory {
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
         if (cobuildTerminal.code.length == 0) revert NOT_A_CONTRACT(cobuildTerminal);
+        if (jbMultiTerminal.code.length == 0) revert NOT_A_CONTRACT(jbMultiTerminal);
         if (buybackHookDataHook.code.length == 0) revert NOT_A_CONTRACT(buybackHookDataHook);
         if (buybackHook.code.length == 0) revert NOT_A_CONTRACT(buybackHook);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
@@ -227,6 +231,7 @@ contract GoalFactory {
         COBUILD_DECIMALS = IERC20Metadata(cobuildToken).decimals();
         COBUILD_REVNET_ID = cobuildRevnetId;
         COBUILD_TERMINAL = cobuildTerminal;
+        JB_MULTI_TERMINAL = jbMultiTerminal;
         BUYBACK_HOOK_DATA_HOOK = buybackHookDataHook;
         BUYBACK_HOOK = buybackHook;
 
@@ -374,8 +379,8 @@ contract GoalFactory {
                     revDeployer: REV_DEPLOYER,
                     cobuildToken: COBUILD_TOKEN,
                     cobuildDecimals: COBUILD_DECIMALS,
-                    cobuildRevnetId: COBUILD_REVNET_ID,
                     cobuildTerminal: COBUILD_TERMINAL,
+                    jbMultiTerminal: JB_MULTI_TERMINAL,
                     splitHook: address(splitHook),
                     name: p.revnet.name,
                     ticker: p.revnet.ticker,

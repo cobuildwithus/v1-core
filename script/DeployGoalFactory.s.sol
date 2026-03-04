@@ -28,6 +28,7 @@ contract GoalFactoryPairDeployer {
         address cobuildToken;
         uint256 cobuildRevnetId;
         address cobuildTerminal;
+        address jbMultiTerminal;
         address buybackHookDataHook;
         address buybackHook;
         address goalTreasuryImpl;
@@ -65,6 +66,7 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.cobuildToken,
             goalFactoryConfig.cobuildRevnetId,
             goalFactoryConfig.cobuildTerminal,
+            goalFactoryConfig.jbMultiTerminal,
             goalFactoryConfig.buybackHookDataHook,
             goalFactoryConfig.buybackHook,
             goalFactoryConfig.goalTreasuryImpl,
@@ -113,6 +115,7 @@ contract DeployGoalFactory is DeployScript {
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
     address internal cobuildTerminalOut;
+    address internal jbMultiTerminalOut;
     address internal buybackHookDataHookOut;
     address internal buybackHookOut;
 
@@ -162,6 +165,9 @@ contract DeployGoalFactory is DeployScript {
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
         cobuildTerminalOut = _requireConfigAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal");
+        jbMultiTerminalOut = _resolveAddress(
+            "JB_MULTI_TERMINAL", "$.core.jbMultiTerminal", address(0x2dB6d704058E552DeFE415753465df8dF0361846)
+        );
         buybackHookDataHookOut = _requireConfigAddress("BUYBACK_HOOK_DATA_HOOK", "$.core.buybackHookDataHook");
         buybackHookOut = _requireConfigAddress("BUYBACK_HOOK", "$.core.buybackHook");
 
@@ -216,6 +222,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
         console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
+        console2.log("JB_MULTI_TERMINAL:", jbMultiTerminalOut);
         console2.log("BUYBACK_HOOK_DATA_HOOK:", buybackHookDataHookOut);
         console2.log("BUYBACK_HOOK:", buybackHookOut);
         console2.log("--- Impl addresses ---");
@@ -252,6 +259,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
         _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
+        _writeAddressLine(filePath, "JB_MULTI_TERMINAL", jbMultiTerminalOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK_DATA_HOOK", buybackHookDataHookOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK", buybackHookOut);
 
@@ -321,6 +329,7 @@ contract DeployGoalFactory is DeployScript {
                 cobuildToken: cobuildTokenAddressOut,
                 cobuildRevnetId: cobuildRevnetIdOut,
                 cobuildTerminal: cobuildTerminalOut,
+                jbMultiTerminal: jbMultiTerminalOut,
                 buybackHookDataHook: buybackHookDataHookOut,
                 buybackHook: buybackHookOut,
                 goalTreasuryImpl: goalTreasuryImplOut,

@@ -9,7 +9,6 @@ import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
-import {GoalFactoryRevnetDeploy} from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
@@ -26,6 +25,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     GoalFactory internal factory;
     address internal configuredCobuildTerminal;
+    address internal configuredJbMultiTerminal;
     address internal configuredGoalTreasuryImpl;
     address internal configuredFlowImpl;
     address internal configuredSplitHookImpl;
@@ -63,6 +63,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredDefaultSubmissionDepositStrategy = address(new DummyContract());
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
+        configuredJbMultiTerminal = address(new DummyContract());
         revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
         factory = _newFactory(
             configuredStakeVaultImpl,
@@ -94,6 +95,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -130,6 +132,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             address(0),
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -167,6 +170,82 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             noCodeCobuildTerminal,
+            configuredJbMultiTerminal,
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenJbMultiTerminalIsZero() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        new GoalFactory(
+            IREVDeployer(address(revDeployer)),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            address(0),
+            configuredBuybackHookDataHook,
+            configuredBuybackHook,
+            address(goalTreasuryImpl),
+            configuredStakeVaultImpl,
+            address(flowImpl),
+            address(splitHookImpl),
+            address(budgetStakeLedgerImpl),
+            address(goalFlowAllocationLedgerPipelineImpl),
+            address(premiumEscrowImpl),
+            configuredJurorSlasherRouterImpl,
+            address(underwriterSlasherRouterImpl),
+            address(defaultSubmissionDepositStrategy),
+            DEFAULT_ALLOCATION_MECHANISM_ADMIN,
+            DEFAULT_INVALID_ROUND_REWARDS_SINK
+        );
+    }
+
+    function test_constructor_revertsWhenJbMultiTerminalHasNoCode() public {
+        MockToken cobuildToken = _newCobuildTokenForRevnet();
+        DummyContract goalTreasuryImpl = new DummyContract();
+        DummyContract flowImpl = new DummyContract();
+        DummyContract splitHookImpl = new DummyContract();
+        DummyContract budgetStakeLedgerImpl = new DummyContract();
+        DummyContract goalFlowAllocationLedgerPipelineImpl = new DummyContract();
+        DummyContract premiumEscrowImpl = new DummyContract();
+        DummyContract underwriterSlasherRouterImpl = new DummyContract();
+        DummyContract defaultSubmissionDepositStrategy = new DummyContract();
+
+        address noCodeJbMultiTerminal = address(0xB0A1);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeJbMultiTerminal));
+        new GoalFactory(
+            IREVDeployer(address(revDeployer)),
+            ISuperfluid(SUPERFLUID_HOST),
+            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            address(cobuildToken),
+            1,
+            configuredCobuildTerminal,
+            noCodeJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -283,6 +362,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             address(0),
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -319,6 +399,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             address(0),
             address(goalTreasuryImpl),
@@ -356,6 +437,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             noCodeBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -393,6 +475,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             noCodeBuybackHook,
             address(goalTreasuryImpl),
@@ -428,6 +511,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -463,6 +547,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -499,6 +584,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -534,6 +620,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -570,6 +657,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -606,6 +694,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -640,6 +729,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -675,6 +765,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -709,6 +800,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -744,6 +836,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -778,6 +871,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -813,6 +907,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             address(goalTreasuryImpl),
@@ -856,6 +951,10 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_constructor_setsCobuildTerminalImmutable() public view {
         assertEq(factory.COBUILD_TERMINAL(), configuredCobuildTerminal);
+    }
+
+    function test_constructor_setsJbMultiTerminalImmutable() public view {
+        assertEq(factory.JB_MULTI_TERMINAL(), configuredJbMultiTerminal);
     }
 
     function test_constructor_setsDefaultAllocationMechanismAdminImmutable() public view {
@@ -916,11 +1015,24 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
-    function test_deployGoal_revertsWhenCobuildTokenPaymentTerminalMissing() public {
+    function test_deployGoal_usesConfiguredJbMultiTerminalWithoutCobuildDirectoryLookup() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
+        uint256 deploymentNonce = vm.getNonce(address(factory));
+        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
+        revDeployer.setExpectedSplitHook(expectedSplitHook);
+        revDeployer.setRevertWithObserved(true);
         revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, factory.COBUILD_TOKEN(), IJBTerminal(address(0)));
 
-        vm.expectRevert(GoalFactoryRevnetDeploy.ADDRESS_ZERO.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockRevDeployer.DeployForForwarding.selector,
+                DEFAULT_BUYBACK_POOL_FEE,
+                DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
+                true
+            )
+        );
         factory.deployGoal(p);
     }
 
@@ -973,6 +1085,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             cobuildToken,
             cobuildRevnetId,
             cobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             configuredGoalTreasuryImpl,
@@ -1007,6 +1120,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(cobuildToken),
             COBUILD_REVNET_ID,
             configuredCobuildTerminal,
+            configuredJbMultiTerminal,
             configuredBuybackHookDataHook,
             configuredBuybackHook,
             configuredGoalTreasuryImpl,

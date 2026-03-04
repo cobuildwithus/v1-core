@@ -32,7 +32,6 @@ contract GoalFactoryRevnetDeployTest is Test {
     function test_deployRevnet_configuresCobuildBuybackPoolAndTerminals() public {
         address cobuildToken = address(0xC0B1D);
         uint8 cobuildDecimals = 18;
-        uint256 cobuildRevnetId = 7;
         address splitHook = address(0x5157);
         address buybackHookDataHook = address(0x1111);
         address buybackHook = address(0x2222);
@@ -40,11 +39,10 @@ contract GoalFactoryRevnetDeployTest is Test {
         uint32 buybackTwapWindow = 1 hours;
 
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
+        address jbMultiTerminal = address(new DummyTerminal());
         address goalToken = address(0xABCD);
         uint256 deployedRevnetId = 99;
 
-        directory.setPrimaryTerminal(cobuildRevnetId, cobuildToken, IJBTerminal(cobuildMultiTerminal));
         revDeployer.setNextRevnetId(deployedRevnetId);
         tokens.setTokenOf(deployedRevnetId, goalToken);
 
@@ -52,8 +50,8 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: cobuildToken,
             cobuildDecimals: cobuildDecimals,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
             ticker: "GOAL",
@@ -81,7 +79,7 @@ contract GoalFactoryRevnetDeployTest is Test {
 
         assertEq(revDeployer.lastTerminalConfigCount(), 2);
         assertEq(revDeployer.lastTerminal0(), cobuildTerminal);
-        assertEq(revDeployer.lastTerminal1(), cobuildMultiTerminal);
+        assertEq(revDeployer.lastTerminal1(), jbMultiTerminal);
 
         assertEq(revDeployer.lastTerminal0ContextToken(), JBConstants.NATIVE_TOKEN);
         assertEq(revDeployer.lastTerminal0ContextDecimals(), 18);
@@ -98,13 +96,13 @@ contract GoalFactoryRevnetDeployTest is Test {
         assertEq(result.goalToken, goalToken);
     }
 
-    function test_deployRevnet_revertsWhenCobuildPaymentTerminalMissing() public {
+    function test_deployRevnet_revertsWhenJbMultiTerminalIsZero() public {
         GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: 7,
             cobuildTerminal: address(new DummyTerminal()),
+            jbMultiTerminal: address(0),
             splitHook: address(0x5157),
             name: "Goal",
             ticker: "GOAL",
@@ -124,50 +122,13 @@ contract GoalFactoryRevnetDeployTest is Test {
         GoalFactoryRevnetDeploy.deployRevnet(request);
     }
 
-    function test_deployRevnet_revertsWhenCobuildPaymentTerminalIsNotMultiTerminal() public {
-        uint256 cobuildRevnetId = 7;
-        address cobuildToken = address(0xC0B1D);
-        address invalidPaymentTerminal = address(new DummyTerminal());
-        directory.setPrimaryTerminal(cobuildRevnetId, cobuildToken, IJBTerminal(invalidPaymentTerminal));
-
-        GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
-            revDeployer: IREVDeployer(address(revDeployer)),
-            cobuildToken: cobuildToken,
-            cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
-            cobuildTerminal: address(new DummyTerminal()),
-            splitHook: address(0x5157),
-            name: "Goal",
-            ticker: "GOAL",
-            uri: "ipfs://goal",
-            initialIssuance: 123,
-            cashOutTaxRate: 250,
-            reservedPercent: 500,
-            durationSeconds: 7 days,
-            buybackHookDataHook: address(0x1111),
-            buybackHook: address(0x2222),
-            buybackPoolFee: 3_000,
-            buybackTwapWindow: 1 hours,
-            burnAddress: address(0xB0A1)
-        });
-
-        vm.expectRevert(
-            abi.encodeWithSelector(GoalFactoryRevnetDeploy.INVALID_PAYMENT_TERMINAL.selector, invalidPaymentTerminal)
-        );
-        GoalFactoryRevnetDeploy.deployRevnet(request);
-    }
-
     function test_deployRevnet_revertsWhenCobuildTerminalIsZero() public {
-        uint256 cobuildRevnetId = 7;
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
-
         GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: address(0),
+            jbMultiTerminal: address(new DummyTerminal()),
             splitHook: address(0x5157),
             name: "Goal",
             ticker: "GOAL",
@@ -188,20 +149,17 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_revertsWhenGoalTokenMissingAfterDeploy() public {
-        uint256 cobuildRevnetId = 7;
         uint256 deployedRevnetId = 99;
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
-
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
+        address jbMultiTerminal = address(new DummyTerminal());
         revDeployer.setNextRevnetId(deployedRevnetId);
 
         GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: jbMultiTerminal,
             splitHook: address(0x5157),
             name: "Goal",
             ticker: "GOAL",
@@ -222,13 +180,10 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltUsesCallerAndSplitHook() public {
-        uint256 cobuildRevnetId = 7;
         uint256 deployedRevnetId = 99;
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
         address splitHook = address(0x5157);
 
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
         revDeployer.setNextRevnetId(deployedRevnetId);
         tokens.setTokenOf(deployedRevnetId, address(0xABCD));
 
@@ -236,8 +191,8 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: address(new DummyTerminal()),
             splitHook: splitHook,
             name: "Goal",
             ticker: "GOAL",
@@ -259,14 +214,12 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltIgnoresExternalInvokerAndUsesCallerContext() public {
-        uint256 cobuildRevnetId = 7;
         uint256 deployedRevnetId = 99;
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
+        address jbMultiTerminal = address(new DummyTerminal());
         address splitHook = address(0x5157);
         address externalInvoker = address(0xBEEF);
 
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
         revDeployer.setNextRevnetId(deployedRevnetId);
         tokens.setTokenOf(deployedRevnetId, address(0xABCD));
 
@@ -274,8 +227,8 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
             ticker: "GOAL",
@@ -302,19 +255,16 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltStableAcrossDistinctInvokersForSameSplitHook() public {
-        uint256 cobuildRevnetId = 7;
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
+        address jbMultiTerminal = address(new DummyTerminal());
         address splitHook = address(0x5157);
-
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
 
         GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
             ticker: "GOAL",
@@ -347,13 +297,10 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltVariesAcrossDistinctSplitHooks() public {
-        uint256 cobuildRevnetId = 7;
         address cobuildTerminal = address(new DummyTerminal());
-        address cobuildMultiTerminal = address(new DummyMultiTerminal());
+        address jbMultiTerminal = address(new DummyTerminal());
         address firstSplitHook = address(0x5157);
         address secondSplitHook = address(0x5257);
-
-        directory.setPrimaryTerminal(cobuildRevnetId, address(0xC0B1D), IJBTerminal(cobuildMultiTerminal));
 
         revDeployer.setNextRevnetId(99);
         tokens.setTokenOf(99, address(0xABCD));
@@ -361,8 +308,8 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildRevnetId: cobuildRevnetId,
             cobuildTerminal: cobuildTerminal,
+            jbMultiTerminal: jbMultiTerminal,
             splitHook: firstSplitHook,
             name: "Goal",
             ticker: "GOAL",
@@ -398,12 +345,6 @@ contract GoalFactoryRevnetDeployTest is Test {
 }
 
 contract DummyTerminal {}
-
-contract DummyMultiTerminal {
-    function STORE() external pure returns (address) {
-        return address(0xBEEF);
-    }
-}
 
 contract MockRevDeployer {
     address internal immutable _directory;

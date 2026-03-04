@@ -254,6 +254,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
     address internal revDeployerAddress;
     address internal buybackHookDataHookAddress;
     address internal buybackHookAddress;
+    address internal jbMultiTerminalAddress;
     MockDirectoryForScript internal revnetDirectory;
     MockTokensForScript internal revnetTokens;
     MockControllerForScript internal revnetController;
@@ -269,6 +270,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         revnetTokens.setTokenOf(138, address(token));
         buybackHookDataHookAddress = address(new FakeResolverNoop());
         buybackHookAddress = address(new FakeResolverNoop());
+        jbMultiTerminalAddress = address(new FakeResolverNoop());
         deployImplementationsScript = new DeployGoalFactoryImplementations();
         deployFactoryScript = new DeployGoalFactory();
     }
@@ -354,6 +356,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         deployFactoryScript.run();
         string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
         address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
+        address expectedJbMultiTerminal = jbMultiTerminalAddress;
         string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
         string memory artifact = vm.readFile(artifactPath);
         address expectedGoalFactory = _artifactAddressForKey(artifact, "GoalFactory");
@@ -371,6 +374,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
 
         GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
         assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
+        assertEq(deployedFactory.JB_MULTI_TERMINAL(), expectedJbMultiTerminal);
         assertEq(deployedFactory.COBUILD_TOKEN(), address(token));
         assertEq(deployedFactory.COBUILD_REVNET_ID(), 138);
         assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
@@ -541,6 +545,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
         vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
         vm.setEnv("COBUILD_REVNET_ID", "138");
+        vm.setEnv("JB_MULTI_TERMINAL", vm.toString(jbMultiTerminalAddress));
         vm.setEnv("BUYBACK_HOOK_DATA_HOOK", vm.toString(buybackHookDataHookAddress));
         vm.setEnv("BUYBACK_HOOK", vm.toString(buybackHookAddress));
         vm.setEnv("ESCROW_BOND_BPS", "5000");
