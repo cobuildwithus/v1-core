@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@cobuild/repo-tools':
+        specifier: file:../repo-tools
+        version: file:../repo-tools
       '@cobuild/review-gpt':
         specifier: ^0.2.11
         version: 0.2.11
@@ -22,6 +25,10 @@ importers:
         version: 1.4.3(prettier@3.7.4)
 
 packages:
+
+  '@cobuild/repo-tools@file:../repo-tools':
+    resolution: {directory: ../repo-tools, type: directory}
+    hasBin: true
 
   '@cobuild/review-gpt@0.2.11':
     resolution: {integrity: sha512-F5nPtRQXpWeijyvKRQQBWDlul1dwADlG4A3A0qcjG0IxZu1r/Zv8WrPT6UrZsYEGKw5M9Del+RzzlpdN8ol5OQ==}
@@ -52,6 +59,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@cobuild/repo-tools@file:../repo-tools': {}
 
   '@cobuild/review-gpt@0.2.11': {}
 
