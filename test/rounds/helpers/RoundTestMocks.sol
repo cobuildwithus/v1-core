@@ -8,6 +8,7 @@ import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract RoundTestArbitrator is IArbitrator {
     IVotes public votingToken;
@@ -86,6 +87,7 @@ contract RoundTestArbitrator is IArbitrator {
 
 contract RoundTestSuperToken is ERC20 {
     IERC20 public immutable underlying;
+    address public host;
 
     constructor(string memory name_, string memory symbol_, IERC20 underlying_) ERC20(name_, symbol_) {
         underlying = underlying_;
@@ -103,6 +105,14 @@ contract RoundTestSuperToken is ERC20 {
     function getUnderlyingToken() external view returns (address) {
         return address(underlying);
     }
+
+    function setHost(address host_) external {
+        host = host_;
+    }
+
+    function getHost() external view returns (address) {
+        return host;
+    }
 }
 
 contract RoundTestManagedFlow {
@@ -112,6 +122,7 @@ contract RoundTestManagedFlow {
     address public flowOperator;
     address public parent;
     address public superToken;
+    address private _distributionPool;
 
     mapping(bytes32 => address) public recipientById;
     mapping(address => bool) public recipientExists;
@@ -138,6 +149,14 @@ contract RoundTestManagedFlow {
 
     function setSuperToken(address next) external {
         superToken = next;
+    }
+
+    function setDistributionPool(address next) external {
+        _distributionPool = next;
+    }
+
+    function distributionPool() external view returns (ISuperfluidPool) {
+        return ISuperfluidPool(_distributionPool);
     }
 
     function addRecipient(
@@ -392,5 +411,44 @@ contract RoundTestStakeVault {
         }
 
         return cps[low].value;
+    }
+}
+
+contract RoundTestSuperfluidGDA {
+    function connectPool(ISuperfluidPool, bytes calldata) external pure returns (bytes memory) {
+        return bytes("");
+    }
+}
+
+contract RoundTestSuperfluidHost {
+    address public immutable gda;
+
+    constructor(address gda_) {
+        gda = gda_;
+    }
+
+    function getAgreementClass(bytes32) external view returns (address) {
+        return gda;
+    }
+
+    function callAgreement(address agreementClass, bytes calldata callData, bytes calldata)
+        external
+        returns (bytes memory returnedData)
+    {
+        (bool ok, bytes memory data) = agreementClass.call(callData);
+        require(ok, "CALL_AGREEMENT_FAILED");
+        return data;
+    }
+}
+
+contract RoundTestDistributionPool {
+    mapping(address member => uint256 totalReceived) private _totalReceivedByMember;
+
+    function setTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalAmountReceivedByMember(address member) external view returns (uint256) {
+        return _totalReceivedByMember[member];
     }
 }

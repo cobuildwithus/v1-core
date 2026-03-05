@@ -7,8 +7,6 @@ import {
     MockBudgetTCRSuperToken,
     MockGoalFlowForBudgetTCR,
     MockGoalTreasuryForBudgetTCR,
-    MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR,
     MockStakeVaultForBudgetTCR
 } from "test/mocks/MockBudgetTCRSystem.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
@@ -18,6 +16,7 @@ import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
@@ -62,9 +61,9 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
     MockVotesToken internal cobuildToken;
 
     MockBudgetTCRSuperToken internal superToken;
-    MockGoalFlowForBudgetTCR internal goalFlow;
+    BudgetTCRCreditLineGoalFlow internal goalFlow;
     MockGoalTreasuryForBudgetTCR internal goalTreasury;
-    MockBudgetStakeLedgerForBudgetTCR internal budgetStakeLedger;
+    BudgetStakeLedger internal budgetStakeLedger;
 
     BudgetTCR internal budgetTcr;
     ERC20VotesArbitrator internal arbitrator;
@@ -100,12 +99,12 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         depositToken.mint(requester, 1_000_000e18);
 
         superToken = new MockBudgetTCRSuperToken();
-        goalFlow = new MockGoalFlowForBudgetTCR(
+        goalFlow = new BudgetTCRCreditLineGoalFlow(
             address(this), address(this), managerRewardPool, ISuperToken(address(superToken))
         );
         goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
-        budgetStakeLedger = new MockBudgetStakeLedgerForBudgetTCR();
-        goalTreasury.setRewardEscrow(address(new MockRewardEscrowForBudgetTCR(address(budgetStakeLedger))));
+        budgetStakeLedger = new BudgetStakeLedger(address(goalTreasury));
+        goalTreasury.setBudgetStakeLedger(address(budgetStakeLedger));
         goalTreasury.setFlow(address(goalFlow));
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
@@ -136,14 +135,8 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         goalTreasury.setCoverageLambda(0);
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(999e18)
-        );
-
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true), abi.encode()
-        );
-        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true));
+        goalFlow.setTotalReceivedByMember(childFlow, 999e18);
+        goalFlow.setRecipientEnabledState(itemID, false);
 
         bytes32[] memory itemIDs = new bytes32[](1);
         itemIDs[0] = itemID;
@@ -154,6 +147,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertTrue(budgetTreasury != address(0));
+        assertTrue(goalFlow.recipientEnabled(itemID));
     }
 
     function test_syncBudgetTreasuries_withLambdaZero_disablesRecipient_whenReceivedAtRunwayBoundary() public {
@@ -161,14 +155,8 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         (address childFlow,) = goalFlow.recipients(itemID);
 
         goalTreasury.setCoverageLambda(0);
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(1_000e18)
-        );
-
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), abi.encode()
-        );
-        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false));
+        goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
+        goalFlow.setRecipientEnabledState(itemID, true);
 
         bytes32[] memory itemIDs = new bytes32[](1);
         itemIDs[0] = itemID;
@@ -178,6 +166,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
+        assertFalse(goalFlow.recipientEnabled(itemID));
     }
 
     function test_syncBudgetTreasuries_disablesRecipient_whenReceivedAtCreditLineBoundary() public {
@@ -185,28 +174,15 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
-        uint256 coverage = 1_000;
-        uint64 duration = 10;
-        uint256 lambda = 10;
-        uint256 received = 1_000;
+        uint256 coverage = 1_000e18;
+        uint64 duration = IBudgetTreasury(budgetTreasury).executionDuration();
+        uint256 lambda = uint256(duration);
+        uint256 received = coverage;
 
         goalTreasury.setCoverageLambda(lambda);
-
-        vm.mockCall(
-            address(budgetStakeLedger),
-            abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
-            abi.encode(coverage)
-        );
-        vm.mockCall(
-            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.executionDuration.selector), abi.encode(duration)
-        );
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(received)
-        );
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), abi.encode()
-        );
-        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false));
+        _checkpointCoverage(itemID, requester, coverage);
+        goalFlow.setTotalReceivedByMember(childFlow, received);
+        goalFlow.setRecipientEnabledState(itemID, true);
 
         bytes32[] memory itemIDs = new bytes32[](1);
         itemIDs[0] = itemID;
@@ -216,6 +192,8 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
+        assertEq(budgetStakeLedger.budgetTotalAllocatedStake(budgetTreasury), coverage);
+        assertFalse(goalFlow.recipientEnabled(itemID));
     }
 
     function test_syncBudgetTreasuries_emitsCreditCapFailure_whenStakeReadReverts() public {
@@ -297,19 +275,10 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         bytes memory reason = abi.encodeWithSignature("Error(string)", "DURATION_READ_FAIL");
 
         goalTreasury.setCoverageLambda(10);
-        vm.mockCall(
-            address(budgetStakeLedger),
-            abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
-            abi.encode(1_000e18)
-        );
+        _checkpointCoverage(itemID, requester, 1_000e18);
         vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.executionDuration.selector), reason);
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), abi.encode(1_000e18)
-        );
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), abi.encode()
-        );
-        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false));
+        goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
+        goalFlow.setRecipientEnabledState(itemID, true);
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
         emit BudgetCreditCapEnforcementFailed(
@@ -328,6 +297,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
+        assertFalse(goalFlow.recipientEnabled(itemID));
     }
 
     function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRunwayCapReadReverts_andLambdaZeroForcesEnable()
@@ -339,10 +309,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         goalTreasury.setCoverageLambda(0);
         vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.runwayCap.selector), reason);
-        vm.mockCall(
-            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true), abi.encode()
-        );
-        vm.expectCall(address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, true));
+        goalFlow.setRecipientEnabledState(itemID, false);
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
         emit BudgetCreditCapEnforcementFailed(
@@ -361,6 +328,26 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
+        assertTrue(goalFlow.recipientEnabled(itemID));
+    }
+
+    function _checkpointCoverage(bytes32 itemID, address account, uint256 weight) internal {
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = itemID;
+
+        uint32[] memory allocationPpm = new uint32[](1);
+        allocationPpm[0] = 1_000_000;
+
+        vm.prank(address(goalFlow));
+        budgetStakeLedger.checkpointAllocation(
+            account,
+            0,
+            new bytes32[](0),
+            new uint32[](0),
+            weight,
+            recipientIds,
+            allocationPpm
+        );
     }
 
     function _approveAddCost(address who) internal returns (uint256 addCost) {
@@ -462,5 +449,40 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
             oracleSpecHash: keccak256("budget-oracle-spec"),
             assertionPolicyHash: keccak256("budget-assertion-policy")
         });
+    }
+}
+
+contract BudgetTCRCreditLineGoalFlow is MockGoalFlowForBudgetTCR {
+    error ONLY_RECIPIENT_ADMIN();
+    error RECIPIENT_NOT_FOUND_LOCAL();
+
+    mapping(address member => uint256 totalReceived) private _totalReceivedByMember;
+    mapping(bytes32 recipientId => bool enabled) private _recipientEnabled;
+
+    constructor(address owner_, address recipientAdmin_, address managerRewardPool_, ISuperToken superToken_)
+        MockGoalFlowForBudgetTCR(owner_, recipientAdmin_, managerRewardPool_, superToken_)
+    { }
+
+    function setTotalReceivedByMember(address member, uint256 amount) external {
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalReceivedByMember(address member) external view returns (uint256 totalReceived) {
+        return _totalReceivedByMember[member];
+    }
+
+    function setRecipientEnabled(bytes32 recipientId, bool enabled) external {
+        if (msg.sender != this.recipientAdmin()) revert ONLY_RECIPIENT_ADMIN();
+        (address recipient, bool isRemoved) = this.recipients(recipientId);
+        if (recipient == address(0) || isRemoved) revert RECIPIENT_NOT_FOUND_LOCAL();
+        _recipientEnabled[recipientId] = enabled;
+    }
+
+    function setRecipientEnabledState(bytes32 recipientId, bool enabled) external {
+        _recipientEnabled[recipientId] = enabled;
+    }
+
+    function recipientEnabled(bytes32 recipientId) external view returns (bool) {
+        return _recipientEnabled[recipientId];
     }
 }

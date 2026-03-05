@@ -551,9 +551,12 @@ contract BudgetTCRTest is TestUtils {
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+        address managerRewardDistributionPool = address(MockBudgetChildFlow(childFlow).managerRewardDistributionPool());
 
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPool(), premiumEscrow);
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 100_000);
+        assertEq(address(PremiumEscrow(premiumEscrow).managerRewardPool()), managerRewardDistributionPool);
+        assertEq(PremiumEscrow(premiumEscrow).accountedManagerRewardReceived(), 0);
     }
 
     function test_activateRegisteredBudget_reverts_when_underwriter_router_authorization_fails() public {

@@ -18,6 +18,9 @@ import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import {
     RoundTestSuperToken,
+    RoundTestSuperfluidGDA,
+    RoundTestSuperfluidHost,
+    RoundTestDistributionPool,
     RoundTestManagedFlow,
     RoundTestBudgetTreasury,
     RoundTestGoalTreasury,
@@ -127,6 +130,8 @@ contract AllocationMechanismTCRTest is Test {
     RoundTestGoalTreasury internal goalTreasury;
     RoundTestStakeVault internal stakeVault;
     RoundTestBudgetTreasury internal budgetTreasury;
+    RoundTestSuperfluidHost internal superfluidHost;
+    RoundTestDistributionPool internal budgetDistributionPool;
 
     RoundFactory internal roundFactory;
 
@@ -137,13 +142,8 @@ contract AllocationMechanismTCRTest is Test {
     address internal roundOperator = address(0x0F00);
     address internal factoryManager = address(0xBEEF);
     address internal alice = address(0xA11CE);
-    address internal constant MOCK_DISTRIBUTION_POOL = address(0xD157);
     address internal constant ALT_DISTRIBUTION_POOL = address(0xD158);
-    address internal constant MOCK_SUPERFLUID_HOST = address(0xF0057);
-    address internal constant MOCK_GDA = address(0x6DA);
     bytes4 internal constant CALL_AGREEMENT_SELECTOR = bytes4(keccak256("callAgreement(address,bytes,bytes)"));
-    bytes32 internal constant GDA_AGREEMENT_CLASS =
-        keccak256("org.superfluid-finance.agreements.GeneralDistributionAgreement.v1");
 
     uint256 internal constant ARBITRATION_COST = 1e14;
 
@@ -167,6 +167,9 @@ contract AllocationMechanismTCRTest is Test {
     function setUp() public {
         underlying = new MockVotesToken("Goal", "GOAL");
         superToken = new RoundTestSuperToken("SuperGoal", "sGOAL", underlying);
+        RoundTestSuperfluidGDA gda = new RoundTestSuperfluidGDA();
+        superfluidHost = new RoundTestSuperfluidHost(address(gda));
+        superToken.setHost(address(superfluidHost));
 
         ledger = new RoundTestBudgetStakeLedger();
         jurorSlasher = new RoundTestJurorSlasher();
@@ -178,18 +181,11 @@ contract AllocationMechanismTCRTest is Test {
         goalFlow.setFlowOperator(address(goalTreasury));
 
         budgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(goalFlow), address(superToken));
+        budgetDistributionPool = new RoundTestDistributionPool();
+        budgetFlow.setDistributionPool(address(budgetDistributionPool));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
         roundFactory = new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()));
-
-        vm.mockCall(address(superToken), abi.encodeWithSignature("getHost()"), abi.encode(MOCK_SUPERFLUID_HOST));
-        vm.mockCall(
-            MOCK_SUPERFLUID_HOST,
-            abi.encodeWithSignature("getAgreementClass(bytes32)", GDA_AGREEMENT_CLASS),
-            abi.encode(MOCK_GDA)
-        );
-        vm.mockCall(MOCK_SUPERFLUID_HOST, abi.encodeWithSelector(CALL_AGREEMENT_SELECTOR), abi.encode(bytes("")));
-        vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(MOCK_DISTRIBUTION_POOL));
 
         mechanismDepositStrategy = new EscrowSubmissionDepositStrategy(underlying);
         AllocationMechanismTCR mechanismImplementation =
@@ -335,11 +331,7 @@ contract AllocationMechanismTCRTest is Test {
 
     function _mockEscrowTotalReceived(address escrow, uint256 totalReceived) internal {
         address escrowPool = address(MechanismFundingEscrow(escrow).distributionPool());
-        vm.mockCall(
-            escrowPool,
-            abi.encodeWithSignature("getTotalAmountReceivedByMember(address)", escrow),
-            abi.encode(totalReceived)
-        );
+        RoundTestDistributionPool(escrowPool).setTotalAmountReceivedByMember(escrow, totalReceived);
     }
 
     function test_initialize_revertsWhenBudgetFlowRecipientAdminMismatch() public {
@@ -1173,7 +1165,10 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).recipient(), deployed.payoutRecipient);
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).refundRecipient(), address(budgetFlow));
         assertEq(MechanismFundingEscrow(deployment.fundingEscrow).controller(), address(mechanism));
-        assertEq(address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool()), MOCK_DISTRIBUTION_POOL);
+        assertEq(
+            address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool()),
+            address(budgetDistributionPool)
+        );
 
         uint256 escrowedBeforeRemoval = 7e18;
         superToken.mint(deployment.fundingEscrow, escrowedBeforeRemoval);
@@ -1276,7 +1271,7 @@ contract AllocationMechanismTCRTest is Test {
         mechanism.executeRequest(itemId);
 
         bytes memory connectFailure = abi.encodeWithSignature("Error(string)", "CONNECT_FAIL");
-        vm.mockCallRevert(MOCK_SUPERFLUID_HOST, abi.encodeWithSelector(CALL_AGREEMENT_SELECTOR), connectFailure);
+        vm.mockCallRevert(address(superfluidHost), abi.encodeWithSelector(CALL_AGREEMENT_SELECTOR), connectFailure);
 
         vm.expectRevert(connectFailure);
         mechanism.activateMechanism(itemId);
@@ -1537,7 +1532,7 @@ contract AllocationMechanismTCRTest is Test {
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         address escrowPool = address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool());
-        assertEq(escrowPool, MOCK_DISTRIBUTION_POOL);
+        assertEq(escrowPool, address(budgetDistributionPool));
 
         vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(ALT_DISTRIBUTION_POOL));
         vm.mockCallRevert(

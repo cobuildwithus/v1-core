@@ -15,6 +15,7 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
@@ -98,7 +99,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         goalTreasury.setFlow(address(goalFlow));
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
-        premiumEscrowImplementation = address(new BudgetTCRWiringPremiumEscrowMock());
+        premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter =
             address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
 
@@ -134,17 +135,18 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         _warpRoll(block.timestamp + challengePeriodDuration + 1);
         budgetTcr.executeRequest(itemID);
 
-        address distributionPool = address(new BudgetTCRWiringMockDistributionPool());
-        goalFlow.setChildManagerRewardDistributionPool(distributionPool);
+        BudgetTCRWiringMockDistributionPool distributionPool = new BudgetTCRWiringMockDistributionPool();
+        uint256 baselineReceived = 37e18;
+        distributionPool.setTotalAmountReceived(baselineReceived);
+        goalFlow.setChildManagerRewardDistributionPool(address(distributionPool));
 
         budgetTcr.activateRegisteredBudget(itemID);
 
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
-        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
-        BudgetTCRWiringPremiumEscrowMock wiringEscrow = BudgetTCRWiringPremiumEscrowMock(premiumEscrow);
+        PremiumEscrow premiumEscrow = PremiumEscrow(IBudgetTreasury(budgetTreasury).premiumEscrow());
 
-        assertEq(wiringEscrow.connectCalls(), 1);
-        assertEq(wiringEscrow.lastConnectedPool(), distributionPool);
+        assertEq(address(premiumEscrow.managerRewardPool()), address(distributionPool));
+        assertEq(premiumEscrow.accountedManagerRewardReceived(), baselineReceived);
     }
 
     function test_activateRegisteredBudget_reverts_whenChildManagerRewardDistributionPoolIsZero() public {
@@ -364,7 +366,17 @@ contract BudgetTCRWiringGoalFlow {
     }
 }
 
-contract BudgetTCRWiringMockDistributionPool { }
+contract BudgetTCRWiringMockDistributionPool {
+    uint256 private _totalAmountReceived;
+
+    function setTotalAmountReceived(uint256 totalReceived) external {
+        _totalAmountReceived = totalReceived;
+    }
+
+    function getTotalAmountReceivedByMember(address) external view returns (uint256) {
+        return _totalAmountReceived;
+    }
+}
 
 contract BudgetTCRWiringChildFlow {
     ISuperToken private immutable _superToken;
@@ -435,47 +447,5 @@ contract BudgetTCRWiringChildFlow {
         if (_strategy == address(0)) return new IAllocationStrategy[](0);
         s = new IAllocationStrategy[](1);
         s[0] = IAllocationStrategy(_strategy);
-    }
-}
-
-contract BudgetTCRWiringPremiumEscrowMock {
-    address public budgetTreasury;
-    address public budgetStakeLedger;
-    address public goalFlow;
-    address public underwriterSlasherRouter;
-    uint32 public budgetSlashPpm;
-
-    uint256 public connectCalls;
-    address public lastConnectedPool;
-
-    function initialize(
-        address budgetTreasury_,
-        address budgetStakeLedger_,
-        address goalFlow_,
-        address underwriterSlasherRouter_,
-        uint32 budgetSlashPpm_
-    ) external {
-        budgetTreasury = budgetTreasury_;
-        budgetStakeLedger = budgetStakeLedger_;
-        goalFlow = goalFlow_;
-        underwriterSlasherRouter = underwriterSlasherRouter_;
-        budgetSlashPpm = budgetSlashPpm_;
-    }
-
-    function connectManagerRewardPool(address managerRewardPool_) external {
-        connectCalls += 1;
-        lastConnectedPool = managerRewardPool_;
-    }
-
-    function checkpoint(address) external { }
-
-    function claim(address) external pure returns (uint256 amount) {
-        return amount;
-    }
-
-    function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
-
-    function slash(address) external pure returns (uint256 slashWeight) {
-        return slashWeight;
     }
 }

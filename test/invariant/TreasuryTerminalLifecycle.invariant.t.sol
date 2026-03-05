@@ -6,6 +6,8 @@ import "forge-std/Test.sol";
 
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
+import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -16,7 +18,7 @@ import { JBApprovalStatus } from "@bananapus/core-v5/enums/JBApprovalStatus.sol"
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract TreasuryTerminalInvariantUnderlying is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
@@ -28,6 +30,7 @@ contract TreasuryTerminalInvariantUnderlying is ERC20 {
 
 contract TreasuryTerminalInvariantSuperToken is ERC20 {
     address private immutable _underlying;
+    address private _host;
 
     constructor(address underlying_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
         _underlying = underlying_;
@@ -45,6 +48,56 @@ contract TreasuryTerminalInvariantSuperToken is ERC20 {
         _burn(msg.sender, amount);
         TreasuryTerminalInvariantUnderlying(_underlying).mint(msg.sender, amount);
     }
+
+    function setHost(address host_) external {
+        _host = host_;
+    }
+
+    function getHost() external view returns (address) {
+        return _host;
+    }
+}
+
+contract TreasuryTerminalInvariantGDA {
+    address public lastConnectedPool;
+
+    function connectPool(ISuperfluidPool pool, bytes calldata) external returns (bytes memory) {
+        lastConnectedPool = address(pool);
+        return bytes("");
+    }
+}
+
+contract TreasuryTerminalInvariantHost {
+    address public immutable gda;
+
+    constructor(address gda_) {
+        gda = gda_;
+    }
+
+    function getAgreementClass(bytes32) external view returns (address) {
+        return gda;
+    }
+
+    function callAgreement(address agreementClass, bytes calldata callData, bytes calldata)
+        external
+        returns (bytes memory returnedData)
+    {
+        (bool ok, bytes memory data) = agreementClass.call(callData);
+        require(ok, "CALL_AGREEMENT_FAILED");
+        return data;
+    }
+}
+
+contract TreasuryTerminalInvariantDistributionPool {
+    mapping(address => uint256) private _totalReceivedByMember;
+
+    function setTotalAmountReceivedByMember(address member, uint256 amount) external {
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalAmountReceivedByMember(address member) external view returns (uint256) {
+        return _totalReceivedByMember[member];
+    }
 }
 
 contract TreasuryTerminalInvariantFlow {
@@ -58,6 +111,7 @@ contract TreasuryTerminalInvariantFlow {
     int96 private _netFlowRateOverride;
     bool private _hasNetFlowRateOverride;
     mapping(address => int96) private _memberFlowRates;
+    mapping(address => uint256) private _totalReceivedByMember;
 
     uint256 public totalSwept;
     uint256 public setFlowRateCallCount;
@@ -114,6 +168,14 @@ contract TreasuryTerminalInvariantFlow {
 
     function setMemberFlowRate(address memberAddr, int96 flowRate) external {
         _memberFlowRates[memberAddr] = flowRate;
+    }
+
+    function setTotalReceivedByMember(address memberAddr, uint256 totalReceived) external {
+        _totalReceivedByMember[memberAddr] = totalReceived;
+    }
+
+    function getTotalReceivedByMember(address memberAddr) external view returns (uint256 totalReceived) {
+        return _totalReceivedByMember[memberAddr];
     }
 
     function flowOperator() external view returns (address) {
@@ -328,23 +390,15 @@ contract TreasuryTerminalInvariantHook {
     }
 }
 
-contract TreasuryTerminalInvariantPremiumEscrow {
-    function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
-}
+contract TreasuryTerminalInvariantUnderwriterSlasherRouter {
+    uint256 public slashCallCount;
+    address public lastUnderwriter;
+    uint256 public lastSlashWeight;
 
-contract TreasuryTerminalInvariantBudgetStakeLedger {
-    address private _goalTreasury;
-
-    function setGoalTreasury(address goalTreasury_) external {
-        _goalTreasury = goalTreasury_;
-    }
-
-    function goalTreasury() external view returns (address) {
-        return _goalTreasury;
-    }
-
-    function allTrackedBudgetsResolved() external pure returns (bool) {
-        return true;
+    function slashUnderwriter(address underwriter, uint256 slashWeight) external {
+        slashCallCount += 1;
+        lastUnderwriter = underwriter;
+        lastSlashWeight = slashWeight;
     }
 }
 
@@ -361,7 +415,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     TreasuryTerminalInvariantTokens public goalTokens;
     TreasuryTerminalInvariantController public goalController;
     TreasuryTerminalInvariantHook public goalHook;
-    TreasuryTerminalInvariantBudgetStakeLedger public goalBudgetStakeLedger;
+    TreasuryTerminalInvariantHost public superfluidHost;
+    BudgetStakeLedger public goalBudgetStakeLedger;
     GoalTreasury public goalTreasury;
 
     TreasuryTerminalInvariantUnderlying public budgetUnderlying;
@@ -369,7 +424,9 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     TreasuryTerminalInvariantFlow public budgetFlow;
     TreasuryTerminalInvariantStakeVault public budgetStakeVault;
     BudgetTreasury public budgetTreasury;
-    TreasuryTerminalInvariantPremiumEscrow public premiumEscrow;
+    TreasuryTerminalInvariantUnderwriterSlasherRouter public underwriterSlasherRouter;
+    TreasuryTerminalInvariantDistributionPool public managerRewardPool;
+    PremiumEscrow public premiumEscrow;
 
     uint256 public totalGoalFlowMinted;
     uint256 public totalBudgetFlowMinted;
@@ -379,6 +436,9 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalSuperToken = new TreasuryTerminalInvariantSuperToken(
             address(goalUnderlying), "Invariant Goal Super", "iGSUP"
         );
+        TreasuryTerminalInvariantGDA gda = new TreasuryTerminalInvariantGDA();
+        superfluidHost = new TreasuryTerminalInvariantHost(address(gda));
+        goalSuperToken.setHost(address(superfluidHost));
         goalFlow = new TreasuryTerminalInvariantFlow(ISuperToken(address(goalSuperToken)), address(0xABCD));
         goalStakeVault = new TreasuryTerminalInvariantStakeVault(IERC20(address(goalUnderlying)), IERC20(address(0)));
 
@@ -393,10 +453,9 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
 
         GoalTreasury goalTreasuryImplementation = new GoalTreasury();
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
-        goalBudgetStakeLedger = new TreasuryTerminalInvariantBudgetStakeLedger();
-        address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         goalStakeVault.setGoalTreasury(predictedGoalTreasury);
-        goalBudgetStakeLedger.setGoalTreasury(predictedGoalTreasury);
+        goalBudgetStakeLedger = new BudgetStakeLedger(predictedGoalTreasury);
         goalFlow.setFlowOperator(predictedGoalTreasury);
         goalFlow.setSweeper(predictedGoalTreasury);
         goalTreasury = GoalTreasury(Clones.clone(address(goalTreasuryImplementation)));
@@ -425,14 +484,15 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         );
         goalHook.setTreasury(goalTreasury);
 
-        budgetUnderlying = new TreasuryTerminalInvariantUnderlying("Invariant Budget Underlying", "iBUND");
-        budgetSuperToken = new TreasuryTerminalInvariantSuperToken(
-            address(budgetUnderlying), "Invariant Budget Super", "iBSUP"
-        );
+        budgetUnderlying = goalUnderlying;
+        budgetSuperToken = goalSuperToken;
         budgetFlow = new TreasuryTerminalInvariantFlow(ISuperToken(address(budgetSuperToken)), address(goalFlow));
         budgetStakeVault =
             new TreasuryTerminalInvariantStakeVault(IERC20(address(budgetUnderlying)), IERC20(address(0)));
-        premiumEscrow = new TreasuryTerminalInvariantPremiumEscrow();
+        underwriterSlasherRouter = new TreasuryTerminalInvariantUnderwriterSlasherRouter();
+        managerRewardPool = new TreasuryTerminalInvariantDistributionPool();
+        PremiumEscrow premiumEscrowImplementation = new PremiumEscrow();
+        premiumEscrow = PremiumEscrow(Clones.clone(address(premiumEscrowImplementation)));
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         budgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         budgetStakeVault.setGoalTreasury(address(budgetTreasury));
@@ -454,6 +514,14 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 successAssertionPolicyHash: keccak256("budget-assertion-policy")
             })
         );
+        premiumEscrow.initialize(
+            address(budgetTreasury),
+            address(goalBudgetStakeLedger),
+            address(goalFlow),
+            address(underwriterSlasherRouter),
+            0
+        );
+        premiumEscrow.connectManagerRewardPool(address(managerRewardPool));
     }
 
     function warpTime(uint256 seed) external {
@@ -558,6 +626,7 @@ contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {
     TreasuryTerminalInvariantSuperToken internal budgetSuperToken;
     TreasuryTerminalInvariantStakeVault internal goalStakeVault;
     TreasuryTerminalInvariantStakeVault internal budgetStakeVault;
+    PremiumEscrow internal premiumEscrow;
 
     function setUp() public {
         handler = new TreasuryTerminalLifecycleInvariantHandler();
@@ -570,6 +639,7 @@ contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {
         budgetSuperToken = handler.budgetSuperToken();
         goalStakeVault = handler.goalStakeVault();
         budgetStakeVault = handler.budgetStakeVault();
+        premiumEscrow = handler.premiumEscrow();
 
         targetContract(address(handler));
     }
@@ -582,7 +652,6 @@ contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {
         assertFalse(goalTreasury.canAcceptHookFunding());
         assertEq(goalFlow.targetOutflowRate(), 0);
         assertTrue(goalStakeVault.goalResolved());
-        assertEq(goalSuperToken.balanceOf(address(goalFlow)), 0);
     }
 
     function invariant_budgetTerminalLifecycleIsConsistent() public view {
@@ -599,9 +668,18 @@ contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {
         assertEq(budgetSuperToken.balanceOf(address(budgetFlow)), 0);
     }
 
+    function invariant_budgetPremiumEscrowTerminalLifecycleMatchesBudgetTreasury() public view {
+        if (!budgetTreasury.resolved()) return;
+
+        assertTrue(premiumEscrow.closed());
+        assertEq(uint256(premiumEscrow.finalState()), uint256(budgetTreasury.state()));
+        assertEq(premiumEscrow.activatedAt(), budgetTreasury.activatedAt());
+        assertEq(premiumEscrow.closedAt(), budgetTreasury.resolvedAt());
+    }
+
     function invariant_goalFlowFundsConserved() public view {
         uint256 tracked = goalSuperToken.balanceOf(address(goalFlow)) + goalFlow.totalSwept();
-        assertEq(tracked, handler.totalGoalFlowMinted());
+        assertEq(tracked, handler.totalGoalFlowMinted() + budgetFlow.totalSwept());
     }
 
     function invariant_budgetFlowFundsConserved() public view {
