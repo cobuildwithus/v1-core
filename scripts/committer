@@ -259,7 +259,9 @@ if [ "$skip_hooks" != true ] && [ "${COMMITTER_SKIP_HOOKS:-0}" != "1" ]; then
   local_pre_commit_hook="$(git rev-parse --git-path hooks/pre-commit)"
   local_pre_commit_runs_husky=false
 
-  if [ -f "$local_pre_commit_hook" ] && grep -Eq '\.husky/pre-commit' "$local_pre_commit_hook"; then
+  if [ "$local_pre_commit_hook" = ".husky/pre-commit" ] || [ "$local_pre_commit_hook" = "./.husky/pre-commit" ]; then
+    local_pre_commit_runs_husky=true
+  elif [ -f "$local_pre_commit_hook" ] && grep -Eq '\.husky/pre-commit' "$local_pre_commit_hook"; then
     local_pre_commit_runs_husky=true
   fi
 
