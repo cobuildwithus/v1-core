@@ -18,6 +18,7 @@ import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
+import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
@@ -31,6 +32,7 @@ import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
@@ -786,6 +788,37 @@ contract BudgetTCRTest is TestUtils {
             ERC20VotesArbitrator(mechanismArbitratorB).invalidRoundRewardsSink(),
             IERC20VotesArbitrator(address(arbitrator)).invalidRoundRewardsSink()
         );
+    }
+
+    function test_activateRegisteredBudget_mechanismArbitrator_isNotAuthorizedInJurorSlasherRouter() public {
+        address factoryAuthority = makeAddr("budget-tcr-factory");
+        JurorSlasherRouter router =
+            new JurorSlasherRouter(IStakeVault(goalTreasury.stakeVault()), factoryAuthority);
+        MockStakeVaultForBudgetTCR(goalTreasury.stakeVault()).setJurorSlasher(address(router));
+
+        vm.prank(factoryAuthority);
+        router.setAuthorizedSlasher(address(arbitrator), true);
+
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, _defaultListing());
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+
+        vm.recordLogs();
+        budgetTcr.activateRegisteredBudget(itemID);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        (bool found, , address mechanismArbitrator, ) = _getBudgetAllocationMechanismDeployed(logs, itemID);
+        assertTrue(found);
+        assertTrue(mechanismArbitrator != address(0));
+        assertTrue(router.isAuthorizedSlasher(address(arbitrator)));
+        assertFalse(router.isAuthorizedSlasher(mechanismArbitrator));
+
+        ERC20VotesArbitrator deployedMechanismArbitrator = ERC20VotesArbitrator(mechanismArbitrator);
+        assertEq(deployedMechanismArbitrator.stakeVault(), goalTreasury.stakeVault());
+        assertGt(deployedMechanismArbitrator.wrongOrMissedSlashBps(), 0);
+        assertGt(deployedMechanismArbitrator.slashCallerBountyBps(), 0);
     }
 
     function test_activateRegisteredBudget_registersRecipientIdsPerChildFlowOnSharedStrategy() public {
