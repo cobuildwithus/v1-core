@@ -19,9 +19,9 @@ import {IJBTokens} from "@bananapus/core-v5/interfaces/IJBTokens.sol";
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
-import {SharedMockSuperToken} from "test/goals/helpers/TreasurySharedMocks.sol";
 
 contract UnderwriterSlasherRouterTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 88;
@@ -58,7 +58,7 @@ contract UnderwriterSlasherRouterTest is Test {
 
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
-    SharedMockSuperToken internal goalSuperToken;
+    RouterMockConfigurableSuperToken internal goalSuperToken;
     RouterMockStakeVault internal stakeVault;
     RouterMockDirectory internal directory;
     RouterMockTerminal internal terminal;
@@ -68,7 +68,7 @@ contract UnderwriterSlasherRouterTest is Test {
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
         cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
-        goalSuperToken = new SharedMockSuperToken(address(goalToken));
+        goalSuperToken = new RouterMockConfigurableSuperToken(address(goalToken));
 
         stakeVault = new RouterMockStakeVault(goalToken, cobuildToken);
         directory = new RouterMockDirectory();
@@ -283,7 +283,7 @@ contract UnderwriterSlasherRouterTest is Test {
         stakeVault.setNextSlash(7e18, 0);
 
         bytes memory reason = bytes("UPGRADE_FAIL");
-        vm.mockCallRevert(address(goalSuperToken), abi.encodeWithSelector(ISuperToken.upgrade.selector, 7e18), reason);
+        goalSuperToken.setUpgradeRevert(reason);
 
         vm.expectEmit(true, true, true, true, address(router));
         emit GoalSuperTokenUpgradeFailed(address(premiumEscrow), underwriter, 7e18, reason);
@@ -302,9 +302,7 @@ contract UnderwriterSlasherRouterTest is Test {
         stakeVault.setNextSlash(7e18, 0);
 
         bytes memory reason = bytes("FORWARD_FAIL");
-        vm.mockCallRevert(
-            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, 7e18), reason
-        );
+        goalSuperToken.setTransferRevert(reason);
 
         vm.expectEmit(true, true, true, true, address(router));
         emit GoalSuperTokenForwardingFailed(address(premiumEscrow), underwriter, 7e18, reason);
@@ -322,16 +320,16 @@ contract UnderwriterSlasherRouterTest is Test {
         _authorizePremiumEscrow();
         stakeVault.setNextSlash(7e18, 0);
 
-        vm.mockCall(
-            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, 7e18), abi.encode(false)
-        );
+        goalSuperToken.setTransferReturnFalse(true);
 
         vm.expectEmit(true, true, true, true, address(router));
         emit GoalSuperTokenForwardingFailed(
             address(premiumEscrow),
             underwriter,
             7e18,
-            abi.encodeWithSelector(IUnderwriterSlasherRouter.SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector, fundingTarget, 7e18)
+            abi.encodeWithSelector(
+                IUnderwriterSlasherRouter.SUPER_TOKEN_TRANSFER_RETURNED_FALSE.selector, fundingTarget, 7e18
+            )
         );
 
         vm.prank(address(premiumEscrow));
@@ -517,9 +515,7 @@ contract UnderwriterSlasherRouterTest is Test {
         bytes memory reason = bytes("RETRY_FORWARD_FAIL");
         goalSuperToken.mint(address(router), heldSuper);
 
-        vm.mockCallRevert(
-            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, heldSuper), reason
-        );
+        goalSuperToken.setTransferRevert(reason);
 
         vm.expectEmit(true, true, true, true, address(router));
         emit GoalSuperTokenForwardingFailed(address(0), address(0), heldSuper, reason);
@@ -536,9 +532,7 @@ contract UnderwriterSlasherRouterTest is Test {
         assertEq(goalSuperToken.balanceOf(randomCaller), 0);
     }
 
-    function test_retryConversionAndForward_permissionlessCaller_convertsHeldCobuild_andForwardsToFixedTarget()
-        public
-    {
+    function test_retryConversionAndForward_permissionlessCaller_convertsHeldCobuild_andForwardsToFixedTarget() public {
         uint256 heldCobuild = 5e18;
         uint256 heldGoal = 2e18;
         uint256 heldSuper = 3e18;
@@ -593,9 +587,7 @@ contract UnderwriterSlasherRouterTest is Test {
         address randomCaller = address(0xBEEF);
         cobuildToken.mint(address(router), heldCobuild);
 
-        vm.mockCallRevert(
-            address(goalSuperToken), abi.encodeWithSelector(IERC20.transfer.selector, fundingTarget, heldCobuild), reason
-        );
+        goalSuperToken.setTransferRevert(reason);
 
         vm.expectEmit(true, true, true, true, address(router));
         emit GoalSuperTokenForwardingFailed(address(0), address(0), heldCobuild, reason);
@@ -615,7 +607,7 @@ contract UnderwriterSlasherRouterTest is Test {
     }
 
     function test_constructor_revertsWhenSuperTokenUnderlyingMismatch() public {
-        SharedMockSuperToken badSuperToken = new SharedMockSuperToken(address(cobuildToken));
+        RouterMockConfigurableSuperToken badSuperToken = new RouterMockConfigurableSuperToken(address(cobuildToken));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -909,5 +901,59 @@ contract RouterMockStakeVaultLinkTokens {
 
     function projectIdOf(IJBToken token) external view returns (uint256) {
         return _projectIdOf[address(token)];
+    }
+}
+
+contract RouterMockConfigurableSuperToken is ERC20 {
+    address private immutable _underlying;
+    bytes private _upgradeRevertReason;
+    bytes private _transferRevertReason;
+    bool private _returnFalseOnTransfer;
+
+    constructor(address underlying_) ERC20("Goal Super", "gSUP") {
+        _underlying = underlying_;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function getUnderlyingToken() external view returns (address) {
+        return _underlying;
+    }
+
+    function setUpgradeRevert(bytes memory reason) external {
+        _upgradeRevertReason = reason;
+    }
+
+    function setTransferRevert(bytes memory reason) external {
+        _transferRevertReason = reason;
+        _returnFalseOnTransfer = false;
+    }
+
+    function setTransferReturnFalse(bool shouldReturnFalse) external {
+        _returnFalseOnTransfer = shouldReturnFalse;
+        if (shouldReturnFalse) delete _transferRevertReason;
+    }
+
+    function upgrade(uint256 amount) external {
+        bytes memory reason = _upgradeRevertReason;
+        if (reason.length != 0) _revertWith(reason);
+
+        IERC20(_underlying).transferFrom(msg.sender, address(this), amount);
+        _mint(msg.sender, amount);
+    }
+
+    function transfer(address to, uint256 value) public virtual override returns (bool) {
+        bytes memory reason = _transferRevertReason;
+        if (reason.length != 0) _revertWith(reason);
+        if (_returnFalseOnTransfer) return false;
+        return super.transfer(to, value);
+    }
+
+    function _revertWith(bytes memory reason) private pure {
+        assembly ("memory-safe") {
+            revert(add(reason, 0x20), mload(reason))
+        }
     }
 }

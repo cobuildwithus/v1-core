@@ -1,15 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { ISuperToken, ISuperfluidPool } from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {Test} from "forge-std/Test.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
+import {StakeVault} from "src/goals/StakeVault.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBToken} from "@bananapus/core-v5/interfaces/IJBToken.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {IJBTokens} from "@bananapus/core-v5/interfaces/IJBTokens.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 
 contract PremiumEscrowTest is Test {
     uint32 internal constant SLASH_PPM = 200_000; // 20%
@@ -48,13 +62,7 @@ contract PremiumEscrowTest is Test {
 
         PremiumEscrow implementation = new PremiumEscrow();
         escrow = PremiumEscrow(Clones.clone(address(implementation)));
-        escrow.initialize(
-            address(budgetTreasury),
-            address(ledger),
-            address(goalFlow),
-            address(router),
-            SLASH_PPM
-        );
+        escrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM);
         vm.prank(address(budgetTreasury));
         escrow.connectManagerRewardPool(address(managerRewardPool));
 
@@ -63,7 +71,8 @@ contract PremiumEscrowTest is Test {
 
     function test_initializeRevertsWhenSuperTokenMismatch() public {
         PremiumEscrowMockToken otherToken = new PremiumEscrowMockToken(address(host));
-        PremiumEscrowMockBudgetTreasury mismatchedBudgetTreasury = new PremiumEscrowMockBudgetTreasury(address(otherToken));
+        PremiumEscrowMockBudgetTreasury mismatchedBudgetTreasury =
+            new PremiumEscrowMockBudgetTreasury(address(otherToken));
 
         PremiumEscrow implementation = new PremiumEscrow();
         PremiumEscrow mismatchedEscrow = PremiumEscrow(Clones.clone(address(implementation)));
@@ -74,11 +83,7 @@ contract PremiumEscrowTest is Test {
             )
         );
         mismatchedEscrow.initialize(
-            address(mismatchedBudgetTreasury),
-            address(ledger),
-            address(goalFlow),
-            address(router),
-            SLASH_PPM
+            address(mismatchedBudgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM
         );
     }
 
@@ -89,11 +94,7 @@ contract PremiumEscrowTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.INVALID_SLASH_PPM.selector, invalidSlashPpm));
         overflowEscrow.initialize(
-            address(budgetTreasury),
-            address(ledger),
-            address(goalFlow),
-            address(router),
-            invalidSlashPpm
+            address(budgetTreasury), address(ledger), address(goalFlow), address(router), invalidSlashPpm
         );
     }
 
@@ -897,6 +898,182 @@ contract PremiumEscrowTest is Test {
     }
 }
 
+contract PremiumEscrowRealLifecycleTest is Test {
+    uint256 internal constant GOAL_REVNET_ID = 88;
+    uint32 internal constant SLASH_PPM = 200_000;
+    uint256 internal constant COVERAGE_LAMBDA = 10;
+    uint256 internal constant TARGET_SLASH_WEIGHT = 20e18;
+
+    address internal constant ALICE = address(0xA11CE);
+    address internal constant PREMIUM_RECIPIENT = address(0xB0B);
+    address internal constant GOAL_FUNDING_TARGET = address(0xF00D);
+
+    MockVotesToken internal goalToken;
+    MockVotesToken internal cobuildToken;
+    PremiumEscrowRealSuperToken internal goalSuperToken;
+    PremiumEscrowMockHost internal host;
+    PremiumEscrowMockGDA internal gda;
+    PremiumEscrowRealDirectory internal directory;
+    PremiumEscrowRealTokens internal tokens;
+    PremiumEscrowRealController internal controller;
+    PremiumEscrowRealRulesets internal rulesets;
+    PremiumEscrowRealTerminal internal terminal;
+    StakeVault internal stakeVault;
+    UnderwriterSlasherRouter internal router;
+    PremiumEscrowMockBudgetStakeLedger internal ledger;
+    PremiumEscrowMockBudgetTreasury internal budgetTreasury;
+    PremiumEscrowMockBudgetFlow internal budgetFlow;
+    PremiumEscrowMockPool internal managerRewardPool;
+    PremiumEscrowMockGoalFlow internal goalFlow;
+    PremiumEscrowMockGoalTreasury internal goalTreasury;
+    PremiumEscrow internal escrow;
+
+    function setUp() public {
+        goalToken = new MockVotesToken("Goal", "GOAL");
+        cobuildToken = new MockVotesToken("Cobuild", "COBUILD");
+
+        gda = new PremiumEscrowMockGDA();
+        host = new PremiumEscrowMockHost(address(gda));
+        goalSuperToken = new PremiumEscrowRealSuperToken(address(goalToken), address(host));
+
+        directory = new PremiumEscrowRealDirectory();
+        tokens = new PremiumEscrowRealTokens();
+        controller = new PremiumEscrowRealController(IJBTokens(address(tokens)));
+        rulesets = new PremiumEscrowRealRulesets(IJBDirectory(address(directory)), 1e18);
+        terminal = new PremiumEscrowRealTerminal(IERC20(address(cobuildToken)), IERC20(address(goalToken)));
+
+        tokens.setProjectIdFor(address(goalToken), GOAL_REVNET_ID);
+        directory.setController(GOAL_REVNET_ID, IJBController(address(controller)));
+        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(terminal)));
+
+        stakeVault = new StakeVault(
+            address(this),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(rulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+        router = new UnderwriterSlasherRouter(
+            IStakeVault(address(stakeVault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            GOAL_FUNDING_TARGET
+        );
+        stakeVault.setUnderwriterSlasher(address(router));
+
+        ledger = new PremiumEscrowMockBudgetStakeLedger();
+        budgetTreasury = new PremiumEscrowMockBudgetTreasury(address(goalSuperToken));
+        budgetFlow = new PremiumEscrowMockBudgetFlow();
+        managerRewardPool = new PremiumEscrowMockPool();
+        goalFlow = new PremiumEscrowMockGoalFlow(address(goalSuperToken));
+        goalTreasury = new PremiumEscrowMockGoalTreasury();
+
+        budgetFlow.setManagerRewardDistributionPool(address(managerRewardPool));
+        budgetTreasury.setFlow(address(budgetFlow));
+        goalFlow.setFlowOperator(address(goalTreasury));
+        goalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
+
+        goalToken.mint(ALICE, 70e18);
+        cobuildToken.mint(ALICE, 50e18);
+        goalToken.mint(address(terminal), 1_000_000e18);
+
+        vm.startPrank(ALICE);
+        goalToken.approve(address(stakeVault), type(uint256).max);
+        cobuildToken.approve(address(stakeVault), type(uint256).max);
+        stakeVault.depositGoal(70e18);
+        stakeVault.depositCobuild(50e18);
+        vm.stopPrank();
+
+        PremiumEscrow implementation = new PremiumEscrow();
+        escrow = PremiumEscrow(Clones.clone(address(implementation)));
+        escrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM);
+        vm.prank(address(budgetTreasury));
+        escrow.connectManagerRewardPool(address(managerRewardPool));
+        router.setAuthorizedPremiumEscrow(address(escrow), true);
+    }
+
+    function test_claimSucceeded_realSuperTokenPathTransfersToRecipient() public {
+        _setCoverageAndCheckpoint(100e18);
+        _distributePremium(45e18);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Succeeded, 0, 20);
+
+        vm.prank(ALICE);
+        uint256 claimed = escrow.claim(PREMIUM_RECIPIENT);
+
+        assertEq(claimed, 45e18);
+        assertEq(goalSuperToken.balanceOf(PREMIUM_RECIPIENT), 45e18);
+        assertEq(goalSuperToken.balanceOf(address(escrow)), 0);
+    }
+
+    function test_burnOnGoalFailure_realGoalFlowPathSweepsAndSettles() public {
+        _setCoverageAndCheckpoint(100e18);
+        _distributePremium(50e18);
+        escrow.checkpoint(ALICE);
+
+        goalTreasury.setState(IGoalTreasury.GoalState.Expired);
+        uint256 goalFlowBefore = goalSuperToken.balanceOf(address(goalFlow));
+
+        uint256 amount = escrow.burnOnGoalFailure();
+
+        assertEq(amount, 50e18);
+        assertEq(goalSuperToken.balanceOf(address(escrow)), 0);
+        assertEq(goalSuperToken.balanceOf(address(goalFlow)), goalFlowBefore + 50e18);
+        assertEq(goalTreasury.settleLateResidualCalls(), 1);
+    }
+
+    function test_slashFailedBudget_realStakeVaultRouterPathSlashesAndFundsGoal() public {
+        _setCoverageAndCheckpoint(100e18);
+
+        vm.warp(10);
+        budgetTreasury.setActivatedAt(10);
+        _setGoalFlowCreditForTargetSlash(TARGET_SLASH_WEIGHT);
+
+        vm.warp(30);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
+
+        uint256 stakedGoalBefore = stakeVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBefore = stakeVault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, TARGET_SLASH_WEIGHT);
+        assertLt(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
+        assertLt(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
+        assertEq(terminal.payCallCount(), 1);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(goalToken.balanceOf(address(router)), 0);
+        assertEq(cobuildToken.balanceOf(address(router)), 0);
+    }
+
+    function _setCoverageAndCheckpoint(uint256 coverage) internal {
+        ledger.setCoverage(ALICE, address(budgetTreasury), coverage);
+        escrow.checkpoint(ALICE);
+    }
+
+    function _distributePremium(uint256 amount) internal {
+        managerRewardPool.increaseTotalAmountReceivedByMember(address(escrow), amount);
+        goalSuperToken.mint(address(escrow), amount);
+    }
+
+    function _setGoalFlowCreditForTargetSlash(uint256 targetSlashWeight) internal {
+        uint256 duration = uint256(budgetTreasury.executionDuration());
+        uint256 creditNeeded = (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256)
+            / (COVERAGE_LAMBDA * uint256(SLASH_PPM));
+        goalFlow.setTotalReceivedByMember(address(budgetFlow), creditNeeded);
+    }
+}
+
 contract PremiumEscrowMockToken is ERC20 {
     address internal _host;
 
@@ -1142,5 +1319,118 @@ contract PremiumEscrowMockRouter {
         lastUnderwriter = underwriter;
         lastWeight = weight;
         slashCalls++;
+    }
+}
+
+contract PremiumEscrowRealSuperToken is ERC20 {
+    address private immutable _underlying;
+    address private immutable _host;
+
+    constructor(address underlying_, address host_) ERC20("Goal Super", "gSUP") {
+        _underlying = underlying_;
+        _host = host_;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function getHost() external view returns (address) {
+        return _host;
+    }
+
+    function getUnderlyingToken() external view returns (address) {
+        return _underlying;
+    }
+
+    function upgrade(uint256 amount) external {
+        IERC20(_underlying).transferFrom(msg.sender, address(this), amount);
+        _mint(msg.sender, amount);
+    }
+}
+
+contract PremiumEscrowRealRulesets {
+    IJBDirectory private immutable _directory;
+    uint112 private immutable _weight;
+
+    constructor(IJBDirectory directory_, uint112 weight_) {
+        _directory = directory_;
+        _weight = weight_;
+    }
+
+    function DIRECTORY() external view returns (IJBDirectory) {
+        return _directory;
+    }
+
+    function currentOf(uint256) external view returns (JBRuleset memory ruleset) {
+        ruleset.weight = _weight;
+    }
+}
+
+contract PremiumEscrowRealDirectory {
+    mapping(uint256 => IJBController) private _controllerOf;
+    mapping(uint256 => mapping(address => IJBTerminal)) private _primaryTerminalOf;
+
+    function setController(uint256 projectId, IJBController controller_) external {
+        _controllerOf[projectId] = controller_;
+    }
+
+    function controllerOf(uint256 projectId) external view returns (IJBController) {
+        return _controllerOf[projectId];
+    }
+
+    function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal_) external {
+        _primaryTerminalOf[projectId][token] = terminal_;
+    }
+
+    function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
+        return _primaryTerminalOf[projectId][token];
+    }
+}
+
+contract PremiumEscrowRealTokens {
+    mapping(address => uint256) private _projectIdOf;
+
+    function setProjectIdFor(address token, uint256 projectId) external {
+        _projectIdOf[token] = projectId;
+    }
+
+    function projectIdOf(IJBToken token) external view returns (uint256) {
+        return _projectIdOf[address(token)];
+    }
+}
+
+contract PremiumEscrowRealController {
+    IJBTokens private immutable _tokens;
+
+    constructor(IJBTokens tokens_) {
+        _tokens = tokens_;
+    }
+
+    function TOKENS() external view returns (IJBTokens) {
+        return _tokens;
+    }
+}
+
+contract PremiumEscrowRealTerminal {
+    IERC20 public immutable cobuildToken;
+    IERC20 public immutable goalToken;
+
+    uint256 public payCallCount;
+
+    constructor(IERC20 cobuildToken_, IERC20 goalToken_) {
+        cobuildToken = cobuildToken_;
+        goalToken = goalToken_;
+    }
+
+    function pay(uint256, address token, uint256 amount, address beneficiary, uint256, string calldata, bytes calldata)
+        external
+        returns (uint256 beneficiaryTokenCount)
+    {
+        require(token == address(cobuildToken), "INVALID_TOKEN");
+        payCallCount += 1;
+        cobuildToken.transferFrom(msg.sender, address(this), amount);
+        goalToken.transfer(beneficiary, amount);
+        return amount;
     }
 }
