@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-04
+Last verified: 2026-03-05 (docs-drift simplification)
 
 ## Purpose
 
@@ -14,6 +14,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/design-docs/core-beliefs.md` | Core agent-first repo principles. | Team architecture and process decisions | Protocol Maintainers | Quarterly | Medium | 2026-02-18 |
 | `agent-docs/product-specs/index.md` | Index for protocol behavior contracts. | `agent-docs/product-specs/**` | Protocol + Product Maintainers | Monthly | High | 2026-02-18 |
 | `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per behavior-change PR | High | 2026-02-27 |
+| `agent-docs/product-specs/underwriter-slash-routing.md` | Addendum covering async reserved-token slash routing and router retry expectations. | `src/goals/UnderwriterSlasherRouter.sol`, `src/goals/GoalTreasury.sol`, `test/goals/UnderwriterSlasherRouterAsyncReservedRouting.t.sol` | Protocol Maintainers | Per underwriter slash-flow PR | High | 2026-03-05 |
 | `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
 | `agent-docs/SOLIDITY_BEST_PRACTICES.md` | Canonical Solidity engineering practices (forge-first toolchain, clone/proxy safety, boundaries, verification rules). | `AGENTS.md`, `ARCHITECTURE.md`, lifecycle/security/reliability/deployment docs | Protocol Maintainers | Per Solidity policy/process change | High | 2026-03-04 |
 | `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-03-01 |
@@ -37,7 +38,7 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/references/goal-funding-and-reward-map.md` | Goal/Budget treasury funding, premium escrow, and underwriting/slash flow map. | `src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol` | Protocol Maintainers | Per goals/treasury PR | High | 2026-03-01 |
 | `agent-docs/references/economic-considerations.md` | Incentive-risk notes and attack surfaces for treasury/underwriting/TCR interactions. | `src/goals/**`, `src/tcr/**`, protocol mechanism-design reviews | Protocol Maintainers | Per economics/mechanism PR | High | 2026-03-01 |
 | `agent-docs/references/uma-deployment-recommendations.md` | Pre-launch UMA resolver deployment defaults and policy guidance (`USDC`, `$750`, bond/liveness overrides). | `src/goals/UMATreasurySuccessResolver.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, UMA/Polymarket primary docs | Protocol Maintainers | Per oracle-policy PR | High | 2026-02-25 |
-| `agent-docs/references/testing-ci-map.md` | Testing and CI enforcement map. | `.github/workflows/**`, `scripts/**`, `package.json` | Protocol Maintainers | Per CI/process PR | Medium | 2026-02-26 |
+| `agent-docs/references/testing-ci-map.md` | Testing and CI enforcement map. | `.github/workflows/**`, `scripts/**`, `package.json` | Protocol Maintainers | Per CI/process PR | Medium | 2026-03-05 |
 | `agent-docs/references/foundry-llms.txt` | External Foundry reference pack. | Foundry docs | Protocol Maintainers | Quarterly | Low | 2026-02-18 |
 | `agent-docs/references/openzeppelin-upgradeable-llms.txt` | External OpenZeppelin upgrade/security references. | OpenZeppelin docs | Protocol Maintainers | Quarterly | Low | 2026-02-18 |
 | `agent-docs/references/superfluid-llms.txt` | External Superfluid reference pack. | Superfluid docs | Protocol Maintainers | Quarterly | Low | 2026-02-18 |

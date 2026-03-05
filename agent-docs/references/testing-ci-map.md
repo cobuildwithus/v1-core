@@ -73,7 +73,11 @@
 ## Doc Enforcement Scripts
 
 - Drift checks: `scripts/check-agent-docs-drift.sh`
+- Drift checks ignore execution-plan-only churn when deciding whether `agent-docs/index.md` must change.
+- `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` alone does not count as an active execution plan for docs-drift relief.
+- Dependency-only `package.json` + optional `pnpm-lock.yaml` updates do not require matching docs updates.
 - Gardening/index checks: `scripts/doc-gardening.sh`
+- Local pre-commit runs doc gardening only when docs/governance files are staged, and it no longer stages unrelated worktree files with `git add -A`.
 - Plan lifecycle helpers: `scripts/open-exec-plan.sh`, `scripts/close-exec-plan.sh`
 
 ## Update Rule
