@@ -192,6 +192,26 @@ run_husky_hook() {
   fi
 }
 
+run_local_pre_commit_hook() {
+  local hook_path="$1"
+
+  if [ ! -f "$hook_path" ]; then
+    return 1
+  fi
+
+  if [ ! -x "$hook_path" ]; then
+    printf 'Warning: skipping non-executable local git hook: %s\n' "$hook_path" >&2
+    return 1
+  fi
+
+  if ! GIT_INDEX_FILE="$tmp_index" "$hook_path"; then
+    printf 'Error: local git hook failed: %s\n' "$hook_path" >&2
+    exit 1
+  fi
+
+  return 0
+}
+
 for file in "${files[@]}"; do
   lock_key="$(printf '%s' "$file" | shasum -a 256 | awk '{print $1}')"
   lock_path="$lock_dir/$lock_key.lock"
@@ -236,7 +256,20 @@ if [ "$skip_hooks" != true ] && [ "${COMMITTER_SKIP_HOOKS:-0}" != "1" ]; then
   tmp_commit_msg="$(mktemp "${TMPDIR:-/tmp}/committer-msg.XXXXXX")"
   printf '%s\n' "$commit_message" >"$tmp_commit_msg"
 
-  run_husky_hook pre-commit
+  local_pre_commit_hook="$(git rev-parse --git-path hooks/pre-commit)"
+  local_pre_commit_runs_husky=false
+
+  if [ -f "$local_pre_commit_hook" ] && grep -Eq '\.husky/pre-commit' "$local_pre_commit_hook"; then
+    local_pre_commit_runs_husky=true
+  fi
+
+  if ! run_local_pre_commit_hook "$local_pre_commit_hook"; then
+    local_pre_commit_runs_husky=false
+  fi
+
+  if [ "$local_pre_commit_runs_husky" != true ]; then
+    run_husky_hook pre-commit
+  fi
   run_husky_hook prepare-commit-msg "$tmp_commit_msg" message
   run_husky_hook commit-msg "$tmp_commit_msg"
 
