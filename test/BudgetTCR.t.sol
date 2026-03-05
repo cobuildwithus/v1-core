@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { TestUtils } from "test/utils/TestUtils.sol";
+import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
+import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import {
     MockBudgetTCRSuperToken,
@@ -17,6 +19,7 @@ import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
 import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
@@ -25,12 +28,13 @@ import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import { CustomFlow } from "src/flows/CustomFlow.sol";
 
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
+import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -46,7 +50,11 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
+import { ERC1820RegistryCompiled } from
+    "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { Vm } from "forge-std/Vm.sol";
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
@@ -2168,6 +2176,419 @@ contract BudgetTCRTest is TestUtils {
     {
         vm.prank(submitter);
         itemID = budgetTcr.addItem(abi.encode(listing));
+    }
+
+    function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {
+        listing.metadata = FlowTypes.RecipientMetadata({
+            title: "Budget A",
+            description: "Budget A description",
+            image: "ipfs://budget-a-image",
+            tagline: "ship budget a",
+            url: "https://example.com/budget-a"
+        });
+        listing.fundingDeadline = uint64(block.timestamp + 10 days);
+        listing.executionDuration = uint64(14 days);
+        listing.activationThreshold = 100e18;
+        listing.runwayCap = 1_000e18;
+        listing.oracleConfig = IBudgetTCR.OracleConfig({
+            oracleSpecHash: keccak256("budget-oracle-spec"),
+            assertionPolicyHash: keccak256("budget-assertion-policy")
+        });
+    }
+}
+
+contract BudgetTCRRealFlowIntegrationTest is TestUtils {
+    address internal owner = makeAddr("owner");
+    address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
+    address internal requester = makeAddr("requester");
+    address internal keeper = makeAddr("keeper");
+    address internal managerRewardPool = makeAddr("managerRewardPool");
+
+    uint256 internal votingPeriod = 20;
+    uint256 internal votingDelay = 2;
+    uint256 internal revealPeriod = 15;
+    uint256 internal arbitrationCost = 10e18;
+
+    uint256 internal submissionBaseDeposit = 100e18;
+    uint256 internal removalBaseDeposit = 50e18;
+    uint256 internal submissionChallengeBaseDeposit = 120e18;
+    uint256 internal removalChallengeBaseDeposit = 70e18;
+    uint256 internal challengePeriodDuration = 3 days;
+    ISubmissionDepositStrategy internal submissionDepositStrategy;
+
+    MockVotesToken internal depositToken;
+    MockVotesToken internal goalToken;
+    MockVotesToken internal cobuildToken;
+
+    FlowSuperfluidFrameworkDeployer internal sfDeployer;
+    TestToken internal underlyingToken;
+    SuperToken internal superToken;
+    MockAllocationStrategy internal strategy;
+    CustomFlow internal goalFlow;
+
+    MockGoalTreasuryForBudgetTCR internal goalTreasury;
+    BudgetStakeLedger internal budgetStakeLedger;
+
+    BudgetTCR internal budgetTcr;
+    ERC20VotesArbitrator internal arbitrator;
+    address internal stackDeployer;
+    address internal premiumEscrowImplementation;
+    address internal underwriterSlasherRouter;
+
+    function setUp() public {
+        depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
+        goalToken = new MockVotesToken("GOAL", "GOAL");
+        cobuildToken = new MockVotesToken("COBUILD", "COB");
+        submissionDepositStrategy = ISubmissionDepositStrategy(
+            address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken))))
+        );
+        depositToken.mint(requester, 1_000_000e18);
+
+        vm.etch(ERC1820RegistryCompiled.at, ERC1820RegistryCompiled.bin);
+        sfDeployer = new FlowSuperfluidFrameworkDeployer();
+        sfDeployer.deployTestFramework();
+        (TestToken u, SuperToken s) =
+            sfDeployer.deployWrapperSuperToken("MockUSD", "mUSD", 18, type(uint256).max, owner);
+        underlyingToken = u;
+        superToken = s;
+
+        strategy = new MockAllocationStrategy();
+        strategy.setUseAuxAsKey(true);
+
+        BudgetTCR tcrImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+
+        address tcrInstance = _deployProxy(address(tcrImpl), "");
+        stackDeployer = address(_deployBudgetTcrDeployer());
+        premiumEscrowImplementation = address(new PremiumEscrow());
+
+        CustomFlow goalFlowImplementation = new CustomFlow();
+        address goalFlowProxy = _deployProxy(address(goalFlowImplementation), "");
+
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(strategy));
+
+        FlowTypes.RecipientMetadata memory flowMetadata = FlowTypes.RecipientMetadata({
+            title: "Goal Flow",
+            description: "Goal flow for BudgetTCR real integration test",
+            image: "ipfs://goal-flow",
+            tagline: "goal-flow",
+            url: "https://goal.flow.test"
+        });
+
+        IFlow.FlowParams memory flowParams = IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 100_000 });
+
+        vm.prank(owner);
+        ICustomFlow(goalFlowProxy).initialize(
+            address(superToken),
+            address(goalFlowImplementation),
+            tcrInstance,
+            tcrInstance,
+            tcrInstance,
+            managerRewardPool,
+            address(0),
+            address(0),
+            flowParams,
+            flowMetadata,
+            strategies
+        );
+        goalFlow = CustomFlow(goalFlowProxy);
+
+        goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
+        budgetStakeLedger = new BudgetStakeLedger(address(goalTreasury));
+        goalTreasury.setBudgetStakeLedger(address(budgetStakeLedger));
+        goalTreasury.setFlow(address(goalFlow));
+        goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
+
+        underwriterSlasherRouter =
+            address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
+
+        bytes memory arbInit = _defaultArbitratorInitData(
+            owner,
+            address(depositToken),
+            tcrInstance,
+            votingPeriod,
+            votingDelay,
+            revealPeriod,
+            arbitrationCost
+        );
+        address arbProxy = _deployProxy(address(arbImpl), arbInit);
+
+        arbitrator = ERC20VotesArbitrator(arbProxy);
+        budgetTcr = BudgetTCR(tcrInstance);
+        budgetTcr.initialize(_defaultRegistryConfig(), _defaultDeploymentConfig());
+    }
+
+    function test_activateRegisteredBudget_deploysRealChildFlow_andRealLedgerWiring() public {
+        bytes32 itemID = _registerDefaultListing();
+
+        FlowTypes.FlowRecipient memory recipient = goalFlow.getRecipientById(itemID);
+        address childFlow = recipient.recipient;
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+
+        assertTrue(childFlow != address(0));
+        assertFalse(recipient.isRemoved);
+        assertTrue(IFlow(childFlow).recipientAdmin() != address(0));
+        assertEq(IFlow(childFlow).flowOperator(), budgetTreasury);
+        assertEq(IFlow(childFlow).sweeper(), budgetTreasury);
+        assertEq(IFlow(childFlow).parent(), address(goalFlow));
+        assertEq(
+            address(PremiumEscrow(premiumEscrow).managerRewardPool()),
+            address(IFlow(childFlow).managerRewardDistributionPool())
+        );
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), budgetTreasury);
+        assertEq(budgetStakeLedger.registeredBudgetCount(), 1);
+        assertEq(budgetStakeLedger.trackedBudgetCount(), 1);
+    }
+
+    function test_syncBudgetTreasuries_realFlow_activatesFundedBudget() public {
+        bytes32 itemID = _registerDefaultListing();
+        address childFlow = goalFlow.getRecipientById(itemID).recipient;
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        _mintSuperToken(owner, 100e18);
+        vm.prank(owner);
+        superToken.transfer(childFlow, 100e18);
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(keeper);
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertGe(IFlow(childFlow).targetOutflowRate(), IBudgetTreasury(budgetTreasury).targetFlowRate());
+        assertGt(uint256(uint96(IFlow(childFlow).targetOutflowRate())), 0);
+    }
+
+    function test_syncBudgetTreasuries_realFlow_mixedBatch_onlyFundedBudgetActivates() public {
+        bytes32 fundedItemID = _registerDefaultListing();
+        bytes32 unfundedItemID = _registerDefaultListing();
+
+        address fundedChildFlow = goalFlow.getRecipientById(fundedItemID).recipient;
+        address unfundedChildFlow = goalFlow.getRecipientById(unfundedItemID).recipient;
+        address fundedBudgetTreasury = budgetStakeLedger.budgetForRecipient(fundedItemID);
+        address unfundedBudgetTreasury = budgetStakeLedger.budgetForRecipient(unfundedItemID);
+
+        _mintSuperToken(owner, 100e18);
+        vm.prank(owner);
+        superToken.transfer(fundedChildFlow, 100e18);
+
+        bytes32[] memory itemIDs = new bytes32[](2);
+        itemIDs[0] = fundedItemID;
+        itemIDs[1] = unfundedItemID;
+
+        vm.prank(keeper);
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 2);
+        assertEq(succeeded, 2);
+        assertEq(uint256(IBudgetTreasury(fundedBudgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertEq(uint256(IBudgetTreasury(unfundedBudgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Funding));
+        assertGt(uint256(uint96(IFlow(fundedChildFlow).targetOutflowRate())), 0);
+        assertEq(IFlow(unfundedChildFlow).targetOutflowRate(), 0);
+        assertGt(IBudgetTreasury(fundedBudgetTreasury).activatedAt(), 0);
+        assertEq(IBudgetTreasury(unfundedBudgetTreasury).activatedAt(), 0);
+    }
+
+    function test_finalizeRemovedBudget_preActivation_realFlow_finalizesFailureAndClosesEscrow() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+        address childFlow = goalFlow.getRecipientById(itemID).recipient;
+
+        _executeRemovalRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertTrue(terminallyResolved);
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
+        assertEq(budgetStakeLedger.trackedBudgetCount(), 0);
+        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(IBudgetTreasury(budgetTreasury).successResolutionDisabled());
+        assertTrue(PremiumEscrow(premiumEscrow).closed());
+        assertEq(uint8(PremiumEscrow(premiumEscrow).finalState()), uint8(IBudgetTreasury.BudgetState.Failed));
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+    }
+
+    function test_retryRemovedBudgetResolution_activationLocked_realFlow_expiresAfterDeadline() public {
+        bytes32 itemID = _registerDefaultListing();
+        address childFlow = goalFlow.getRecipientById(itemID).recipient;
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        _activateBudget(childFlow, budgetTreasury, 100e18);
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertGt(treasury.deadline(), block.timestamp);
+
+        _executeRemovalRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertFalse(terminallyResolved);
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
+        assertFalse(treasury.successResolutionDisabled());
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+
+        _warpRoll(treasury.deadline() + 1);
+        vm.prank(keeper);
+        bool retryResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
+
+        assertTrue(retryResolved);
+        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+    }
+
+    function test_finalizeRemovedBudget_activationLocked_realFlow_preservesPendingSuccessAssertion() public {
+        bytes32 itemID = _registerDefaultListing();
+        address childFlow = goalFlow.getRecipientById(itemID).recipient;
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        _activateBudget(childFlow, budgetTreasury, 100e18);
+        _warpRoll(treasury.fundingDeadline() + 1);
+
+        bytes32 assertionId = keccak256("real-flow-budget-success-assertion");
+        vm.prank(owner);
+        treasury.registerSuccessAssertion(assertionId);
+
+        _executeRemovalRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+
+        assertFalse(terminallyResolved);
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
+        assertFalse(treasury.successResolutionDisabled());
+        assertEq(treasury.pendingSuccessAssertionId(), assertionId);
+        assertFalse(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+    }
+
+    function _activateBudget(address childFlow, address budgetTreasury, uint256 fundingAmount) internal {
+        _mintSuperToken(owner, fundingAmount);
+        vm.prank(owner);
+        superToken.transfer(childFlow, fundingAmount);
+        IBudgetTreasury(budgetTreasury).sync();
+    }
+
+    function _mintSuperToken(address to, uint256 amount) internal {
+        underlyingToken.mint(to, amount);
+        vm.startPrank(to);
+        underlyingToken.approve(address(superToken), amount);
+        ISuperToken(address(superToken)).upgrade(amount);
+        vm.stopPrank();
+    }
+
+    function _approveAddCost(address who) internal returns (uint256 addCost) {
+        (addCost,,,,) = budgetTcr.getTotalCosts();
+        vm.prank(who);
+        depositToken.approve(address(budgetTcr), addCost);
+    }
+
+    function _approveRemoveCost(address who) internal returns (uint256 removeCost) {
+        (, removeCost,,,) = budgetTcr.getTotalCosts();
+        vm.prank(who);
+        depositToken.approve(address(budgetTcr), removeCost);
+    }
+
+    function _registerDefaultListing() internal returns (bytes32 itemID) {
+        _approveAddCost(requester);
+        vm.prank(requester);
+        itemID = budgetTcr.addItem(abi.encode(_defaultListing()));
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
+    }
+
+    function _queueRemovalRequest(bytes32 itemID) internal {
+        _approveRemoveCost(requester);
+        vm.prank(requester);
+        budgetTcr.removeItem(itemID, "");
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+    }
+
+    function _executeRemovalRequest(bytes32 itemID) internal {
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+    }
+
+    function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
+        registryConfig = IBudgetTCR.RegistryConfig({
+            allocationMechanismAdmin: allocationMechanismAdmin,
+            arbitrator: IArbitrator(address(arbitrator)),
+            arbitratorExtraData: bytes(""),
+            registrationMetaEvidence: "ipfs://budget-reg-meta",
+            clearingMetaEvidence: "ipfs://budget-clear-meta",
+            votingToken: IVotes(address(depositToken)),
+            submissionBaseDeposit: submissionBaseDeposit,
+            removalBaseDeposit: removalBaseDeposit,
+            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+            challengePeriodDuration: challengePeriodDuration,
+            submissionDepositStrategy: submissionDepositStrategy
+        });
+    }
+
+    function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
+        deploymentConfig = IBudgetTCR.DeploymentConfig({
+            stackDeployer: stackDeployer,
+            budgetSuccessResolver: owner,
+            goalFlow: IFlow(address(goalFlow)),
+            goalTreasury: IGoalTreasury(address(goalTreasury)),
+            goalToken: IERC20(address(goalToken)),
+            cobuildToken: IERC20(address(cobuildToken)),
+            goalRulesets: IJBRulesets(address(0x1234)),
+            goalRevnetId: 1,
+            paymentTokenDecimals: 18,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            budgetPremiumPpm: 100_000,
+            budgetSlashPpm: 50_000,
+            budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
+                minFundingLeadTime: 1 days,
+                maxFundingHorizon: 60 days,
+                minExecutionDuration: 1 days,
+                maxExecutionDuration: 30 days,
+                minActivationThreshold: 1e18,
+                maxActivationThreshold: 1_000_000e18,
+                maxRunwayCap: 2_000_000e18
+            }),
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
+                liveness: 1 days,
+                bondAmount: 10e18
+            })
+        });
+    }
+
+    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(
+                new RoundFactory(
+                    address(new RoundSubmissionTCR()),
+                    address(new RoundPrizeVault()),
+                    address(new PrizePoolSubmissionDepositStrategy()),
+                    address(new ERC20VotesArbitrator())
+                )
+            ),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy())
+        );
+        return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {

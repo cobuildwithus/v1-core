@@ -53,10 +53,12 @@ import {
 
 contract UnderwritingPremiumSlashIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 77;
+    uint256 internal constant COBUILD_REVNET_ID = 78;
     uint32 internal constant BUDGET_SLASH_PPM = 200_000; // 20%
     uint32 internal constant BUDGET_PREMIUM_PPM = 100_000;
     uint256 internal constant COVERAGE_LAMBDA = 10;
     uint256 internal constant TARGET_SLASH_WEIGHT = 20e18;
+    bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant PREMIUM_RECIPIENT = address(0xB0B);
@@ -74,6 +76,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
     UnderwritingMockDirectory internal directory;
     UnderwritingMockTokens internal tokens;
     UnderwritingMockController internal controller;
+    UnderwritingMockHook internal goalHook;
     UnderwritingMockTerminal internal conversionTerminal;
 
     StakeVault internal stakeVault;
@@ -84,6 +87,21 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
     UnderwritingMockBudgetFlow internal budgetFlow;
     UnderwritingMockGoalFlow internal goalFlow;
     UnderwritingMockGoalTreasuryResolutionReporter internal goalTreasury;
+
+    struct RealGoalBudgetEscrowStack {
+        StakeVault vault;
+        UnderwriterSlasherRouter router;
+        PremiumEscrow escrow;
+        BudgetStakeLedger budgetStakeLedger;
+        BudgetTreasury budgetTreasury;
+        SharedMockFlow budgetFlow;
+        GoalTreasury goalTreasury;
+        SharedMockFlow goalFlow;
+        TreasuryMockOptimisticOracleV3 goalAssertionOracle;
+        TreasuryMockUmaResolverConfig goalSuccessResolver;
+        TreasuryMockOptimisticOracleV3 budgetAssertionOracle;
+        TreasuryMockUmaResolverConfig budgetSuccessResolver;
+    }
 
     function setUp() public {
         goalToken = new MockVotesToken("Goal", "GOAL");
@@ -100,13 +118,17 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         directory = new UnderwritingMockDirectory();
         tokens = new UnderwritingMockTokens();
         controller = new UnderwritingMockController(tokens);
+        goalHook = new UnderwritingMockHook(directory);
         conversionTerminal = new UnderwritingMockTerminal(IERC20(address(cobuildToken)), IERC20(address(goalToken)));
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.setWeight(GOAL_REVNET_ID, 2e18);
+        rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 2e18);
         directory.setController(GOAL_REVNET_ID, address(controller));
+        directory.setController(COBUILD_REVNET_ID, address(controller));
         directory.setPrimaryTerminal(GOAL_REVNET_ID, address(cobuildToken), IJBTerminal(address(conversionTerminal)));
         tokens.setProjectIdOf(address(goalToken), GOAL_REVNET_ID);
+        tokens.setProjectIdOf(address(cobuildToken), COBUILD_REVNET_ID);
 
         stakeVault = new StakeVault(
             address(this),
@@ -1032,6 +1054,128 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(delayedBudgetStakeLedger.budgetTotalAllocatedStake(address(delayedBudgetTreasury)), budgetCoverage);
     }
 
+    function test_realGoalAndBudget_successPath_claimsPremiumAfterRealAssertions() public {
+        uint256 premiumAmount = 45e18;
+        RealGoalBudgetEscrowStack memory stack =
+            _deployActivatedRealGoalBudgetStack(keccak256("underwriting-real-goal-budget-success"));
+
+        _distributeEscrowPremium(stack.escrow, premiumAmount);
+        stack.escrow.checkpoint(ALICE);
+
+        _resolveRealGoalSuccess(stack, keccak256("underwriting-real-goal-success-assertion"));
+        _warpBudgetFundingWindow(stack.budgetTreasury);
+        _resolveRealBudgetSuccess(stack, keccak256("underwriting-real-budget-success-assertion"));
+
+        vm.prank(ALICE);
+        uint256 claimed = stack.escrow.claim(PREMIUM_RECIPIENT);
+
+        assertEq(claimed, premiumAmount);
+        assertTrue(stack.vault.goalResolved());
+        assertTrue(stack.escrow.closed());
+        assertEq(uint8(stack.escrow.finalState()), uint8(IBudgetTreasury.BudgetState.Succeeded));
+        assertEq(uint256(stack.goalTreasury.state()), uint256(IGoalTreasury.GoalState.Succeeded));
+        assertEq(uint256(stack.budgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Succeeded));
+        assertEq(goalSuperToken.balanceOf(PREMIUM_RECIPIENT), premiumAmount);
+    }
+
+    function test_realGoalAndBudget_successPath_prepareAndWithdrawReturnsFullPrincipalWithoutSlash() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        RealGoalBudgetEscrowStack memory stack =
+            _deployActivatedRealGoalBudgetStack(keccak256("underwriting-real-goal-budget-success-withdraw"));
+
+        _resolveRealGoalSuccess(stack, keccak256("underwriting-real-goal-success-withdraw-assertion"));
+        _warpBudgetFundingWindow(stack.budgetTreasury);
+        _resolveRealBudgetSuccess(stack, keccak256("underwriting-real-budget-success-withdraw-assertion"));
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            stack.vault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertFalse(stack.escrow.slashed(ALICE));
+        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+        assertEq(stack.vault.stakedGoalOf(ALICE), goalStake);
+        assertEq(stack.vault.stakedCobuildOf(ALICE), cobuildStake);
+        assertEq(goalToken.balanceOf(ALICE), 0);
+        assertEq(cobuildToken.balanceOf(ALICE), 0);
+
+        vm.startPrank(ALICE);
+        stack.vault.withdrawGoal(goalStake, ALICE);
+        stack.vault.withdrawCobuild(cobuildStake, ALICE);
+        vm.stopPrank();
+
+        assertEq(stack.vault.stakedGoalOf(ALICE), 0);
+        assertEq(stack.vault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+    }
+
+    function test_realGoalAndBudget_goalSuccessThenBudgetFailure_prepareAndSlashUsesRealTerminalState() public {
+        RealGoalBudgetEscrowStack memory stack =
+            _deployActivatedRealGoalBudgetStack(keccak256("underwriting-real-goal-budget-failure"));
+
+        _resolveRealGoalSuccess(stack, keccak256("underwriting-real-goal-for-failure-assertion"));
+
+        _expectWithdrawLocked(stack.vault);
+        _expectPrepareWithdrawalLocked(stack.vault);
+
+        uint256 stakedGoalBeforePrepare = stack.vault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforePrepare = stack.vault.stakedCobuildOf(ALICE);
+
+        vm.warp(stack.budgetTreasury.deadline() + 1);
+        _fundEscrowForTargetSlash(stack.escrow, TARGET_SLASH_WEIGHT);
+        stack.budgetTreasury.resolveFailure();
+
+        assertTrue(stack.budgetTreasury.resolved());
+        assertEq(uint256(stack.budgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(stack.escrow.closed());
+
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        _prepareWithdrawalAndAssertSlash(stack, stakedGoalBeforePrepare, stakedCobuildBeforePrepare, fundingBefore);
+    }
+
+    function test_realGoalAndBudget_pendingBudgetSuccessAssertion_blocksWithdrawalUntilClearedThenFailed() public {
+        RealGoalBudgetEscrowStack memory stack =
+            _deployActivatedRealGoalBudgetStack(keccak256("underwriting-real-goal-budget-pending"));
+
+        _resolveRealGoalSuccess(stack, keccak256("underwriting-real-goal-pending-assertion"));
+
+        _expectWithdrawLocked(stack.vault);
+        _expectPrepareWithdrawalLocked(stack.vault);
+
+        _warpBudgetFundingWindow(stack.budgetTreasury);
+        bytes32 assertionId = keccak256("underwriting-real-budget-pending-assertion");
+        vm.prank(address(stack.budgetSuccessResolver));
+        stack.budgetTreasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(stack.budgetTreasury.deadline() + 1);
+        _fundEscrowForTargetSlash(stack.escrow, TARGET_SLASH_WEIGHT);
+
+        vm.expectRevert(IBudgetTreasury.SUCCESS_ASSERTION_PENDING.selector);
+        stack.budgetTreasury.resolveFailure();
+
+        vm.prank(address(stack.budgetSuccessResolver));
+        stack.budgetTreasury.clearSuccessAssertion(assertionId);
+
+        uint256 stakedGoalBeforePrepare = stack.vault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforePrepare = stack.vault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        stack.budgetTreasury.resolveFailure();
+
+        assertTrue(stack.budgetTreasury.reassertGraceUsed());
+        assertTrue(stack.budgetTreasury.resolved());
+        assertEq(uint256(stack.budgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+
+        _prepareWithdrawalAndAssertSlash(stack, stakedGoalBeforePrepare, stakedCobuildBeforePrepare, fundingBefore);
+    }
+
     function _deployDelayedEscrowStack(
         uint256 goalStake,
         uint256 cobuildStake,
@@ -1234,6 +1378,274 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         }
 
         delayedRouter.setAuthorizedPremiumEscrow(address(delayedEscrow), true);
+    }
+
+    function _deployDelayedEscrowStackWithRealGoalAndBudget(
+        uint256 goalStake,
+        uint256 cobuildStake,
+        uint256 budgetCoverage,
+        bytes32 budgetRecipientId
+    ) internal returns (RealGoalBudgetEscrowStack memory stack) {
+        stack.goalFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        stack.goalFlow.setRecipientAdmin(address(this));
+        SharedMockSuperfluidPool goalDistributionPool = new SharedMockSuperfluidPool();
+        goalDistributionPool.setTotalUnits(1);
+        stack.goalFlow.setDistributionPool(ISuperfluidPool(address(goalDistributionPool)));
+
+        stack.goalAssertionOracle = new TreasuryMockOptimisticOracleV3();
+        stack.goalSuccessResolver = new TreasuryMockUmaResolverConfig(
+            OptimisticOracleV3Interface(address(stack.goalAssertionOracle)),
+            IERC20(address(goalToken)),
+            address(0xAA11CE),
+            keccak256("underwriting-real-goal-domain")
+        );
+        stack.budgetAssertionOracle = new TreasuryMockOptimisticOracleV3();
+        stack.budgetSuccessResolver = new TreasuryMockUmaResolverConfig(
+            OptimisticOracleV3Interface(address(stack.budgetAssertionOracle)),
+            IERC20(address(goalToken)),
+            address(0xBB0B),
+            keccak256("underwriting-real-budget-domain")
+        );
+
+        GoalTreasury goalTreasuryImplementation = new GoalTreasury();
+        stack.goalTreasury = GoalTreasury(Clones.clone(address(goalTreasuryImplementation)));
+        stack.budgetStakeLedger = new BudgetStakeLedger(address(stack.goalTreasury));
+        stack.vault = new StakeVault(
+            address(stack.goalTreasury),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(rulesets)),
+            GOAL_REVNET_ID,
+            18
+        );
+
+        goalToken.mint(ALICE, goalStake);
+        cobuildToken.mint(ALICE, cobuildStake);
+
+        vm.startPrank(ALICE);
+        goalToken.approve(address(stack.vault), type(uint256).max);
+        cobuildToken.approve(address(stack.vault), type(uint256).max);
+        stack.vault.depositGoal(goalStake);
+        stack.vault.depositCobuild(cobuildStake);
+        vm.stopPrank();
+
+        stack.router = new UnderwriterSlasherRouter(
+            IStakeVault(address(stack.vault)),
+            address(this),
+            IJBDirectory(address(directory)),
+            GOAL_REVNET_ID,
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            GOAL_FUNDING_TARGET
+        );
+
+        stack.budgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        stack.budgetFlow.setParent(address(stack.goalFlow));
+        stack.budgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
+        SharedMockSuperfluidPool delayedManagerRewardPool = new SharedMockSuperfluidPool();
+        stack.budgetFlow.setManagerRewardDistributionPool(ISuperfluidPool(address(delayedManagerRewardPool)));
+
+        BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
+        stack.budgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
+
+        PremiumEscrow escrowImplementation = new PremiumEscrow();
+        stack.escrow = PremiumEscrow(Clones.clone(address(escrowImplementation)));
+
+        stack.goalFlow.setFlowOperator(address(stack.goalTreasury));
+        stack.goalFlow.setSweeper(address(stack.goalTreasury));
+        stack.budgetFlow.setFlowOperator(address(stack.budgetTreasury));
+        stack.budgetFlow.setSweeper(address(stack.budgetTreasury));
+
+        stack.goalTreasury.initialize(
+            address(this),
+            IGoalTreasury.GoalConfig({
+                flow: address(stack.goalFlow),
+                stakeVault: address(stack.vault),
+                jurorSlasher: address(this),
+                underwriterSlasher: address(stack.router),
+                budgetStakeLedger: address(stack.budgetStakeLedger),
+                hook: address(goalHook),
+                goalRulesets: address(rulesets),
+                goalRevnetId: GOAL_REVNET_ID,
+                minRaiseDeadline: uint64(block.timestamp + 3 days),
+                minRaise: 100e18,
+                coverageLambda: COVERAGE_LAMBDA,
+                budgetPremiumPpm: BUDGET_PREMIUM_PPM,
+                budgetSlashPpm: BUDGET_SLASH_PPM,
+                successResolver: address(stack.goalSuccessResolver),
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
+                successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy")
+            })
+        );
+
+        stack.budgetTreasury.initialize(
+            address(this),
+            IBudgetTreasury.BudgetConfig({
+                flow: address(stack.budgetFlow),
+                premiumEscrow: address(stack.escrow),
+                fundingDeadline: uint64(block.timestamp + 20),
+                executionDuration: 20,
+                activationThreshold: 1e18,
+                runwayCap: 0,
+                successResolver: address(stack.budgetSuccessResolver),
+                successAssertionLiveness: uint64(1 days),
+                successAssertionBond: 10e18,
+                successOracleSpecHash: keccak256("underwriting-real-budget-success-oracle-spec"),
+                successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy")
+            })
+        );
+
+        stack.escrow.initialize(
+            address(stack.budgetTreasury),
+            address(stack.budgetStakeLedger),
+            address(stack.goalFlow),
+            address(stack.router),
+            BUDGET_SLASH_PPM
+        );
+        vm.prank(address(stack.budgetTreasury));
+        stack.escrow.connectManagerRewardPool(address(delayedManagerRewardPool));
+
+        stack.budgetStakeLedger.registerBudget(budgetRecipientId, address(stack.budgetTreasury));
+        if (budgetCoverage != 0) {
+            bytes32[] memory recipientIds = new bytes32[](1);
+            recipientIds[0] = budgetRecipientId;
+            uint32[] memory scaled = new uint32[](1);
+            scaled[0] = 1_000_000;
+
+            vm.prank(address(stack.goalFlow));
+            stack.budgetStakeLedger.checkpointAllocation(
+                ALICE,
+                0,
+                new bytes32[](0),
+                new uint32[](0),
+                budgetCoverage,
+                recipientIds,
+                scaled
+            );
+        }
+
+        stack.router.setAuthorizedPremiumEscrow(address(stack.escrow), true);
+    }
+
+    function _deployActivatedRealGoalBudgetStack(bytes32 budgetRecipientId)
+        internal
+        returns (RealGoalBudgetEscrowStack memory stack)
+    {
+        stack = _deployDelayedEscrowStackWithRealGoalAndBudget(120e18, 80e18, 100e18, budgetRecipientId);
+        _activateRealGoal(stack, 100e18);
+        _activateRealBudget(stack, 10, 2e18);
+        stack.escrow.checkpoint(ALICE);
+    }
+
+    function _activateRealGoal(RealGoalBudgetEscrowStack memory stack, uint256 amount) internal {
+        goalSuperToken.mint(address(stack.goalFlow), amount);
+        vm.prank(address(goalHook));
+        assertTrue(stack.goalTreasury.recordHookFunding(amount));
+        stack.goalTreasury.sync();
+        assertEq(uint256(stack.goalTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+    }
+
+    function _activateRealBudget(RealGoalBudgetEscrowStack memory stack, uint64 activatedAt, uint256 amount) internal {
+        goalSuperToken.mint(address(stack.budgetFlow), amount);
+        vm.warp(activatedAt);
+        stack.budgetTreasury.sync();
+        assertEq(stack.budgetTreasury.activatedAt(), activatedAt);
+        assertEq(uint256(stack.budgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+    }
+
+    function _warpBudgetFundingWindow(BudgetTreasury budgetTreasury_) internal {
+        vm.warp(budgetTreasury_.fundingDeadline() + 1);
+    }
+
+    function _expectPrepareWithdrawalLocked(StakeVault vault) internal {
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        vault.prepareUnderwriterWithdrawal(type(uint256).max);
+    }
+
+    function _resolveRealGoalSuccess(RealGoalBudgetEscrowStack memory stack, bytes32 assertionId) internal {
+        vm.prank(address(stack.goalSuccessResolver));
+        stack.goalTreasury.registerSuccessAssertion(assertionId);
+        _setTruthfulAssertion(
+            stack.goalAssertionOracle,
+            stack.goalSuccessResolver,
+            assertionId,
+            stack.goalTreasury.pendingSuccessAssertionAt(),
+            stack.goalTreasury.successAssertionLiveness(),
+            stack.goalTreasury.successAssertionBond()
+        );
+        vm.prank(address(stack.goalSuccessResolver));
+        stack.goalTreasury.resolveSuccess();
+    }
+
+    function _resolveRealBudgetSuccess(RealGoalBudgetEscrowStack memory stack, bytes32 assertionId) internal {
+        vm.prank(address(stack.budgetSuccessResolver));
+        stack.budgetTreasury.registerSuccessAssertion(assertionId);
+        _setTruthfulAssertion(
+            stack.budgetAssertionOracle,
+            stack.budgetSuccessResolver,
+            assertionId,
+            stack.budgetTreasury.pendingSuccessAssertionAt(),
+            stack.budgetTreasury.successAssertionLiveness(),
+            stack.budgetTreasury.successAssertionBond()
+        );
+        vm.prank(address(stack.budgetSuccessResolver));
+        stack.budgetTreasury.resolveSuccess();
+    }
+
+    function _setTruthfulAssertion(
+        TreasuryMockOptimisticOracleV3 oracle,
+        TreasuryMockUmaResolverConfig resolver,
+        bytes32 assertionId,
+        uint64 assertedAt,
+        uint64 liveness,
+        uint256 bond
+    ) internal {
+        oracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: address(resolver),
+                    escalationManager: resolver.escalationManager()
+                }),
+                asserter: address(resolver),
+                assertionTime: assertedAt,
+                settled: true,
+                currency: resolver.assertionCurrency(),
+                expirationTime: assertedAt + liveness,
+                settlementResolution: true,
+                domainId: resolver.domainId(),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: bond,
+                callbackRecipient: address(resolver),
+                disputer: address(0)
+            })
+        );
+    }
+
+    function _prepareWithdrawalAndAssertSlash(
+        RealGoalBudgetEscrowStack memory stack,
+        uint256 stakedGoalBeforePrepare,
+        uint256 stakedCobuildBeforePrepare,
+        uint256 fundingBefore
+    ) internal {
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            stack.vault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertTrue(stack.escrow.slashed(ALICE));
+        assertLt(stack.vault.stakedGoalOf(ALICE), stakedGoalBeforePrepare);
+        assertLt(stack.vault.stakedCobuildOf(ALICE), stakedCobuildBeforePrepare);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
     }
 
     function _expectWithdrawLocked(StakeVault delayedVault) internal {
