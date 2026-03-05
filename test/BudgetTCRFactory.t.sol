@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { Test } from "forge-std/Test.sol";
+import { StdStorage, stdStorage } from "forge-std/StdStorage.sol";
 
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
@@ -138,6 +139,8 @@ contract _MockUnderwriterSlasherRouterWithoutStakeVaultForFactory {
 }
 
 contract BudgetTCRFactoryTest is Test {
+    using stdStorage for StdStorage;
+
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
 
     event BudgetStackDeployed(
@@ -794,6 +797,7 @@ contract BudgetTCRFactoryTest is Test {
         address configuredSlasher = goalTreasury.configuredSlasher();
         assertEq(stakeVault.jurorSlasher(), configuredSlasher);
         assertTrue(configuredSlasher != deployed.arbitrator);
+        assertEq(factory.jurorSlasherRouterByBudgetTCR(deployed.budgetTCR), configuredSlasher);
         JurorSlasherRouter router = JurorSlasherRouter(configuredSlasher);
         assertEq(router.authority(), address(factory));
         assertTrue(router.isAuthorizedSlasher(deployed.arbitrator));
@@ -1128,7 +1132,10 @@ contract BudgetTCRFactoryTest is Test {
         factory.onBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
     }
 
-    function test_onBudgetAllocationMechanismDeployed_emitsFactoryDiscoveryEvent_forRegisteredStackDeployer() public {
+    function
+        test_onBudgetAllocationMechanismDeployed_authorizesMechanismArbitrator_andEmitsFactoryDiscoveryEvent_forRegisteredStackDeployer()
+        public
+    {
         (
             BudgetTCRFactory factory,
             BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
@@ -1138,6 +1145,9 @@ contract BudgetTCRFactoryTest is Test {
         address mechanism = makeAddr("allocation-mechanism");
         address mechanismArbitrator = makeAddr("mechanism-arbitrator");
         address roundFactory = makeAddr("round-factory");
+        JurorSlasherRouter router = JurorSlasherRouter(factory.jurorSlasherRouterByBudgetTCR(deployed.budgetTCR));
+
+        assertFalse(router.isAuthorizedSlasher(mechanismArbitrator));
 
         vm.expectEmit(true, true, true, true, address(factory));
         emit BudgetAllocationMechanismDeployed(
@@ -1150,6 +1160,53 @@ contract BudgetTCRFactoryTest is Test {
 
         vm.prank(stackDeployer);
         factory.onBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
+
+        assertTrue(router.isAuthorizedSlasher(mechanismArbitrator));
+    }
+
+    function test_onBudgetAllocationMechanismDeployed_reverts_whenCachedRouterMissing_forRegisteredStackDeployer()
+        public
+    {
+        (
+            BudgetTCRFactory factory,
+            BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
+            address stackDeployer
+        ) = _deployDefaultStackForDiscovery();
+        bytes32 itemID = keccak256("budget-item");
+        address mechanism = makeAddr("allocation-mechanism");
+        address mechanismArbitrator = makeAddr("mechanism-arbitrator");
+        address roundFactory = makeAddr("round-factory");
+        JurorSlasherRouter router = JurorSlasherRouter(factory.jurorSlasherRouterByBudgetTCR(deployed.budgetTCR));
+
+        assertFalse(router.isAuthorizedSlasher(mechanismArbitrator));
+
+        stdstore
+            .target(address(factory))
+            .sig(factory.jurorSlasherRouterByBudgetTCR.selector)
+            .with_key(deployed.budgetTCR)
+            .checked_write(address(0));
+
+        assertEq(factory.jurorSlasherRouterByBudgetTCR(deployed.budgetTCR), address(0));
+
+        vm.expectRevert(BudgetTCRFactory.JUROR_SLASHER_NOT_CONFIGURED.selector);
+        vm.prank(stackDeployer);
+        factory.onBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
+
+        assertFalse(router.isAuthorizedSlasher(mechanismArbitrator));
+    }
+
+    function test_onBudgetAllocationMechanismDeployed_reverts_whenCallerNotRegistered() public {
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_STACK_DEPLOYER.selector, address(this))
+        );
+        factory.onBudgetAllocationMechanismDeployed(
+            keccak256("budget-item"),
+            makeAddr("allocation-mechanism"),
+            makeAddr("mechanism-arbitrator"),
+            makeAddr("round-factory")
+        );
     }
 
     function test_onBudgetStackDeployed_reverts_whenCallerNotRegistered() public {

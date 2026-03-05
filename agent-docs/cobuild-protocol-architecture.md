@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-03-03
+Last updated: 2026-03-05
 
 ## Purpose
 
@@ -203,12 +203,14 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them through `GoalTreasury.GoalConfig`,
   - `GoalTreasury.initialize` configures StakeVault slashers immediately and exactly once,
   - `StakeVault` slasher setters are `goalTreasury`-only (no `goalTreasury.authority()` callback path).
+  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal `BudgetTCR`.
 - `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetTCRDeployer` implementations.
 - `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.
 - Budget stack discovery for indexers is available from fixed emitters:
   - `BudgetTCRFactory.BudgetTCRStackDeployedForGoal` emits first-hop `BudgetTCR` + arbitrator deployment.
   - `BudgetTCRFactory` also re-emits child-stack and mechanism deployment callbacks from registered stack deployers (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`) so indexers can discover dynamic children without subscribing to unknown `BudgetTCR` emitters first.
+  - The mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the per-goal `JurorSlasherRouter`, so activation fails closed if router wiring is missing or invalid.
 - Invalid/no-vote arbitrator round rewards are routed to a configured `invalidRoundRewardSink`.
 
 ## Test Harness Boundaries

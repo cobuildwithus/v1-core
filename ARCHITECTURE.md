@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-03
+Last updated: 2026-03-05
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -222,6 +222,7 @@ cobuild-protocol/
   - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them into `GoalTreasury.initialize`,
   - `GoalTreasury.initialize` sets both StakeVault slashers exactly once,
   - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
+  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.

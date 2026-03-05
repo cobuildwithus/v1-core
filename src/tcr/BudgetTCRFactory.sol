@@ -86,6 +86,7 @@ contract BudgetTCRFactory {
     uint256 public immutable escrowBondBps;
     mapping(address stackDeployer => address budgetTCR) public budgetTCRByStackDeployer;
     mapping(address budgetTCR => address stackDeployer) public stackDeployerByBudgetTCR;
+    mapping(address budgetTCR => address jurorSlasherRouter) public jurorSlasherRouterByBudgetTCR;
 
     constructor(
         address budgetTCRImplementation_,
@@ -159,6 +160,7 @@ contract BudgetTCRFactory {
             })
         );
         address jurorSlasherRouter = _resolveConfiguredJurorSlasherRouter(stakeVault);
+        jurorSlasherRouterByBudgetTCR[budgetTCR] = jurorSlasherRouter;
         JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
         address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
             deploymentConfig.underwriterSlasherRouter,
@@ -222,6 +224,7 @@ contract BudgetTCRFactory {
     ) external {
         address budgetTCR = budgetTCRByStackDeployer[msg.sender];
         if (budgetTCR == address(0)) revert UNAUTHORIZED_STACK_DEPLOYER(msg.sender);
+        _authorizeMechanismArbitrator(budgetTCR, allocationMechanismArbitrator);
         emit BudgetAllocationMechanismDeployed(
             budgetTCR,
             itemID,
@@ -250,6 +253,12 @@ contract BudgetTCRFactory {
     ) external view returns (address predicted) {
         bytes32 budgetTCRSalt = deriveBudgetTCRSalt(sender, goalFlow, goalTreasury, goalRevnetId, votingToken);
         predicted = Clones.predictDeterministicAddress(budgetTCRImplementation, budgetTCRSalt, address(this));
+    }
+
+    function _authorizeMechanismArbitrator(address budgetTCR, address allocationMechanismArbitrator) internal {
+        address jurorSlasherRouter = jurorSlasherRouterByBudgetTCR[budgetTCR];
+        if (jurorSlasherRouter == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
+        JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(allocationMechanismArbitrator, true);
     }
 
     function _assertImplementationHasCode(address implementation) internal view {

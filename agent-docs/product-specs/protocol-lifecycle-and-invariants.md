@@ -105,6 +105,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
     (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
+  - The same authenticated mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the goal's `JurorSlasherRouter`; budget activation must fail closed if that authorization cannot be applied.
 
 ## Behavioral Guarantees
 
