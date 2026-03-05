@@ -86,9 +86,15 @@ mkdir -p "$OUT_DIR"
 OUT_FILE="$OUT_DIR/review-gpt-nozip-${PROFILE}-${TARGET_BYTES}.md"
 
 scripts/build-nozip-review-prompt.sh --profile "$PROFILE" --target-bytes "$TARGET_BYTES" --out "$OUT_FILE"
-pnpm exec cobuild-review-gpt \
-  --config scripts/review-gpt.config.sh \
-  --no-zip \
-  --prompt-file "$ROOT/$OUT_FILE" \
-  --preset "$PRESET" \
-  "${review_gpt_args[@]}"
+cmd=(
+  pnpm exec cobuild-review-gpt
+  --config scripts/review-gpt.config.sh
+  --no-zip
+  --prompt-file "$ROOT/$OUT_FILE"
+  --preset "$PRESET"
+)
+if ((${#review_gpt_args[@]} > 0)); then
+  cmd+=("${review_gpt_args[@]}")
+fi
+
+"${cmd[@]}"

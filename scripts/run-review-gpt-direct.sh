@@ -96,4 +96,9 @@ case "$scope" in
     ;;
 esac
 
-scripts/run-review-gpt-nozip.sh "$profile" "$target_bytes" --preset "$preset" "${review_gpt_args[@]}"
+cmd=(scripts/run-review-gpt-nozip.sh "$profile" "$target_bytes" --preset "$preset")
+if ((${#review_gpt_args[@]} > 0)); then
+  cmd+=("${review_gpt_args[@]}")
+fi
+
+"${cmd[@]}"
