@@ -101,6 +101,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Arbitrator token/arbitrable compatibility is a hard precondition.
 - `AllocationMechanismTCR` enforces `MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`; activation beyond cap reverts and active-recipient
   count decrements when funding stops or finalized removals detach recipients.
+- Factory discovery invariants:
+  - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
+  - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
+    (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
 
 ## Behavioral Guarantees
 

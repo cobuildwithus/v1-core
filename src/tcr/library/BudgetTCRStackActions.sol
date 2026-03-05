@@ -85,6 +85,7 @@ library BudgetTCRStackActions {
         deployer.registerChildFlowRecipient(itemID, childFlow);
 
         emit BudgetStackDeployed(itemID, childFlow, budgetTreasury, prepared.strategy);
+        deployer.emitBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, prepared.strategy);
 
         (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
         address deployedBudgetTreasury = deployer.deployBudgetTreasury(
@@ -126,6 +127,12 @@ library BudgetTCRStackActions {
             tcrStore
         );
         emit BudgetAllocationMechanismDeployed(
+            itemID,
+            allocationMechanism,
+            allocationMechanismArbitrator,
+            deployer.roundFactory()
+        );
+        deployer.emitBudgetAllocationMechanismDeployed(
             itemID,
             allocationMechanism,
             allocationMechanismArbitrator,

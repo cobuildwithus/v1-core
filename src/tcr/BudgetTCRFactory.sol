@@ -32,6 +32,7 @@ contract BudgetTCRFactory {
     error UNSUPPORTED_UNDERWRITER_SLASHER(address configuredSlasher);
     error INVALID_UNDERWRITER_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
+    error UNAUTHORIZED_STACK_DEPLOYER(address caller);
 
     struct RegistryConfigInput {
         address allocationMechanismAdmin;
@@ -62,12 +63,29 @@ contract BudgetTCRFactory {
         address goalFlow,
         address goalTreasury
     );
+    event BudgetStackDeployed(
+        address indexed budgetTCR,
+        bytes32 indexed itemID,
+        address indexed childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    );
+    event BudgetAllocationMechanismDeployed(
+        address indexed budgetTCR,
+        bytes32 indexed itemID,
+        address indexed allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory
+    );
 
     address public immutable budgetTCRImplementation;
     address public immutable arbitratorImplementation;
     address public immutable stackDeployerImplementation;
     address public immutable authorizedCaller;
     uint256 public immutable escrowBondBps;
+    mapping(address stackDeployer => address budgetTCR) public budgetTCRByStackDeployer;
+    mapping(address budgetTCR => address stackDeployer) public stackDeployerByBudgetTCR;
 
     constructor(
         address budgetTCRImplementation_,
@@ -117,7 +135,13 @@ contract BudgetTCRFactory {
         address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
-        IBudgetTCRDeployer(stackDeployer).initialize(budgetTCR, deploymentConfig.premiumEscrowImplementation);
+        IBudgetTCRDeployer(stackDeployer).initialize(
+            budgetTCR,
+            deploymentConfig.premiumEscrowImplementation,
+            address(this)
+        );
+        budgetTCRByStackDeployer[stackDeployer] = budgetTCR;
+        stackDeployerByBudgetTCR[budgetTCR] = stackDeployer;
 
         IERC20VotesArbitrator(arbitrator).initializeWithConfig(
             IERC20VotesArbitrator.InitConfig({
@@ -176,6 +200,35 @@ contract BudgetTCRFactory {
         );
 
         deployed = DeployedBudgetTCRStack({ budgetTCR: budgetTCR, arbitrator: arbitrator, token: token });
+    }
+
+    function onBudgetStackDeployed(
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    ) external {
+        address budgetTCR = budgetTCRByStackDeployer[msg.sender];
+        if (budgetTCR == address(0)) revert UNAUTHORIZED_STACK_DEPLOYER(msg.sender);
+        emit BudgetStackDeployed(budgetTCR, itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
+    }
+
+    function onBudgetAllocationMechanismDeployed(
+        bytes32 itemID,
+        address allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory
+    ) external {
+        address budgetTCR = budgetTCRByStackDeployer[msg.sender];
+        if (budgetTCR == address(0)) revert UNAUTHORIZED_STACK_DEPLOYER(msg.sender);
+        emit BudgetAllocationMechanismDeployed(
+            budgetTCR,
+            itemID,
+            allocationMechanism,
+            allocationMechanismArbitrator,
+            roundFactory
+        );
     }
 
     function deriveBudgetTCRSalt(

@@ -140,6 +140,22 @@ contract _MockUnderwriterSlasherRouterWithoutStakeVaultForFactory {
 contract BudgetTCRFactoryTest is Test {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
 
+    event BudgetStackDeployed(
+        address indexed budgetTCR,
+        bytes32 indexed itemID,
+        address indexed childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    );
+    event BudgetAllocationMechanismDeployed(
+        address indexed budgetTCR,
+        bytes32 indexed itemID,
+        address indexed allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory
+    );
+
     function test_budgetTCRDeployer_constructor_sets_budget_treasury_implementation() public {
         BudgetTCRDeployer deployer = _deployBudgetTcrDeployer();
         address implementation = deployer.budgetTreasuryImplementation();
@@ -1082,6 +1098,75 @@ contract BudgetTCRFactoryTest is Test {
         assertFalse(ok);
     }
 
+    function test_deployBudgetTCRStackForGoal_registersStackDeployerForFactoryDiscoveryCallbacks() public {
+        (
+            BudgetTCRFactory factory,
+            BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
+            address stackDeployer
+        ) = _deployDefaultStackForDiscovery();
+
+        assertEq(factory.budgetTCRByStackDeployer(stackDeployer), deployed.budgetTCR);
+        assertEq(factory.stackDeployerByBudgetTCR(deployed.budgetTCR), stackDeployer);
+    }
+
+    function test_onBudgetStackDeployed_emitsFactoryDiscoveryEvent_forRegisteredStackDeployer() public {
+        (
+            BudgetTCRFactory factory,
+            BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
+            address stackDeployer
+        ) = _deployDefaultStackForDiscovery();
+        bytes32 itemID = keccak256("budget-item");
+        address childFlow = makeAddr("child-flow");
+        address budgetTreasury = makeAddr("budget-treasury");
+        address premiumEscrow = makeAddr("premium-escrow");
+        address strategy = makeAddr("strategy");
+
+        vm.expectEmit(true, true, true, true, address(factory));
+        emit BudgetStackDeployed(deployed.budgetTCR, itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
+
+        vm.prank(stackDeployer);
+        factory.onBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
+    }
+
+    function test_onBudgetAllocationMechanismDeployed_emitsFactoryDiscoveryEvent_forRegisteredStackDeployer() public {
+        (
+            BudgetTCRFactory factory,
+            BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
+            address stackDeployer
+        ) = _deployDefaultStackForDiscovery();
+        bytes32 itemID = keccak256("budget-item");
+        address mechanism = makeAddr("allocation-mechanism");
+        address mechanismArbitrator = makeAddr("mechanism-arbitrator");
+        address roundFactory = makeAddr("round-factory");
+
+        vm.expectEmit(true, true, true, true, address(factory));
+        emit BudgetAllocationMechanismDeployed(
+            deployed.budgetTCR,
+            itemID,
+            mechanism,
+            mechanismArbitrator,
+            roundFactory
+        );
+
+        vm.prank(stackDeployer);
+        factory.onBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
+    }
+
+    function test_onBudgetStackDeployed_reverts_whenCallerNotRegistered() public {
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_STACK_DEPLOYER.selector, address(this))
+        );
+        factory.onBudgetStackDeployed(
+            keccak256("budget-item"),
+            makeAddr("child-flow"),
+            makeAddr("budget-treasury"),
+            makeAddr("premium-escrow"),
+            makeAddr("strategy")
+        );
+    }
+
     function test_deployBudgetTCRStackForGoal_wiresDeploymentAndRegistryConfigIntoClone() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         MockVotesToken goalToken = new MockVotesToken("Goal", "GOAL");
@@ -1511,5 +1596,48 @@ contract BudgetTCRFactoryTest is Test {
         if (_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher() == address(0)) {
             mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
         }
+    }
+
+    function _deployDefaultStackForDiscovery()
+        internal
+        returns (
+            BudgetTCRFactory factory,
+            BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,
+            address stackDeployer
+        )
+    {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+        factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            allocationMechanismAdmin: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            arbitratorExtraData: bytes(""),
+            registrationMetaEvidence: "ipfs://reg",
+            clearingMetaEvidence: "ipfs://clear",
+            votingToken: IVotes(address(votingToken)),
+            submissionBaseDeposit: 100e18,
+            removalBaseDeposit: 50e18,
+            submissionChallengeBaseDeposit: 120e18,
+            removalChallengeBaseDeposit: 70e18,
+            challengePeriodDuration: 3 days,
+            submissionDepositStrategy: submissionDepositStrategy
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
+        );
+        deployed = factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+        stackDeployer = BudgetTCR(deployed.budgetTCR).stackDeployer();
     }
 }

@@ -44,6 +44,21 @@ interface IBudgetTCRStackDeployer {
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external;
 
+    function emitBudgetStackDeployed(
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    ) external;
+
+    function emitBudgetAllocationMechanismDeployed(
+        bytes32 itemID,
+        address allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory
+    ) external;
+
     function roundFactory() external view returns (address);
     function allocationMechanismTcrImplementation() external view returns (address);
     function allocationMechanismArbitratorImplementation() external view returns (address);

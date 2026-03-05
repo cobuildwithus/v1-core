@@ -194,6 +194,45 @@ contract BudgetTCRStackDeploymentLibNoStrategyChildFlow {
     }
 }
 
+contract BudgetTCRDiscoveryEmitterMock {
+    bytes32 public lastStackItemId;
+    address public lastStackChildFlow;
+    address public lastStackBudgetTreasury;
+    address public lastStackPremiumEscrow;
+    address public lastStackStrategy;
+
+    bytes32 public lastMechanismItemId;
+    address public lastMechanism;
+    address public lastMechanismArbitrator;
+    address public lastRoundFactory;
+
+    function onBudgetStackDeployed(
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    ) external {
+        lastStackItemId = itemID;
+        lastStackChildFlow = childFlow;
+        lastStackBudgetTreasury = budgetTreasury;
+        lastStackPremiumEscrow = premiumEscrow;
+        lastStackStrategy = strategy;
+    }
+
+    function onBudgetAllocationMechanismDeployed(
+        bytes32 itemID,
+        address allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory
+    ) external {
+        lastMechanismItemId = itemID;
+        lastMechanism = allocationMechanism;
+        lastMechanismArbitrator = allocationMechanismArbitrator;
+        lastRoundFactory = roundFactory;
+    }
+}
+
 contract BudgetTCRStackDeploymentLibTest is Test {
     BudgetTCRStackDeploymentLibHarness internal harness;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
@@ -618,6 +657,29 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         implementation.initialize(address(this), premiumEscrowImplementationAddress);
     }
 
+    function test_initialize_withDiscoveryEmitter_setsDiscoveryEmitter() public {
+        BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
+        BudgetTCRDiscoveryEmitterMock discoveryEmitter = new BudgetTCRDiscoveryEmitterMock();
+        address budgetTcr = makeAddr("budget-tcr");
+        PremiumEscrow premiumEscrow = new PremiumEscrow();
+
+        deployerWithEmitter.initialize(budgetTcr, address(premiumEscrow), address(discoveryEmitter));
+
+        assertEq(deployerWithEmitter.budgetTCR(), budgetTcr);
+        assertEq(deployerWithEmitter.premiumEscrowImplementation(), address(premiumEscrow));
+        assertEq(deployerWithEmitter.discoveryEmitter(), address(discoveryEmitter));
+    }
+
+    function test_initialize_withDiscoveryEmitter_revertsWhenEmitterHasNoCode() public {
+        BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
+        address noCodeEmitter = vm.addr(123456789);
+        assertEq(noCodeEmitter.code.length, 0);
+        address premiumEscrow = address(new PremiumEscrow());
+
+        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
+        deployerWithEmitter.initialize(makeAddr("budget-tcr"), premiumEscrow, noCodeEmitter);
+    }
+
     function test_strategyImplementation_revertsWhenInitializedDirectly() public {
         BudgetFlowRouterStrategy implementation = new BudgetFlowRouterStrategy();
 
@@ -647,6 +709,67 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
         vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
         guardedDeployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
+    }
+
+    function test_emitBudgetStackDeployed_forwardsToDiscoveryEmitter() public {
+        BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
+        BudgetTCRDiscoveryEmitterMock discoveryEmitter = new BudgetTCRDiscoveryEmitterMock();
+        address budgetTcr = makeAddr("budget-tcr");
+        deployerWithEmitter.initialize(budgetTcr, address(premiumEscrowImplementation), address(discoveryEmitter));
+
+        bytes32 itemID = keccak256("item-id");
+        address childFlow = makeAddr("child-flow");
+        address budgetTreasury = makeAddr("budget-treasury");
+        address premiumEscrow = makeAddr("premium-escrow");
+        address strategy = makeAddr("strategy");
+
+        vm.prank(budgetTcr);
+        deployerWithEmitter.emitBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
+
+        assertEq(discoveryEmitter.lastStackItemId(), itemID);
+        assertEq(discoveryEmitter.lastStackChildFlow(), childFlow);
+        assertEq(discoveryEmitter.lastStackBudgetTreasury(), budgetTreasury);
+        assertEq(discoveryEmitter.lastStackPremiumEscrow(), premiumEscrow);
+        assertEq(discoveryEmitter.lastStackStrategy(), strategy);
+    }
+
+    function test_emitBudgetAllocationMechanismDeployed_forwardsToDiscoveryEmitter() public {
+        BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
+        BudgetTCRDiscoveryEmitterMock discoveryEmitter = new BudgetTCRDiscoveryEmitterMock();
+        address budgetTcr = makeAddr("budget-tcr");
+        deployerWithEmitter.initialize(budgetTcr, address(premiumEscrowImplementation), address(discoveryEmitter));
+
+        bytes32 itemID = keccak256("item-id");
+        address mechanism = makeAddr("mechanism");
+        address mechanismArbitrator = makeAddr("mechanism-arbitrator");
+        address roundFactory = makeAddr("round-factory");
+
+        vm.prank(budgetTcr);
+        deployerWithEmitter.emitBudgetAllocationMechanismDeployed(
+            itemID,
+            mechanism,
+            mechanismArbitrator,
+            roundFactory
+        );
+
+        assertEq(discoveryEmitter.lastMechanismItemId(), itemID);
+        assertEq(discoveryEmitter.lastMechanism(), mechanism);
+        assertEq(discoveryEmitter.lastMechanismArbitrator(), mechanismArbitrator);
+        assertEq(discoveryEmitter.lastRoundFactory(), roundFactory);
+    }
+
+    function test_emitBudgetStackDeployed_revertsWhenCallerIsNotBudgetTCR() public {
+        BudgetTCRDeployer guardedDeployer = _deployBudgetTcrDeployer();
+        guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation));
+
+        vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
+        guardedDeployer.emitBudgetStackDeployed(
+            keccak256("item-id"),
+            makeAddr("child-flow"),
+            makeAddr("budget-treasury"),
+            makeAddr("premium-escrow"),
+            makeAddr("strategy")
+        );
     }
 
     function test_registerChildFlowRecipient_registersRecipientAndRejectsDuplicateFlow() public {

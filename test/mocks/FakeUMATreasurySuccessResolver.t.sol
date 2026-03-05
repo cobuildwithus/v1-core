@@ -680,6 +680,7 @@ contract DeployGoalFactoryScriptWiringTest is Test {
             out.goalSuperToken = address(0x2);
             out.goalTreasury = address(0x3);
             out.goalFlow = address(0x4);
+            out.goalFlowAllocationLedgerPipeline = address(0x7);
             out.stakeVault = address(0x5);
             out.budgetStakeLedger = address(0x6);
             out.splitHook = address(0x8);

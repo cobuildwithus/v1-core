@@ -5,6 +5,7 @@ import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import { IBudgetTCRFactoryDiscoveryEmitter } from "./interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -16,6 +17,7 @@ import { BudgetTCRStackDeploymentLib } from "./library/BudgetTCRStackDeploymentL
 contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public override budgetTCR;
     address public premiumEscrowImplementation;
+    address public discoveryEmitter;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable override allocationMechanismTcrImplementation;
@@ -55,13 +57,27 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function initialize(address budgetTCR_, address premiumEscrowImplementation_) external initializer {
+        _initialize(budgetTCR_, premiumEscrowImplementation_, address(0));
+    }
+
+    function initialize(
+        address budgetTCR_,
+        address premiumEscrowImplementation_,
+        address discoveryEmitter_
+    ) external initializer {
+        _initialize(budgetTCR_, premiumEscrowImplementation_, discoveryEmitter_);
+    }
+
+    function _initialize(address budgetTCR_, address premiumEscrowImplementation_, address discoveryEmitter_) internal {
         if (budgetTCR_ == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrowImplementation_ == address(0) || premiumEscrowImplementation_.code.length == 0) {
             revert ADDRESS_ZERO();
         }
+        if (discoveryEmitter_ != address(0) && discoveryEmitter_.code.length == 0) revert ADDRESS_ZERO();
 
         budgetTCR = budgetTCR_;
         premiumEscrowImplementation = premiumEscrowImplementation_;
+        discoveryEmitter = discoveryEmitter_;
     }
 
     function prepareBudgetStack(
@@ -143,6 +159,40 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) revert SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
         IBudgetFlowRouterStrategy(strategy).registerFlowRecipient(childFlow, recipientId);
+    }
+
+    function emitBudgetStackDeployed(
+        bytes32 itemID,
+        address childFlow,
+        address budgetTreasury,
+        address premiumEscrow,
+        address strategy
+    ) external onlyBudgetTCR {
+        address emitter = discoveryEmitter;
+        if (emitter == address(0)) return;
+        IBudgetTCRFactoryDiscoveryEmitter(emitter).onBudgetStackDeployed(
+            itemID,
+            childFlow,
+            budgetTreasury,
+            premiumEscrow,
+            strategy
+        );
+    }
+
+    function emitBudgetAllocationMechanismDeployed(
+        bytes32 itemID,
+        address allocationMechanism,
+        address allocationMechanismArbitrator,
+        address roundFactory_
+    ) external onlyBudgetTCR {
+        address emitter = discoveryEmitter;
+        if (emitter == address(0)) return;
+        IBudgetTCRFactoryDiscoveryEmitter(emitter).onBudgetAllocationMechanismDeployed(
+            itemID,
+            allocationMechanism,
+            allocationMechanismArbitrator,
+            roundFactory_
+        );
     }
 
     function _assertImplementationAddress(address implementation) internal view {

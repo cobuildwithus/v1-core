@@ -94,6 +94,10 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function registerChildFlowRecipient(bytes32, address) external { }
 
+    function emitBudgetStackDeployed(bytes32, address, address, address, address) external { }
+
+    function emitBudgetAllocationMechanismDeployed(bytes32, address, address, address) external { }
+
     function roundFactory() external view returns (address) {
         return _roundFactory;
     }

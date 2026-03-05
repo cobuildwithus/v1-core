@@ -71,6 +71,7 @@ library GoalFactoryCoreStackDeploy {
         ISuperToken goalSuperToken;
         StakeVault stakeVault;
         BudgetStakeLedger budgetStakeLedger;
+        address goalFlowAllocationLedgerPipeline;
         address jurorSlasherRouter;
         address underwriterSlasherRouter;
     }
@@ -107,6 +108,7 @@ library GoalFactoryCoreStackDeploy {
         GoalFlowAllocationLedgerPipeline allocationPipeline = GoalFlowAllocationLedgerPipeline(
             Clones.clone(request.goalFlowAllocationLedgerPipelineImpl)
         );
+        out.goalFlowAllocationLedgerPipeline = address(allocationPipeline);
         allocationPipeline.initialize(address(out.budgetStakeLedger));
         IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
         allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
@@ -126,7 +128,7 @@ library GoalFactoryCoreStackDeploy {
             address(out.goalTreasury),
             address(out.goalTreasury),
             address(0),
-            address(allocationPipeline),
+            out.goalFlowAllocationLedgerPipeline,
             address(0),
             IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
             metadata,
