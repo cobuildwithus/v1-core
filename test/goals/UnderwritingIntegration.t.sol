@@ -815,6 +815,223 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
     }
 
+    function test_realBudgetTreasury_pendingSuccessAssertion_keepsWithdrawalBlockedUntilClearedAndFailed()
+        public
+    {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        bytes32 budgetRecipientId = keccak256("underwriting-real-budget-pending-assertion");
+        bytes32 assertionId = keccak256("underwriting-real-budget-success-assertion");
+        uint64 budgetActivatedAt = 10;
+        uint64 assertionRegisteredAt = 25;
+        uint64 budgetResolvedAt = 45;
+
+        (
+            StakeVault delayedVault,
+            ,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            SharedMockFlow delayedBudgetFlow,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
+
+        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+
+        goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
+
+        vm.warp(budgetActivatedAt);
+        delayedBudgetTreasury.sync();
+        delayedEscrow.checkpoint(ALICE);
+
+        vm.warp(assertionRegisteredAt);
+        delayedBudgetTreasury.registerSuccessAssertion(assertionId);
+
+        assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(delayedBudgetTreasury.pendingSuccessAssertionAt(), assertionRegisteredAt);
+
+        delayedGoalTreasury.setResolved(true);
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        vm.warp(budgetResolvedAt);
+        _fundEscrowForTargetSlash(delayedEscrow, TARGET_SLASH_WEIGHT);
+
+        vm.expectRevert(IBudgetTreasury.SUCCESS_ASSERTION_PENDING.selector);
+        delayedBudgetTreasury.resolveFailure();
+
+        delayedBudgetTreasury.clearSuccessAssertion(assertionId);
+
+        assertEq(delayedBudgetTreasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(delayedBudgetTreasury.pendingSuccessAssertionAt(), 0);
+        assertTrue(delayedBudgetTreasury.reassertGraceUsed());
+        assertEq(delayedBudgetTreasury.reassertGraceDeadline(), budgetResolvedAt + 1 days);
+
+        uint256 stakedGoalBeforePrepare = delayedVault.stakedGoalOf(ALICE);
+        uint256 stakedCobuildBeforePrepare = delayedVault.stakedCobuildOf(ALICE);
+        uint256 fundingBefore = goalSuperToken.balanceOf(GOAL_FUNDING_TARGET);
+
+        delayedBudgetTreasury.resolveFailure();
+
+        assertTrue(delayedBudgetTreasury.resolved());
+        assertEq(uint256(delayedBudgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(delayedEscrow.closed());
+
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertTrue(delayedEscrow.slashed(ALICE));
+        assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforePrepare);
+        assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforePrepare);
+        assertGt(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
+    }
+
+    function test_realBudgetTreasury_goalResolvedBeforeActivation_prepareAllowsWithdrawWithCurrentCoverageOnly()
+        public
+    {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        bytes32 budgetRecipientId = keccak256("underwriting-real-budget-preactivation-withdraw");
+
+        (
+            StakeVault delayedVault,
+            ,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            ,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), 0);
+        assertEq(delayedBudgetStakeLedger.registeredBudgetCount(), 1);
+        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, budgetCount);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertFalse(delayedEscrow.slashed(ALICE));
+        assertEq(delayedVault.stakedGoalOf(ALICE), goalStake);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), cobuildStake);
+
+        vm.startPrank(ALICE);
+        delayedVault.withdrawGoal(goalStake, ALICE);
+        delayedVault.withdrawCobuild(cobuildStake, ALICE);
+        vm.stopPrank();
+
+        assertEq(delayedVault.stakedGoalOf(ALICE), 0);
+        assertEq(delayedVault.stakedCobuildOf(ALICE), 0);
+        assertEq(goalToken.balanceOf(ALICE), goalStake);
+        assertEq(cobuildToken.balanceOf(ALICE), cobuildStake);
+    }
+
+    function test_realBudgetTreasury_goalResolvedBeforeActivation_withEscrowCheckpointedExposure_prepareRemainsBlocked()
+        public
+    {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        bytes32 budgetRecipientId = keccak256("underwriting-real-budget-preactivation-blocked");
+
+        (
+            StakeVault delayedVault,
+            ,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            ,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), 0);
+        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+
+        delayedEscrow.checkpoint(ALICE);
+        assertEq(delayedEscrow.userCov(ALICE), budgetCoverage);
+        assertEq(delayedEscrow.exposureIntegral(ALICE), 0);
+
+        delayedGoalTreasury.setResolved(true);
+
+        vm.prank(address(0xDEAD));
+        delayedVault.markGoalResolved();
+
+        _expectWithdrawLocked(delayedVault);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        delayedVault.prepareUnderwriterWithdrawal(type(uint256).max);
+    }
+
+    function test_realBudgetTreasuryAndLedger_successPath_claimsPremiumThroughRealBudgetState() public {
+        uint256 goalStake = 120e18;
+        uint256 cobuildStake = 80e18;
+        uint256 budgetCoverage = 100e18;
+        uint256 premiumAmount = 45e18;
+        bytes32 budgetRecipientId = keccak256("underwriting-real-budget-success-path");
+        uint64 budgetActivatedAt = 10;
+        uint64 budgetClosedAt = 30;
+
+        (
+            ,
+            ,
+            PremiumEscrow delayedEscrow,
+            BudgetStakeLedger delayedBudgetStakeLedger,
+            BudgetTreasury delayedBudgetTreasury,
+            SharedMockFlow delayedBudgetFlow,
+            UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
+        ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
+
+        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+
+        goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
+
+        vm.warp(budgetActivatedAt);
+        delayedBudgetTreasury.sync();
+        delayedEscrow.checkpoint(ALICE);
+
+        assertEq(delayedBudgetTreasury.activatedAt(), budgetActivatedAt);
+        assertEq(uint256(delayedBudgetTreasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+
+        _distributeEscrowPremium(delayedEscrow, premiumAmount);
+        delayedEscrow.checkpoint(ALICE);
+
+        delayedGoalTreasury.setState(IGoalTreasury.GoalState.Succeeded);
+
+        vm.warp(budgetClosedAt);
+        vm.prank(address(delayedBudgetTreasury));
+        delayedEscrow.close(IBudgetTreasury.BudgetState.Succeeded, budgetActivatedAt, budgetClosedAt);
+
+        vm.prank(ALICE);
+        uint256 claimed = delayedEscrow.claim(PREMIUM_RECIPIENT);
+
+        assertEq(claimed, premiumAmount);
+        assertEq(goalSuperToken.balanceOf(PREMIUM_RECIPIENT), premiumAmount);
+        assertEq(delayedBudgetStakeLedger.budgetTotalAllocatedStake(address(delayedBudgetTreasury)), budgetCoverage);
+    }
+
     function _deployDelayedEscrowStack(
         uint256 goalStake,
         uint256 cobuildStake,
