@@ -55,6 +55,12 @@ Override default preset at the command tail:
 - `pnpm -s review:gpt:direct -- goals --preset coverage`
 - `pnpm -s review:gpt:direct:all -- --preset compliance`
 
+Forward supported top-level `cobuild-review-gpt` flags directly through the wrapper:
+
+- `pnpm -s review:gpt:direct -- goals --dry-run`
+- `pnpm -s review:gpt:direct:goals -- --model current --thinking current`
+- `pnpm -s review:gpt:direct -- flows --chat https://chatgpt.com/c/<id>`
+
 Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
 - `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md --preset security`
@@ -62,6 +68,6 @@ Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
 Notes:
 
-- `--prompt-file` is provided by `cobuild-review-gpt` (in `review-gpt-cli`), not by the protocol wrapper script.
+- `--prompt-file` is provided by `cobuild-review-gpt` (in `review-gpt-cli`), and the direct wrappers now call that CLI directly with `--config scripts/review-gpt.config.sh`.
 - If your installed CLI does not show `--prompt-file` in `pnpm exec cobuild-review-gpt --help`, install/update from `../review-gpt-cli` first.
 - Repeat `--prompt-file` to combine multiple local markdown payloads in one request when within the model size cap.
