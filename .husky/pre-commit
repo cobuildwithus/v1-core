@@ -1,7 +1,6 @@
 #!/bin/sh
 set -e
 
-bash scripts/review-gpt-ensure-published.sh
 bash scripts/doc-gardening.sh
 
 pnpm -s prettier:write
