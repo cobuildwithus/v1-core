@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
 
 contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
@@ -51,6 +52,9 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         strategy.setWeight(key, weightB);
         bytes32 commitBefore = flow.getAllocationCommitment(address(strategy), key);
 
+        vm.expectCall(
+            address(strategy), abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key), uint64(1)
+        );
         vm.prank(allocator);
         flow.allocate(ids, scaled);
 
@@ -181,7 +185,8 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
 
         // count=1, index=0, scaled=1_000_000
         bytes memory packedSnapshot = hex"000100000000000f4240";
-        TestableCustomFlow(address(flow)).setAllocSnapshotPackedForTest(address(strategy), _allocatorKey(), packedSnapshot);
+        TestableCustomFlow(address(flow))
+            .setAllocSnapshotPackedForTest(address(strategy), _allocatorKey(), packedSnapshot);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(allocator);
@@ -297,7 +302,9 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         assertEq(restored.length, 0);
     }
 
-    function test_clearStaleAllocation_existingCommit_withMalformedStoredSnapshot_revertsInvalidPrevAllocation() public {
+    function test_clearStaleAllocation_existingCommit_withMalformedStoredSnapshot_revertsInvalidPrevAllocation()
+        public
+    {
         bytes32 id1 = bytes32(uint256(1));
         _addRecipient(id1, address(0x111));
 
@@ -349,10 +356,12 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         assertEq(flow.distributionPool().getUnits(recipient), _units(weightA, scaled[0]));
     }
 
-    function _assertCommitAndCacheWeight(uint256 key, uint256 expectedWeight, bytes32[] memory ids, uint32[] memory scaled)
-        internal
-        view
-    {
+    function _assertCommitAndCacheWeight(
+        uint256 key,
+        uint256 expectedWeight,
+        bytes32[] memory ids,
+        uint32[] memory scaled
+    ) internal view {
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
         assertEq(_allocWeightPlusOne(key), expectedWeight + 1);
     }
@@ -361,7 +370,11 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         return TestableCustomFlow(address(flow)).getAllocWeightPlusOneForTest(address(strategy), key);
     }
 
-    function _allocSnapshotPackedSlot(address strategyAddress, uint256 allocationKey) internal pure returns (bytes32 slot) {
+    function _allocSnapshotPackedSlot(address strategyAddress, uint256 allocationKey)
+        internal
+        pure
+        returns (bytes32 slot)
+    {
         uint256 snapshotBaseSlot = uint256(FLOW_ALLOC_STORAGE_LOCATION) + ALLOC_SNAPSHOT_PACKED_OFFSET;
         bytes32 strategySlot = keccak256(abi.encode(strategyAddress, snapshotBaseSlot));
         slot = keccak256(abi.encode(allocationKey, strategySlot));

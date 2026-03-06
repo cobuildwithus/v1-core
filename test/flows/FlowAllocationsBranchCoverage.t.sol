@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { FlowAllocations } from "src/library/FlowAllocations.sol";
-import { AllocationCommitment } from "src/library/AllocationCommitment.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
-import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
+import {FlowAllocations} from "src/library/FlowAllocations.sol";
+import {AllocationCommitment} from "src/library/AllocationCommitment.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
+import {IFlow} from "src/interfaces/IFlow.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
-import { ISuperfluidPool } from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/gdav1/ISuperfluidPool.sol";
+import {
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/gdav1/ISuperfluidPool.sol";
 
 contract FlowAllocationsCoverageHarness {
     FlowTypes.Config internal _cfg;
@@ -28,13 +29,7 @@ contract FlowAllocationsCoverageHarness {
             recipientIndexPlusOne: recipientIndexPlusOne,
             isRemoved: isRemoved,
             recipientType: FlowTypes.RecipientType.ExternalAccount,
-            metadata: FlowTypes.RecipientMetadata({
-                title: "",
-                description: "",
-                image: "",
-                tagline: "",
-                url: ""
-            })
+            metadata: FlowTypes.RecipientMetadata({title: "", description: "", image: "", tagline: "", url: ""})
         });
 
         if (recipientIndexPlusOne != 0) {
@@ -64,7 +59,8 @@ contract FlowAllocationsCoverageHarness {
         uint32[] memory prevAllocationPpm,
         uint256 prevWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationPpm
+        uint32[] memory newAllocationPpm,
+        uint256 newWeight
     ) external {
         FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
             _cfg,
@@ -76,7 +72,8 @@ contract FlowAllocationsCoverageHarness {
             prevAllocationPpm,
             prevWeight,
             newRecipientIds,
-            newAllocationPpm
+            newAllocationPpm,
+            newWeight
         );
     }
 }
@@ -136,7 +133,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
         );
     }
 
@@ -156,7 +154,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
         );
     }
 
@@ -176,7 +175,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT,
             _ids(ID_A),
-            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
         );
     }
 
@@ -186,7 +186,14 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
         vm.expectRevert(IFlow.TOO_FEW_RECIPIENTS.selector);
         harness.applyMemoryUnchecked(
-            address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, emptyIds, emptyAllocationPpm
+            address(strategy),
+            ALLOCATION_KEY,
+            emptyIds,
+            emptyAllocationPpm,
+            0,
+            emptyIds,
+            emptyAllocationPpm,
+            TEST_WEIGHT
         );
     }
 
@@ -195,7 +202,14 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
         vm.expectRevert(IFlow.NOT_SORTED_OR_DUPLICATE.selector);
         harness.applyMemoryUnchecked(
-            address(strategy), ALLOCATION_KEY, new bytes32[](0), new uint32[](0), 0, unsorted, _allocationPpm(500_000, 500_000)
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            unsorted,
+            _allocationPpm(500_000, 500_000),
+            TEST_WEIGHT
         );
     }
 
@@ -208,7 +222,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             new uint32[](0),
             0,
             _ids(ID_A),
-            new uint32[](0)
+            new uint32[](0),
+            TEST_WEIGHT
         );
     }
 
@@ -218,10 +233,14 @@ contract FlowAllocationsBranchCoverageTest is Test {
         bytes32[] memory emptyIds = new bytes32[](0);
         uint32[] memory emptyAllocationPpm = new uint32[](0);
 
-        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, ids, allocationPpm);
+        harness.applyMemoryUnchecked(
+            address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, ids, allocationPpm, TEST_WEIGHT
+        );
 
         bytes32 beforeCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
-        harness.applyMemoryUnchecked(address(strategy), ALLOCATION_KEY, ids, allocationPpm, TEST_WEIGHT, ids, allocationPpm);
+        harness.applyMemoryUnchecked(
+            address(strategy), ALLOCATION_KEY, ids, allocationPpm, TEST_WEIGHT, ids, allocationPpm, TEST_WEIGHT
+        );
         bytes32 afterCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
 
         assertEq(afterCommit, beforeCommit);
@@ -244,7 +263,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             oldAllocationPpm,
             TEST_WEIGHT,
             _ids(ID_A, ID_B),
-            _allocationPpm(500_000, 500_000)
+            _allocationPpm(500_000, 500_000),
+            TEST_WEIGHT
         );
     }
 
@@ -264,7 +284,8 @@ contract FlowAllocationsBranchCoverageTest is Test {
             oldAllocationPpm,
             TEST_WEIGHT,
             _ids(ID_B),
-            _allocationPpm(FlowProtocolConstants.PPM_SCALE)
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
         );
     }
 

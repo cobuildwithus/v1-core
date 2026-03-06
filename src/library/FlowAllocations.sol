@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IFlow, IFlowEvents } from "../interfaces/IFlow.sol";
 import { FlowPools } from "./FlowPools.sol";
-import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { AllocationCommitment } from "./AllocationCommitment.sol";
 import { AllocationSnapshot } from "./AllocationSnapshot.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
@@ -20,7 +19,6 @@ library FlowAllocations {
      * @param allocationsPpm Allocation split in 1e6-scale (`1_000_000 == 100%`).
      */
     function validateAllocations(
-        FlowTypes.Config storage cfg,
         FlowTypes.RecipientsState storage recipients,
         bytes32[] calldata recipientIds,
         uint32[] calldata allocationsPpm
@@ -47,7 +45,7 @@ library FlowAllocations {
     }
 
     /**
-     * @dev Unchecked apply path for memory arrays.
+     * @dev Unchecked apply path for memory arrays with caller-supplied weight.
      * Caller must enforce recipient activity and allocation-sum invariants for new allocations.
      * This function validates previous-state commitment continuity only.
      */
@@ -61,69 +59,9 @@ library FlowAllocations {
         uint32[] memory prevAllocationPpm,
         uint256 prevWeight,
         bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationPpm
-    ) public {
-        _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
-            cfg,
-            recipients,
-            alloc,
-            strategy,
-            allocationKey,
-            prevRecipientIds,
-            prevAllocationPpm,
-            prevWeight,
-            newRecipientIds,
-            newAllocationPpm,
-            IAllocationStrategy(strategy).currentWeight(allocationKey)
-        );
-    }
-
-    /**
-     * @dev Unchecked apply path for memory arrays with caller-supplied weight.
-     * Caller must enforce recipient activity and allocation-sum invariants for new allocations.
-     * This function validates previous-state commitment continuity only.
-     */
-    function applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
-        FlowTypes.Config storage cfg,
-        FlowTypes.RecipientsState storage recipients,
-        FlowTypes.AllocationState storage alloc,
-        address strategy,
-        uint256 allocationKey,
-        bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationPpm,
-        uint256 prevWeight,
-        bytes32[] memory newRecipientIds,
         uint32[] memory newAllocationPpm,
         uint256 newWeight
     ) public {
-        _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
-            cfg,
-            recipients,
-            alloc,
-            strategy,
-            allocationKey,
-            prevRecipientIds,
-            prevAllocationPpm,
-            prevWeight,
-            newRecipientIds,
-            newAllocationPpm,
-            newWeight
-        );
-    }
-
-    function _applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
-        FlowTypes.Config storage cfg,
-        FlowTypes.RecipientsState storage recipients,
-        FlowTypes.AllocationState storage alloc,
-        address strategy,
-        uint256 allocationKey,
-        bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationPpm,
-        uint256 prevWeight,
-        bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationPpm,
-        uint256 newWeight
-    ) private {
         // New inputs must be strictly sorted and unique for canonical hashing and linear merge
         _assertSortedUniqueMemoryNonEmpty(newRecipientIds);
 

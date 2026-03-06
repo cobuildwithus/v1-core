@@ -51,7 +51,7 @@ contract CustomFlow is ICustomFlow, Flow {
 
     // slither-disable-next-line reentrancy-no-eth
     function allocate(bytes32[] calldata recipientIds, uint32[] calldata allocationsPpm) external nonReentrant {
-        FlowAllocations.validateAllocations(_cfgStorage(), _recipientsStorage(), recipientIds, allocationsPpm);
+        FlowAllocations.validateAllocations(_recipientsStorage(), recipientIds, allocationsPpm);
 
         _allocateAndSync(
             _defaultStrategyOrRevert(),
@@ -130,7 +130,6 @@ contract CustomFlow is ICustomFlow, Flow {
         _requireDefaultStrategy(strategy);
         return
             CustomFlowPreview.previewChildSyncRequirements(
-                _cfgStorage(),
                 _recipientsStorage(),
                 _allocStorage(),
                 _pipelineStorage(),
@@ -159,7 +158,7 @@ contract CustomFlow is ICustomFlow, Flow {
 
         uint128 totalUnitsBefore = _cfgStorage().distributionPool.getTotalUnits();
 
-        CustomFlowAllocationEngine.applyAllocationWithPipelineWithWeight(
+        CustomFlowAllocationEngine.applyAllocationWithPipeline(
             _cfgStorage(),
             _recipientsStorage(),
             _allocStorage(),

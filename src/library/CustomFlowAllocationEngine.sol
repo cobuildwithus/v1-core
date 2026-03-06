@@ -27,6 +27,7 @@ library CustomFlowAllocationEngine {
         address strategyAddress = address(strategy);
         (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) = CustomFlowPreviousState
             .loadAndResolvePreviousState(recipients, alloc, strategyAddress, allocationKey);
+        uint256 newWeight = strategy.currentWeight(allocationKey);
 
         applyAllocationWithPipeline(
             cfg,
@@ -40,6 +41,7 @@ library CustomFlowAllocationEngine {
             prevAllocationPpm,
             recipientIds,
             allocationsPpm,
+            newWeight,
             commitKind
         );
     }
@@ -56,50 +58,10 @@ library CustomFlowAllocationEngine {
         uint32[] memory prevAllocationPpm,
         bytes32[] memory recipientIds,
         uint32[] memory allocationsPpm,
-        IAllocationPipeline.CommitKind commitKind
-    ) public {
-        FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
-            cfg,
-            recipients,
-            alloc,
-            strategy,
-            allocationKey,
-            prevIds,
-            prevAllocationPpm,
-            prevWeight,
-            recipientIds,
-            allocationsPpm
-        );
-        _runPipeline(
-            alloc,
-            pipelineState,
-            strategy,
-            allocationKey,
-            prevWeight,
-            prevIds,
-            prevAllocationPpm,
-            recipientIds,
-            allocationsPpm,
-            commitKind
-        );
-    }
-
-    function applyAllocationWithPipelineWithWeight(
-        FlowTypes.Config storage cfg,
-        FlowTypes.RecipientsState storage recipients,
-        FlowTypes.AllocationState storage alloc,
-        FlowTypes.PipelineState storage pipelineState,
-        address strategy,
-        uint256 allocationKey,
-        uint256 prevWeight,
-        bytes32[] memory prevIds,
-        uint32[] memory prevAllocationPpm,
-        bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm,
         uint256 newWeight,
         IAllocationPipeline.CommitKind commitKind
     ) public {
-        FlowAllocations.applyAllocationWithPreviousStateMemoryUncheckedWithWeight(
+        FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
             cfg,
             recipients,
             alloc,
@@ -113,13 +75,13 @@ library CustomFlowAllocationEngine {
             newWeight
         );
         _runPipeline(
-            alloc,
             pipelineState,
             strategy,
             allocationKey,
             prevWeight,
             prevIds,
             prevAllocationPpm,
+            newWeight,
             recipientIds,
             allocationsPpm,
             commitKind
@@ -127,13 +89,13 @@ library CustomFlowAllocationEngine {
     }
 
     function _runPipeline(
-        FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
         address strategy,
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] memory prevIds,
         uint32[] memory prevAllocationPpm,
+        uint256 newWeight,
         bytes32[] memory recipientIds,
         uint32[] memory allocationsPpm,
         IAllocationPipeline.CommitKind commitKind
@@ -147,22 +109,10 @@ library CustomFlowAllocationEngine {
             prevWeight,
             prevIds,
             prevAllocationPpm,
-            _committedWeight(alloc, strategy, allocationKey),
+            newWeight,
             recipientIds,
             allocationsPpm,
             commitKind
         );
-    }
-
-    function _committedWeight(
-        FlowTypes.AllocationState storage alloc,
-        address strategy,
-        uint256 allocationKey
-    ) private view returns (uint256 weight) {
-        uint256 weightPlusOne = alloc.allocWeightPlusOne[strategy][allocationKey];
-        if (weightPlusOne == 0) return 0;
-        unchecked {
-            weight = weightPlusOne - 1;
-        }
     }
 }

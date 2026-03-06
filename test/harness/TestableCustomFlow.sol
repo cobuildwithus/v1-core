@@ -6,6 +6,7 @@ import {FlowAllocations} from "src/library/FlowAllocations.sol";
 import {FlowPools} from "src/library/FlowPools.sol";
 import {CustomFlowAllocationEngine} from "src/library/CustomFlowAllocationEngine.sol";
 import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 contract TestableCustomFlow is CustomFlow {
@@ -31,7 +32,11 @@ contract TestableCustomFlow is CustomFlow {
         _allocStorage().allocSnapshotPacked[strategy][allocationKey] = packed;
     }
 
-    function getAllocSnapshotPackedForTest(address strategy, uint256 allocationKey) external view returns (bytes memory) {
+    function getAllocSnapshotPackedForTest(address strategy, uint256 allocationKey)
+        external
+        view
+        returns (bytes memory)
+    {
         return _allocStorage().allocSnapshotPacked[strategy][allocationKey];
     }
 
@@ -44,6 +49,7 @@ contract TestableCustomFlow is CustomFlow {
     ) external {
         bytes32[] memory ids = prevIds;
         uint32[] memory allocationPpm = prevAllocationPpm;
+        uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
         CustomFlowAllocationEngine.applyAllocationWithPipeline(
             _cfgStorage(),
             _recipientsStorage(),
@@ -56,6 +62,7 @@ contract TestableCustomFlow is CustomFlow {
             allocationPpm,
             ids,
             allocationPpm,
+            currentWeight,
             IAllocationPipeline.CommitKind.AllocationEdit
         );
     }
@@ -64,7 +71,7 @@ contract TestableCustomFlow is CustomFlow {
         external
         nonReentrant
     {
-        FlowAllocations.validateAllocations(_cfgStorage(), _recipientsStorage(), recipientIds, allocationsPpm);
+        FlowAllocations.validateAllocations(_recipientsStorage(), recipientIds, allocationsPpm);
 
         bytes32[] memory ids = recipientIds;
         uint32[] memory allocationPpm = allocationsPpm;
