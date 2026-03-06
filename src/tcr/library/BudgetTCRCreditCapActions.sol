@@ -40,42 +40,16 @@ library BudgetTCRCreditCapActions {
 
         if (lambda == 0) {
             if (!hasRunwayCap) {
-                try goalFlow.setRecipientEnabled(itemID, true) {} catch (bytes memory reason) {
-                    _emitBudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        address(goalFlow),
-                        IFlow.setRecipientEnabled.selector,
-                        reason
-                    );
-                }
+                _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, true);
                 return;
             }
 
-            uint256 received;
-            try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-                received = totalReceived;
-            } catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID,
-                    budgetTreasury,
-                    address(goalFlow),
-                    IFlow.getTotalReceivedByMember.selector,
-                    reason
-                );
+            (bool loadedReceived, uint256 received) = _tryLoadReceived(goalFlow, itemID, budgetTreasury, childFlow);
+            if (!loadedReceived) {
                 return;
             }
 
-            bool enabled = received < runwayCap;
-            try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID,
-                    budgetTreasury,
-                    address(goalFlow),
-                    IFlow.setRecipientEnabled.selector,
-                    reason
-                );
-            }
+            _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, received < runwayCap);
             return;
         }
 
@@ -157,42 +131,21 @@ library BudgetTCRCreditCapActions {
         }
 
         if (effectiveCap == 0) {
-            try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID,
-                    budgetTreasury,
-                    address(goalFlow),
-                    IFlow.setRecipientEnabled.selector,
-                    reason
-                );
-            }
+            _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, false);
             return;
         }
 
-        uint256 receivedForEffectiveCap;
-        try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-            receivedForEffectiveCap = totalReceived;
-        } catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                address(goalFlow),
-                IFlow.getTotalReceivedByMember.selector,
-                reason
-            );
+        (bool loadedReceivedForEffectiveCap, uint256 receivedForEffectiveCap) = _tryLoadReceived(
+            goalFlow,
+            itemID,
+            budgetTreasury,
+            childFlow
+        );
+        if (!loadedReceivedForEffectiveCap) {
             return;
         }
 
-        bool enabledForEffectiveCap = receivedForEffectiveCap < effectiveCap;
-        try goalFlow.setRecipientEnabled(itemID, enabledForEffectiveCap) {} catch (bytes memory reason) {
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                address(goalFlow),
-                IFlow.setRecipientEnabled.selector,
-                reason
-            );
-        }
+        _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, receivedForEffectiveCap < effectiveCap);
     }
 
     function _bestEffortDisableRecipientWhenRunwayExceeded(
@@ -202,9 +155,26 @@ library BudgetTCRCreditCapActions {
         address childFlow,
         uint256 runwayCap
     ) private returns (bool checked) {
-        uint256 received;
+        (bool loadedReceived, uint256 received) = _tryLoadReceived(goalFlow, itemID, budgetTreasury, childFlow);
+        if (!loadedReceived) {
+            return false;
+        }
+
+        if (received >= runwayCap) {
+            _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, false);
+        }
+
+        return true;
+    }
+
+    function _tryLoadReceived(
+        IFlow goalFlow,
+        bytes32 itemID,
+        address budgetTreasury,
+        address childFlow
+    ) private returns (bool loadedReceived, uint256 received) {
         try goalFlow.getTotalReceivedByMember(childFlow) returns (uint256 totalReceived) {
-            received = totalReceived;
+            return (true, totalReceived);
         } catch (bytes memory reason) {
             _emitBudgetCreditCapEnforcementFailed(
                 itemID,
@@ -213,22 +183,25 @@ library BudgetTCRCreditCapActions {
                 IFlow.getTotalReceivedByMember.selector,
                 reason
             );
-            return false;
+            return (false, 0);
         }
+    }
 
-        if (received >= runwayCap) {
-            try goalFlow.setRecipientEnabled(itemID, false) {} catch (bytes memory reason) {
-                _emitBudgetCreditCapEnforcementFailed(
-                    itemID,
-                    budgetTreasury,
-                    address(goalFlow),
-                    IFlow.setRecipientEnabled.selector,
-                    reason
-                );
-            }
+    function _bestEffortSetRecipientEnabled(
+        IFlow goalFlow,
+        bytes32 itemID,
+        address budgetTreasury,
+        bool enabled
+    ) private {
+        try goalFlow.setRecipientEnabled(itemID, enabled) {} catch (bytes memory reason) {
+            _emitBudgetCreditCapEnforcementFailed(
+                itemID,
+                budgetTreasury,
+                address(goalFlow),
+                IFlow.setRecipientEnabled.selector,
+                reason
+            );
         }
-
-        return true;
     }
 
     function _emitBudgetCreditCapEnforcementFailed(
