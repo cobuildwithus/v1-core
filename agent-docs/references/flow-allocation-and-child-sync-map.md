@@ -12,7 +12,7 @@
 6. After successful allocation commit, `CustomFlow` invokes the configured allocation pipeline.
 7. With `GoalFlowAllocationLedgerPipeline` configured with a non-zero ledger, checkpoints are written to `BudgetStakeLedger`.
 8. When a parent budget stake delta changes and the corresponding child budget flow has an existing commit, child sync
-   requirements are derived automatically from current on-chain state.
+   requirements are derived from canonical budget-stack topology stored in `BudgetTCR` plus the live child-flow commit.
 9. Child sync execution remains best-effort per target: unresolved/no-commit targets are skipped and attempted child
    sync failures are emitted as failed attempts.
 10. `GoalFlowAllocationLedgerPipeline` records per-account/per-budget child-sync debt on allocation-edit commits when
@@ -34,7 +34,10 @@
 18. Pipeline instances may be configured with `allocationLedger == 0` for explicit no-op mode.
 19. Goal-flow ledger mode (`GoalFlowAllocationLedgerPipeline` + `GoalFlowLedgerMode`) validates goal treasury wiring and
     strategy compatibility, including account-based empty-aux probing via `allocationKey(account, "")`.
-20. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
+20. Child-sync target discovery is registry-backed and fail-closed:
+    - `GoalFlowLedgerMode` resolves `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
+    - the stored target is accepted only when the live child flow still exposes exactly one strategy matching registry state.
+21. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
     `GoalFlowLedgerMode` as the validation capability surface.
 
 ## Child Flow Sync Path

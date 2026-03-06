@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-03-05
+Last updated: 2026-03-06
 
 ## Purpose
 
@@ -71,6 +71,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Flow-rate updates use `FlowRates` and `FlowPools` helpers.
 - Parent-driven child flow-rate queueing is removed from `Flow`; child recipients track allocation units while child `flowOperator` roles (typically budget treasuries) own target-rate mutation.
 - Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` with best-effort per-target semantics and explicit observability events.
+- `BudgetTCR` is the canonical budget-stack topology registry for that child-sync path:
+  - target resolution discovers `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
+  - runtime child sync still fail-closes unless the live child flow exposes exactly one strategy matching stored topology.
 - Gas-budget skips and failed child sync attempts open per-account child-sync debt in the pipeline.
 - While child-sync debt exists, checkpoint-requiring allocations for that account fail closed until repaired or cleared.
 - Child-sync debt repair is permissionless per budget via `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
@@ -186,6 +189,14 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget stack activation no longer deploys a per-budget temporary manager contract or does post-deploy authority handoff:
   - `BudgetTCR` creates the child-flow recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current stack wiring sets those roles to the cloned budget treasury address during creation.
+- Budget stack topology is recorded canonically in `BudgetTCR` during activation:
+  - stored topology includes `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism,
+    and allocation-mechanism arbitrator,
+  - `BudgetStakeLedger.registerBudget(...)` reads that topology from goal-flow `recipientAdmin` (`BudgetTCR`) and keeps
+    a lightweight runtime cross-check against `budgetTreasury.flow()` plus child-parent wiring before tracking coverage.
+- Exact-byte relists are fail-fast rejected after any stack deployment for that `itemID`:
+  - `Flow` recipient ids are single-use after removal, so deployed listings cannot safely reactivate the same item hash,
+  - same-byte resubmission remains allowed only after pre-activation removal because no child-flow recipient was created.
 - `BudgetFlowRouterStrategy` uses contextual flow routing:
   - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy resolves effective budget address via `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.

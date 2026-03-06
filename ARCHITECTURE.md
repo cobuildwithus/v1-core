@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-05
+Last updated: 2026-03-06
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -151,7 +151,8 @@ cobuild-protocol/
 - Removed budgets are terminalized via `BudgetTCR` removal flows:
   - removal unregisters the budget from `BudgetStakeLedger` and removes the parent goal-flow recipient,
   - pre-activation removal disables budget success resolution and strict-finalizes terminal `Failed`,
-  - activation-locked removal enforces spend-stop and preserves normal success/expiry/failure lifecycle progression (no auto-forced failure on removal).
+  - activation-locked removal enforces spend-stop and preserves normal success/expiry/failure lifecycle progression (no auto-forced failure on removal),
+  - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; only pre-activation removals may be resubmitted because no child-flow recipient was deployed yet.
 
 3. Allocation determinism
 - Allocation inputs and witness/commit semantics must remain deterministic and auditable.
@@ -165,6 +166,11 @@ cobuild-protocol/
 - `allocationPipeline` is configured at flow initialization and validated fail-fast during init.
 - Goal-flow allocation-ledger validation (goal treasury wiring + strategy compatibility, including
   empty-aux `allocationKey(account, "")` probing) is owned by `GoalFlowAllocationLedgerPipeline` via `GoalFlowLedgerMode`.
+- `BudgetTCR` is the canonical budget-stack topology registry:
+  - activation records per-item `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism,
+    and mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
+  - child-sync target resolution discovers topology via `budgetTreasury.authority() -> BudgetTCR` and then still
+    fail-closes unless the live child flow exposes exactly one strategy matching stored topology.
 - Pipeline instances with `allocationLedger == 0` are explicit no-op mode and do not checkpoint.
 - Goal-flow ledger checkpointing and child-sync enforcement/execution are executed through the configured
   post-commit pipeline (`src/hooks/GoalFlowAllocationLedgerPipeline.sol`) after successful allocation commits.
@@ -216,6 +222,9 @@ cobuild-protocol/
 - `BudgetTCR` exposes permissionless best-effort budget treasury batch sync (`syncBudgetTreasuries`):
   - skips undeployed/inactive item IDs,
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
+- `BudgetStakeLedger.registerBudget(...)` treats goal-flow `recipientAdmin` (`BudgetTCR`) as the canonical budget
+  topology source and keeps a lightweight runtime cross-check against `budgetTreasury.flow()` and child-parent wiring
+  before coverage tracking is admitted.
 - `BudgetTCRDeployer` remains a mechanical helper (`onlyBudgetTCR`) that prepares stack components and deploys budget treasury instances.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal stack slasher wiring is init-only and fail-fast:
@@ -226,6 +235,9 @@ cobuild-protocol/
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.
+- Budget stack topology is registry-owned rather than graph-discovered:
+  - `BudgetTCR` exposes direct topology getters plus reverse lookups by budget treasury and child flow,
+  - inactive/removed stacks remain discoverable through that registry surface with `active == false`.
 - `BudgetFlowRouterStrategy` uses contextual flow routing:
   - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.

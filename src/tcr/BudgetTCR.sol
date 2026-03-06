@@ -8,6 +8,7 @@ import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { BudgetTCRStackActions } from "./library/BudgetTCRStackActions.sol";
 import { BudgetTCRCreditCapActions } from "./library/BudgetTCRCreditCapActions.sol";
 import { BudgetTCRTerminalActions } from "./library/BudgetTCRTerminalActions.sol";
+import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
@@ -21,7 +22,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     }
 
     function initialize(
-        RegistryConfig calldata registryConfig,
+        InitConfig calldata initConfig,
         DeploymentConfig calldata deploymentConfig
     ) external initializer {
         if (deploymentConfig.stackDeployer == address(0)) revert ADDRESS_ZERO();
@@ -47,9 +48,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
         }
-        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0))
+        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) {
             revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
-        if (registryConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
+        }
+        if (initConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -76,23 +78,11 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
-        allocationMechanismAdmin = registryConfig.allocationMechanismAdmin;
+        allocationMechanismAdmin = initConfig.allocationMechanismAdmin;
         budgetValidationBounds = budgetBounds;
         oracleValidationBounds = oracleBounds;
 
-        __GeneralizedTCR_init(
-            registryConfig.arbitrator,
-            registryConfig.arbitratorExtraData,
-            registryConfig.registrationMetaEvidence,
-            registryConfig.clearingMetaEvidence,
-            registryConfig.votingToken,
-            registryConfig.submissionBaseDeposit,
-            registryConfig.removalBaseDeposit,
-            registryConfig.submissionChallengeBaseDeposit,
-            registryConfig.removalChallengeBaseDeposit,
-            registryConfig.challengePeriodDuration,
-            registryConfig.submissionDepositStrategy
-        );
+        __GeneralizedTCR_init(initConfig.tcrConfig);
     }
 
     function _verifyItemData(bytes calldata item) internal view override returns (bool valid) {
@@ -102,6 +92,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function _assertCanAddItem(bytes32 itemID, bytes calldata) internal view override {
         if (goalTreasury.resolved()) revert GOAL_TERMINAL();
         if (_pendingRemovalFinalizations[itemID]) revert REMOVAL_FINALIZATION_PENDING();
+        if (items[itemID].status == Status.Absent && _budgetDeployments[itemID].budgetTreasury != address(0)) {
+            revert ITEM_RELIST_NOT_ALLOWED(itemID);
+        }
     }
 
     function isRegistrationPending(bytes32 itemId) external view override returns (bool pending) {
@@ -112,6 +105,52 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         pending = _pendingRemovalFinalizations[itemId];
     }
 
+    function budgetStackTopology(
+        bytes32 itemID
+    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        topology = _budgetStackTopologyFromDeployment(deployment);
+        active = deployment.active;
+    }
+
+    function budgetStackTopologyForBudgetTreasury(
+        address budgetTreasury
+    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+        bytes32 itemID = _itemIdByBudgetTreasury[budgetTreasury];
+        if (itemID == bytes32(0)) return (topology, false);
+
+        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        if (deployment.budgetTreasury != budgetTreasury) return (topology, false);
+
+        topology = _budgetStackTopologyFromDeployment(deployment);
+        active = deployment.active;
+    }
+
+    function budgetStackTopologyForChildFlow(
+        address childFlow
+    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+        bytes32 itemID = _itemIdByChildFlow[childFlow];
+        if (itemID == bytes32(0)) return (topology, false);
+
+        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        if (deployment.childFlow != childFlow) return (topology, false);
+
+        topology = _budgetStackTopologyFromDeployment(deployment);
+        active = deployment.active;
+    }
+
+    function itemIdForBudgetTreasury(address budgetTreasury) external view override returns (bytes32 itemID) {
+        itemID = _itemIdByBudgetTreasury[budgetTreasury];
+        if (itemID == bytes32(0)) return bytes32(0);
+        if (_budgetDeployments[itemID].budgetTreasury != budgetTreasury) return bytes32(0);
+    }
+
+    function itemIdForChildFlow(address childFlow) external view override returns (bytes32 itemID) {
+        itemID = _itemIdByChildFlow[childFlow];
+        if (itemID == bytes32(0)) return bytes32(0);
+        if (_budgetDeployments[itemID].childFlow != childFlow) return bytes32(0);
+    }
+
     // slither-disable-next-line reentrancy-no-eth
     function activateRegisteredBudget(bytes32 itemID) external override nonReentrant returns (bool activated) {
         if (!_pendingRegistrationActivations[itemID]) revert REGISTRATION_NOT_PENDING();
@@ -119,7 +158,13 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         Item storage item = items[itemID];
         if (item.status != Status.Registered) revert ITEM_NOT_REGISTERED();
         if (!_budgetDeployments[itemID].active) {
-            BudgetTCRStackActions.deployBudgetStack(_budgetDeployments, _itemIdByBudgetTreasury, itemID, item.data);
+            BudgetTCRStackActions.deployBudgetStack(
+                _budgetDeployments,
+                _itemIdByBudgetTreasury,
+                _itemIdByChildFlow,
+                itemID,
+                item.data
+            );
         }
 
         _pendingRegistrationActivations[itemID] = false;
@@ -134,13 +179,20 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         address childFlow = deployment.childFlow;
         address budgetTreasury = deployment.budgetTreasury;
         if (!deployment.active) {
-            _pendingRemovalFinalizations[itemID] = false;
-            emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, false, true);
-            return true;
+            terminallyResolved = budgetTreasury == address(0) || IBudgetTreasury(budgetTreasury).resolved();
+            if (terminallyResolved) {
+                _pendingRemovalFinalizations[itemID] = false;
+            }
+            emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, false, terminallyResolved);
+            return terminallyResolved;
         }
 
         IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
-        bool removedFromParent = _removeRecipientFromGoalFlowIfPresent(itemID, childFlow);
+        bool removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
+            goalFlow,
+            itemID,
+            childFlow
+        );
 
         terminallyResolved = true;
         if (budgetTreasury != address(0)) {
@@ -151,12 +203,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 terminallyResolved = treasury.resolved();
             } else {
                 treasury.disableSuccessResolution();
-                if (!_resolveBudgetTerminalStateStrict(treasury)) revert TERMINAL_RESOLUTION_FAILED();
+                if (!BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury)) {
+                    revert TERMINAL_RESOLUTION_FAILED();
+                }
             }
         }
 
         deployment.active = false;
-        _pendingRemovalFinalizations[itemID] = false;
+        _pendingRemovalFinalizations[itemID] = !terminallyResolved;
         emit BudgetStackRemovalHandled(itemID, childFlow, budgetTreasury, removedFromParent, terminallyResolved);
     }
 
@@ -208,7 +262,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
             terminallyResolved = treasury.resolved();
         } else {
-            terminallyResolved = _resolveBudgetTerminalStateBestEffort(itemID, treasury);
+            terminallyResolved = BudgetTCRTerminalActions.resolveBudgetTerminalStateBestEffort(itemID, treasury);
+        }
+        if (terminallyResolved) {
+            _pendingRemovalFinalizations[itemID] = false;
         }
         emit BudgetStackTerminalizationRetried(itemID, budgetTreasury, terminallyResolved);
     }
@@ -226,8 +283,11 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (!treasury.resolved()) revert ITEM_NOT_TERMINAL();
 
         address childFlow = deployment.childFlow;
-        removedFromParent = _removeRecipientFromGoalFlowIfPresent(itemID, childFlow);
-        goalSynced = _trySyncGoalTreasury(itemID, budgetTreasury);
+        removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(goalFlow, itemID, childFlow);
+        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
+        if (!deployment.active && _pendingRemovalFinalizations[itemID]) {
+            _pendingRemovalFinalizations[itemID] = false;
+        }
 
         emit BudgetTerminalRecipientPruned(itemID, childFlow, budgetTreasury, removedFromParent, goalSynced);
     }
@@ -280,19 +340,16 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (ledger == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     }
 
-    function _resolveBudgetTerminalStateBestEffort(bytes32 itemID, IBudgetTreasury treasury) internal returns (bool) {
-        return BudgetTCRTerminalActions.resolveBudgetTerminalStateBestEffort(itemID, treasury);
-    }
-
-    function _resolveBudgetTerminalStateStrict(IBudgetTreasury treasury) internal returns (bool) {
-        return BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury);
-    }
-
-    function _removeRecipientFromGoalFlowIfPresent(bytes32 itemID, address childFlow) internal returns (bool) {
-        return BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(goalFlow, itemID, childFlow);
-    }
-
-    function _trySyncGoalTreasury(bytes32 itemID, address budgetTreasury) internal returns (bool) {
-        return BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
+    function _budgetStackTopologyFromDeployment(
+        BudgetDeployment storage deployment
+    ) internal view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology) {
+        topology = IBudgetStackTopologyReader.BudgetStackTopology({
+            childFlow: deployment.childFlow,
+            budgetTreasury: deployment.budgetTreasury,
+            premiumEscrow: deployment.premiumEscrow,
+            strategy: deployment.strategy,
+            allocationMechanism: deployment.allocationMechanism,
+            allocationMechanismArbitrator: deployment.allocationMechanismArbitrator
+        });
     }
 }

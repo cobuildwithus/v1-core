@@ -1,63 +1,65 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { TestUtils } from "test/utils/TestUtils.sol";
-import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
-import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
+import {TestUtils} from "test/utils/TestUtils.sol";
+import {FlowSuperfluidFrameworkDeployer} from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
-    MockBudgetTCRSuperToken,
-    MockGoalFlowForBudgetTCR,
-    MockGoalTreasuryForBudgetTCR,
-    MockBudgetChildFlow,
-    MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR,
-    MockStakeVaultForBudgetTCR
-} from "test/mocks/MockBudgetTCRSystem.sol";
+    BudgetTCRTestSuperToken as MockBudgetTCRSuperToken,
+    BudgetTCRGoalFlowHarness as MockGoalFlowForBudgetTCR,
+    BudgetTCRGoalTreasuryHarness as MockGoalTreasuryForBudgetTCR,
+    BudgetTCRChildFlowHarness as MockBudgetChildFlow,
+    BudgetTCRRewardEscrowHarness as MockRewardEscrowForBudgetTCR,
+    BudgetTCRStakeLedgerHarness as MockBudgetStakeLedgerForBudgetTCR,
+    BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
+} from "test/helpers/BudgetTCRSystemHarnesses.sol";
 
-import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { CustomFlow } from "src/flows/CustomFlow.sol";
+import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {JurorSlasherRouter} from "src/goals/JurorSlasherRouter.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
 
-import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
-import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
-import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
-import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
+import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
+import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
+import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {IERC20VotesArbitrator} from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
-import { ERC1820RegistryCompiled } from
-    "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
-import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { Vm } from "forge-std/Vm.sol";
-import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {
+    ERC1820RegistryCompiled
+} from "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 contract BudgetTCRTest is TestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
@@ -121,9 +123,8 @@ contract BudgetTCRTest is TestUtils {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");
         cobuildToken = new MockVotesToken("COBUILD", "COB");
-        submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken))))
-        );
+        submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken)))));
 
         depositToken.mint(requester, 1_000_000e18);
 
@@ -147,14 +148,8 @@ contract BudgetTCRTest is TestUtils {
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
-                owner,
-                address(depositToken),
-                tcrInstance,
-                votingPeriod,
-                votingDelay,
-                revealPeriod,
-                arbitrationCost
-            );
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         arbitrator = ERC20VotesArbitrator(arbProxy);
@@ -269,9 +264,7 @@ contract BudgetTCRTest is TestUtils {
         ) = _freshInitializeConfig();
         deploymentConfig.premiumEscrowImplementation = address(0);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector, address(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector, address(0)));
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -286,8 +279,7 @@ contract BudgetTCRTest is TestUtils {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector,
-                noCodePremiumEscrowImplementation
+                IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector, noCodePremiumEscrowImplementation
             )
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
@@ -395,16 +387,14 @@ contract BudgetTCRTest is TestUtils {
     function test_allocationMechanismAdmin_is_init_only_with_no_direct_setter() public {
         address initialAllocationMechanismAdmin = budgetTcr.allocationMechanismAdmin();
 
-        (bool success, bytes memory revertData) =
-            address(budgetTcr).call(abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("new-admin")));
+        (bool success, bytes memory revertData) = address(budgetTcr)
+            .call(abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("new-admin")));
         assertFalse(success);
         assertEq(revertData.length, 0);
 
         vm.prank(allocationMechanismAdmin);
-        (bool governorSuccess, bytes memory governorRevertData) =
-            address(budgetTcr).call(
-                abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("another-admin"))
-            );
+        (bool governorSuccess, bytes memory governorRevertData) = address(budgetTcr)
+            .call(abi.encodeWithSignature("setAllocationMechanismAdmin(address)", makeAddr("another-admin")));
         assertFalse(governorSuccess);
         assertEq(governorRevertData.length, 0);
 
@@ -416,9 +406,8 @@ contract BudgetTCRTest is TestUtils {
         string memory beforeClearing = budgetTcr.clearingMetaEvidence();
 
         vm.prank(allocationMechanismAdmin);
-        (bool success, bytes memory revertData) = address(budgetTcr).call(
-            abi.encodeWithSignature("setMetaEvidenceURIs(string,string)", "ipfs://new-reg", "ipfs://new-clear")
-        );
+        (bool success, bytes memory revertData) = address(budgetTcr)
+            .call(abi.encodeWithSignature("setMetaEvidenceURIs(string,string)", "ipfs://new-reg", "ipfs://new-clear"));
         assertFalse(success);
         assertEq(revertData.length, 0);
 
@@ -427,7 +416,8 @@ contract BudgetTCRTest is TestUtils {
     }
 
     function test_metaEvidenceUpdates_getter_selector_is_removed() public {
-        (bool success, bytes memory revertData) = address(budgetTcr).call(abi.encodeWithSignature("metaEvidenceUpdates()"));
+        (bool success, bytes memory revertData) =
+            address(budgetTcr).call(abi.encodeWithSignature("metaEvidenceUpdates()"));
         assertFalse(success);
         assertEq(revertData.length, 0);
 
@@ -438,7 +428,7 @@ contract BudgetTCRTest is TestUtils {
         assertEq(governorRevertData.length, 0);
     }
 
-    function test_requestMetaEvidenceIDs_are_fixed_across_budget_lifecycle() public {
+    function test_requestMetaEvidenceIDs_useRegistrationThenClearing_andRejectExactRelistAfterDeployment() public {
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
 
         _approveAddCost(requester);
@@ -463,11 +453,9 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.finalizeRemovedBudget(itemID);
 
         _approveAddCost(requester);
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.ITEM_RELIST_NOT_ALLOWED.selector, itemID));
         vm.prank(requester);
         budgetTcr.addItem(abi.encode(listing));
-
-        (,,,,,,,,, uint256 reRegistrationMetaEvidenceID) = budgetTcr.getRequestInfo(itemID, 2);
-        assertEq(reRegistrationMetaEvidenceID, 0);
     }
 
     function test_addItem_reverts_when_listing_invalid() public {
@@ -535,8 +523,7 @@ contract BudgetTCRTest is TestUtils {
 
         (bool deployedFound, uint256 deployedIndex) =
             _findBudgetStackDeployedLogIndex(activationLogs, itemID, childFlow, budgetTreasury);
-        (bool configuredFound, uint256 configuredIndex) =
-            _findBudgetConfiguredLogIndex(activationLogs, budgetTreasury);
+        (bool configuredFound, uint256 configuredIndex) = _findBudgetConfiguredLogIndex(activationLogs, budgetTreasury);
         assertTrue(deployedFound);
         assertTrue(configuredFound);
         assertLt(deployedIndex, configuredIndex);
@@ -565,6 +552,105 @@ contract BudgetTCRTest is TestUtils {
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 100_000);
         assertEq(address(PremiumEscrow(premiumEscrow).managerRewardPool()), managerRewardDistributionPool);
         assertEq(PremiumEscrow(premiumEscrow).accountedManagerRewardReceived(), 0);
+    }
+
+    function test_activateRegisteredBudget_exposesCanonicalTopologyAndReverseLookups() public {
+        bytes32 itemID = _registerDefaultListing();
+
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+        address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address allocationMechanismArbitrator = address(AllocationMechanismTCR(allocationMechanism).arbitrator());
+        IAllocationStrategy[] memory childStrategies = IFlow(childFlow).strategies();
+
+        assertEq(childStrategies.length, 1);
+
+        IBudgetStackTopologyReader.BudgetStackTopology memory expectedTopology =
+            IBudgetStackTopologyReader.BudgetStackTopology({
+                childFlow: childFlow,
+                budgetTreasury: budgetTreasury,
+                premiumEscrow: premiumEscrow,
+                strategy: address(childStrategies[0]),
+                allocationMechanism: allocationMechanism,
+                allocationMechanismArbitrator: allocationMechanismArbitrator
+            });
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            budgetTcr.budgetStackTopology(itemID);
+        assertTrue(active);
+        _assertBudgetStackTopology(topology, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyByTreasury, bool activeByTreasury) =
+            budgetTcr.budgetStackTopologyForBudgetTreasury(budgetTreasury);
+        assertTrue(activeByTreasury);
+        _assertBudgetStackTopology(topologyByTreasury, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyByChildFlow, bool activeByChildFlow) =
+            budgetTcr.budgetStackTopologyForChildFlow(childFlow);
+        assertTrue(activeByChildFlow);
+        _assertBudgetStackTopology(topologyByChildFlow, expectedTopology);
+
+        assertEq(budgetTcr.itemIdForBudgetTreasury(budgetTreasury), itemID);
+        assertEq(budgetTcr.itemIdForChildFlow(childFlow), itemID);
+
+        address unknownBudgetTreasury = makeAddr("unknown-budget-treasury");
+        address unknownChildFlow = makeAddr("unknown-child-flow");
+        (IBudgetStackTopologyReader.BudgetStackTopology memory missingBudgetTopology, bool missingBudgetActive) =
+            budgetTcr.budgetStackTopologyForBudgetTreasury(unknownBudgetTreasury);
+        (IBudgetStackTopologyReader.BudgetStackTopology memory missingChildTopology, bool missingChildActive) =
+            budgetTcr.budgetStackTopologyForChildFlow(unknownChildFlow);
+
+        assertFalse(missingBudgetActive);
+        assertFalse(missingChildActive);
+        assertEq(missingBudgetTopology.budgetTreasury, address(0));
+        assertEq(missingChildTopology.childFlow, address(0));
+        assertEq(budgetTcr.itemIdForBudgetTreasury(unknownBudgetTreasury), bytes32(0));
+        assertEq(budgetTcr.itemIdForChildFlow(unknownChildFlow), bytes32(0));
+    }
+
+    function test_finalizeRemovedBudget_keepsTopologyDiscoverableButInactive() public {
+        bytes32 itemID = _registerDefaultListing();
+
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
+        address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
+        address allocationMechanismArbitrator = address(AllocationMechanismTCR(allocationMechanism).arbitrator());
+        IAllocationStrategy[] memory childStrategies = IFlow(childFlow).strategies();
+        address childStrategy = address(childStrategies[0]);
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.finalizeRemovedBudget(itemID);
+
+        IBudgetStackTopologyReader.BudgetStackTopology memory expectedTopology =
+            IBudgetStackTopologyReader.BudgetStackTopology({
+                childFlow: childFlow,
+                budgetTreasury: budgetTreasury,
+                premiumEscrow: premiumEscrow,
+                strategy: childStrategy,
+                allocationMechanism: allocationMechanism,
+                allocationMechanismArbitrator: allocationMechanismArbitrator
+            });
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            budgetTcr.budgetStackTopology(itemID);
+        assertFalse(active);
+        _assertBudgetStackTopology(topology, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyByTreasury, bool activeByTreasury) =
+            budgetTcr.budgetStackTopologyForBudgetTreasury(budgetTreasury);
+        assertFalse(activeByTreasury);
+        _assertBudgetStackTopology(topologyByTreasury, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyByChildFlow, bool activeByChildFlow) =
+            budgetTcr.budgetStackTopologyForChildFlow(childFlow);
+        assertFalse(activeByChildFlow);
+        _assertBudgetStackTopology(topologyByChildFlow, expectedTopology);
+
+        assertEq(budgetTcr.itemIdForBudgetTreasury(budgetTreasury), itemID);
+        assertEq(budgetTcr.itemIdForChildFlow(childFlow), itemID);
     }
 
     function test_activateRegisteredBudget_reverts_when_underwriter_router_authorization_fails() public {
@@ -607,14 +693,8 @@ contract BudgetTCRTest is TestUtils {
         BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation);
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
-                owner,
-                address(depositToken),
-                address(freshTcr),
-                votingPeriod,
-                votingDelay,
-                revealPeriod,
-                arbitrationCost
-            );
+            owner, address(depositToken), address(freshTcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
         address freshArbProxy = _deployProxy(address(freshArbImpl), freshArbInit);
 
         deploymentConfig.stackDeployer = freshStackDeployer;
@@ -803,8 +883,7 @@ contract BudgetTCRTest is TestUtils {
 
     function test_activateRegisteredBudget_mechanismArbitrator_isNotAuthorizedInJurorSlasherRouter() public {
         address factoryAuthority = makeAddr("budget-tcr-factory");
-        JurorSlasherRouter router =
-            new JurorSlasherRouter(IStakeVault(goalTreasury.stakeVault()), factoryAuthority);
+        JurorSlasherRouter router = new JurorSlasherRouter(IStakeVault(goalTreasury.stakeVault()), factoryAuthority);
         MockStakeVaultForBudgetTCR(goalTreasury.stakeVault()).setJurorSlasher(address(router));
 
         vm.prank(factoryAuthority);
@@ -820,7 +899,7 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.activateRegisteredBudget(itemID);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        (bool found, , address mechanismArbitrator, ) = _getBudgetAllocationMechanismDeployed(logs, itemID);
+        (bool found,, address mechanismArbitrator,) = _getBudgetAllocationMechanismDeployed(logs, itemID);
         assertTrue(found);
         assertTrue(mechanismArbitrator != address(0));
         assertTrue(router.isAuthorizedSlasher(address(arbitrator)));
@@ -899,6 +978,31 @@ contract BudgetTCRTest is TestUtils {
         assertFalse(_hasBudgetEventForItem(logs, BUDGET_STACK_REMOVAL_QUEUED_SIG, itemID));
     }
 
+    function test_addItem_allowsExactRelist_afterPreActivationRemoval() public {
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, listing);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+
+        _approveRemoveCost(requester);
+        vm.prank(requester);
+        budgetTcr.removeItem(itemID, "");
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+
+        _approveAddCost(requester);
+        vm.prank(requester);
+        bytes32 relistedItemID = budgetTcr.addItem(abi.encode(listing));
+
+        assertEq(relistedItemID, itemID);
+        (,,,,,,,,, uint256 registrationMetaEvidenceID) = budgetTcr.getRequestInfo(itemID, 2);
+        assertEq(registrationMetaEvidenceID, 0);
+    }
+
     function test_executeRequest_removal_queues_then_finalizeRemovedBudget_handles_parent_removal() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -952,9 +1056,8 @@ contract BudgetTCRTest is TestUtils {
         bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        (bool found, bool removedFromParent, bool emittedTerminallyResolved) = _getBudgetStackRemovalHandled(
-            logs, itemID, childFlow, budgetTreasury
-        );
+        (bool found, bool removedFromParent, bool emittedTerminallyResolved) =
+            _getBudgetStackRemovalHandled(logs, itemID, childFlow, budgetTreasury);
         assertTrue(found);
         assertTrue(removedFromParent);
         assertEq(emittedTerminallyResolved, terminallyResolved);
@@ -998,9 +1101,8 @@ contract BudgetTCRTest is TestUtils {
         assertTrue(removed);
         assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
 
-        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) = _getBudgetTerminalRecipientPruned(
-            logs, itemID, childFlow, budgetTreasury
-        );
+        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) =
+            _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
         assertTrue(found);
         assertEq(emittedRemovedFromParent, removedFromParent);
         assertEq(emittedGoalSynced, goalSynced);
@@ -1046,9 +1148,8 @@ contract BudgetTCRTest is TestUtils {
         assertTrue(removed);
         assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
 
-        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) = _getBudgetTerminalRecipientPruned(
-            logs, itemID, childFlow, budgetTreasury
-        );
+        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) =
+            _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
         assertTrue(found);
         assertEq(emittedRemovedFromParent, removedFromParent);
         assertEq(emittedGoalSynced, goalSynced);
@@ -1075,9 +1176,8 @@ contract BudgetTCRTest is TestUtils {
         assertTrue(removed);
         assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
 
-        (bool found, bool removedFromParent, bool emittedTerminallyResolved) = _getBudgetStackRemovalHandled(
-            logs, itemID, childFlow, budgetTreasury
-        );
+        (bool found, bool removedFromParent, bool emittedTerminallyResolved) =
+            _getBudgetStackRemovalHandled(logs, itemID, childFlow, budgetTreasury);
         assertTrue(found);
         assertFalse(removedFromParent);
         assertEq(emittedTerminallyResolved, terminallyResolved);
@@ -1211,9 +1311,7 @@ contract BudgetTCRTest is TestUtils {
 
         bytes memory revertReason = abi.encodeWithSignature("Error(string)", "FORCE_ZERO_FAILED_ACTIVE");
         vm.mockCallRevert(
-            budgetTreasury,
-            abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector),
-            revertReason
+            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector), revertReason
         );
 
         vm.expectRevert(revertReason);
@@ -1285,9 +1383,7 @@ contract BudgetTCRTest is TestUtils {
         _mockBudgetTreasuryResolved(budgetTreasury, false);
         bytes memory resolveFailureReason = abi.encodeWithSignature("Error(string)", "RESOLVE_FAILURE_FAILED");
         vm.mockCallRevert(
-            budgetTreasury,
-            abi.encodeWithSelector(IBudgetTreasury.resolveFailure.selector),
-            resolveFailureReason
+            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolveFailure.selector), resolveFailureReason
         );
 
         vm.expectRevert(resolveFailureReason);
@@ -1451,7 +1547,9 @@ contract BudgetTCRTest is TestUtils {
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
-    function test_retryRemovedBudgetResolution_activationLocked_beforeDeadline_returnsFalseWithoutForcingFailure() public {
+    function test_retryRemovedBudgetResolution_activationLocked_beforeDeadline_returnsFalseWithoutForcingFailure()
+        public
+    {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -1485,6 +1583,47 @@ contract BudgetTCRTest is TestUtils {
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_finalizeRemovedBudget_activationLocked_keepsRemovalPendingUntilTerminalResolution() public {
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, listing);
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
+
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertFalse(terminallyResolved);
+        assertTrue(budgetTcr.isRemovalPending(itemID));
+
+        _approveAddCost(requester);
+        vm.expectRevert(IBudgetTCR.REMOVAL_FINALIZATION_PENDING.selector);
+        vm.prank(requester);
+        budgetTcr.addItem(abi.encode(listing));
+
+        bool secondFinalizeResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertFalse(secondFinalizeResolved);
+        assertTrue(budgetTcr.isRemovalPending(itemID));
+
+        _warpRoll(treasury.deadline() + 1);
+        vm.prank(makeAddr("keeper"));
+        bool retryResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
+
+        assertTrue(retryResolved);
+        assertFalse(budgetTcr.isRemovalPending(itemID));
+    }
+
     function test_retryRemovedBudgetResolution_revertsWhenForceZeroingFails_forActivationLockedRemoval() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
@@ -1507,9 +1646,7 @@ contract BudgetTCRTest is TestUtils {
 
         bytes memory revertReason = abi.encodeWithSignature("Error(string)", "FORCE_ZERO_RETRY_FAILED");
         vm.mockCallRevert(
-            budgetTreasury,
-            abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector),
-            revertReason
+            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.forceFlowRateToZero.selector), revertReason
         );
 
         vm.prank(makeAddr("keeper"));
@@ -1572,18 +1709,16 @@ contract BudgetTCRTest is TestUtils {
         budgetTcr.finalizeRemovedBudget(itemID);
 
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "SYNC_RETRY_FAILED");
-        vm.mockCallRevert(
-            budgetTreasury,
-            abi.encodeWithSelector(IBudgetTreasury.sync.selector),
-            expectedReason
-        );
+        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.sync.selector), expectedReason);
 
         vm.recordLogs();
         bool terminallyResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertFalse(terminallyResolved);
-        assertTrue(_hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IBudgetTreasury.sync.selector, expectedReason));
+        assertTrue(
+            _hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IBudgetTreasury.sync.selector, expectedReason)
+        );
     }
 
     function test_retryRemovedBudgetResolution_emitsTerminalizationFailureEvent_whenResolveFailureReverts() public {
@@ -1597,7 +1732,9 @@ contract BudgetTCRTest is TestUtils {
 
         _mockBudgetTreasuryResolved(budgetTreasury, false);
         bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "RESOLVE_FAILURE_RETRY_FAILED");
-        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolveFailure.selector), expectedReason);
+        vm.mockCallRevert(
+            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolveFailure.selector), expectedReason
+        );
 
         vm.recordLogs();
         bool terminallyResolved = budgetTcr.retryRemovedBudgetResolution(itemID);
@@ -1811,7 +1948,9 @@ contract BudgetTCRTest is TestUtils {
 
         assertTrue(_hasBudgetSyncSkipped(logs, unknownItemID, address(0), SYNC_SKIP_NO_BUDGET_TREASURY));
         assertTrue(_hasBudgetSyncSkipped(logs, itemInactive, treasuryInactive, SYNC_SKIP_STACK_INACTIVE));
-        assertTrue(_hasBudgetSyncCallFailed(logs, itemFail, treasuryFail, IBudgetTreasury.sync.selector, syncFailReason));
+        assertTrue(
+            _hasBudgetSyncCallFailed(logs, itemFail, treasuryFail, IBudgetTreasury.sync.selector, syncFailReason)
+        );
         assertTrue(_hasBudgetSyncAttempted(logs, itemFail, treasuryFail, false));
         assertTrue(_hasBudgetSyncAttempted(logs, itemSuccess, treasurySuccess, true));
     }
@@ -1831,16 +1970,14 @@ contract BudgetTCRTest is TestUtils {
     }
 
     function _mockBudgetTreasuryResolved(address budgetTreasury, bool isResolved) internal {
-        vm.mockCall(
-            budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(isResolved)
-        );
+        vm.mockCall(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.resolved.selector), abi.encode(isResolved));
     }
 
-    function _hasBudgetEventForItem(
-        Vm.Log[] memory logs,
-        bytes32 eventSignature,
-        bytes32 itemID
-    ) internal view returns (bool) {
+    function _hasBudgetEventForItem(Vm.Log[] memory logs, bytes32 eventSignature, bytes32 itemID)
+        internal
+        view
+        returns (bool)
+    {
         address emitter = address(budgetTcr);
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter != emitter) continue;
@@ -1873,11 +2010,11 @@ contract BudgetTCRTest is TestUtils {
         }
     }
 
-    function _getBudgetStackTerminalizationRetried(
-        Vm.Log[] memory logs,
-        bytes32 itemID,
-        address budgetTreasury
-    ) internal view returns (bool found, bool terminallyResolved) {
+    function _getBudgetStackTerminalizationRetried(Vm.Log[] memory logs, bytes32 itemID, address budgetTreasury)
+        internal
+        view
+        returns (bool found, bool terminallyResolved)
+    {
         address emitter = address(budgetTcr);
         bytes32 treasuryTopic = _addressToTopic(budgetTreasury);
         for (uint256 i = 0; i < logs.length; ++i) {
@@ -1914,12 +2051,11 @@ contract BudgetTCRTest is TestUtils {
         }
     }
 
-    function _hasBudgetSyncSkipped(
-        Vm.Log[] memory logs,
-        bytes32 itemID,
-        address budgetTreasury,
-        bytes32 expectedReason
-    ) internal view returns (bool) {
+    function _hasBudgetSyncSkipped(Vm.Log[] memory logs, bytes32 itemID, address budgetTreasury, bytes32 expectedReason)
+        internal
+        view
+        returns (bool)
+    {
         address emitter = address(budgetTcr);
         bytes32 treasuryTopic = _addressToTopic(budgetTreasury);
         for (uint256 i = 0; i < logs.length; ++i) {
@@ -1985,12 +2121,11 @@ contract BudgetTCRTest is TestUtils {
         return false;
     }
 
-    function _hasBudgetSyncAttempted(
-        Vm.Log[] memory logs,
-        bytes32 itemID,
-        address budgetTreasury,
-        bool expectedSuccess
-    ) internal view returns (bool) {
+    function _hasBudgetSyncAttempted(Vm.Log[] memory logs, bytes32 itemID, address budgetTreasury, bool expectedSuccess)
+        internal
+        view
+        returns (bool)
+    {
         address emitter = address(budgetTcr);
         bytes32 treasuryTopic = _addressToTopic(budgetTreasury);
         for (uint256 i = 0; i < logs.length; ++i) {
@@ -2027,10 +2162,11 @@ contract BudgetTCRTest is TestUtils {
         }
     }
 
-    function _findBudgetConfiguredLogIndex(
-        Vm.Log[] memory logs,
-        address budgetTreasury
-    ) internal view returns (bool found, uint256 index) {
+    function _findBudgetConfiguredLogIndex(Vm.Log[] memory logs, address budgetTreasury)
+        internal
+        view
+        returns (bool found, uint256 index)
+    {
         bytes32 controllerTopic = _addressToTopic(address(budgetTcr));
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter != budgetTreasury) continue;
@@ -2042,10 +2178,7 @@ contract BudgetTCRTest is TestUtils {
         }
     }
 
-    function _getBudgetAllocationMechanismDeployed(
-        Vm.Log[] memory logs,
-        bytes32 itemID
-    )
+    function _getBudgetAllocationMechanismDeployed(Vm.Log[] memory logs, bytes32 itemID)
         internal
         view
         returns (bool found, address allocationMechanism, address mechanismArbitrator, address roundFactory)
@@ -2129,17 +2262,21 @@ contract BudgetTCRTest is TestUtils {
                 maxActivationThreshold: 1_000_000e18,
                 maxRunwayCap: 2_000_000e18
             }),
-            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                liveness: 1 days,
-                bondAmount: 10e18
-            })
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            address(
+                new RoundFactory(
+                    address(new RoundSubmissionTCR()),
+                    address(new RoundPrizeVault()),
+                    address(new PrizePoolSubmissionDepositStrategy()),
+                    address(new ERC20VotesArbitrator())
+                )
+            ),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
@@ -2151,6 +2288,18 @@ contract BudgetTCRTest is TestUtils {
         (, removeCost,,,) = budgetTcr.getTotalCosts();
         vm.prank(who);
         depositToken.approve(address(budgetTcr), removeCost);
+    }
+
+    function _assertBudgetStackTopology(
+        IBudgetStackTopologyReader.BudgetStackTopology memory actual,
+        IBudgetStackTopologyReader.BudgetStackTopology memory expected
+    ) internal pure {
+        assertEq(actual.childFlow, expected.childFlow);
+        assertEq(actual.budgetTreasury, expected.budgetTreasury);
+        assertEq(actual.premiumEscrow, expected.premiumEscrow);
+        assertEq(actual.strategy, expected.strategy);
+        assertEq(actual.allocationMechanism, expected.allocationMechanism);
+        assertEq(actual.allocationMechanismArbitrator, expected.allocationMechanismArbitrator);
     }
 
     function _registerDefaultListing() internal returns (bytes32 itemID) {
@@ -2191,8 +2340,7 @@ contract BudgetTCRTest is TestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleSpecHash: keccak256("budget-oracle-spec"),
-            assertionPolicyHash: keccak256("budget-assertion-policy")
+            oracleSpecHash: keccak256("budget-oracle-spec"), assertionPolicyHash: keccak256("budget-assertion-policy")
         });
     }
 }
@@ -2239,9 +2387,8 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");
         cobuildToken = new MockVotesToken("COBUILD", "COB");
-        submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken))))
-        );
+        submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken)))));
         depositToken.mint(requester, 1_000_000e18);
 
         vm.etch(ERC1820RegistryCompiled.at, ERC1820RegistryCompiled.bin);
@@ -2276,22 +2423,23 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
             url: "https://goal.flow.test"
         });
 
-        IFlow.FlowParams memory flowParams = IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 100_000 });
+        IFlow.FlowParams memory flowParams = IFlow.FlowParams({managerRewardPoolFlowRatePpm: 100_000});
 
         vm.prank(owner);
-        ICustomFlow(goalFlowProxy).initialize(
-            address(superToken),
-            address(goalFlowImplementation),
-            tcrInstance,
-            tcrInstance,
-            tcrInstance,
-            managerRewardPool,
-            address(0),
-            address(0),
-            flowParams,
-            flowMetadata,
-            strategies
-        );
+        ICustomFlow(goalFlowProxy)
+            .initialize(
+                address(superToken),
+                address(goalFlowImplementation),
+                tcrInstance,
+                tcrInstance,
+                tcrInstance,
+                managerRewardPool,
+                address(0),
+                address(0),
+                flowParams,
+                flowMetadata,
+                strategies
+            );
         goalFlow = CustomFlow(goalFlowProxy);
 
         goalTreasury = new MockGoalTreasuryForBudgetTCR(uint64(block.timestamp + 120 days));
@@ -2300,18 +2448,11 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         goalTreasury.setFlow(address(goalFlow));
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
-        underwriterSlasherRouter =
-            address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
-            owner,
-            address(depositToken),
-            tcrInstance,
-            votingPeriod,
-            votingDelay,
-            revealPeriod,
-            arbitrationCost
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
         );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
@@ -2566,10 +2707,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
                 maxActivationThreshold: 1_000_000e18,
                 maxRunwayCap: 2_000_000e18
             }),
-            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                liveness: 1 days,
-                bondAmount: 10e18
-            })
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
     }
 
@@ -2604,8 +2742,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleSpecHash: keccak256("budget-oracle-spec"),
-            assertionPolicyHash: keccak256("budget-assertion-policy")
+            oracleSpecHash: keccak256("budget-oracle-spec"), assertionPolicyHash: keccak256("budget-assertion-policy")
         });
     }
 }

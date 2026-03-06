@@ -2,16 +2,15 @@
 pragma solidity ^0.8.34;
 
 import { IGeneralizedTCR } from "./IGeneralizedTCR.sol";
-import { IArbitrator } from "./IArbitrator.sol";
-import { ISubmissionDepositStrategy } from "./ISubmissionDepositStrategy.sol";
+import { IGeneralizedTCRConfig } from "./IGeneralizedTCRConfig.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
+import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 
-interface IBudgetTCR is IGeneralizedTCR {
+interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     struct BudgetValidationBounds {
         uint64 minFundingLeadTime;
         uint64 maxFundingHorizon;
@@ -41,19 +40,9 @@ interface IBudgetTCR is IGeneralizedTCR {
         OracleConfig oracleConfig;
     }
 
-    struct RegistryConfig {
+    struct InitConfig {
         address allocationMechanismAdmin;
-        IArbitrator arbitrator;
-        bytes arbitratorExtraData;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
-        IVotes votingToken;
-        uint256 submissionBaseDeposit;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        uint256 challengePeriodDuration;
-        ISubmissionDepositStrategy submissionDepositStrategy;
+        IGeneralizedTCRConfig.RegistryConfig tcrConfig;
     }
 
     struct DeploymentConfig {
@@ -136,6 +125,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     error ITEM_NOT_DEPLOYED();
     error ITEM_NOT_REGISTERED();
     error REMOVAL_FINALIZATION_PENDING();
+    error ITEM_RELIST_NOT_ALLOWED(bytes32 itemID);
     error REGISTRATION_NOT_PENDING();
     error REMOVAL_NOT_PENDING();
     error STACK_ALREADY_ACTIVE();
@@ -149,7 +139,7 @@ interface IBudgetTCR is IGeneralizedTCR {
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
     error GOAL_TERMINAL();
 
-    function initialize(RegistryConfig calldata registryConfig, DeploymentConfig calldata deploymentConfig) external;
+    function initialize(InitConfig calldata initConfig, DeploymentConfig calldata deploymentConfig) external;
     function activateRegisteredBudget(bytes32 itemID) external returns (bool activated);
     function finalizeRemovedBudget(bytes32 itemID) external returns (bool terminallyResolved);
     function isRegistrationPending(bytes32 itemId) external view returns (bool pending);

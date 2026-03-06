@@ -23,6 +23,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Goal allocation child sync is best-effort per target, but account-level child-sync debt fail-closes checkpoint-requiring
   follow-up allocations until debt is cleared (successful sync) or repaired permissionlessly per budget via
   `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
+- Budget child-sync target discovery is registry-backed:
+  - `budgetTreasury.authority()` must point at the owning `BudgetTCR`,
+  - `GoalFlowLedgerMode` resolves canonical `childFlow` + child strategy from that registry and still fail-closes when
+    the live child flow does not expose exactly one strategy matching stored topology.
 
 ### Goal/Budget lifecycle
 
@@ -84,7 +88,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Accepted budget delistings (on-chain `removeItem`/`finalizeRemovedBudget`) use activation-locked split semantics:
   - pre-activation delisting disables budget success resolution at delist-acceptance and strict-finalizes the budget to terminal `Failed`,
   - activation-locked delisting stops forward spend/funding while preserving success eligibility and does not auto-force `Failed`,
-  - retry progression for delisted activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only.
+  - retry progression for delisted activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only,
+  - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; same-byte resubmission is only valid when the earlier request was removed before activation deployed a child-flow recipient.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
   - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.
@@ -106,6 +111,13 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
     (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
   - The same authenticated mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the goal's `JurorSlasherRouter`; budget activation must fail closed if that authorization cannot be applied.
+- Per-goal `BudgetTCR` is also the canonical runtime topology registry for accepted budgets:
+  - activation records `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism, and
+    allocation-mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
+  - `BudgetStakeLedger.registerBudget(...)` reads that topology from goal-flow `recipientAdmin` and still cross-checks
+    `budgetTreasury.flow()` plus child-parent wiring before admitting coverage tracking,
+  - removed/inactive stacks remain discoverable through `BudgetTCR` topology getters with `active == false`,
+  - topology history is single-deployment per item hash: once an `itemID` has produced a real stack, later exact-byte relists fail fast instead of reaching an unactivatable Flow recipient-id reuse path.
 
 ## Behavioral Guarantees
 

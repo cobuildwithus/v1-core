@@ -10,6 +10,7 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
 import {IAllocationKeyAccountResolver} from "src/interfaces/IAllocationKeyAccountResolver.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
+import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowLedgerMode} from "src/library/GoalFlowLedgerMode.sol";
@@ -68,15 +69,15 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         childStrategy = new FlowLedgerPropChildStrategy();
         childFlow = new FlowLedgerPropChildFlow(address(childStrategy));
         premiumEscrow = new FlowLedgerPropPremiumEscrow();
-        budgetTreasury = new FlowLedgerPropBudgetTreasury(address(childFlow), address(premiumEscrow));
+        budgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(childFlow), address(childStrategy), address(premiumEscrow));
 
         _registerBudgetRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, address(budgetTreasury));
     }
 
     function test_pipelineClone_initialize_setsLedgerOnce_andRejectsReinitialize() public {
         GoalFlowAllocationLedgerPipeline implementation = new GoalFlowAllocationLedgerPipeline(address(0));
-        GoalFlowAllocationLedgerPipeline clone =
-            GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
+        GoalFlowAllocationLedgerPipeline clone = GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
 
         assertEq(clone.allocationLedger(), address(0));
         clone.initialize(address(ledger));
@@ -88,8 +89,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
     function test_pipelineClone_initialize_zeroAddress_allowedOnce_thenLocked() public {
         GoalFlowAllocationLedgerPipeline implementation = new GoalFlowAllocationLedgerPipeline(address(0));
-        GoalFlowAllocationLedgerPipeline clone =
-            GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
+        GoalFlowAllocationLedgerPipeline clone = GoalFlowAllocationLedgerPipeline(Clones.clone(address(implementation)));
 
         clone.initialize(address(0));
         assertEq(clone.allocationLedger(), address(0));
@@ -119,10 +119,11 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
     function test_allocate_withLedger_multipleChangedBudgets_checkpointsEachPremiumEscrow() public {
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
-        FlowLedgerPropChildFlow secondChildFlow =
-            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
-        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
 
         _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
 
@@ -174,7 +175,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     function test_allocate_withLedger_revertsWhenBudgetPremiumEscrowHasNoCode() public {
         address invalidPremiumEscrow = address(0xBEEF);
         FlowLedgerPropBudgetTreasury invalidBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(childFlow), invalidPremiumEscrow);
+            new FlowLedgerPropBudgetTreasury(address(childFlow), address(childStrategy), invalidPremiumEscrow);
         ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(invalidBudgetTreasury));
 
         _setWeights(50e18);
@@ -202,7 +203,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
     function test_allocate_withLedger_revertsWhenPremiumEscrowLookupReverts() public {
         FlowLedgerPropBudgetTreasuryPremiumEscrowReverting revertingBudgetTreasury =
-            new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(address(childFlow));
+            new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(address(childFlow), address(childStrategy));
         ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(revertingBudgetTreasury));
 
         _setWeights(50e18);
@@ -228,10 +229,11 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
     function test_allocate_withLedger_multipleChangedBudgets_revertIsAtomicBeforeChildSync() public {
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
-        FlowLedgerPropChildFlow secondChildFlow =
-            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
-        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
         _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
 
         childFlow.setCommit(keccak256("child-commit-1"));
@@ -266,18 +268,20 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(secondChildFlow.syncCallCount(), 0);
     }
 
-    function test_allocate_withLedger_multipleChangedBudgets_invalidFirstPremiumEscrow_revertIsAtomicBeforeChildSync(
-    ) public {
+    function test_allocate_withLedger_multipleChangedBudgets_invalidFirstPremiumEscrow_revertIsAtomicBeforeChildSync()
+        public
+    {
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
-        FlowLedgerPropChildFlow secondChildFlow =
-            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
-        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
         _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
 
         address invalidPremiumEscrow = address(0xBEEF);
         FlowLedgerPropBudgetTreasury invalidBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(childFlow), invalidPremiumEscrow);
+            new FlowLedgerPropBudgetTreasury(address(childFlow), address(childStrategy), invalidPremiumEscrow);
         ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(invalidBudgetTreasury));
 
         childFlow.setCommit(keccak256("child-commit-1"));
@@ -318,10 +322,11 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     function test_allocate_withLedger_multipleChangedBudgets_secondPremiumEscrowLookupRevertIsAtomicBeforeChildSync()
         public
     {
-        FlowLedgerPropChildFlow secondChildFlow =
-            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
-        FlowLedgerPropBudgetTreasuryPremiumEscrowReverting revertingBudgetTreasury =
-            new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(address(secondChildFlow));
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasuryPremiumEscrowReverting revertingBudgetTreasury = new FlowLedgerPropBudgetTreasuryPremiumEscrowReverting(
+            address(secondChildFlow), address(secondChildStrategy)
+        );
         _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(revertingBudgetTreasury));
 
         childFlow.setCommit(keccak256("child-commit-1"));
@@ -433,7 +438,8 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             if (logEntry.topics.length == 0 || logEntry.topics[0] != CHILD_ALLOCATION_SYNC_FAILED_SIG) continue;
             if (logEntry.emitter != flow.allocationPipeline()) continue;
 
-            (uint256 allocationKey,,,, bytes memory reason) = abi.decode(logEntry.data, (uint256, address, address, uint256, bytes));
+            (uint256 allocationKey,,,, bytes memory reason) =
+                abi.decode(logEntry.data, (uint256, address, address, uint256, bytes));
             assertEq(allocationKey, parentKey);
             assertEq(reason, expectedReason);
             found = true;
@@ -464,10 +470,11 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(debt.reason, bytes32("SYNC_FAILED"));
 
         FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
-        FlowLedgerPropChildFlow secondChildFlow =
-            new FlowLedgerPropChildFlow(address(new FlowLedgerPropChildStrategy()));
-        FlowLedgerPropBudgetTreasury secondBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(secondChildFlow), address(secondPremiumEscrow));
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
         _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
 
         uint256 checkpointsBefore = ledger.checkpointCallCount();
@@ -487,11 +494,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             address(flow),
             recipientIds,
             scaled,
-            abi.encodeWithSelector(
-                GoalFlowAllocationLedgerPipeline.ACCOUNT_HAS_CHILD_SYNC_DEBT.selector,
-                allocator,
-                1
-            )
+            abi.encodeWithSelector(GoalFlowAllocationLedgerPipeline.ACCOUNT_HAS_CHILD_SYNC_DEBT.selector, allocator, 1)
         );
         assertEq(ledger.checkpointCallCount(), checkpointsBefore);
 
@@ -551,7 +554,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         _setWeights(40e18);
         vm.prank(other);
-        flow.syncAllocationForAccount{ gas: 1_800_000 }(allocator);
+        flow.syncAllocationForAccount{gas: 1_800_000}(allocator);
 
         assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
         assertEq(childFlow.syncCallCount(), 0);
@@ -649,8 +652,9 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     function test_repairChildSyncDebt_clearsWhenChildTargetUnavailable() public {
         FlowLedgerPropChildStrategy unavailableChildStrategy = new FlowLedgerPropChildStrategy();
         FlowLedgerPropChildFlow unavailableChildFlow = new FlowLedgerPropChildFlow(address(unavailableChildStrategy));
-        FlowLedgerPropMutableBudgetTreasury unavailableBudgetTreasury =
-            new FlowLedgerPropMutableBudgetTreasury(address(unavailableChildFlow), address(premiumEscrow));
+        FlowLedgerPropMutableBudgetTreasury unavailableBudgetTreasury = new FlowLedgerPropMutableBudgetTreasury(
+            address(unavailableChildFlow), address(unavailableChildStrategy), address(premiumEscrow)
+        );
 
         _registerBudgetRecipient(
             SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(unavailableBudgetTreasury)
@@ -732,6 +736,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     }
 
     function test_allocate_withRealBudgetStakeLedger_registerAndCheckpointStakeAccounting() public {
+        FlowLedgerPropBudgetRegistryManager budgetRegistryManager = new FlowLedgerPropBudgetRegistryManager();
         FlowLedgerPropStakeVault realStakeVault = new FlowLedgerPropStakeVault();
 
         uint256 nonce = vm.getNonce(address(this));
@@ -747,25 +752,39 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         GoalFlowAllocationLedgerPipeline realPipeline = new GoalFlowAllocationLedgerPipeline(address(realLedger));
         IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
         strategies[0] = IAllocationStrategy(address(strategy));
-        address realFlow =
-            address(_deployFlowWithConfig(owner, manager, managerRewardPool, address(realPipeline), address(0), strategies));
+        address realFlow = address(
+            _deployFlowWithConfig(
+                owner, address(budgetRegistryManager), managerRewardPool, address(realPipeline), address(0), strategies
+            )
+        );
         assertEq(realFlow, predictedFlow);
 
         vm.prank(owner);
         superToken.transfer(realFlow, 500_000e18);
 
-        vm.prank(manager);
+        vm.prank(address(budgetRegistryManager));
         ICustomFlow(realFlow).addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
 
         FlowLedgerPropBudgetFlowRegistrable registrableBudgetFlow = new FlowLedgerPropBudgetFlowRegistrable(realFlow);
         FlowLedgerPropPremiumEscrow registrablePremiumEscrow = new FlowLedgerPropPremiumEscrow();
         FlowLedgerPropBudgetTreasuryRegistrable registrableBudgetTreasury = new FlowLedgerPropBudgetTreasuryRegistrable(
-            address(registrableBudgetFlow),
-            address(registrablePremiumEscrow),
-            uint64(block.timestamp)
+            address(registrableBudgetFlow), address(registrablePremiumEscrow), uint64(block.timestamp)
         );
 
-        vm.prank(manager);
+        budgetRegistryManager.setTopology(
+            PARENT_BUDGET_RECIPIENT_ID,
+            IBudgetStackTopologyReader.BudgetStackTopology({
+                childFlow: address(registrableBudgetFlow),
+                budgetTreasury: address(registrableBudgetTreasury),
+                premiumEscrow: address(registrablePremiumEscrow),
+                strategy: address(strategy),
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            }),
+            true
+        );
+
+        vm.prank(address(budgetRegistryManager));
         realLedger.registerBudget(PARENT_BUDGET_RECIPIENT_ID, address(registrableBudgetTreasury));
 
         assertEq(realLedger.budgetForRecipient(PARENT_BUDGET_RECIPIENT_ID), address(registrableBudgetTreasury));
@@ -777,9 +796,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         uint256 initialWeight = 40 * UNIT_WEIGHT_SCALE;
         realStakeVault.setWeight(allocator, initialWeight);
         strategy.setWeight(parentKey, initialWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator, allocationData, address(strategy), realFlow, recipientIds, scaled
-        );
+        _allocateWithPrevStateForStrategy(allocator, allocationData, address(strategy), realFlow, recipientIds, scaled);
 
         assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), initialWeight);
         assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), initialWeight);
@@ -796,9 +813,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         vm.warp(block.timestamp + 1);
         realStakeVault.setWeight(allocator, reducedWeight);
         strategy.setWeight(parentKey, reducedWeight);
-        _allocateWithPrevStateForStrategy(
-            allocator, allocationData, address(strategy), realFlow, recipientIds, scaled
-        );
+        _allocateWithPrevStateForStrategy(allocator, allocationData, address(strategy), realFlow, recipientIds, scaled);
 
         assertEq(realLedger.userAllocatedStakeOnBudget(allocator, address(registrableBudgetTreasury)), reducedWeight);
         assertEq(realLedger.budgetTotalAllocatedStake(address(registrableBudgetTreasury)), reducedWeight);
@@ -894,8 +909,9 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         FlowLedgerPropChildStrategy benchmarkChildStrategy = new FlowLedgerPropChildStrategy();
         FlowLedgerPropChildFlow benchmarkChildFlow = new FlowLedgerPropChildFlow(address(benchmarkChildStrategy));
         FlowLedgerPropPremiumEscrow benchmarkPremiumEscrow = new FlowLedgerPropPremiumEscrow();
-        FlowLedgerPropBudgetTreasury benchmarkBudgetTreasury =
-            new FlowLedgerPropBudgetTreasury(address(benchmarkChildFlow), address(benchmarkPremiumEscrow));
+        FlowLedgerPropBudgetTreasury benchmarkBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(benchmarkChildFlow), address(benchmarkChildStrategy), address(benchmarkPremiumEscrow)
+        );
 
         vm.prank(manager);
         benchmarkFlow.addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
@@ -991,7 +1007,7 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
         allocationLedger = allocationLedger_;
     }
 
-    function validateForFlow(address) external pure { }
+    function validateForFlow(address) external pure {}
 
     function onAllocationCommitted(
         address strategy,
@@ -1010,15 +1026,10 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
         address account = IAllocationKeyAccountResolver(strategy).accountForAllocationKey(allocationKey);
         if (account == address(0)) revert INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(strategy, allocationKey);
 
-        IBudgetStakeLedger(ledger).checkpointAllocation(
-            account,
-            prevWeight,
-            prevRecipientIds,
-            prevAllocationsPpm,
-            newWeight,
-            newRecipientIds,
-            newAllocationsPpm
-        );
+        IBudgetStakeLedger(ledger)
+            .checkpointAllocation(
+                account, prevWeight, prevRecipientIds, prevAllocationsPpm, newWeight, newRecipientIds, newAllocationsPpm
+            );
 
         address[] memory changedBudgetTreasuries = GoalFlowLedgerMode.detectBudgetDeltasCalldata(
             FlowProtocolConstants.PPM_SCALE_UINT256,
@@ -1096,41 +1107,155 @@ contract FlowLedgerPropLedger {
     }
 }
 
-contract FlowLedgerPropBudgetTreasury {
-    address public flow;
-    address public premiumEscrow;
+contract FlowLedgerPropBudgetRegistryManager {
+    mapping(bytes32 => IBudgetStackTopologyReader.BudgetStackTopology) internal _topologyByItemId;
+    mapping(bytes32 => bool) internal _activeByItemId;
+    mapping(address => bytes32) internal _itemIdByBudgetTreasury;
+    mapping(address => bytes32) internal _itemIdByChildFlow;
 
-    constructor(address flow_, address premiumEscrow_) {
-        flow = flow_;
-        premiumEscrow = premiumEscrow_;
+    function setTopology(bytes32 itemId, IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+        external
+    {
+        _topologyByItemId[itemId] = topology;
+        _activeByItemId[itemId] = active;
+        _itemIdByBudgetTreasury[topology.budgetTreasury] = itemId;
+        _itemIdByChildFlow[topology.childFlow] = itemId;
+    }
+
+    function budgetStackTopology(bytes32 itemId)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForBudgetTreasury(address budgetTreasury)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByBudgetTreasury[budgetTreasury];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForChildFlow(address childFlow)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByChildFlow[childFlow];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function itemIdForBudgetTreasury(address budgetTreasury) external view returns (bytes32 itemId) {
+        itemId = _itemIdByBudgetTreasury[budgetTreasury];
+    }
+
+    function itemIdForChildFlow(address childFlow) external view returns (bytes32 itemId) {
+        itemId = _itemIdByChildFlow[childFlow];
     }
 }
 
-contract FlowLedgerPropMutableBudgetTreasury {
+abstract contract FlowLedgerPropTopologyBudgetTreasuryBase {
     address public flow;
+    address public topologyStrategy;
+    bool internal _topologyActive = true;
+    bool internal _revertAuthority;
+    bool internal _revertTopologyLookup;
+
+    constructor(address flow_, address topologyStrategy_) {
+        flow = flow_;
+        topologyStrategy = topologyStrategy_;
+    }
+
+    function setTopologyStrategy(address topologyStrategy_) external {
+        topologyStrategy = topologyStrategy_;
+    }
+
+    function setTopologyActive(bool active_) external {
+        _topologyActive = active_;
+    }
+
+    function setRevertAuthority(bool shouldRevert) external {
+        _revertAuthority = shouldRevert;
+    }
+
+    function setRevertTopologyLookup(bool shouldRevert) external {
+        _revertTopologyLookup = shouldRevert;
+    }
+
+    function authority() external view returns (address) {
+        if (_revertAuthority) revert("authority");
+        return address(this);
+    }
+
+    function budgetStackTopologyForBudgetTreasury(address budgetTreasury)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        if (_revertTopologyLookup) revert("topology");
+        if (budgetTreasury != address(this)) return (topology, false);
+
+        topology = IBudgetStackTopologyReader.BudgetStackTopology({
+            childFlow: flow,
+            budgetTreasury: address(this),
+            premiumEscrow: _topologyPremiumEscrow(),
+            strategy: topologyStrategy,
+            allocationMechanism: address(0),
+            allocationMechanismArbitrator: address(0)
+        });
+        active = _topologyActive;
+    }
+
+    function _setFlow(address flow_) internal {
+        flow = flow_;
+    }
+
+    function _topologyPremiumEscrow() internal view virtual returns (address);
+}
+
+contract FlowLedgerPropBudgetTreasury is FlowLedgerPropTopologyBudgetTreasuryBase {
     address public premiumEscrow;
 
-    constructor(address flow_, address premiumEscrow_) {
-        flow = flow_;
+    constructor(address flow_, address topologyStrategy_, address premiumEscrow_)
+        FlowLedgerPropTopologyBudgetTreasuryBase(flow_, topologyStrategy_)
+    {
         premiumEscrow = premiumEscrow_;
     }
+
+    function _topologyPremiumEscrow() internal view override returns (address) {
+        return premiumEscrow;
+    }
+}
+
+contract FlowLedgerPropMutableBudgetTreasury is FlowLedgerPropBudgetTreasury {
+    constructor(address flow_, address topologyStrategy_, address premiumEscrow_)
+        FlowLedgerPropBudgetTreasury(flow_, topologyStrategy_, premiumEscrow_)
+    {}
 
     function setFlow(address flow_) external {
-        flow = flow_;
+        _setFlow(flow_);
     }
 }
 
-contract FlowLedgerPropBudgetTreasuryPremiumEscrowReverting {
+contract FlowLedgerPropBudgetTreasuryPremiumEscrowReverting is FlowLedgerPropTopologyBudgetTreasuryBase {
     error PREMIUM_ESCROW_LOOKUP_REVERT();
 
-    address public flow;
-
-    constructor(address flow_) {
-        flow = flow_;
-    }
+    constructor(address flow_, address topologyStrategy_)
+        FlowLedgerPropTopologyBudgetTreasuryBase(flow_, topologyStrategy_)
+    {}
 
     function premiumEscrow() external pure returns (address) {
         revert PREMIUM_ESCROW_LOOKUP_REVERT();
+    }
+
+    function _topologyPremiumEscrow() internal pure override returns (address) {
+        return address(0);
     }
 }
 

@@ -4,11 +4,12 @@ pragma solidity ^0.8.34;
 import { IAllocationKeyAccountResolver } from "../interfaces/IAllocationKeyAccountResolver.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
-import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
+import { IBudgetStackTopologyReader } from "../interfaces/IBudgetStackTopologyReader.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { IGoalLedgerStrategy } from "../interfaces/IGoalLedgerStrategy.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
 import { FlowUnitMath } from "./FlowUnitMath.sol";
 import { SortedRecipientMerge } from "./SortedRecipientMerge.sol";
@@ -421,23 +422,18 @@ library GoalFlowLedgerMode {
     ) private view returns (ChildSyncTarget memory target, bool resolved) {
         if (budgetTreasury.code.length == 0) return (target, false);
 
-        address childFlow;
-        try IBudgetTreasury(budgetTreasury).flow() returns (address flow_) {
-            childFlow = flow_;
-        } catch {
-            return (target, false);
-        }
+        IBudgetStackTopologyReader.BudgetStackTopology memory topology;
+        bool active;
+        (topology, active, resolved) = _readBudgetStackTopology(budgetTreasury);
+        if (!resolved || !active) return (target, false);
+
+        address childFlow = topology.childFlow;
         if (childFlow.code.length == 0) return (target, false);
 
-        IAllocationStrategy[] memory childStrategies;
-        try IFlow(childFlow).strategies() returns (IAllocationStrategy[] memory strategies_) {
-            childStrategies = strategies_;
-        } catch {
-            return (target, false);
-        }
-        if (childStrategies.length != 1) return (target, false);
+        address childStrategy = topology.strategy;
+        if (childStrategy.code.length == 0) return (target, false);
+        if (!_childFlowUsesExpectedSingleStrategy(childFlow, childStrategy)) return (target, false);
 
-        address childStrategy = address(childStrategies[0]);
         uint256 allocationKey;
         try IAllocationStrategy(childStrategy).allocationKey(account, bytes("")) returns (uint256 allocationKey_) {
             allocationKey = allocationKey_;
@@ -471,6 +467,44 @@ library GoalFlowLedgerMode {
         return (target, true);
     }
 
+    function _readBudgetStackTopology(
+        address budgetTreasury
+    ) private view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active, bool ok) {
+        address topologyRegistry;
+        try ITreasuryAuthority(budgetTreasury).authority() returns (address authority_) {
+            topologyRegistry = authority_;
+        } catch {
+            return (topology, false, false);
+        }
+        if (topologyRegistry.code.length == 0) return (topology, false, false);
+
+        try IBudgetStackTopologyReader(topologyRegistry).budgetStackTopologyForBudgetTreasury(budgetTreasury) returns (
+            IBudgetStackTopologyReader.BudgetStackTopology memory topology_,
+            bool active_
+        ) {
+            topology = topology_;
+            active = active_;
+        } catch {
+            return (topology, false, false);
+        }
+
+        ok = topology.budgetTreasury == budgetTreasury;
+    }
+
+    function _childFlowUsesExpectedSingleStrategy(
+        address childFlow,
+        address expectedStrategy
+    ) private view returns (bool matches) {
+        IAllocationStrategy[] memory childStrategies;
+        try IFlow(childFlow).strategies() returns (IAllocationStrategy[] memory strategies_) {
+            childStrategies = strategies_;
+        } catch {
+            return false;
+        }
+        if (childStrategies.length != 1) return false;
+        return address(childStrategies[0]) == expectedStrategy;
+    }
+
     function _validateLedgerWiringAndStrategy(
         IAllocationStrategy[] memory strategies,
         address ledger,
@@ -490,7 +524,9 @@ library GoalFlowLedgerMode {
             revert IFlow.INVALID_ALLOCATION_LEDGER(ledgerAddress);
         }
 
-        if (goalTreasury == address(0)) revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, address(0));
+        if (goalTreasury == address(0)) {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, address(0));
+        }
     }
 
     function _requireAllocationLedgerWiring(

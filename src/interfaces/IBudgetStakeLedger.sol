@@ -30,6 +30,7 @@ interface IBudgetStakeLedger {
     error ONLY_BUDGET_REGISTRY_MANAGER();
     error INVALID_CHECKPOINT_DATA();
     error INVALID_BUDGET_NOT_CONTRACT(address budget);
+    error INVALID_BUDGET_TOPOLOGY(address budget);
     error INVALID_BUDGET_FLOW_READ(address budget);
     error INVALID_BUDGET_FLOW(address budget, address budgetFlow);
     error INVALID_BUDGET_PARENT_READ(address budgetFlow);

@@ -11,8 +11,10 @@ contract BudgetTCRStorageV1 {
     struct BudgetDeployment {
         address childFlow;
         address budgetTreasury;
-        address allocationMechanism;
+        address premiumEscrow;
         address strategy;
+        address allocationMechanism;
+        address allocationMechanismArbitrator;
         bool active;
     }
 
@@ -39,6 +41,7 @@ contract BudgetTCRStorageV1 {
 
     mapping(bytes32 => BudgetDeployment) internal _budgetDeployments;
     mapping(address => bytes32) internal _itemIdByBudgetTreasury;
+    mapping(address => bytes32) internal _itemIdByChildFlow;
     mapping(bytes32 => bool) internal _pendingRegistrationActivations;
     mapping(bytes32 => bool) internal _pendingRemovalFinalizations;
 }

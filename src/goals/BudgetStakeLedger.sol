@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { IBudgetStackTopologyReader } from "../interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { FlowUnitMath } from "../library/FlowUnitMath.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
@@ -125,7 +126,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
         if (budget == address(0)) revert ADDRESS_ZERO();
         if (IGoalTreasury(goalTreasury).resolved()) revert GOAL_TERMINAL();
-        uint64 activatedAt = _validateBudgetForRegistration(budget);
+        uint64 activatedAt = _validateBudgetForRegistration(recipientId, budget);
 
         address existing = _budgetByRecipientId[recipientId];
         if (existing != address(0)) {
@@ -346,13 +347,38 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         return _userAllocatedStakeCheckpoints[account][budget].latest();
     }
 
-    function _validateBudgetForRegistration(address budget) internal view returns (uint64 activatedAt) {
+    function _validateBudgetForRegistration(
+        bytes32 recipientId,
+        address budget
+    ) internal view returns (uint64 activatedAt) {
         if (budget.code.length == 0) revert INVALID_BUDGET_NOT_CONTRACT(budget);
+
+        IBudgetStackTopologyReader.BudgetStackTopology memory topology;
+        bool active;
+        try IBudgetStackTopologyReader(msg.sender).budgetStackTopology(recipientId) returns (
+            IBudgetStackTopologyReader.BudgetStackTopology memory topology_,
+            bool active_
+        ) {
+            topology = topology_;
+            active = active_;
+        } catch {
+            revert INVALID_BUDGET_TOPOLOGY(budget);
+        }
+
+        if (!active) revert INVALID_BUDGET_TOPOLOGY(budget);
+        if (topology.budgetTreasury != budget) revert INVALID_BUDGET_TOPOLOGY(budget);
+        if (topology.childFlow == address(0) || topology.childFlow.code.length == 0) {
+            revert INVALID_BUDGET_TOPOLOGY(budget);
+        }
+        if (topology.strategy == address(0) || topology.strategy.code.length == 0) {
+            revert INVALID_BUDGET_TOPOLOGY(budget);
+        }
 
         address goalFlow = _requireGoalFlow();
 
         IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
         address budgetFlow = _readBudgetFlow(budgetTreasury, budget);
+        if (budgetFlow != topology.childFlow) revert INVALID_BUDGET_TOPOLOGY(budget);
         _requireBudgetFlowParent(goalFlow, budgetFlow);
 
         if (_readExecutionDuration(budgetTreasury, budget) == 0) revert INVALID_BUDGET_EXECUTION_DURATION(budget);

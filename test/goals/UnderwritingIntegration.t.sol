@@ -10,6 +10,7 @@ import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
+import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -31,8 +32,10 @@ import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ISuperToken, ISuperfluidPool} from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
@@ -51,7 +54,7 @@ import {
     TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
-contract UnderwritingPremiumSlashIntegrationTest is Test {
+contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyReader {
     uint256 internal constant GOAL_REVNET_ID = 77;
     uint256 internal constant COBUILD_REVNET_ID = 78;
     uint32 internal constant BUDGET_SLASH_PPM = 200_000; // 20%
@@ -87,6 +90,12 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
     UnderwritingMockBudgetFlow internal budgetFlow;
     UnderwritingMockGoalFlow internal goalFlow;
     UnderwritingMockGoalTreasuryResolutionReporter internal goalTreasury;
+    UnderwritingBudgetTopologyStrategy internal topologyStrategy;
+
+    mapping(bytes32 itemId => BudgetStackTopology topology) private _topologyByItemId;
+    mapping(bytes32 itemId => bool active) private _activeByItemId;
+    mapping(address budgetTreasury => bytes32 itemId) private _itemIdByBudgetTreasury;
+    mapping(address childFlow => bytes32 itemId) private _itemIdByChildFlow;
 
     struct RealGoalBudgetEscrowStack {
         StakeVault vault;
@@ -171,23 +180,64 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         budgetTreasury.setFlow(address(budgetFlow));
         goalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
         goalTreasury = new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(budgetStakeLedger));
+        topologyStrategy = new UnderwritingBudgetTopologyStrategy();
         goalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
         goalFlow.setFlowOperator(address(goalTreasury));
 
         PremiumEscrow implementation = new PremiumEscrow();
         escrow = PremiumEscrow(Clones.clone(address(implementation)));
         escrow.initialize(
-            address(budgetTreasury),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(router),
-            BUDGET_SLASH_PPM
+            address(budgetTreasury), address(budgetStakeLedger), address(goalFlow), address(router), BUDGET_SLASH_PPM
         );
         budgetTreasury.setPremiumEscrow(address(escrow));
         vm.prank(address(budgetTreasury));
         escrow.connectManagerRewardPool(address(managerRewardPool));
 
         router.setAuthorizedPremiumEscrow(address(escrow), true);
+    }
+
+    function budgetStackTopology(bytes32 itemId)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForBudgetTreasury(address budgetTreasury_)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByBudgetTreasury[budgetTreasury_];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForChildFlow(address childFlow)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByChildFlow[childFlow];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function itemIdForBudgetTreasury(address budgetTreasury_) external view returns (bytes32 itemId) {
+        itemId = _itemIdByBudgetTreasury[budgetTreasury_];
+    }
+
+    function itemIdForChildFlow(address childFlow) external view returns (bytes32 itemId) {
+        itemId = _itemIdByChildFlow[childFlow];
+    }
+
+    function _setBudgetTopology(bytes32 itemId, BudgetStackTopology memory topology, bool active) internal {
+        _topologyByItemId[itemId] = topology;
+        _activeByItemId[itemId] = active;
+        _itemIdByBudgetTreasury[topology.budgetTreasury] = itemId;
+        _itemIdByChildFlow[topology.childFlow] = itemId;
     }
 
     function test_underwriterCoverage_premiumAccruesAndClaims() public {
@@ -338,9 +388,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         goalFlow.setFlowOperator(address(0));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0)
-        );
+        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
         escrow.slash(ALICE);
 
         assertFalse(escrow.slashed(ALICE));
@@ -447,9 +495,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         );
     }
 
-    function test_goalResolvedDuringPendingSuccessAssertionDelay_prepareBlocksWithdrawalUntilBudgetResolves()
-        public
-    {
+    function test_goalResolvedDuringPendingSuccessAssertionDelay_prepareBlocksWithdrawalUntilBudgetResolves() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -576,10 +622,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 budgetCoverage = 100e18;
 
         (
-            StakeVault delayedVault,
-            ,
-            PremiumEscrow delayedEscrow,
-            ,
+            StakeVault delayedVault,,
+            PremiumEscrow delayedEscrow,,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -621,10 +665,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 budgetCoverage = 100e18;
 
         (
-            StakeVault delayedVault,
-            ,
-            PremiumEscrow delayedEscrow,
-            ,
+            StakeVault delayedVault,,
+            PremiumEscrow delayedEscrow,,
             UnderwritingMockBudgetTreasury delayedBudgetTreasury,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStack(goalStake, cobuildStake, budgetCoverage);
@@ -778,7 +820,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
         assertEq(delayedBudgetStakeLedger.registeredBudgetCount(), 1);
         assertEq(delayedBudgetStakeLedger.registeredBudgetAt(0), address(delayedBudgetTreasury));
-        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+        assertEq(
+            delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage
+        );
 
         goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
 
@@ -837,9 +881,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         assertEq(cobuildToken.balanceOf(address(delayedRouter)), 0);
     }
 
-    function test_realBudgetTreasury_pendingSuccessAssertion_keepsWithdrawalBlockedUntilClearedAndFailed()
-        public
-    {
+    function test_realBudgetTreasury_pendingSuccessAssertion_keepsWithdrawalBlockedUntilClearedAndFailed() public {
         uint256 goalStake = 120e18;
         uint256 cobuildStake = 80e18;
         uint256 budgetCoverage = 100e18;
@@ -850,8 +892,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint64 budgetResolvedAt = 45;
 
         (
-            StakeVault delayedVault,
-            ,
+            StakeVault delayedVault,,
             PremiumEscrow delayedEscrow,
             BudgetStakeLedger delayedBudgetStakeLedger,
             BudgetTreasury delayedBudgetTreasury,
@@ -859,7 +900,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
 
-        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+        assertEq(
+            delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage
+        );
 
         goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
 
@@ -928,18 +971,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         bytes32 budgetRecipientId = keccak256("underwriting-real-budget-preactivation-withdraw");
 
         (
-            StakeVault delayedVault,
-            ,
+            StakeVault delayedVault,,
             PremiumEscrow delayedEscrow,
             BudgetStakeLedger delayedBudgetStakeLedger,
-            BudgetTreasury delayedBudgetTreasury,
-            ,
+            BudgetTreasury delayedBudgetTreasury,,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
 
         assertEq(delayedBudgetTreasury.activatedAt(), 0);
         assertEq(delayedBudgetStakeLedger.registeredBudgetCount(), 1);
-        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+        assertEq(
+            delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage
+        );
 
         delayedGoalTreasury.setResolved(true);
 
@@ -979,17 +1022,17 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         bytes32 budgetRecipientId = keccak256("underwriting-real-budget-preactivation-blocked");
 
         (
-            StakeVault delayedVault,
-            ,
+            StakeVault delayedVault,,
             PremiumEscrow delayedEscrow,
             BudgetStakeLedger delayedBudgetStakeLedger,
-            BudgetTreasury delayedBudgetTreasury,
-            ,
+            BudgetTreasury delayedBudgetTreasury,,
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
 
         assertEq(delayedBudgetTreasury.activatedAt(), 0);
-        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+        assertEq(
+            delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage
+        );
 
         delayedEscrow.checkpoint(ALICE);
         assertEq(delayedEscrow.userCov(ALICE), budgetCoverage);
@@ -1017,8 +1060,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint64 budgetClosedAt = 30;
 
         (
-            ,
-            ,
+            ,,
             PremiumEscrow delayedEscrow,
             BudgetStakeLedger delayedBudgetStakeLedger,
             BudgetTreasury delayedBudgetTreasury,
@@ -1026,7 +1068,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             UnderwritingMockGoalTreasuryResolutionReporter delayedGoalTreasury
         ) = _deployDelayedEscrowStackWithRealBudget(goalStake, cobuildStake, budgetCoverage, budgetRecipientId);
 
-        assertEq(delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage);
+        assertEq(
+            delayedBudgetStakeLedger.userAllocatedStakeOnBudget(ALICE, address(delayedBudgetTreasury)), budgetCoverage
+        );
 
         goalSuperToken.mint(address(delayedBudgetFlow), 2e18);
 
@@ -1176,11 +1220,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         _prepareWithdrawalAndAssertSlash(stack, stakedGoalBeforePrepare, stakedCobuildBeforePrepare, fundingBefore);
     }
 
-    function _deployDelayedEscrowStack(
-        uint256 goalStake,
-        uint256 cobuildStake,
-        uint256 budgetCoverage
-    )
+    function _deployDelayedEscrowStack(uint256 goalStake, uint256 cobuildStake, uint256 budgetCoverage)
         internal
         returns (
             StakeVault delayedVault,
@@ -1357,6 +1397,18 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         vm.prank(address(delayedBudgetTreasury));
         delayedEscrow.connectManagerRewardPool(address(delayedManagerRewardPool));
 
+        _setBudgetTopology(
+            budgetRecipientId,
+            BudgetStackTopology({
+                childFlow: address(delayedBudgetFlow),
+                budgetTreasury: address(delayedBudgetTreasury),
+                premiumEscrow: address(delayedEscrow),
+                strategy: address(topologyStrategy),
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            }),
+            true
+        );
         delayedBudgetStakeLedger.registerBudget(budgetRecipientId, address(delayedBudgetTreasury));
 
         if (budgetCoverage != 0) {
@@ -1367,13 +1419,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
 
             vm.prank(address(delayedGoalFlow));
             delayedBudgetStakeLedger.checkpointAllocation(
-                ALICE,
-                0,
-                new bytes32[](0),
-                new uint32[](0),
-                budgetCoverage,
-                recipientIds,
-                scaled
+                ALICE, 0, new bytes32[](0), new uint32[](0), budgetCoverage, recipientIds, scaled
             );
         }
 
@@ -1457,57 +1503,72 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         stack.budgetFlow.setFlowOperator(address(stack.budgetTreasury));
         stack.budgetFlow.setSweeper(address(stack.budgetTreasury));
 
-        stack.goalTreasury.initialize(
-            address(this),
-            IGoalTreasury.GoalConfig({
-                flow: address(stack.goalFlow),
-                stakeVault: address(stack.vault),
-                jurorSlasher: address(this),
-                underwriterSlasher: address(stack.router),
-                budgetStakeLedger: address(stack.budgetStakeLedger),
-                hook: address(goalHook),
-                goalRulesets: address(rulesets),
-                goalRevnetId: GOAL_REVNET_ID,
-                minRaiseDeadline: uint64(block.timestamp + 3 days),
-                minRaise: 100e18,
-                coverageLambda: COVERAGE_LAMBDA,
-                budgetPremiumPpm: BUDGET_PREMIUM_PPM,
-                budgetSlashPpm: BUDGET_SLASH_PPM,
-                successResolver: address(stack.goalSuccessResolver),
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
-                successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy")
-            })
-        );
+        stack.goalTreasury
+            .initialize(
+                address(this),
+                IGoalTreasury.GoalConfig({
+                    flow: address(stack.goalFlow),
+                    stakeVault: address(stack.vault),
+                    jurorSlasher: address(this),
+                    underwriterSlasher: address(stack.router),
+                    budgetStakeLedger: address(stack.budgetStakeLedger),
+                    hook: address(goalHook),
+                    goalRulesets: address(rulesets),
+                    goalRevnetId: GOAL_REVNET_ID,
+                    minRaiseDeadline: uint64(block.timestamp + 3 days),
+                    minRaise: 100e18,
+                    coverageLambda: COVERAGE_LAMBDA,
+                    budgetPremiumPpm: BUDGET_PREMIUM_PPM,
+                    budgetSlashPpm: BUDGET_SLASH_PPM,
+                    successResolver: address(stack.goalSuccessResolver),
+                    successAssertionLiveness: uint64(1 days),
+                    successAssertionBond: 10e18,
+                    successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
+                    successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy")
+                })
+            );
 
-        stack.budgetTreasury.initialize(
-            address(this),
-            IBudgetTreasury.BudgetConfig({
-                flow: address(stack.budgetFlow),
-                premiumEscrow: address(stack.escrow),
-                fundingDeadline: uint64(block.timestamp + 20),
-                executionDuration: 20,
-                activationThreshold: 1e18,
-                runwayCap: 0,
-                successResolver: address(stack.budgetSuccessResolver),
-                successAssertionLiveness: uint64(1 days),
-                successAssertionBond: 10e18,
-                successOracleSpecHash: keccak256("underwriting-real-budget-success-oracle-spec"),
-                successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy")
-            })
-        );
+        stack.budgetTreasury
+            .initialize(
+                address(this),
+                IBudgetTreasury.BudgetConfig({
+                    flow: address(stack.budgetFlow),
+                    premiumEscrow: address(stack.escrow),
+                    fundingDeadline: uint64(block.timestamp + 20),
+                    executionDuration: 20,
+                    activationThreshold: 1e18,
+                    runwayCap: 0,
+                    successResolver: address(stack.budgetSuccessResolver),
+                    successAssertionLiveness: uint64(1 days),
+                    successAssertionBond: 10e18,
+                    successOracleSpecHash: keccak256("underwriting-real-budget-success-oracle-spec"),
+                    successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy")
+                })
+            );
 
-        stack.escrow.initialize(
-            address(stack.budgetTreasury),
-            address(stack.budgetStakeLedger),
-            address(stack.goalFlow),
-            address(stack.router),
-            BUDGET_SLASH_PPM
-        );
+        stack.escrow
+            .initialize(
+                address(stack.budgetTreasury),
+                address(stack.budgetStakeLedger),
+                address(stack.goalFlow),
+                address(stack.router),
+                BUDGET_SLASH_PPM
+            );
         vm.prank(address(stack.budgetTreasury));
         stack.escrow.connectManagerRewardPool(address(delayedManagerRewardPool));
 
+        _setBudgetTopology(
+            budgetRecipientId,
+            BudgetStackTopology({
+                childFlow: address(stack.budgetFlow),
+                budgetTreasury: address(stack.budgetTreasury),
+                premiumEscrow: address(stack.escrow),
+                strategy: address(topologyStrategy),
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            }),
+            true
+        );
         stack.budgetStakeLedger.registerBudget(budgetRecipientId, address(stack.budgetTreasury));
         if (budgetCoverage != 0) {
             bytes32[] memory recipientIds = new bytes32[](1);
@@ -1516,15 +1577,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
             scaled[0] = 1_000_000;
 
             vm.prank(address(stack.goalFlow));
-            stack.budgetStakeLedger.checkpointAllocation(
-                ALICE,
-                0,
-                new bytes32[](0),
-                new uint32[](0),
-                budgetCoverage,
-                recipientIds,
-                scaled
-            );
+            stack.budgetStakeLedger
+                .checkpointAllocation(ALICE, 0, new bytes32[](0), new uint32[](0), budgetCoverage, recipientIds, scaled);
         }
 
         stack.router.setAuthorizedPremiumEscrow(address(stack.escrow), true);
@@ -1667,9 +1721,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 stakedCobuildBeforeSlash,
         uint256 fundingBefore,
         uint256 slashWeight
-    )
-        internal
-    {
+    ) internal {
         assertEq(slashWeight, 20e18);
         assertLt(delayedVault.stakedGoalOf(ALICE), stakedGoalBeforeSlash);
         assertLt(delayedVault.stakedCobuildOf(ALICE), stakedCobuildBeforeSlash);
@@ -1684,12 +1736,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         uint256 duration = uint256(IBudgetTreasury(escrow_.budgetTreasury()).executionDuration());
         // New credit-drawn formula: targetSlashWeight = creditDrawn * coverageLambda / duration * budgetSlashPpm / 1e6
         // => creditDrawn = targetSlashWeight * duration * 1e6 / (coverageLambda * budgetSlashPpm)
-        uint256 creditNeeded =
-            (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256) / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
+        uint256 creditNeeded = (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256)
+            / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
         address budgetFlow_ = escrow_.budgetFlow();
-        (bool ok,) = escrow_.goalFlow().call(
-            abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, creditNeeded)
-        );
+        (bool ok,) = escrow_.goalFlow()
+            .call(abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, creditNeeded));
         require(ok, "_setGoalFlowCreditForTargetSlash: setTotalReceivedByMember failed");
     }
 
@@ -1698,14 +1749,15 @@ contract UnderwritingPremiumSlashIntegrationTest is Test {
         escrow_.checkpoint(ALICE);
     }
 
-    function _setGoalFlowCreditForTargetSlashWithoutCheckpoint(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
+    function _setGoalFlowCreditForTargetSlashWithoutCheckpoint(PremiumEscrow escrow_, uint256 targetSlashWeight)
+        internal
+    {
         _setGoalFlowCreditForTargetSlash(escrow_, targetSlashWeight);
     }
 
     function _distributeEscrowPremium(PremiumEscrow escrow_, uint256 amount) internal {
-        SharedMockSuperfluidPool(address(escrow_.managerRewardPool())).increaseTotalAmountReceivedByMember(
-            address(escrow_), amount
-        );
+        SharedMockSuperfluidPool(address(escrow_.managerRewardPool()))
+            .increaseTotalAmountReceivedByMember(address(escrow_), amount);
         goalSuperToken.mint(address(escrow_), amount);
     }
 }
@@ -1776,7 +1828,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         goalTreasuryImplementation = new GoalTreasury();
         treasury = _cloneGoalTreasuryWithPredictedAddress();
-        treasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
+        treasury.initialize(
+            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger))
+        );
     }
 
     function test_initialize_wiresConfiguredSlashersOnStakeVault() public view {
@@ -1789,7 +1843,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.jurorSlasher = address(assertionOracle);
-        (JBRuleset memory terminal, ) = rulesets.latestQueuedOf(config.goalRevnetId);
+        (JBRuleset memory terminal,) = rulesets.latestQueuedOf(config.goalRevnetId);
 
         vm.expectEmit(true, false, false, true, address(candidateTreasury));
         emit IGoalTreasury.GoalConfigured(
@@ -1836,22 +1890,17 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         splitHookImplementation.initialize(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(treasury)),
-            IFlow(address(flow)),
-            GOAL_REVNET_ID
+            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
         );
     }
 
     function test_goalRevnetSplitHookCloneInitialize_setsCriticalState() public {
         GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
-        GoalRevnetSplitHook splitHookClone = GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
+        GoalRevnetSplitHook splitHookClone =
+            GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
 
         splitHookClone.initialize(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(treasury)),
-            IFlow(address(flow)),
-            GOAL_REVNET_ID
+            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
         );
 
         assertEq(address(splitHookClone.directory()), address(directory));
@@ -1864,21 +1913,16 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     function test_goalRevnetSplitHookCloneInitialize_revertsOnSecondCall() public {
         GoalRevnetSplitHook splitHookImplementation = new GoalRevnetSplitHook();
-        GoalRevnetSplitHook splitHookClone = GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
+        GoalRevnetSplitHook splitHookClone =
+            GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
 
         splitHookClone.initialize(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(treasury)),
-            IFlow(address(flow)),
-            GOAL_REVNET_ID
+            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
         );
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         splitHookClone.initialize(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(treasury)),
-            IFlow(address(flow)),
-            GOAL_REVNET_ID
+            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
         );
     }
 
@@ -1953,9 +1997,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(flow.targetOutflowRate(), 0);
     }
 
-    function test_sync_characterizesZeroUnitsRestartDeadZone_outflowRemainsZeroUntilNextSyncAfterUnitsRestore()
-        public
-    {
+    function test_sync_characterizesZeroUnitsRestartDeadZone_outflowRemainsZeroUntilNextSyncAfterUnitsRestore() public {
         distributionPool.setTotalUnits(80);
 
         superToken.mint(address(flow), 100e18);
@@ -2000,11 +2042,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         underlyingToken.mint(address(treasury), sourceAmount);
 
         vm.prank(address(hook));
-        (
-            IGoalTreasury.HookSplitAction action,
-            uint256 superTokenAmount,
-            uint256 burnAmount
-        ) = treasury.processHookSplit(address(underlyingToken), sourceAmount);
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            treasury.processHookSplit(address(underlyingToken), sourceAmount);
 
         assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.TerminalSettled));
         assertEq(superTokenAmount, sourceAmount);
@@ -2083,12 +2122,11 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_emitsFailClosedTelemetry()
         public
     {
-        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig =
-            new UnderwritingRevertingOptimisticOracleResolverConfig(
-                IERC20(address(underlyingToken)),
-                successResolverConfig.escalationManager(),
-                successResolverConfig.domainId()
-            );
+        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig = new UnderwritingRevertingOptimisticOracleResolverConfig(
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
         GoalTreasury unresolvedConfigTreasury = _deployGoalTreasuryWithResolver(address(revertingResolverConfig));
 
         distributionPool.setTotalUnits(40);
@@ -2114,7 +2152,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         _assertGoalFailClosedGraceState(unresolvedConfigTreasury);
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAddressZero_emitsFailClosedTelemetry() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAddressZero_emitsFailClosedTelemetry()
+        public
+    {
         TreasuryMockUmaResolverConfig zeroOracleResolverConfig = new TreasuryMockUmaResolverConfig(
             OptimisticOracleV3Interface(address(0)),
             IERC20(address(underlyingToken)),
@@ -2207,7 +2247,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             )
         );
         candidateTreasury.initialize(
-            address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
+            address(this),
+            _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
 
@@ -2239,7 +2280,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             )
         );
         candidateTreasury.initialize(
-            address(this), _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
+            address(this),
+            _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
 
@@ -2329,397 +2371,408 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
     }
 }
 
-contract UnderwritingRevertingGetAssertionOracle {
-    error GET_ASSERTION_REVERT();
+    contract UnderwritingRevertingGetAssertionOracle {
+        error GET_ASSERTION_REVERT();
 
-    function getAssertion(bytes32) external pure returns (OptimisticOracleV3Interface.Assertion memory) {
-        revert GET_ASSERTION_REVERT();
-    }
-}
-
-contract UnderwritingMockBudgetStakeLedger {
-    mapping(address account => mapping(address budgetTreasury => uint256 coverage)) internal _coverage;
-    address internal _goalTreasury;
-    address[] internal _registeredBudgets;
-    mapping(address budget => bool exists) internal _isRegisteredBudget;
-
-    function setCoverage(address account, address budgetTreasury, uint256 coverage) external {
-        _coverage[account][budgetTreasury] = coverage;
-    }
-
-    function setGoalTreasury(address goalTreasury_) external {
-        _goalTreasury = goalTreasury_;
-    }
-
-    function goalTreasury() external view returns (address) {
-        return _goalTreasury;
-    }
-
-    function registerBudget(address budget) external {
-        if (_isRegisteredBudget[budget]) return;
-        _isRegisteredBudget[budget] = true;
-        _registeredBudgets.push(budget);
-    }
-
-    function registeredBudgetCount() external view returns (uint256) {
-        return _registeredBudgets.length;
-    }
-
-    function registeredBudgetAt(uint256 index) external view returns (address) {
-        return _registeredBudgets[index];
-    }
-
-    function userAllocatedStakeOnBudget(address account, address budgetTreasury) external view returns (uint256) {
-        return _coverage[account][budgetTreasury];
-    }
-}
-
-contract UnderwritingMockBudgetTreasury {
-    ISuperToken internal immutable _superToken;
-    IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Funding;
-    address public premiumEscrow;
-    uint64 public activatedAt;
-    uint64 public resolvedAt;
-    bytes32 public pendingSuccessAssertionId;
-    uint64 public pendingSuccessAssertionAt;
-    uint64 public reassertGraceDeadline;
-    bool public reassertGraceUsed;
-    uint64 public executionDuration = 20;
-    address public flow;
-
-    constructor(ISuperToken superToken_) {
-        _superToken = superToken_;
-    }
-
-    function superToken() external view returns (ISuperToken) {
-        return _superToken;
-    }
-
-    function setPremiumEscrow(address premiumEscrow_) external {
-        premiumEscrow = premiumEscrow_;
-    }
-
-    function setFlow(address flow_) external {
-        flow = flow_;
-    }
-
-    function controller() external pure returns (address) {
-        return address(0);
-    }
-
-    function setExecutionDuration(uint64 executionDuration_) external {
-        executionDuration = executionDuration_;
-    }
-
-    function setActivatedAt(uint64 activatedAt_) external {
-        activatedAt = activatedAt_;
-        if (activatedAt_ != 0 && state == IBudgetTreasury.BudgetState.Funding) {
-            state = IBudgetTreasury.BudgetState.Active;
+        function getAssertion(bytes32) external pure returns (OptimisticOracleV3Interface.Assertion memory) {
+            revert GET_ASSERTION_REVERT();
         }
     }
 
-    function setResolvedAt(uint64 resolvedAt_, IBudgetTreasury.BudgetState state_) external {
-        resolvedAt = resolvedAt_;
-        state = state_;
+    contract UnderwritingMockBudgetStakeLedger {
+        mapping(address account => mapping(address budgetTreasury => uint256 coverage)) internal _coverage;
+        address internal _goalTreasury;
+        address[] internal _registeredBudgets;
+        mapping(address budget => bool exists) internal _isRegisteredBudget;
+
+        function setCoverage(address account, address budgetTreasury, uint256 coverage) external {
+            _coverage[account][budgetTreasury] = coverage;
+        }
+
+        function setGoalTreasury(address goalTreasury_) external {
+            _goalTreasury = goalTreasury_;
+        }
+
+        function goalTreasury() external view returns (address) {
+            return _goalTreasury;
+        }
+
+        function registerBudget(address budget) external {
+            if (_isRegisteredBudget[budget]) return;
+            _isRegisteredBudget[budget] = true;
+            _registeredBudgets.push(budget);
+        }
+
+        function registeredBudgetCount() external view returns (uint256) {
+            return _registeredBudgets.length;
+        }
+
+        function registeredBudgetAt(uint256 index) external view returns (address) {
+            return _registeredBudgets[index];
+        }
+
+        function userAllocatedStakeOnBudget(address account, address budgetTreasury) external view returns (uint256) {
+            return _coverage[account][budgetTreasury];
+        }
     }
 
-    function resolved() external view returns (bool) {
-        return resolvedAt != 0;
+    contract UnderwritingBudgetTopologyStrategy {}
+
+    contract UnderwritingMockBudgetTreasury {
+        ISuperToken internal immutable _superToken;
+        IBudgetTreasury.BudgetState public state = IBudgetTreasury.BudgetState.Funding;
+        address public premiumEscrow;
+        uint64 public activatedAt;
+        uint64 public resolvedAt;
+        bytes32 public pendingSuccessAssertionId;
+        uint64 public pendingSuccessAssertionAt;
+        uint64 public reassertGraceDeadline;
+        bool public reassertGraceUsed;
+        uint64 public executionDuration = 20;
+        address public flow;
+
+        constructor(ISuperToken superToken_) {
+            _superToken = superToken_;
+        }
+
+        function superToken() external view returns (ISuperToken) {
+            return _superToken;
+        }
+
+        function setPremiumEscrow(address premiumEscrow_) external {
+            premiumEscrow = premiumEscrow_;
+        }
+
+        function setFlow(address flow_) external {
+            flow = flow_;
+        }
+
+        function controller() external pure returns (address) {
+            return address(0);
+        }
+
+        function setExecutionDuration(uint64 executionDuration_) external {
+            executionDuration = executionDuration_;
+        }
+
+        function setActivatedAt(uint64 activatedAt_) external {
+            activatedAt = activatedAt_;
+            if (activatedAt_ != 0 && state == IBudgetTreasury.BudgetState.Funding) {
+                state = IBudgetTreasury.BudgetState.Active;
+            }
+        }
+
+        function setResolvedAt(uint64 resolvedAt_, IBudgetTreasury.BudgetState state_) external {
+            resolvedAt = resolvedAt_;
+            state = state_;
+        }
+
+        function resolved() external view returns (bool) {
+            return resolvedAt != 0;
+        }
+
+        function registerSuccessAssertion(bytes32 assertionId) external {
+            pendingSuccessAssertionId = assertionId;
+            pendingSuccessAssertionAt = uint64(block.timestamp);
+        }
+
+        function clearSuccessAssertion(bytes32 assertionId, uint64 graceDuration) external {
+            require(pendingSuccessAssertionId == assertionId, "ASSERTION_ID_MISMATCH");
+
+            pendingSuccessAssertionId = bytes32(0);
+            pendingSuccessAssertionAt = 0;
+            if (reassertGraceUsed || graceDuration == 0) return;
+
+            reassertGraceUsed = true;
+            uint256 computedDeadline = block.timestamp + uint256(graceDuration);
+            if (computedDeadline > type(uint64).max) computedDeadline = type(uint64).max;
+            reassertGraceDeadline = uint64(computedDeadline);
+        }
+
+        function isReassertGraceActive() external view returns (bool) {
+            uint64 graceDeadline = reassertGraceDeadline;
+            return graceDeadline != 0 && block.timestamp < graceDeadline;
+        }
     }
 
-    function registerSuccessAssertion(bytes32 assertionId) external {
-        pendingSuccessAssertionId = assertionId;
-        pendingSuccessAssertionAt = uint64(block.timestamp);
+    contract UnderwritingMockGoalFlow {
+        ISuperToken internal immutable _superToken;
+        address internal _flowOperator;
+        mapping(address => uint256) internal _totalReceivedByMember;
+
+        constructor(ISuperToken superToken_) {
+            _superToken = superToken_;
+        }
+
+        function superToken() external view returns (ISuperToken) {
+            return _superToken;
+        }
+
+        function flowOperator() external view returns (address) {
+            return _flowOperator;
+        }
+
+        function setFlowOperator(address flowOperator_) external {
+            _flowOperator = flowOperator_;
+        }
+
+        function setTotalReceivedByMember(address member, uint256 amount) external {
+            _totalReceivedByMember[member] = amount;
+        }
+
+        function getTotalReceivedByMember(address member) external view returns (uint256) {
+            return _totalReceivedByMember[member];
+        }
     }
 
-    function clearSuccessAssertion(bytes32 assertionId, uint64 graceDuration) external {
-        require(pendingSuccessAssertionId == assertionId, "ASSERTION_ID_MISMATCH");
+    contract UnderwritingMockGoalTreasuryResolutionReporter {
+        bool public resolved;
+        address public immutable authority;
+        address public immutable budgetStakeLedger;
+        address public flow;
+        uint256 public coverageLambda;
+        IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
+        uint256 public settleLateResidualCalls;
 
-        pendingSuccessAssertionId = bytes32(0);
-        pendingSuccessAssertionAt = 0;
-        if (reassertGraceUsed || graceDuration == 0) return;
+        constructor(address authority_, address budgetStakeLedger_) {
+            authority = authority_;
+            budgetStakeLedger = budgetStakeLedger_;
+        }
 
-        reassertGraceUsed = true;
-        uint256 computedDeadline = block.timestamp + uint256(graceDuration);
-        if (computedDeadline > type(uint64).max) computedDeadline = type(uint64).max;
-        reassertGraceDeadline = uint64(computedDeadline);
+        function setResolved(bool resolved_) external {
+            resolved = resolved_;
+        }
+
+        function setFlow(address flow_) external {
+            flow = flow_;
+        }
+
+        function setCoverageLambda(uint256 coverageLambda_) external {
+            coverageLambda = coverageLambda_;
+        }
+
+        function setState(IGoalTreasury.GoalState state_) external {
+            _state = state_;
+        }
+
+        function state() external view returns (IGoalTreasury.GoalState) {
+            return _state;
+        }
+
+        function settleLateResidual() external {
+            settleLateResidualCalls += 1;
+        }
     }
 
-    function isReassertGraceActive() external view returns (bool) {
-        uint64 graceDeadline = reassertGraceDeadline;
-        return graceDeadline != 0 && block.timestamp < graceDeadline;
-    }
-}
+    contract UnderwritingMockBudgetFlow {
+        uint32 internal _managerRewardPoolFlowRatePpm;
+        address internal _managerRewardDistributionPool;
 
-contract UnderwritingMockGoalFlow {
-    ISuperToken internal immutable _superToken;
-    address internal _flowOperator;
-    mapping(address => uint256) internal _totalReceivedByMember;
+        function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
+            _managerRewardPoolFlowRatePpm = ppm_;
+        }
 
-    constructor(ISuperToken superToken_) {
-        _superToken = superToken_;
-    }
+        function managerRewardPoolFlowRatePpm() external view returns (uint32) {
+            return _managerRewardPoolFlowRatePpm;
+        }
 
-    function superToken() external view returns (ISuperToken) {
-        return _superToken;
-    }
+        function setManagerRewardDistributionPool(address pool_) external {
+            _managerRewardDistributionPool = pool_;
+        }
 
-    function flowOperator() external view returns (address) {
-        return _flowOperator;
+        function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
+            return ISuperfluidPool(_managerRewardDistributionPool);
+        }
     }
 
-    function setFlowOperator(address flowOperator_) external {
-        _flowOperator = flowOperator_;
+    contract UnderwritingMockRulesets {
+        struct RulesetPair {
+            JBRuleset base;
+            JBRuleset terminal;
+            bool configured;
+        }
+
+        mapping(uint256 => uint112) internal _weightOf;
+        mapping(uint256 => RulesetPair) internal _pairOf;
+        IJBDirectory internal _directory;
+
+        function setDirectory(IJBDirectory directory_) external {
+            _directory = directory_;
+        }
+
+        function DIRECTORY() external view virtual returns (IJBDirectory) {
+            return _directory;
+        }
+
+        function setWeight(uint256 projectId, uint112 weight) external {
+            _weightOf[projectId] = weight;
+        }
+
+        function configureTwoRulesetSchedule(uint256 projectId, uint48 terminalStart, uint112 openWeight) external {
+            uint48 nowTs = uint48(block.timestamp);
+            RulesetPair storage pair = _pairOf[projectId];
+            pair.base = JBRuleset({
+                cycleNumber: 1,
+                id: 1,
+                basedOnId: 0,
+                start: nowTs,
+                duration: 0,
+                weight: openWeight,
+                weightCutPercent: 0,
+                approvalHook: IJBRulesetApprovalHook(address(0)),
+                metadata: 0
+            });
+            pair.terminal = JBRuleset({
+                cycleNumber: 2,
+                id: 2,
+                basedOnId: 1,
+                start: terminalStart,
+                duration: 0,
+                weight: 0,
+                weightCutPercent: 0,
+                approvalHook: IJBRulesetApprovalHook(address(0)),
+                metadata: 0
+            });
+            pair.configured = true;
+        }
+
+        function currentOf(uint256 projectId) external view returns (JBRuleset memory ruleset) {
+            ruleset.weight = _weightOf[projectId];
+        }
+
+        function latestQueuedOf(uint256 projectId)
+            external
+            view
+            returns (JBRuleset memory ruleset, JBApprovalStatus status)
+        {
+            RulesetPair storage pair = _pairOf[projectId];
+            if (!pair.configured) return (ruleset, JBApprovalStatus.Empty);
+            return (pair.terminal, JBApprovalStatus.Approved);
+        }
+
+        function getRulesetOf(uint256 projectId, uint256 rulesetId) external view returns (JBRuleset memory ruleset) {
+            RulesetPair storage pair = _pairOf[projectId];
+            if (!pair.configured) return ruleset;
+            if (rulesetId == pair.base.id) return pair.base;
+            if (rulesetId == pair.terminal.id) return pair.terminal;
+            return ruleset;
+        }
     }
 
-    function setTotalReceivedByMember(address member, uint256 amount) external {
-        _totalReceivedByMember[member] = amount;
+    contract UnderwritingMockRulesetsDirectoryReverting is UnderwritingMockRulesets {
+        function DIRECTORY() external pure override returns (IJBDirectory) {
+            revert("RULESETS_DIRECTORY_REVERT");
+        }
     }
 
-    function getTotalReceivedByMember(address member) external view returns (uint256) {
-        return _totalReceivedByMember[member];
-    }
-}
+    contract UnderwritingMockDirectory {
+        mapping(uint256 projectId => address controller) internal _controllerOf;
+        mapping(uint256 projectId => mapping(address token => IJBTerminal terminal)) internal _primaryTerminalOf;
 
-contract UnderwritingMockGoalTreasuryResolutionReporter {
-    bool public resolved;
-    address public immutable authority;
-    address public immutable budgetStakeLedger;
-    address public flow;
-    uint256 public coverageLambda;
-    IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
-    uint256 public settleLateResidualCalls;
+        function setController(uint256 projectId, address controller) external {
+            _controllerOf[projectId] = controller;
+        }
 
-    constructor(address authority_, address budgetStakeLedger_) {
-        authority = authority_;
-        budgetStakeLedger = budgetStakeLedger_;
-    }
+        function controllerOf(uint256 projectId) external view returns (address) {
+            return _controllerOf[projectId];
+        }
 
-    function setResolved(bool resolved_) external {
-        resolved = resolved_;
+        function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
+            _primaryTerminalOf[projectId][token] = terminal;
+        }
+
+        function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
+            return _primaryTerminalOf[projectId][token];
+        }
     }
 
-    function setFlow(address flow_) external {
-        flow = flow_;
+    contract UnderwritingMockTokens {
+        mapping(address token => uint256 projectId) internal _projectIdOf;
+
+        function setProjectIdOf(address token, uint256 projectId) external {
+            _projectIdOf[token] = projectId;
+        }
+
+        function projectIdOf(IJBToken token) external view returns (uint256) {
+            return _projectIdOf[address(token)];
+        }
     }
 
-    function setCoverageLambda(uint256 coverageLambda_) external {
-        coverageLambda = coverageLambda_;
+    contract UnderwritingMockController {
+        UnderwritingMockTokens internal _tokens;
+        uint256 internal _burnCallCount;
+        uint256 internal _lastBurnProjectId;
+        uint256 internal _lastBurnAmount;
+        bytes32 internal _lastBurnMemoHash;
+
+        constructor(UnderwritingMockTokens tokens_) {
+            _tokens = tokens_;
+        }
+
+        function TOKENS() external view returns (UnderwritingMockTokens) {
+            return _tokens;
+        }
+
+        function burnTokensOf(address, uint256 projectId, uint256 tokenCount, string calldata memo) external {
+            _burnCallCount += 1;
+            _lastBurnProjectId = projectId;
+            _lastBurnAmount = tokenCount;
+            _lastBurnMemoHash = keccak256(bytes(memo));
+        }
+
+        function burnCallCount() external view returns (uint256) {
+            return _burnCallCount;
+        }
+
+        function lastBurnProjectId() external view returns (uint256) {
+            return _lastBurnProjectId;
+        }
+
+        function lastBurnAmount() external view returns (uint256) {
+            return _lastBurnAmount;
+        }
+
+        function lastBurnMemoHash() external view returns (bytes32) {
+            return _lastBurnMemoHash;
+        }
     }
 
-    function setState(IGoalTreasury.GoalState state_) external {
-        _state = state_;
+    contract UnderwritingMockHook {
+        UnderwritingMockDirectory internal immutable _directory;
+
+        constructor(UnderwritingMockDirectory directory_) {
+            _directory = directory_;
+        }
+
+        function directory() external view returns (UnderwritingMockDirectory) {
+            return _directory;
+        }
     }
 
-    function state() external view returns (IGoalTreasury.GoalState) {
-        return _state;
+    contract UnderwritingMockTerminal {
+        IERC20 public immutable cobuildToken;
+        IERC20 public immutable goalToken;
+
+        uint256 public payCallCount;
+
+        constructor(IERC20 cobuildToken_, IERC20 goalToken_) {
+            cobuildToken = cobuildToken_;
+            goalToken = goalToken_;
+        }
+
+        function pay(
+            uint256,
+            address token,
+            uint256 amount,
+            address beneficiary,
+            uint256,
+            string calldata,
+            bytes calldata
+        ) external returns (uint256 beneficiaryTokenCount) {
+            require(token == address(cobuildToken), "INVALID_TOKEN");
+            payCallCount += 1;
+            cobuildToken.transferFrom(msg.sender, address(this), amount);
+            goalToken.transfer(beneficiary, amount);
+            return amount;
+        }
     }
-
-    function settleLateResidual() external {
-        settleLateResidualCalls += 1;
-    }
-}
-
-contract UnderwritingMockBudgetFlow {
-    uint32 internal _managerRewardPoolFlowRatePpm;
-    address internal _managerRewardDistributionPool;
-
-    function setManagerRewardPoolFlowRatePpm(uint32 ppm_) external {
-        _managerRewardPoolFlowRatePpm = ppm_;
-    }
-
-    function managerRewardPoolFlowRatePpm() external view returns (uint32) {
-        return _managerRewardPoolFlowRatePpm;
-    }
-
-    function setManagerRewardDistributionPool(address pool_) external {
-        _managerRewardDistributionPool = pool_;
-    }
-
-    function managerRewardDistributionPool() external view returns (ISuperfluidPool) {
-        return ISuperfluidPool(_managerRewardDistributionPool);
-    }
-}
-
-contract UnderwritingMockRulesets {
-    struct RulesetPair {
-        JBRuleset base;
-        JBRuleset terminal;
-        bool configured;
-    }
-
-    mapping(uint256 => uint112) internal _weightOf;
-    mapping(uint256 => RulesetPair) internal _pairOf;
-    IJBDirectory internal _directory;
-
-    function setDirectory(IJBDirectory directory_) external {
-        _directory = directory_;
-    }
-
-    function DIRECTORY() external view virtual returns (IJBDirectory) {
-        return _directory;
-    }
-
-    function setWeight(uint256 projectId, uint112 weight) external {
-        _weightOf[projectId] = weight;
-    }
-
-    function configureTwoRulesetSchedule(uint256 projectId, uint48 terminalStart, uint112 openWeight) external {
-        uint48 nowTs = uint48(block.timestamp);
-        RulesetPair storage pair = _pairOf[projectId];
-        pair.base = JBRuleset({
-            cycleNumber: 1,
-            id: 1,
-            basedOnId: 0,
-            start: nowTs,
-            duration: 0,
-            weight: openWeight,
-            weightCutPercent: 0,
-            approvalHook: IJBRulesetApprovalHook(address(0)),
-            metadata: 0
-        });
-        pair.terminal = JBRuleset({
-            cycleNumber: 2,
-            id: 2,
-            basedOnId: 1,
-            start: terminalStart,
-            duration: 0,
-            weight: 0,
-            weightCutPercent: 0,
-            approvalHook: IJBRulesetApprovalHook(address(0)),
-            metadata: 0
-        });
-        pair.configured = true;
-    }
-
-    function currentOf(uint256 projectId) external view returns (JBRuleset memory ruleset) {
-        ruleset.weight = _weightOf[projectId];
-    }
-
-    function latestQueuedOf(uint256 projectId) external view returns (JBRuleset memory ruleset, JBApprovalStatus status) {
-        RulesetPair storage pair = _pairOf[projectId];
-        if (!pair.configured) return (ruleset, JBApprovalStatus.Empty);
-        return (pair.terminal, JBApprovalStatus.Approved);
-    }
-
-    function getRulesetOf(uint256 projectId, uint256 rulesetId) external view returns (JBRuleset memory ruleset) {
-        RulesetPair storage pair = _pairOf[projectId];
-        if (!pair.configured) return ruleset;
-        if (rulesetId == pair.base.id) return pair.base;
-        if (rulesetId == pair.terminal.id) return pair.terminal;
-        return ruleset;
-    }
-}
-
-contract UnderwritingMockRulesetsDirectoryReverting is UnderwritingMockRulesets {
-    function DIRECTORY() external pure override returns (IJBDirectory) {
-        revert("RULESETS_DIRECTORY_REVERT");
-    }
-}
-
-contract UnderwritingMockDirectory {
-    mapping(uint256 projectId => address controller) internal _controllerOf;
-    mapping(uint256 projectId => mapping(address token => IJBTerminal terminal)) internal _primaryTerminalOf;
-
-    function setController(uint256 projectId, address controller) external {
-        _controllerOf[projectId] = controller;
-    }
-
-    function controllerOf(uint256 projectId) external view returns (address) {
-        return _controllerOf[projectId];
-    }
-
-    function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
-        _primaryTerminalOf[projectId][token] = terminal;
-    }
-
-    function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
-        return _primaryTerminalOf[projectId][token];
-    }
-}
-
-contract UnderwritingMockTokens {
-    mapping(address token => uint256 projectId) internal _projectIdOf;
-
-    function setProjectIdOf(address token, uint256 projectId) external {
-        _projectIdOf[token] = projectId;
-    }
-
-    function projectIdOf(IJBToken token) external view returns (uint256) {
-        return _projectIdOf[address(token)];
-    }
-}
-
-contract UnderwritingMockController {
-    UnderwritingMockTokens internal _tokens;
-    uint256 internal _burnCallCount;
-    uint256 internal _lastBurnProjectId;
-    uint256 internal _lastBurnAmount;
-    bytes32 internal _lastBurnMemoHash;
-
-    constructor(UnderwritingMockTokens tokens_) {
-        _tokens = tokens_;
-    }
-
-    function TOKENS() external view returns (UnderwritingMockTokens) {
-        return _tokens;
-    }
-
-    function burnTokensOf(address, uint256 projectId, uint256 tokenCount, string calldata memo) external {
-        _burnCallCount += 1;
-        _lastBurnProjectId = projectId;
-        _lastBurnAmount = tokenCount;
-        _lastBurnMemoHash = keccak256(bytes(memo));
-    }
-
-    function burnCallCount() external view returns (uint256) {
-        return _burnCallCount;
-    }
-
-    function lastBurnProjectId() external view returns (uint256) {
-        return _lastBurnProjectId;
-    }
-
-    function lastBurnAmount() external view returns (uint256) {
-        return _lastBurnAmount;
-    }
-
-    function lastBurnMemoHash() external view returns (bytes32) {
-        return _lastBurnMemoHash;
-    }
-}
-
-contract UnderwritingMockHook {
-    UnderwritingMockDirectory internal immutable _directory;
-
-    constructor(UnderwritingMockDirectory directory_) {
-        _directory = directory_;
-    }
-
-    function directory() external view returns (UnderwritingMockDirectory) {
-        return _directory;
-    }
-}
-
-contract UnderwritingMockTerminal {
-    IERC20 public immutable cobuildToken;
-    IERC20 public immutable goalToken;
-
-    uint256 public payCallCount;
-
-    constructor(IERC20 cobuildToken_, IERC20 goalToken_) {
-        cobuildToken = cobuildToken_;
-        goalToken = goalToken_;
-    }
-
-    function pay(uint256, address token, uint256 amount, address beneficiary, uint256, string calldata, bytes calldata)
-        external
-        returns (uint256 beneficiaryTokenCount)
-    {
-        require(token == address(cobuildToken), "INVALID_TOKEN");
-        payCallCount += 1;
-        cobuildToken.transferFrom(msg.sender, address(this), amount);
-        goalToken.transfer(beneficiary, amount);
-        return amount;
-    }
-}

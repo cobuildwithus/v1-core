@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 
-contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test {
+contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test, IBudgetStackTopologyReader {
     bytes32 internal constant MAX_RECIPIENT_ID = bytes32(type(uint256).max);
     address internal constant ACCOUNT = address(0xA11CE);
-    address internal constant MANAGER = address(0xB0B);
     address internal constant PIPELINE = address(0xCAFE);
     uint32 internal constant FULL_ALLOCATION_PPM = FlowProtocolConstants.PPM_SCALE;
     uint256 internal constant UNIT_WEIGHT_SCALE = 1e15;
@@ -18,17 +18,35 @@ contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test {
     RecipientIdMaxGoalFlow internal goalFlow;
     RecipientIdMaxGoalTreasury internal goalTreasury;
     RecipientIdMaxBudgetTreasury internal maxBudget;
+    RecipientIdMaxTopologyStrategy internal topologyStrategy;
     BudgetStakeLedger internal ledger;
 
+    mapping(bytes32 itemId => BudgetStackTopology topology) private _topologyByItemId;
+    mapping(bytes32 itemId => bool active) private _activeByItemId;
+    mapping(address budgetTreasury => bytes32 itemId) private _itemIdByBudgetTreasury;
+    mapping(address childFlow => bytes32 itemId) private _itemIdByChildFlow;
+
     function setUp() public {
-        goalFlow = new RecipientIdMaxGoalFlow(MANAGER, PIPELINE);
+        goalFlow = new RecipientIdMaxGoalFlow(address(this), PIPELINE);
         goalTreasury = new RecipientIdMaxGoalTreasury(address(goalFlow));
         ledger = new BudgetStakeLedger(address(goalTreasury));
 
+        topologyStrategy = new RecipientIdMaxTopologyStrategy();
         RecipientIdMaxBudgetFlow budgetFlow = new RecipientIdMaxBudgetFlow(address(goalFlow));
         maxBudget = new RecipientIdMaxBudgetTreasury(address(budgetFlow));
 
-        vm.prank(MANAGER);
+        _setTopology(
+            MAX_RECIPIENT_ID,
+            BudgetStackTopology({
+                childFlow: address(budgetFlow),
+                budgetTreasury: address(maxBudget),
+                premiumEscrow: address(0),
+                strategy: address(topologyStrategy),
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            }),
+            true
+        );
         ledger.registerBudget(MAX_RECIPIENT_ID, address(maxBudget));
     }
 
@@ -41,13 +59,7 @@ contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test {
 
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(
-            ACCOUNT,
-            0,
-            new bytes32[](0),
-            new uint32[](0),
-            7 * UNIT_WEIGHT_SCALE,
-            newRecipientIds,
-            newAllocationPpm
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), 7 * UNIT_WEIGHT_SCALE, newRecipientIds, newAllocationPpm
         );
 
         assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(maxBudget)), 7 * UNIT_WEIGHT_SCALE);
@@ -65,13 +77,7 @@ contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test {
 
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(
-            ACCOUNT,
-            9 * UNIT_WEIGHT_SCALE,
-            prevRecipientIds,
-            prevAllocationPpm,
-            0,
-            new bytes32[](0),
-            new uint32[](0)
+            ACCOUNT, 9 * UNIT_WEIGHT_SCALE, prevRecipientIds, prevAllocationPpm, 0, new bytes32[](0), new uint32[](0)
         );
 
         assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(maxBudget)), 0);
@@ -86,7 +92,53 @@ contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test {
         allocationPpm[0] = FULL_ALLOCATION_PPM;
 
         vm.prank(address(goalFlow));
-        ledger.checkpointAllocation(ACCOUNT, prevWeight, recipientIds, allocationPpm, newWeight, recipientIds, allocationPpm);
+        ledger.checkpointAllocation(
+            ACCOUNT, prevWeight, recipientIds, allocationPpm, newWeight, recipientIds, allocationPpm
+        );
+    }
+
+    function _setTopology(bytes32 itemId, BudgetStackTopology memory topology, bool active) internal {
+        _topologyByItemId[itemId] = topology;
+        _activeByItemId[itemId] = active;
+        _itemIdByBudgetTreasury[topology.budgetTreasury] = itemId;
+        _itemIdByChildFlow[topology.childFlow] = itemId;
+    }
+
+    function budgetStackTopology(bytes32 itemId)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForBudgetTreasury(address budgetTreasury)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByBudgetTreasury[budgetTreasury];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function budgetStackTopologyForChildFlow(address childFlow)
+        external
+        view
+        returns (BudgetStackTopology memory topology, bool active)
+    {
+        bytes32 itemId = _itemIdByChildFlow[childFlow];
+        topology = _topologyByItemId[itemId];
+        active = _activeByItemId[itemId];
+    }
+
+    function itemIdForBudgetTreasury(address budgetTreasury) external view returns (bytes32 itemId) {
+        itemId = _itemIdByBudgetTreasury[budgetTreasury];
+    }
+
+    function itemIdForChildFlow(address childFlow) external view returns (bytes32 itemId) {
+        itemId = _itemIdByChildFlow[childFlow];
     }
 }
 
@@ -153,3 +205,5 @@ contract RecipientIdMaxBudgetTreasury {
         flow = flow_;
     }
 }
+
+contract RecipientIdMaxTopologyStrategy {}
