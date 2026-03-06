@@ -6,6 +6,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "./interfaces/IArbitrator.sol";
+import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
 import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
@@ -37,16 +38,9 @@ contract BudgetTCRFactory {
     struct RegistryConfigInput {
         address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
-        bytes arbitratorExtraData;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
         IVotes votingToken;
-        uint256 submissionBaseDeposit;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        uint256 challengePeriodDuration;
         ISubmissionDepositStrategy submissionDepositStrategy;
+        IGeneralizedTCRConfig.RegistryPolicy registryPolicy;
     }
 
     struct DeployedBudgetTCRStack {
@@ -168,21 +162,13 @@ contract BudgetTCRFactory {
             budgetTCR
         );
 
-        (
-            uint256 submissionBaseDeposit,
-            uint256 removalBaseDeposit,
-            uint256 submissionChallengeBaseDeposit,
-            uint256 removalChallengeBaseDeposit
-        ) = _resolveDeposits(registryConfig, deploymentConfig, arbitratorParams.arbitrationCost);
-
-        IBudgetTCR.RegistryConfig memory registryConfigFull = _buildRegistryConfig(
+        IGeneralizedTCRConfig.RegistryPolicy memory resolvedPolicy = _resolveRegistryPolicy(
             registryConfig,
-            arbitrator,
-            submissionBaseDeposit,
-            removalBaseDeposit,
-            submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit
+            deploymentConfig,
+            arbitratorParams.arbitrationCost
         );
+
+        IBudgetTCR.InitConfig memory initConfig = _buildInitConfig(registryConfig, arbitrator, resolvedPolicy);
 
         IBudgetTCR.DeploymentConfig memory deploymentConfigFull = _buildDeploymentConfig(
             deploymentConfig,
@@ -190,7 +176,7 @@ contract BudgetTCRFactory {
             underwriterSlasherRouter
         );
 
-        IBudgetTCR(budgetTCR).initialize(registryConfigFull, deploymentConfigFull);
+        IBudgetTCR(budgetTCR).initialize(initConfig, deploymentConfigFull);
 
         emit BudgetTCRStackDeployedForGoal(
             msg.sender,
@@ -295,27 +281,19 @@ contract BudgetTCRFactory {
         }
     }
 
-    function _buildRegistryConfig(
+    function _buildInitConfig(
         RegistryConfigInput calldata registryConfig,
         address arbitrator,
-        uint256 submissionBaseDeposit,
-        uint256 removalBaseDeposit,
-        uint256 submissionChallengeBaseDeposit,
-        uint256 removalChallengeBaseDeposit
-    ) internal pure returns (IBudgetTCR.RegistryConfig memory config) {
-        config = IBudgetTCR.RegistryConfig({
+        IGeneralizedTCRConfig.RegistryPolicy memory registryPolicy
+    ) internal pure returns (IBudgetTCR.InitConfig memory config) {
+        config = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: registryConfig.allocationMechanismAdmin,
-            arbitrator: IArbitrator(arbitrator),
-            arbitratorExtraData: registryConfig.arbitratorExtraData,
-            registrationMetaEvidence: registryConfig.registrationMetaEvidence,
-            clearingMetaEvidence: registryConfig.clearingMetaEvidence,
-            votingToken: registryConfig.votingToken,
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: registryConfig.challengePeriodDuration,
-            submissionDepositStrategy: registryConfig.submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(arbitrator),
+                votingToken: registryConfig.votingToken,
+                submissionDepositStrategy: registryConfig.submissionDepositStrategy,
+                registryPolicy: registryPolicy
+            })
         });
     }
 
@@ -386,31 +364,21 @@ contract BudgetTCRFactory {
         }
     }
 
-    function _resolveDeposits(
+    function _resolveRegistryPolicy(
         RegistryConfigInput calldata registryConfig,
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
         uint256 arbitrationCost
-    )
-        internal
-        view
-        returns (
-            uint256 submissionBaseDeposit,
-            uint256 removalBaseDeposit,
-            uint256 submissionChallengeBaseDeposit,
-            uint256 removalChallengeBaseDeposit
-        )
-    {
+    ) internal view returns (IGeneralizedTCRConfig.RegistryPolicy memory policy) {
+        policy = registryConfig.registryPolicy;
         if (!_isEscrowBondStrategy(registryConfig.submissionDepositStrategy)) {
-            return (
-                registryConfig.submissionBaseDeposit,
-                registryConfig.removalBaseDeposit,
-                registryConfig.submissionChallengeBaseDeposit,
-                registryConfig.removalChallengeBaseDeposit
-            );
+            return policy;
         }
 
         uint256 deposit = _deriveEscrowBondDeposit(deploymentConfig.budgetValidationBounds, arbitrationCost);
-        return (deposit, deposit, deposit, 0);
+        policy.submissionBaseDeposit = deposit;
+        policy.removalBaseDeposit = deposit;
+        policy.submissionChallengeBaseDeposit = deposit;
+        policy.removalChallengeBaseDeposit = 0;
     }
 
     function _deriveEscrowBondDeposit(

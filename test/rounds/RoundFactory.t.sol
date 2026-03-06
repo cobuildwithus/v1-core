@@ -9,6 +9,7 @@ import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -120,7 +121,7 @@ contract RoundFactoryTest is Test {
             address(budgetTreasury),
             RoundFactory.RoundTiming({ startAt: uint64(block.timestamp - 1), endAt: uint64(block.timestamp + 30 days) }),
             roundOperator,
-            RoundFactory.SubmissionTcrConfig({
+            IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
                 clearingMetaEvidence: "clr",
@@ -291,18 +292,20 @@ contract RoundFactoryTest is Test {
             endAt: uint64(block.timestamp + 1 days),
             prizeVault: deployed.prizeVault
         });
-        RoundSubmissionTCR.RegistryConfig memory regCfg = RoundSubmissionTCR.RegistryConfig({
+        IGeneralizedTCRConfig.RegistryConfig memory regCfg = IGeneralizedTCRConfig.RegistryConfig({
             arbitrator: IArbitrator(deployed.arbitrator),
-            arbitratorExtraData: "",
-            registrationMetaEvidence: "reg",
-            clearingMetaEvidence: "clr",
             votingToken: IVotes(address(underlying)),
-            submissionBaseDeposit: 1e18,
             submissionDepositStrategy: ISubmissionDepositStrategy(deployed.depositStrategy),
-            removalBaseDeposit: 0,
-            submissionChallengeBaseDeposit: 0,
-            removalChallengeBaseDeposit: 0,
-            challengePeriodDuration: 1 days
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: "",
+                registrationMetaEvidence: "reg",
+                clearingMetaEvidence: "clr",
+                submissionBaseDeposit: 1e18,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: 1 days
+            })
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         RoundSubmissionTCR(deployed.submissionTCR).initialize(roundCfg, regCfg);
@@ -329,7 +332,7 @@ contract RoundFactoryTest is Test {
 
     function test_createRoundForBudget_wiresSubmissionConfig_and_governor_surface_is_absent() public {
         bytes memory arbitratorExtraData = hex"1234beef";
-        RoundFactory.SubmissionTcrConfig memory tcrConfig = RoundFactory.SubmissionTcrConfig({
+        IGeneralizedTCRConfig.RegistryPolicy memory tcrConfig = IGeneralizedTCRConfig.RegistryPolicy({
             arbitratorExtraData: arbitratorExtraData,
             registrationMetaEvidence: "ipfs://custom-reg",
             clearingMetaEvidence: "ipfs://custom-clear",
@@ -403,8 +406,8 @@ contract RoundFactoryTest is Test {
         assertEq(power, 25);
     }
 
-    function _dummyTcrConfig() internal view returns (RoundFactory.SubmissionTcrConfig memory cfg) {
-        cfg = RoundFactory.SubmissionTcrConfig({
+    function _dummyTcrConfig() internal pure returns (IGeneralizedTCRConfig.RegistryPolicy memory cfg) {
+        cfg = IGeneralizedTCRConfig.RegistryPolicy({
             arbitratorExtraData: "",
             registrationMetaEvidence: "reg",
             clearingMetaEvidence: "clr",

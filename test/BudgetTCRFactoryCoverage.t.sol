@@ -17,6 +17,7 @@ import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
@@ -212,15 +213,15 @@ contract BudgetTCRFactoryCoverageTest is Test {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
 
-        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.submissionBaseDeposit);
-        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.removalBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
         assertEq(
             BudgetTCR(deployed.budgetTCR).submissionChallengeBaseDeposit(),
-            registryConfig.submissionChallengeBaseDeposit
+            registryConfig.registryPolicy.submissionChallengeBaseDeposit
         );
         assertEq(
             BudgetTCR(deployed.budgetTCR).removalChallengeBaseDeposit(),
-            registryConfig.removalChallengeBaseDeposit
+            registryConfig.registryPolicy.removalChallengeBaseDeposit
         );
     }
 
@@ -246,15 +247,15 @@ contract BudgetTCRFactoryCoverageTest is Test {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
 
-        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.submissionBaseDeposit);
-        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.removalBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
         assertEq(
             BudgetTCR(deployed.budgetTCR).submissionChallengeBaseDeposit(),
-            registryConfig.submissionChallengeBaseDeposit
+            registryConfig.registryPolicy.submissionChallengeBaseDeposit
         );
         assertEq(
             BudgetTCR(deployed.budgetTCR).removalChallengeBaseDeposit(),
-            registryConfig.removalChallengeBaseDeposit
+            registryConfig.registryPolicy.removalChallengeBaseDeposit
         );
     }
 
@@ -295,16 +296,18 @@ contract BudgetTCRFactoryCoverageTest is Test {
         registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://registration",
-            clearingMetaEvidence: "ipfs://clearing",
             votingToken: votingToken,
-            submissionBaseDeposit: 111e18,
-            removalBaseDeposit: 222e18,
-            submissionChallengeBaseDeposit: 333e18,
-            removalChallengeBaseDeposit: 444e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: strategy
+            submissionDepositStrategy: strategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://registration",
+                clearingMetaEvidence: "ipfs://clearing",
+                submissionBaseDeposit: 111e18,
+                removalBaseDeposit: 222e18,
+                submissionChallengeBaseDeposit: 333e18,
+                removalChallengeBaseDeposit: 444e18,
+                challengePeriodDuration: 3 days
+            })
         });
     }
 

@@ -10,27 +10,17 @@ import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 
 library GoalFactoryBudgetTcrDeploy {
-    struct RegistryConfigArgs {
+    struct BudgetTcrDeployRequest {
+        BudgetTCRFactory budgetTcrFactory;
         address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
         address submissionDepositStrategy;
-        uint256 submissionBaseDeposit;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
-        uint256 challengePeriodDuration;
-        bytes arbitratorExtraData;
-    }
-
-    struct BudgetTcrDeployRequest {
-        BudgetTCRFactory budgetTcrFactory;
-        RegistryConfigArgs registryConfig;
+        IGeneralizedTCRConfig.RegistryPolicy registryPolicy;
         address defaultAllocationMechanismAdmin;
         address defaultInvalidRoundRewardsSink;
         address defaultSubmissionDepositStrategy;
@@ -52,33 +42,22 @@ library GoalFactoryBudgetTcrDeploy {
     }
 
     function resolveRegistryConfig(
-        RegistryConfigArgs memory p,
-        address defaultAllocationMechanismAdmin,
-        address defaultInvalidRoundRewardsSink,
-        address defaultSubmissionDepositStrategy,
-        address cobuildToken
+        BudgetTcrDeployRequest memory request
     ) public pure returns (BudgetTCRFactory.RegistryConfigInput memory out) {
         out = BudgetTCRFactory.RegistryConfigInput({
-            allocationMechanismAdmin: p.allocationMechanismAdmin == address(0)
-                ? defaultAllocationMechanismAdmin
-                : p.allocationMechanismAdmin,
-            invalidRoundRewardsSink: p.invalidRoundRewardsSink == address(0)
-                ? defaultInvalidRoundRewardsSink
-                : p.invalidRoundRewardsSink,
-            arbitratorExtraData: p.arbitratorExtraData,
-            registrationMetaEvidence: p.registrationMetaEvidence,
-            clearingMetaEvidence: p.clearingMetaEvidence,
-            votingToken: IVotes(cobuildToken),
-            submissionBaseDeposit: p.submissionBaseDeposit,
-            removalBaseDeposit: p.removalBaseDeposit,
-            submissionChallengeBaseDeposit: p.submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: p.removalChallengeBaseDeposit,
-            challengePeriodDuration: p.challengePeriodDuration,
+            allocationMechanismAdmin: request.allocationMechanismAdmin == address(0)
+                ? request.defaultAllocationMechanismAdmin
+                : request.allocationMechanismAdmin,
+            invalidRoundRewardsSink: request.invalidRoundRewardsSink == address(0)
+                ? request.defaultInvalidRoundRewardsSink
+                : request.invalidRoundRewardsSink,
+            votingToken: IVotes(request.cobuildToken),
             submissionDepositStrategy: ISubmissionDepositStrategy(
-                p.submissionDepositStrategy == address(0)
-                    ? defaultSubmissionDepositStrategy
-                    : p.submissionDepositStrategy
-            )
+                request.submissionDepositStrategy == address(0)
+                    ? request.defaultSubmissionDepositStrategy
+                    : request.submissionDepositStrategy
+            ),
+            registryPolicy: request.registryPolicy
         });
     }
 
@@ -105,13 +84,7 @@ library GoalFactoryBudgetTcrDeploy {
 
         return
             request.budgetTcrFactory.deployBudgetTCRStackForGoal(
-                resolveRegistryConfig(
-                    request.registryConfig,
-                    request.defaultAllocationMechanismAdmin,
-                    request.defaultInvalidRoundRewardsSink,
-                    request.defaultSubmissionDepositStrategy,
-                    request.cobuildToken
-                ),
+                resolveRegistryConfig(request),
                 tcrDeployCfg,
                 request.arbitratorParams
             );

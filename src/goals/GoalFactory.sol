@@ -19,6 +19,7 @@ import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
@@ -461,18 +462,18 @@ contract GoalFactory {
             GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
                 GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
                     budgetTcrFactory: BUDGET_TCR_FACTORY,
-                    registryConfig: GoalFactoryBudgetTcrDeploy.RegistryConfigArgs({
-                        allocationMechanismAdmin: p.budgetTCR.allocationMechanismAdmin,
-                        invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
-                        submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
+                    allocationMechanismAdmin: p.budgetTCR.allocationMechanismAdmin,
+                    invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
+                    submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
+                    registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                        arbitratorExtraData: p.budgetTCR.arbitratorExtraData,
+                        registrationMetaEvidence: p.budgetTCR.registrationMetaEvidence,
+                        clearingMetaEvidence: p.budgetTCR.clearingMetaEvidence,
                         submissionBaseDeposit: p.budgetTCR.submissionBaseDeposit,
                         removalBaseDeposit: p.budgetTCR.removalBaseDeposit,
                         submissionChallengeBaseDeposit: p.budgetTCR.submissionChallengeBaseDeposit,
                         removalChallengeBaseDeposit: p.budgetTCR.removalChallengeBaseDeposit,
-                        registrationMetaEvidence: p.budgetTCR.registrationMetaEvidence,
-                        clearingMetaEvidence: p.budgetTCR.clearingMetaEvidence,
-                        challengePeriodDuration: p.budgetTCR.challengePeriodDuration,
-                        arbitratorExtraData: p.budgetTCR.arbitratorExtraData
+                        challengePeriodDuration: p.budgetTCR.challengePeriodDuration
                     }),
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,

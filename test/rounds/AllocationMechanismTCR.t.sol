@@ -10,6 +10,7 @@ import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -76,14 +77,14 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
         lastRoundOperator = cfg.roundOperator;
         lastStartAt = cfg.timing.startAt;
         lastEndAt = cfg.timing.endAt;
-        lastArbitratorExtraData = cfg.tcrConfig.arbitratorExtraData;
-        lastRegistrationMetaEvidence = cfg.tcrConfig.registrationMetaEvidence;
-        lastClearingMetaEvidence = cfg.tcrConfig.clearingMetaEvidence;
-        lastSubmissionBaseDeposit = cfg.tcrConfig.submissionBaseDeposit;
-        lastRemovalBaseDeposit = cfg.tcrConfig.removalBaseDeposit;
-        lastSubmissionChallengeBaseDeposit = cfg.tcrConfig.submissionChallengeBaseDeposit;
-        lastRemovalChallengeBaseDeposit = cfg.tcrConfig.removalChallengeBaseDeposit;
-        lastChallengePeriodDuration = cfg.tcrConfig.challengePeriodDuration;
+        lastArbitratorExtraData = cfg.tcrPolicy.arbitratorExtraData;
+        lastRegistrationMetaEvidence = cfg.tcrPolicy.registrationMetaEvidence;
+        lastClearingMetaEvidence = cfg.tcrPolicy.clearingMetaEvidence;
+        lastSubmissionBaseDeposit = cfg.tcrPolicy.submissionBaseDeposit;
+        lastRemovalBaseDeposit = cfg.tcrPolicy.removalBaseDeposit;
+        lastSubmissionChallengeBaseDeposit = cfg.tcrPolicy.submissionChallengeBaseDeposit;
+        lastRemovalChallengeBaseDeposit = cfg.tcrPolicy.removalChallengeBaseDeposit;
+        lastChallengePeriodDuration = cfg.tcrPolicy.challengePeriodDuration;
         lastVotingPeriod = cfg.arbConfig.votingPeriod;
         lastVotingDelay = cfg.arbConfig.votingDelay;
         lastRevealPeriod = cfg.arbConfig.revealPeriod;
@@ -203,7 +204,7 @@ contract AllocationMechanismTCRTest is Test {
             ARBITRATION_COST
         );
 
-        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(mechanismArbitrator);
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(mechanismArbitrator);
 
         mechanism.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
 
@@ -249,7 +250,7 @@ contract AllocationMechanismTCRTest is Test {
         cfg = RoundFactory.AllocationMechanismConfig({
             timing: RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
             roundOperator: roundOperator,
-            tcrConfig: RoundFactory.SubmissionTcrConfig({
+            tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "round-reg",
                 clearingMetaEvidence: "round-clr",
@@ -293,22 +294,26 @@ contract AllocationMechanismTCRTest is Test {
         });
     }
 
-    function _mechanismRegistryConfig(
+    function _mechanismInitConfig(
         RoundTestArbitrator arbitrator_
-    ) internal view returns (AllocationMechanismTCR.RegistryConfig memory cfg) {
-        cfg = AllocationMechanismTCR.RegistryConfig({
-            arbitrator: arbitrator_,
-            arbitratorExtraData: "",
-            registrationMetaEvidence: "mech-reg",
-            clearingMetaEvidence: "mech-clr",
-            factoryManager: factoryManager,
-            votingToken: IVotes(address(underlying)),
-            submissionBaseDeposit: 0,
-            submissionDepositStrategy: mechanismDepositStrategy,
-            removalBaseDeposit: 0,
-            submissionChallengeBaseDeposit: 0,
-            removalChallengeBaseDeposit: 0,
-            challengePeriodDuration: 1 days
+    ) internal view returns (AllocationMechanismTCR.InitConfig memory cfg) {
+        cfg = AllocationMechanismTCR.InitConfig({
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: arbitrator_,
+                votingToken: IVotes(address(underlying)),
+                submissionDepositStrategy: mechanismDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: "",
+                    registrationMetaEvidence: "mech-reg",
+                    clearingMetaEvidence: "mech-clr",
+                    submissionBaseDeposit: 0,
+                    removalBaseDeposit: 0,
+                    submissionChallengeBaseDeposit: 0,
+                    removalChallengeBaseDeposit: 0,
+                    challengePeriodDuration: 1 days
+                })
+            }),
+            factoryManager: factoryManager
         });
     }
 
@@ -347,7 +352,7 @@ contract AllocationMechanismTCRTest is Test {
             ARBITRATION_COST
         );
 
-        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
 
         vm.expectRevert(AllocationMechanismTCR.BUDGET_FLOW_MISMATCH.selector);
         mechanism2.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
@@ -366,7 +371,7 @@ contract AllocationMechanismTCRTest is Test {
             ARBITRATION_COST
         );
 
-        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
 
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
         mechanism2.initialize(address(budgetTreasury), alice, mechanismTcrCfg);
@@ -385,7 +390,7 @@ contract AllocationMechanismTCRTest is Test {
             ARBITRATION_COST
         );
 
-        AllocationMechanismTCR.RegistryConfig memory mechanismTcrCfg = _mechanismRegistryConfig(arbitrator2);
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
         mechanismTcrCfg.factoryManager = address(0);
         budgetFlow.setRecipientAdmin(address(mechanism2));
 
@@ -715,7 +720,7 @@ contract AllocationMechanismTCRTest is Test {
         RoundFactory.AllocationMechanismConfig memory cfg = RoundFactory.AllocationMechanismConfig({
             timing: RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
             roundOperator: address(0x2222),
-            tcrConfig: RoundFactory.SubmissionTcrConfig({
+            tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: hex"deadbeef",
                 registrationMetaEvidence: "custom-round-reg",
                 clearingMetaEvidence: "custom-round-clr",
@@ -748,25 +753,25 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(mockFactory.lastStartAt(), roundStartAt);
         assertEq(mockFactory.lastEndAt(), roundEndAt);
         assertEq(mockFactory.lastRoundOperator(), cfg.roundOperator);
-        assertEq(mockFactory.lastSubmissionBaseDeposit(), cfg.tcrConfig.submissionBaseDeposit);
-        assertEq(mockFactory.lastRemovalBaseDeposit(), cfg.tcrConfig.removalBaseDeposit);
-        assertEq(mockFactory.lastSubmissionChallengeBaseDeposit(), cfg.tcrConfig.submissionChallengeBaseDeposit);
-        assertEq(mockFactory.lastRemovalChallengeBaseDeposit(), cfg.tcrConfig.removalChallengeBaseDeposit);
-        assertEq(mockFactory.lastChallengePeriodDuration(), cfg.tcrConfig.challengePeriodDuration);
+        assertEq(mockFactory.lastSubmissionBaseDeposit(), cfg.tcrPolicy.submissionBaseDeposit);
+        assertEq(mockFactory.lastRemovalBaseDeposit(), cfg.tcrPolicy.removalBaseDeposit);
+        assertEq(mockFactory.lastSubmissionChallengeBaseDeposit(), cfg.tcrPolicy.submissionChallengeBaseDeposit);
+        assertEq(mockFactory.lastRemovalChallengeBaseDeposit(), cfg.tcrPolicy.removalChallengeBaseDeposit);
+        assertEq(mockFactory.lastChallengePeriodDuration(), cfg.tcrPolicy.challengePeriodDuration);
         assertEq(mockFactory.lastVotingPeriod(), cfg.arbConfig.votingPeriod);
         assertEq(mockFactory.lastVotingDelay(), cfg.arbConfig.votingDelay);
         assertEq(mockFactory.lastRevealPeriod(), cfg.arbConfig.revealPeriod);
         assertEq(mockFactory.lastArbitrationCost(), cfg.arbConfig.arbitrationCost);
         assertEq(mockFactory.lastWrongOrMissedSlashBps(), cfg.arbConfig.wrongOrMissedSlashBps);
         assertEq(mockFactory.lastSlashCallerBountyBps(), cfg.arbConfig.slashCallerBountyBps);
-        assertEq(keccak256(mockFactory.lastArbitratorExtraData()), keccak256(cfg.tcrConfig.arbitratorExtraData));
+        assertEq(keccak256(mockFactory.lastArbitratorExtraData()), keccak256(cfg.tcrPolicy.arbitratorExtraData));
         assertEq(
             keccak256(bytes(mockFactory.lastRegistrationMetaEvidence())),
-            keccak256(bytes(cfg.tcrConfig.registrationMetaEvidence))
+            keccak256(bytes(cfg.tcrPolicy.registrationMetaEvidence))
         );
         assertEq(
             keccak256(bytes(mockFactory.lastClearingMetaEvidence())),
-            keccak256(bytes(cfg.tcrConfig.clearingMetaEvidence))
+            keccak256(bytes(cfg.tcrPolicy.clearingMetaEvidence))
         );
     }
 

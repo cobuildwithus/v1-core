@@ -8,6 +8,7 @@ import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -84,16 +85,7 @@ contract SubmissionDepositRoutingTest is Test {
             address(budgetTreasury),
             RoundFactory.RoundTiming({ startAt: uint64(block.timestamp - 1), endAt: uint64(block.timestamp + 30 days) }),
             roundOperator,
-            RoundFactory.SubmissionTcrConfig({
-                arbitratorExtraData: "",
-                registrationMetaEvidence: "reg",
-                clearingMetaEvidence: "clr",
-                submissionBaseDeposit: SUBMISSION_DEPOSIT,
-                removalBaseDeposit: 0,
-                submissionChallengeBaseDeposit: 0,
-                removalChallengeBaseDeposit: 0,
-                challengePeriodDuration: 1 days
-            }),
+            _registryPolicy(SUBMISSION_DEPOSIT),
             RoundFactory.ArbitratorConfig({
                 votingPeriod: 1,
                 votingDelay: 1,
@@ -138,19 +130,7 @@ contract SubmissionDepositRoutingTest is Test {
                 endAt: uint64(block.timestamp + 30 days),
                 prizeVault: prizePool
             }),
-            RoundSubmissionTCR.RegistryConfig({
-                arbitrator: arb,
-                arbitratorExtraData: "",
-                registrationMetaEvidence: "reg",
-                clearingMetaEvidence: "clr",
-                votingToken: IVotes(address(underlying)),
-                submissionBaseDeposit: SUBMISSION_DEPOSIT,
-                submissionDepositStrategy: strategy,
-                removalBaseDeposit: 0,
-                submissionChallengeBaseDeposit: 0,
-                removalChallengeBaseDeposit: 0,
-                challengePeriodDuration: 1 days
-            })
+            _registryConfig(arb, strategy, SUBMISSION_DEPOSIT)
         );
 
         vm.prank(alice);
@@ -194,19 +174,7 @@ contract SubmissionDepositRoutingTest is Test {
                 endAt: uint64(block.timestamp + 30 days),
                 prizeVault: prizePool
             }),
-            RoundSubmissionTCR.RegistryConfig({
-                arbitrator: arb,
-                arbitratorExtraData: "",
-                registrationMetaEvidence: "reg",
-                clearingMetaEvidence: "clr",
-                votingToken: IVotes(address(underlying)),
-                submissionBaseDeposit: SUBMISSION_DEPOSIT,
-                submissionDepositStrategy: strategy,
-                removalBaseDeposit: 0,
-                submissionChallengeBaseDeposit: 0,
-                removalChallengeBaseDeposit: 0,
-                challengePeriodDuration: 1 days
-            })
+            _registryConfig(arb, strategy, SUBMISSION_DEPOSIT)
         );
 
         vm.prank(alice);
@@ -253,19 +221,7 @@ contract SubmissionDepositRoutingTest is Test {
                 endAt: uint64(block.timestamp + 30 days),
                 prizeVault: prizePool
             }),
-            RoundSubmissionTCR.RegistryConfig({
-                arbitrator: arb,
-                arbitratorExtraData: "",
-                registrationMetaEvidence: "reg",
-                clearingMetaEvidence: "clr",
-                votingToken: IVotes(address(underlying)),
-                submissionBaseDeposit: SUBMISSION_DEPOSIT,
-                submissionDepositStrategy: strategy,
-                removalBaseDeposit: 0,
-                submissionChallengeBaseDeposit: 0,
-                removalChallengeBaseDeposit: 0,
-                challengePeriodDuration: 1 days
-            })
+            _registryConfig(arb, strategy, SUBMISSION_DEPOSIT)
         );
 
         vm.prank(bob);
@@ -299,6 +255,36 @@ contract SubmissionDepositRoutingTest is Test {
 
     function _submissionItem(address recipient) internal pure returns (bytes memory) {
         return abi.encode(uint8(0), DEFAULT_POST_ID, recipient);
+    }
+
+    function _registryPolicy(uint256 submissionBaseDeposit)
+        internal
+        pure
+        returns (IGeneralizedTCRConfig.RegistryPolicy memory policy)
+    {
+        policy = IGeneralizedTCRConfig.RegistryPolicy({
+            arbitratorExtraData: "",
+            registrationMetaEvidence: "reg",
+            clearingMetaEvidence: "clr",
+            submissionBaseDeposit: submissionBaseDeposit,
+            removalBaseDeposit: 0,
+            submissionChallengeBaseDeposit: 0,
+            removalChallengeBaseDeposit: 0,
+            challengePeriodDuration: 1 days
+        });
+    }
+
+    function _registryConfig(
+        RoundTestArbitrator arbitrator,
+        PrizePoolSubmissionDepositStrategy strategy,
+        uint256 submissionBaseDeposit
+    ) internal view returns (IGeneralizedTCRConfig.RegistryConfig memory cfg) {
+        cfg = IGeneralizedTCRConfig.RegistryConfig({
+            arbitrator: arbitrator,
+            votingToken: IVotes(address(underlying)),
+            submissionDepositStrategy: strategy,
+            registryPolicy: _registryPolicy(submissionBaseDeposit)
+        });
     }
 
     function _deployPrizePoolStrategy(address prizePool) internal returns (PrizePoolSubmissionDepositStrategy strategy) {

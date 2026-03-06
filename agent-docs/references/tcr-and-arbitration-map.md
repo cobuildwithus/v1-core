@@ -61,6 +61,10 @@
 
 ## Invariants
 
+- Shared registry init config is canonicalized in the TCR layer:
+  - `GeneralizedTCR` consumes one shared registry config shape.
+  - `BudgetTCR` and `AllocationMechanismTCR` wrap that shared config only for contract-specific extras.
+  - Round deployment carries the shared registry policy until factory-derived arbitrator/token/deposit-strategy refs are known.
 - Arbitrator token and arbitrable contract must be compatible.
 - Request/challenge economics are snapshotted and should remain deterministic.
 - Arbitrator and arbitrator extra data are deployment-configured and immutable after initialization.

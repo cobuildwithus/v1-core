@@ -7,6 +7,7 @@ import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePool
 import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
@@ -53,18 +54,6 @@ contract RoundFactory is IAllocationMechanismFactory {
         uint64 endAt;
     }
 
-    /// @notice Configuration for a RoundSubmissionTCR instance.
-    struct SubmissionTcrConfig {
-        bytes arbitratorExtraData;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
-        uint256 submissionBaseDeposit;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        uint256 challengePeriodDuration;
-    }
-
     /// @notice Configuration for an ERC20VotesArbitrator instance.
     struct ArbitratorConfig {
         uint256 votingPeriod;
@@ -93,7 +82,7 @@ contract RoundFactory is IAllocationMechanismFactory {
     struct AllocationMechanismConfig {
         RoundTiming timing;
         address roundOperator;
-        SubmissionTcrConfig tcrConfig;
+        IGeneralizedTCRConfig.RegistryPolicy tcrPolicy;
         ArbitratorConfig arbConfig;
     }
 
@@ -122,14 +111,14 @@ contract RoundFactory is IAllocationMechanismFactory {
     /// @param budgetTreasury Budget treasury whose flow will stream into the prize vault.
     /// @param timing Submission window for the round.
     /// @param roundOperator Trusted operator allowed to set payout entitlements in the prize vault.
-    /// @param tcrConfig Configuration for the per-round submission registry.
+    /// @param tcrPolicy Shared registry policy for the per-round submission registry.
     /// @param arbConfig Configuration for the arbitrator (set slash bps to 0 to disable slashing).
     function createRoundForBudget(
         bytes32 roundId,
         address budgetTreasury,
         RoundTiming memory timing,
         address roundOperator,
-        SubmissionTcrConfig memory tcrConfig,
+        IGeneralizedTCRConfig.RegistryPolicy memory tcrPolicy,
         ArbitratorConfig memory arbConfig
     ) public returns (DeployedRound memory out) {
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
@@ -197,18 +186,11 @@ contract RoundFactory is IAllocationMechanismFactory {
                 endAt: timing.endAt,
                 prizeVault: prizeVault
             }),
-            RoundSubmissionTCR.RegistryConfig({
+            IGeneralizedTCRConfig.RegistryConfig({
                 arbitrator: IArbitrator(arbitrator),
-                arbitratorExtraData: tcrConfig.arbitratorExtraData,
-                registrationMetaEvidence: tcrConfig.registrationMetaEvidence,
-                clearingMetaEvidence: tcrConfig.clearingMetaEvidence,
                 votingToken: IVotes(expectedUnderlying),
-                submissionBaseDeposit: tcrConfig.submissionBaseDeposit,
                 submissionDepositStrategy: depositStrategy,
-                removalBaseDeposit: tcrConfig.removalBaseDeposit,
-                submissionChallengeBaseDeposit: tcrConfig.submissionChallengeBaseDeposit,
-                removalChallengeBaseDeposit: tcrConfig.removalChallengeBaseDeposit,
-                challengePeriodDuration: tcrConfig.challengePeriodDuration
+                registryPolicy: tcrPolicy
             })
         );
 
@@ -249,7 +231,7 @@ contract RoundFactory is IAllocationMechanismFactory {
             budgetTreasury,
             cfg.timing,
             cfg.roundOperator,
-            cfg.tcrConfig,
+            cfg.tcrPolicy,
             cfg.arbConfig
         );
 

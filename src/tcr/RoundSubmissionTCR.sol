@@ -2,11 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
-import { IArbitrator } from "./interfaces/IArbitrator.sol";
-import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { IGeneralizedTCR } from "./interfaces/IGeneralizedTCR.sol";
-
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 
 /**
  * @title RoundSubmissionTCR
@@ -40,20 +37,6 @@ contract RoundSubmissionTCR is GeneralizedTCR {
         address prizeVault;
     }
 
-    struct RegistryConfig {
-        IArbitrator arbitrator;
-        bytes arbitratorExtraData;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
-        IVotes votingToken;
-        uint256 submissionBaseDeposit;
-        ISubmissionDepositStrategy submissionDepositStrategy;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        uint256 challengePeriodDuration;
-    }
-
     error INVALID_TIME_WINDOW(uint64 startAt, uint64 endAt);
 
     /// @notice Round identifier (for indexing / UI).
@@ -69,7 +52,10 @@ contract RoundSubmissionTCR is GeneralizedTCR {
         _disableInitializers();
     }
 
-    function initialize(RoundConfig calldata roundConfig, RegistryConfig calldata registryConfig) external initializer {
+    function initialize(
+        RoundConfig calldata roundConfig,
+        IGeneralizedTCRConfig.RegistryConfig calldata registryConfig
+    ) external initializer {
         if (roundConfig.endAt != 0 && roundConfig.startAt != 0 && roundConfig.endAt < roundConfig.startAt) {
             revert INVALID_TIME_WINDOW(roundConfig.startAt, roundConfig.endAt);
         }
@@ -79,19 +65,7 @@ contract RoundSubmissionTCR is GeneralizedTCR {
         endAt = roundConfig.endAt;
         prizeVault = roundConfig.prizeVault;
 
-        __GeneralizedTCR_init(
-            registryConfig.arbitrator,
-            registryConfig.arbitratorExtraData,
-            registryConfig.registrationMetaEvidence,
-            registryConfig.clearingMetaEvidence,
-            registryConfig.votingToken,
-            registryConfig.submissionBaseDeposit,
-            registryConfig.removalBaseDeposit,
-            registryConfig.submissionChallengeBaseDeposit,
-            registryConfig.removalChallengeBaseDeposit,
-            registryConfig.challengePeriodDuration,
-            registryConfig.submissionDepositStrategy
-        );
+        __GeneralizedTCR_init(registryConfig);
     }
 
     /// @notice Helper for offchain clients to construct the canonical submission payload.

@@ -11,6 +11,7 @@ import { IArbitrable } from "./interfaces/IArbitrable.sol";
 import { IArbitrator } from "./interfaces/IArbitrator.sol";
 import { IEvidence } from "./interfaces/IEvidence.sol";
 import { IGeneralizedTCR } from "./interfaces/IGeneralizedTCR.sol";
+import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
 import { IERC20Votes } from "./interfaces/IERC20Votes.sol";
@@ -45,69 +46,52 @@ abstract contract GeneralizedTCR is
     using TokenTransfers for IERC20;
 
     /**
-     *  @dev Initialize the arbitrable curated registry.
-     *  @param _arbitrator Arbitrator to resolve potential disputes.
-     *  @param _arbitratorExtraData Extra data for the trusted arbitrator contract.
-     *  @param _registrationMetaEvidence The URI of the meta evidence object for registration requests.
-     *  @param _clearingMetaEvidence The URI of the meta evidence object for clearing requests.
-     *  @param _votingToken The address of the ERC20Votes token used for deposits and vote snapshots.
-     *  @param _submissionBaseDeposit The base deposit to submit an item.
-     *  @param _removalBaseDeposit The base deposit to remove an item.
-     *  @param _submissionChallengeBaseDeposit The base deposit to challenge a submission.
-     *  @param _removalChallengeBaseDeposit The base deposit to challenge a removal request.
-     *  @param _challengePeriodDuration The time in seconds parties have to challenge a request.
-     *  @param _submissionDepositStrategy Strategy for handling submission deposits.
+     *  @dev Initialize the arbitrable curated registry from a canonical shared config.
+     *  @param config Shared registry config for arbitrator wiring, policy, and metadata.
      */
-    function __GeneralizedTCR_init(
-        IArbitrator _arbitrator,
-        bytes memory _arbitratorExtraData,
-        string memory _registrationMetaEvidence,
-        string memory _clearingMetaEvidence,
-        IVotes _votingToken,
-        uint256 _submissionBaseDeposit,
-        uint256 _removalBaseDeposit,
-        uint256 _submissionChallengeBaseDeposit,
-        uint256 _removalChallengeBaseDeposit,
-        uint256 _challengePeriodDuration,
-        ISubmissionDepositStrategy _submissionDepositStrategy
-    ) internal onlyInitializing {
+    function __GeneralizedTCR_init(IGeneralizedTCRConfig.RegistryConfig memory config) internal onlyInitializing {
         __ReentrancyGuard_init();
 
-        emit MetaEvidence(0, _registrationMetaEvidence);
-        emit MetaEvidence(1, _clearingMetaEvidence);
-        if (address(_arbitrator) == address(0)) revert ADDRESS_ZERO();
-        if (address(_votingToken) == address(0)) revert ADDRESS_ZERO();
+        IArbitrator arbitrator_ = config.arbitrator;
+        IVotes votingToken_ = config.votingToken;
+        ISubmissionDepositStrategy submissionDepositStrategy_ = config.submissionDepositStrategy;
+        IGeneralizedTCRConfig.RegistryPolicy memory policy = config.registryPolicy;
 
-        IERC20Votes votingToken = IERC20Votes(address(_votingToken));
+        emit MetaEvidence(0, policy.registrationMetaEvidence);
+        emit MetaEvidence(1, policy.clearingMetaEvidence);
+        if (address(arbitrator_) == address(0)) revert ADDRESS_ZERO();
+        if (address(votingToken_) == address(0)) revert ADDRESS_ZERO();
+
+        IERC20Votes votingToken = IERC20Votes(address(votingToken_));
 
         _ensureVotingTokenCompatibility(votingToken);
-        _ensureArbitratorTokenMatches(_arbitrator, _votingToken);
-        _ensureArbitratorArbitrableMatches(_arbitrator);
+        _ensureArbitratorTokenMatches(arbitrator_, votingToken_);
+        _ensureArbitratorArbitrableMatches(arbitrator_);
 
-        arbitrator = _arbitrator;
-        arbitratorExtraData = _arbitratorExtraData;
+        arbitrator = arbitrator_;
+        arbitratorExtraData = policy.arbitratorExtraData;
         erc20 = IERC20(address(votingToken));
-        submissionBaseDeposit = _submissionBaseDeposit;
-        removalBaseDeposit = _removalBaseDeposit;
-        submissionChallengeBaseDeposit = _submissionChallengeBaseDeposit;
-        removalChallengeBaseDeposit = _removalChallengeBaseDeposit;
-        challengePeriodDuration = _challengePeriodDuration;
-        IArbitrator.ArbitratorParams memory params = _arbitrator.getArbitratorParamsForFactory();
+        submissionBaseDeposit = policy.submissionBaseDeposit;
+        removalBaseDeposit = policy.removalBaseDeposit;
+        submissionChallengeBaseDeposit = policy.submissionChallengeBaseDeposit;
+        removalChallengeBaseDeposit = policy.removalChallengeBaseDeposit;
+        challengePeriodDuration = policy.challengePeriodDuration;
+        IArbitrator.ArbitratorParams memory params = arbitrator_.getArbitratorParamsForFactory();
         disputeTimeout = params.votingDelay + params.votingPeriod + params.revealPeriod;
-        registrationMetaEvidence = _registrationMetaEvidence;
-        clearingMetaEvidence = _clearingMetaEvidence;
+        registrationMetaEvidence = policy.registrationMetaEvidence;
+        clearingMetaEvidence = policy.clearingMetaEvidence;
 
-        if (address(_submissionDepositStrategy) == address(0)) revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
-        if (address(_submissionDepositStrategy).code.length == 0) revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
+        if (address(submissionDepositStrategy_) == address(0)) revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
+        if (address(submissionDepositStrategy_).code.length == 0) revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
 
         // Ensure strategy token matches TCR deposit token.
-        try _submissionDepositStrategy.token() returns (IERC20 token_) {
+        try submissionDepositStrategy_.token() returns (IERC20 token_) {
             if (token_ != IERC20(address(votingToken))) revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
         } catch {
             revert INVALID_SUBMISSION_DEPOSIT_STRATEGY();
         }
 
-        submissionDepositStrategy = _submissionDepositStrategy;
+        submissionDepositStrategy = submissionDepositStrategy_;
     }
 
     /* External and Public */

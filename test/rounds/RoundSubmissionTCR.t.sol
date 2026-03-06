@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -38,7 +39,7 @@ contract RoundSubmissionTCRTest is Test {
 
         RoundSubmissionTCR.RoundConfig memory roundCfg =
             _roundConfig(keccak256("round"), uint64(block.timestamp), uint64(block.timestamp + 30 days));
-        RoundSubmissionTCR.RegistryConfig memory regCfg = _registryConfig(arbitrator, SUBMISSION_DEPOSIT);
+        IGeneralizedTCRConfig.RegistryConfig memory regCfg = _registryConfig(arbitrator, SUBMISSION_DEPOSIT);
 
         tcr.initialize(roundCfg, regCfg);
 
@@ -74,19 +75,21 @@ contract RoundSubmissionTCRTest is Test {
     function _registryConfig(
         RoundTestArbitrator arbitrator_,
         uint256 submissionBaseDeposit
-    ) internal view returns (RoundSubmissionTCR.RegistryConfig memory cfg) {
-        cfg = RoundSubmissionTCR.RegistryConfig({
+    ) internal view returns (IGeneralizedTCRConfig.RegistryConfig memory cfg) {
+        cfg = IGeneralizedTCRConfig.RegistryConfig({
             arbitrator: arbitrator_,
-            arbitratorExtraData: "",
-            registrationMetaEvidence: "reg",
-            clearingMetaEvidence: "clr",
             votingToken: IVotes(address(token)),
-            submissionBaseDeposit: submissionBaseDeposit,
             submissionDepositStrategy: depositStrategy,
-            removalBaseDeposit: 0,
-            submissionChallengeBaseDeposit: 0,
-            removalChallengeBaseDeposit: 0,
-            challengePeriodDuration: CHALLENGE_PERIOD
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: "",
+                registrationMetaEvidence: "reg",
+                clearingMetaEvidence: "clr",
+                submissionBaseDeposit: submissionBaseDeposit,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: CHALLENGE_PERIOD
+            })
         });
     }
 
@@ -96,7 +99,7 @@ contract RoundSubmissionTCRTest is Test {
         RoundTestArbitrator arb2 = new RoundTestArbitrator(IVotes(address(token)), address(tcr2), 1, 1, 1, ARBITRATION_COST);
 
         RoundSubmissionTCR.RoundConfig memory roundCfg = _roundConfig(bytes32("id"), 100, 99);
-        RoundSubmissionTCR.RegistryConfig memory regCfg = _registryConfig(arb2, 0);
+        IGeneralizedTCRConfig.RegistryConfig memory regCfg = _registryConfig(arb2, 0);
 
         vm.expectRevert(abi.encodeWithSelector(RoundSubmissionTCR.INVALID_TIME_WINDOW.selector, uint64(100), uint64(99)));
         tcr2.initialize(roundCfg, regCfg);

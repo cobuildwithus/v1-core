@@ -2,8 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
-import { IArbitrator } from "./interfaces/IArbitrator.sol";
-import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
+import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { IAllocationMechanismFactory } from "./interfaces/IAllocationMechanismFactory.sol";
 
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
@@ -12,7 +11,6 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IManagedFlow } from "src/interfaces/IManagedFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
@@ -44,19 +42,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     // Types
     // ---------------------------
 
-    struct RegistryConfig {
-        IArbitrator arbitrator;
-        bytes arbitratorExtraData;
-        string registrationMetaEvidence;
-        string clearingMetaEvidence;
+    struct InitConfig {
+        IGeneralizedTCRConfig.RegistryConfig tcrConfig;
         address factoryManager;
-        IVotes votingToken;
-        uint256 submissionBaseDeposit;
-        ISubmissionDepositStrategy submissionDepositStrategy;
-        uint256 removalBaseDeposit;
-        uint256 submissionChallengeBaseDeposit;
-        uint256 removalChallengeBaseDeposit;
-        uint256 challengePeriodDuration;
     }
 
     struct MechanismDeploymentConfig {
@@ -171,7 +159,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     function initialize(
         address budgetTreasury_,
         address initialMechanismFactory_,
-        RegistryConfig calldata registryConfig
+        InitConfig calldata initConfig
     ) external initializer {
         if (budgetTreasury_ == address(0) || initialMechanismFactory_ == address(0)) revert ADDRESS_ZERO();
         if (initialMechanismFactory_.code.length == 0) revert INVALID_FACTORY(initialMechanismFactory_);
@@ -184,21 +172,9 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         if (budgetFlow.recipientAdmin() != address(this)) revert BUDGET_FLOW_MISMATCH();
 
-        __GeneralizedTCR_init(
-            registryConfig.arbitrator,
-            registryConfig.arbitratorExtraData,
-            registryConfig.registrationMetaEvidence,
-            registryConfig.clearingMetaEvidence,
-            registryConfig.votingToken,
-            registryConfig.submissionBaseDeposit,
-            registryConfig.removalBaseDeposit,
-            registryConfig.submissionChallengeBaseDeposit,
-            registryConfig.removalChallengeBaseDeposit,
-            registryConfig.challengePeriodDuration,
-            registryConfig.submissionDepositStrategy
-        );
-        if (registryConfig.factoryManager == address(0)) revert ADDRESS_ZERO();
-        factoryManager = registryConfig.factoryManager;
+        __GeneralizedTCR_init(initConfig.tcrConfig);
+        if (initConfig.factoryManager == address(0)) revert ADDRESS_ZERO();
+        factoryManager = initConfig.factoryManager;
     }
 
     // ---------------------------

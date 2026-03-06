@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -48,18 +49,20 @@ contract RoundPrizeVaultTest is Test {
             endAt: uint64(block.timestamp + 7 days),
             prizeVault: address(0)
         });
-        RoundSubmissionTCR.RegistryConfig memory regCfg = RoundSubmissionTCR.RegistryConfig({
+        IGeneralizedTCRConfig.RegistryConfig memory regCfg = IGeneralizedTCRConfig.RegistryConfig({
             arbitrator: arbitrator,
-            arbitratorExtraData: "",
-            registrationMetaEvidence: "reg",
-            clearingMetaEvidence: "clr",
             votingToken: IVotes(address(underlying)),
-            submissionBaseDeposit: 0,
             submissionDepositStrategy: depositStrategy,
-            removalBaseDeposit: 0,
-            submissionChallengeBaseDeposit: 0,
-            removalChallengeBaseDeposit: 0,
-            challengePeriodDuration: CHALLENGE_PERIOD
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: "",
+                registrationMetaEvidence: "reg",
+                clearingMetaEvidence: "clr",
+                submissionBaseDeposit: 0,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: CHALLENGE_PERIOD
+            })
         });
         submissions.initialize(roundCfg, regCfg);
 

@@ -5,6 +5,7 @@ import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import {GeneralizedTCR} from "src/tcr/GeneralizedTCR.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
 /// @dev Concrete implementation for testing the abstract GeneralizedTCR.
@@ -62,17 +63,21 @@ contract MockGeneralizedTCR is GeneralizedTCR {
         ISubmissionDepositStrategy _submissionDepositStrategy
     ) internal {
         __GeneralizedTCR_init(
-            _arbitrator,
-            _arbitratorExtraData,
-            _registrationMetaEvidence,
-            _clearingMetaEvidence,
-            _votingToken,
-            _submissionBaseDeposit,
-            _removalBaseDeposit,
-            _submissionChallengeBaseDeposit,
-            _removalChallengeBaseDeposit,
-            _challengePeriodDuration,
-            _submissionDepositStrategy
+            IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: _arbitrator,
+                votingToken: _votingToken,
+                submissionDepositStrategy: _submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: _arbitratorExtraData,
+                    registrationMetaEvidence: _registrationMetaEvidence,
+                    clearingMetaEvidence: _clearingMetaEvidence,
+                    submissionBaseDeposit: _submissionBaseDeposit,
+                    removalBaseDeposit: _removalBaseDeposit,
+                    submissionChallengeBaseDeposit: _submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: _removalChallengeBaseDeposit,
+                    challengePeriodDuration: _challengePeriodDuration
+                })
+            })
         );
     }
 
