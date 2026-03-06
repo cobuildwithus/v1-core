@@ -48,6 +48,24 @@ library GoalFlowLedgerMode {
         bytes failureReason;
     }
 
+    struct GoalTreasuryWiring {
+        address goalTreasury;
+        address configuredFlow;
+        address stakeVault;
+    }
+
+    struct LedgerValidationResult {
+        address goalTreasury;
+        address stakeVault;
+        bool cacheHit;
+    }
+
+    struct InitLedgerValidationResult {
+        address goalTreasury;
+        address stakeVault;
+        bool bootstrapAllowed;
+    }
+
     error INVALID_ALLOCATION_LEDGER_STRATEGY(
         address strategy,
         address expectedStakeVault,
@@ -77,9 +95,10 @@ library GoalFlowLedgerMode {
         address ledger,
         address expectedFlow
     ) internal returns (address goalTreasury, address stakeVault) {
-        bool cacheHit;
-        (goalTreasury, stakeVault, cacheHit) = _validatedLedger(strategies, cache, ledger, expectedFlow);
-        if (cacheHit) return (goalTreasury, stakeVault);
+        LedgerValidationResult memory result = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        goalTreasury = result.goalTreasury;
+        stakeVault = result.stakeVault;
+        if (result.cacheHit) return (goalTreasury, stakeVault);
 
         cache.validatedLedger = ledger;
         cache.validatedGoalTreasury = goalTreasury;
@@ -92,7 +111,8 @@ library GoalFlowLedgerMode {
         address ledger,
         address expectedFlow
     ) internal view returns (address goalTreasury, address stakeVault) {
-        (goalTreasury, stakeVault, ) = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        LedgerValidationResult memory result = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        return (result.goalTreasury, result.stakeVault);
     }
 
     function validateForInitializeOrRevertView(
@@ -105,17 +125,13 @@ library GoalFlowLedgerMode {
             return (cache.validatedGoalTreasury, cache.validatedStakeVault);
         }
 
-        goalTreasury = _requireAllocationLedgerGoalTreasury(ledger);
-        (bool bootstrapAllowed, address resolvedStakeVault) = _validateLedgerInitWiring(
-            ledger,
-            goalTreasury,
-            expectedFlow
-        );
-        if (bootstrapAllowed) {
+        InitLedgerValidationResult memory result = _validateLedgerInitWiring(ledger, expectedFlow);
+        goalTreasury = result.goalTreasury;
+        if (result.bootstrapAllowed) {
             return (goalTreasury, address(0));
         }
 
-        stakeVault = resolvedStakeVault;
+        stakeVault = result.stakeVault;
         _verifyBudgetStakeLedgerStrategy(strategies, stakeVault);
     }
 
@@ -309,12 +325,15 @@ library GoalFlowLedgerMode {
         ValidationCache storage cache,
         address ledger,
         address expectedFlow
-    ) private view returns (address goalTreasury, address stakeVault, bool cacheHit) {
+    ) private view returns (LedgerValidationResult memory result) {
         if (cache.validatedLedger == ledger) {
-            return (cache.validatedGoalTreasury, cache.validatedStakeVault, true);
+            result.goalTreasury = cache.validatedGoalTreasury;
+            result.stakeVault = cache.validatedStakeVault;
+            result.cacheHit = true;
+            return result;
         }
 
-        (goalTreasury, stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
+        (result.goalTreasury, result.stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
     }
 
     function _shouldCheckpointWithValidatedContext(
@@ -510,83 +529,75 @@ library GoalFlowLedgerMode {
         address ledger,
         address expectedFlow
     ) private view returns (address goalTreasury, address stakeVault) {
-        goalTreasury = _requireAllocationLedgerGoalTreasury(ledger);
-        stakeVault = _requireAllocationLedgerWiring(ledger, goalTreasury, expectedFlow);
+        GoalTreasuryWiring memory wiring = _readGoalTreasuryWiring(ledger);
+        goalTreasury = wiring.goalTreasury;
+        stakeVault = _requireRuntimeStakeVault(wiring, expectedFlow);
         _verifyBudgetStakeLedgerStrategy(strategies, stakeVault);
     }
 
-    function _requireAllocationLedgerGoalTreasury(address ledgerAddress) private view returns (address goalTreasury) {
+    function _readGoalTreasuryWiring(address ledgerAddress) private view returns (GoalTreasuryWiring memory wiring) {
         if (ledgerAddress.code.length == 0) revert IFlow.INVALID_ALLOCATION_LEDGER(ledgerAddress);
 
         try IBudgetStakeLedger(ledgerAddress).goalTreasury() returns (address goalTreasury_) {
-            goalTreasury = goalTreasury_;
+            wiring.goalTreasury = goalTreasury_;
         } catch {
             revert IFlow.INVALID_ALLOCATION_LEDGER(ledgerAddress);
         }
 
-        if (goalTreasury == address(0)) {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, address(0));
-        }
-    }
-
-    function _requireAllocationLedgerWiring(
-        address ledgerAddress,
-        address goalTreasury,
-        address expectedFlow
-    ) private view returns (address stakeVault) {
-        if (goalTreasury.code.length == 0) {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
+        if (wiring.goalTreasury == address(0) || wiring.goalTreasury.code.length == 0) {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, wiring.goalTreasury);
         }
 
         address configuredFlow;
-        try IGoalTreasury(goalTreasury).flow() returns (address flow_) {
+        try IGoalTreasury(wiring.goalTreasury).flow() returns (address flow_) {
             configuredFlow = flow_;
         } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
+            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, wiring.goalTreasury);
         }
-        if (configuredFlow != expectedFlow) revert IFlow.INVALID_ALLOCATION_LEDGER_FLOW(expectedFlow, configuredFlow);
+        wiring.configuredFlow = configuredFlow;
 
-        try IGoalTreasury(goalTreasury).stakeVault() returns (address stakeVault_) {
+        address stakeVault;
+        try IGoalTreasury(wiring.goalTreasury).stakeVault() returns (address stakeVault_) {
             stakeVault = stakeVault_;
         } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
+            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, wiring.goalTreasury);
+        }
+        wiring.stakeVault = stakeVault;
+    }
+
+    function _requireRuntimeStakeVault(
+        GoalTreasuryWiring memory wiring,
+        address expectedFlow
+    ) private view returns (address stakeVault) {
+        if (wiring.configuredFlow != expectedFlow) {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_FLOW(expectedFlow, wiring.configuredFlow);
         }
 
+        stakeVault = wiring.stakeVault;
         if (stakeVault == address(0) || stakeVault.code.length == 0) {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(goalTreasury, stakeVault);
+            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(wiring.goalTreasury, stakeVault);
         }
     }
 
     function _validateLedgerInitWiring(
         address ledgerAddress,
-        address goalTreasury,
         address expectedFlow
-    ) private view returns (bool bootstrapAllowed, address stakeVault) {
-        if (goalTreasury.code.length == 0) {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
+    ) private view returns (InitLedgerValidationResult memory result) {
+        GoalTreasuryWiring memory wiring = _readGoalTreasuryWiring(ledgerAddress);
+        result.goalTreasury = wiring.goalTreasury;
+
+        if (wiring.configuredFlow == address(0) && wiring.stakeVault == address(0)) {
+            result.bootstrapAllowed = true;
+            return result;
         }
 
-        address configuredFlow;
-        try IGoalTreasury(goalTreasury).flow() returns (address flow_) {
-            configuredFlow = flow_;
-        } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
+        if (wiring.configuredFlow != expectedFlow) {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_FLOW(expectedFlow, wiring.configuredFlow);
         }
 
-        try IGoalTreasury(goalTreasury).stakeVault() returns (address stakeVault_) {
-            stakeVault = stakeVault_;
-        } catch {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY(ledgerAddress, goalTreasury);
-        }
-
-        if (configuredFlow == address(0) && stakeVault == address(0)) {
-            return (true, address(0));
-        }
-
-        if (configuredFlow != expectedFlow) revert IFlow.INVALID_ALLOCATION_LEDGER_FLOW(expectedFlow, configuredFlow);
-
-        if (stakeVault == address(0) || stakeVault.code.length == 0) {
-            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(goalTreasury, stakeVault);
+        result.stakeVault = wiring.stakeVault;
+        if (result.stakeVault == address(0) || result.stakeVault.code.length == 0) {
+            revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(wiring.goalTreasury, result.stakeVault);
         }
     }
 
