@@ -10,7 +10,6 @@ import { FlowTypes } from "../storage/FlowStorage.sol";
 /// @notice Read-only helper library for CustomFlow child-sync requirement previews.
 library CustomFlowPreview {
     function previewChildSyncRequirements(
-        FlowTypes.Config storage cfg,
         FlowTypes.RecipientsState storage recipients,
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
@@ -19,7 +18,7 @@ library CustomFlowPreview {
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
     ) external view returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
-        FlowAllocations.validateAllocations(cfg, recipients, newRecipientIds, newAllocationPpm);
+        FlowAllocations.validateAllocations(recipients, newRecipientIds, newAllocationPpm);
 
         address pipeline = pipelineState.allocationPipeline;
         if (pipeline == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
