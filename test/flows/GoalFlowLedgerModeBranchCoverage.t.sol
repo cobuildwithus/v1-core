@@ -7,6 +7,7 @@ import { GoalFlowLedgerMode } from "src/library/GoalFlowLedgerMode.sol";
 import { IFlow, ICustomFlow } from "src/interfaces/IFlow.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IAllocationKeyAccountResolver } from "src/interfaces/IAllocationKeyAccountResolver.sol";
+import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { GoalFlowLedgerModeHarness } from "test/harness/GoalFlowLedgerModeHarness.sol";
 
 contract GoalFlowLedgerModeBranchCoverageTest is Test {
@@ -314,19 +315,51 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
 
-    function test_buildChildSyncActions_marksTargetUnavailableWhenBudgetFlowCallReverts() public {
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(0));
-        budget.setRevertFlow(true);
+    function test_buildChildSyncActions_marksTargetUnavailableWhenAuthorityCallReverts() public {
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(0), address(strategy));
+        budget.setRevertAuthority(true);
 
         address[] memory budgets = _singleBudget(address(budget));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, budgets);
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
 
+    function test_buildChildSyncActions_marksTargetUnavailableWhenTopologyLookupReverts() public {
+        GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
+        address[] memory childStrategies = new address[](1);
+        childStrategies[0] = address(strategy);
+        childFlow.setStrategies(childStrategies);
+
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
+        budget.setRevertTopology(true);
+
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions =
+            harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
+        assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
+    }
+
+    function test_buildChildSyncActions_marksTargetUnavailableWhenTopologyInactive() public {
+        GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
+        address[] memory childStrategies = new address[](1);
+        childStrategies[0] = address(strategy);
+        childFlow.setStrategies(childStrategies);
+
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
+        budget.setTopologyActive(false);
+
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions =
+            harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
+        assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
+    }
+
     function test_buildChildSyncActions_marksTargetUnavailableWhenStrategiesCallReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
         childFlow.setRevertStrategies(true);
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
 
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
@@ -340,8 +373,23 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childStrategies[1] = address(strategy2);
         childFlow.setStrategies(childStrategies);
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
+        assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
+    }
+
+    function test_buildChildSyncActions_marksTargetUnavailableWhenStoredStrategyMismatchesChildFlow() public {
+        GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
+        GoalFlowLedgerModeCoverageStrategy mismatchedStrategy = new GoalFlowLedgerModeCoverageStrategy();
+        address[] memory childStrategies = new address[](1);
+        childStrategies[0] = address(strategy);
+        childFlow.setStrategies(childStrategies);
+
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(mismatchedStrategy));
+        GoalFlowLedgerMode.ChildSyncAction[] memory actions =
+            harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
 
@@ -352,7 +400,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         strategy.setRevertAccountResolver(true);
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
@@ -364,7 +413,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         strategy.setResolvedAccountOverride(address(0xDEAD));
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
@@ -376,7 +426,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         childFlow.setRevertCommitment(true);
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
@@ -388,7 +439,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         childFlow.setCommitment(bytes32(0));
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         ICustomFlow.ChildSyncRequirement[] memory reqs =
             harness.requiredChildSyncRequirements(ACCOUNT, _singleBudget(address(budget)));
         assertEq(reqs.length, 0);
@@ -402,7 +454,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         bytes32 commit = keccak256("commit");
         childFlow.setCommitment(commit);
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         ICustomFlow.ChildSyncRequirement[] memory reqs =
             harness.requiredChildSyncRequirements(ACCOUNT, _singleBudget(address(budget)));
 
@@ -421,7 +474,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         childFlow.setCommitment(keccak256("commit"));
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         GoalFlowLedgerMode.ChildSyncExecution[] memory executions = harness.executeChildSyncBestEffort(actions);
 
@@ -439,7 +493,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setCommitment(keccak256("commit"));
         childFlow.setRevertSync(true);
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
         GoalFlowLedgerMode.ChildSyncExecution[] memory executions = harness.executeChildSyncBestEffort(actions);
 
@@ -456,7 +511,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         childFlow.setStrategies(childStrategies);
         childFlow.setCommitment(keccak256("commit"));
 
-        GoalFlowLedgerModeCoverageBudgetTreasury budget = new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow));
+        GoalFlowLedgerModeCoverageBudgetTreasury budget =
+            new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
 
         (bool ok, bytes memory returnData) = address(harness).call{ gas: 900_000 }(
@@ -679,23 +735,56 @@ contract GoalFlowLedgerModeCoverageStakeVault {
 
 contract GoalFlowLedgerModeCoverageBudgetTreasury {
     address private _flow;
-    bool private _revertFlow;
+    address private _strategy;
+    bool private _topologyActive = true;
+    bool private _revertAuthority;
+    bool private _revertTopology;
 
-    constructor(address flow_) {
+    constructor(address flow_, address strategy_) {
         _flow = flow_;
+        _strategy = strategy_;
     }
 
     function setFlow(address flow_) external {
         _flow = flow_;
     }
 
-    function setRevertFlow(bool shouldRevert) external {
-        _revertFlow = shouldRevert;
+    function setStrategy(address strategy_) external {
+        _strategy = strategy_;
     }
 
-    function flow() external view returns (address) {
-        if (_revertFlow) revert("flow");
-        return _flow;
+    function setTopologyActive(bool active_) external {
+        _topologyActive = active_;
+    }
+
+    function setRevertAuthority(bool shouldRevert) external {
+        _revertAuthority = shouldRevert;
+    }
+
+    function setRevertTopology(bool shouldRevert) external {
+        _revertTopology = shouldRevert;
+    }
+
+    function authority() external view returns (address) {
+        if (_revertAuthority) revert("authority");
+        return address(this);
+    }
+
+    function budgetStackTopologyForBudgetTreasury(
+        address budgetTreasury
+    ) external view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+        if (_revertTopology) revert("topology");
+        if (budgetTreasury != address(this)) return (topology, false);
+
+        topology = IBudgetStackTopologyReader.BudgetStackTopology({
+            childFlow: _flow,
+            budgetTreasury: address(this),
+            premiumEscrow: address(0),
+            strategy: _strategy,
+            allocationMechanism: address(0),
+            allocationMechanismArbitrator: address(0)
+        });
+        active = _topologyActive;
     }
 }
 
