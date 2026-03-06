@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
 import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { BudgetTCRStorageV1 } from "src/tcr/storage/BudgetTCRStorageV1.sol";
@@ -189,28 +190,32 @@ library BudgetTCRStackActions {
         AllocationMechanismTCR(allocationMechanism).initialize(
             budgetTreasury,
             deployer.roundFactory(),
-            _mechanismRegistryConfig(mechanismArbitrator, budgetStore, tcrStore)
+            _mechanismInitConfig(mechanismArbitrator, budgetStore, tcrStore)
         );
     }
 
-    function _mechanismRegistryConfig(
+    function _mechanismInitConfig(
         address mechanismArbitrator,
         BudgetTCRStorageV1 budgetStore,
         GeneralizedTCRStorageV1 tcrStore
-    ) private view returns (AllocationMechanismTCR.RegistryConfig memory cfg) {
-        cfg = AllocationMechanismTCR.RegistryConfig({
-            arbitrator: IArbitrator(mechanismArbitrator),
-            arbitratorExtraData: tcrStore.arbitratorExtraData(),
-            registrationMetaEvidence: tcrStore.registrationMetaEvidence(),
-            clearingMetaEvidence: tcrStore.clearingMetaEvidence(),
-            factoryManager: budgetStore.allocationMechanismAdmin(),
-            votingToken: IVotes(address(tcrStore.erc20())),
-            submissionBaseDeposit: tcrStore.submissionBaseDeposit(),
-            submissionDepositStrategy: tcrStore.submissionDepositStrategy(),
-            removalBaseDeposit: tcrStore.removalBaseDeposit(),
-            submissionChallengeBaseDeposit: tcrStore.submissionChallengeBaseDeposit(),
-            removalChallengeBaseDeposit: tcrStore.removalChallengeBaseDeposit(),
-            challengePeriodDuration: tcrStore.challengePeriodDuration()
+    ) private view returns (AllocationMechanismTCR.InitConfig memory cfg) {
+        cfg = AllocationMechanismTCR.InitConfig({
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(mechanismArbitrator),
+                votingToken: IVotes(address(tcrStore.erc20())),
+                submissionDepositStrategy: tcrStore.submissionDepositStrategy(),
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: tcrStore.arbitratorExtraData(),
+                    registrationMetaEvidence: tcrStore.registrationMetaEvidence(),
+                    clearingMetaEvidence: tcrStore.clearingMetaEvidence(),
+                    submissionBaseDeposit: tcrStore.submissionBaseDeposit(),
+                    removalBaseDeposit: tcrStore.removalBaseDeposit(),
+                    submissionChallengeBaseDeposit: tcrStore.submissionChallengeBaseDeposit(),
+                    removalChallengeBaseDeposit: tcrStore.removalChallengeBaseDeposit(),
+                    challengePeriodDuration: tcrStore.challengePeriodDuration()
+                })
+            }),
+            factoryManager: budgetStore.allocationMechanismAdmin()
         });
     }
 

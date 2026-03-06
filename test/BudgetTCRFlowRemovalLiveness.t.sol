@@ -4,11 +4,11 @@ pragma solidity ^0.8.34;
 import { TestUtils } from "test/utils/TestUtils.sol";
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
 import {
-    MockGoalTreasuryForBudgetTCR,
-    MockRewardEscrowForBudgetTCR,
-    MockBudgetStakeLedgerForBudgetTCR,
-    MockStakeVaultForBudgetTCR
-} from "test/mocks/MockBudgetTCRSystem.sol";
+    BudgetTCRGoalTreasuryHarness as MockGoalTreasuryForBudgetTCR,
+    BudgetTCRRewardEscrowHarness as MockRewardEscrowForBudgetTCR,
+    BudgetTCRStakeLedgerHarness as MockBudgetStakeLedgerForBudgetTCR,
+    BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
+} from "test/helpers/BudgetTCRSystemHarnesses.sol";
 import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
 import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
 
@@ -27,6 +27,7 @@ import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRo
 
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -385,20 +386,24 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         budgetTcr.finalizeRemovedBudget(itemID);
     }
 
-    function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
-        registryConfig = IBudgetTCR.RegistryConfig({
+    function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
+        registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
-            arbitrator: IArbitrator(address(arbitrator)),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://budget-reg-meta",
-            clearingMetaEvidence: "ipfs://budget-clear-meta",
-            votingToken: IVotes(address(depositToken)),
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration,
-            submissionDepositStrategy: submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(address(arbitrator)),
+                votingToken: IVotes(address(depositToken)),
+                submissionDepositStrategy: submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: bytes(""),
+                    registrationMetaEvidence: "ipfs://budget-reg-meta",
+                    clearingMetaEvidence: "ipfs://budget-clear-meta",
+                    submissionBaseDeposit: submissionBaseDeposit,
+                    removalBaseDeposit: removalBaseDeposit,
+                    submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+                    challengePeriodDuration: challengePeriodDuration
+                })
+            })
         });
     }
 

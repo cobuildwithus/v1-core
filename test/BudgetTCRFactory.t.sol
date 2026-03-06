@@ -20,6 +20,7 @@ import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmis
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -289,16 +290,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -328,16 +331,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -367,16 +372,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -409,16 +416,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -461,16 +470,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -511,16 +522,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -569,16 +582,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -623,16 +638,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -664,16 +681,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -714,16 +733,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -765,16 +786,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -811,19 +834,23 @@ contract BudgetTCRFactoryTest is Test {
         assertEq(BudgetTCR(deployed.budgetTCR).premiumEscrowImplementation(), deploymentConfig.premiumEscrowImplementation);
         assertEq(BudgetTCR(deployed.budgetTCR).budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
 
-        IBudgetTCR.RegistryConfig memory fullRegistryConfig = IBudgetTCR.RegistryConfig({
+        IBudgetTCR.InitConfig memory fullRegistryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: registryConfig.allocationMechanismAdmin,
-            arbitrator: IArbitrator(deployed.arbitrator),
-            arbitratorExtraData: registryConfig.arbitratorExtraData,
-            registrationMetaEvidence: registryConfig.registrationMetaEvidence,
-            clearingMetaEvidence: registryConfig.clearingMetaEvidence,
-            votingToken: registryConfig.votingToken,
-            submissionBaseDeposit: registryConfig.submissionBaseDeposit,
-            removalBaseDeposit: registryConfig.removalBaseDeposit,
-            submissionChallengeBaseDeposit: registryConfig.submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: registryConfig.removalChallengeBaseDeposit,
-            challengePeriodDuration: registryConfig.challengePeriodDuration,
-            submissionDepositStrategy: registryConfig.submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(deployed.arbitrator),
+                votingToken: registryConfig.votingToken,
+                submissionDepositStrategy: registryConfig.submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: registryConfig.registryPolicy.arbitratorExtraData,
+                    registrationMetaEvidence: registryConfig.registryPolicy.registrationMetaEvidence,
+                    clearingMetaEvidence: registryConfig.registryPolicy.clearingMetaEvidence,
+                    submissionBaseDeposit: registryConfig.registryPolicy.submissionBaseDeposit,
+                    removalBaseDeposit: registryConfig.registryPolicy.removalBaseDeposit,
+                    submissionChallengeBaseDeposit: registryConfig.registryPolicy.submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: registryConfig.registryPolicy.removalChallengeBaseDeposit,
+                    challengePeriodDuration: registryConfig.registryPolicy.challengePeriodDuration
+                })
+            })
         });
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -847,16 +874,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -892,16 +921,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -937,16 +968,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -985,16 +1018,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1027,16 +1062,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1066,16 +1103,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1240,16 +1279,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes("arbitrator-extra"),
-            registrationMetaEvidence: "ipfs://registration",
-            clearingMetaEvidence: "ipfs://clearing",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 101e18,
-            removalBaseDeposit: 202e18,
-            submissionChallengeBaseDeposit: 303e18,
-            removalChallengeBaseDeposit: 404e18,
-            challengePeriodDuration: 5 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes("arbitrator-extra"),
+                registrationMetaEvidence: "ipfs://registration",
+                clearingMetaEvidence: "ipfs://clearing",
+                submissionBaseDeposit: 101e18,
+                removalBaseDeposit: 202e18,
+                submissionChallengeBaseDeposit: 303e18,
+                removalChallengeBaseDeposit: 404e18,
+                challengePeriodDuration: 5 days
+            })
         });
 
         IBudgetTCR.DeploymentConfig memory deploymentConfig =
@@ -1298,15 +1339,15 @@ contract BudgetTCRFactoryTest is Test {
 
         assertEq(address(deployedBudgetTCR.arbitrator()), deployed.arbitrator);
         assertEq(deployedBudgetTCR.allocationMechanismAdmin(), registryConfig.allocationMechanismAdmin);
-        assertEq(deployedBudgetTCR.arbitratorExtraData(), registryConfig.arbitratorExtraData);
-        assertEq(deployedBudgetTCR.registrationMetaEvidence(), registryConfig.registrationMetaEvidence);
-        assertEq(deployedBudgetTCR.clearingMetaEvidence(), registryConfig.clearingMetaEvidence);
+        assertEq(deployedBudgetTCR.arbitratorExtraData(), registryConfig.registryPolicy.arbitratorExtraData);
+        assertEq(deployedBudgetTCR.registrationMetaEvidence(), registryConfig.registryPolicy.registrationMetaEvidence);
+        assertEq(deployedBudgetTCR.clearingMetaEvidence(), registryConfig.registryPolicy.clearingMetaEvidence);
         assertEq(address(deployedBudgetTCR.erc20()), address(votingToken));
-        assertEq(deployedBudgetTCR.submissionBaseDeposit(), registryConfig.submissionBaseDeposit);
-        assertEq(deployedBudgetTCR.removalBaseDeposit(), registryConfig.removalBaseDeposit);
-        assertEq(deployedBudgetTCR.submissionChallengeBaseDeposit(), registryConfig.submissionChallengeBaseDeposit);
-        assertEq(deployedBudgetTCR.removalChallengeBaseDeposit(), registryConfig.removalChallengeBaseDeposit);
-        assertEq(deployedBudgetTCR.challengePeriodDuration(), registryConfig.challengePeriodDuration);
+        assertEq(deployedBudgetTCR.submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(deployedBudgetTCR.removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
+        assertEq(deployedBudgetTCR.submissionChallengeBaseDeposit(), registryConfig.registryPolicy.submissionChallengeBaseDeposit);
+        assertEq(deployedBudgetTCR.removalChallengeBaseDeposit(), registryConfig.registryPolicy.removalChallengeBaseDeposit);
+        assertEq(deployedBudgetTCR.challengePeriodDuration(), registryConfig.registryPolicy.challengePeriodDuration);
         assertEq(address(deployedBudgetTCR.submissionDepositStrategy()), address(submissionDepositStrategy));
 
         assertEq(address(deployedBudgetTCR.goalFlow()), address(deploymentConfig.goalFlow));
@@ -1363,16 +1404,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 1e18,
-            removalBaseDeposit: 2e18,
-            submissionChallengeBaseDeposit: 3e18,
-            removalChallengeBaseDeposit: 4e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 1e18,
+                removalBaseDeposit: 2e18,
+                submissionChallengeBaseDeposit: 3e18,
+                removalChallengeBaseDeposit: 4e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1412,16 +1455,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 1e18,
-            removalBaseDeposit: 2e18,
-            submissionChallengeBaseDeposit: 3e18,
-            removalChallengeBaseDeposit: 4e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 1e18,
+                removalBaseDeposit: 2e18,
+                submissionChallengeBaseDeposit: 3e18,
+                removalChallengeBaseDeposit: 4e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1460,16 +1505,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 10e18,
-            removalBaseDeposit: 20e18,
-            submissionChallengeBaseDeposit: 30e18,
-            removalChallengeBaseDeposit: 40e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 10e18,
+                removalBaseDeposit: 20e18,
+                submissionChallengeBaseDeposit: 30e18,
+                removalChallengeBaseDeposit: 40e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1511,16 +1558,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 101e18,
-            removalBaseDeposit: 202e18,
-            submissionChallengeBaseDeposit: 303e18,
-            removalChallengeBaseDeposit: 404e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 101e18,
+                removalBaseDeposit: 202e18,
+                submissionChallengeBaseDeposit: 303e18,
+                removalChallengeBaseDeposit: 404e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -1535,15 +1584,15 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
 
-        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.submissionBaseDeposit);
-        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.removalBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
         assertEq(
             BudgetTCR(deployed.budgetTCR).submissionChallengeBaseDeposit(),
-            registryConfig.submissionChallengeBaseDeposit
+            registryConfig.registryPolicy.submissionChallengeBaseDeposit
         );
         assertEq(
             BudgetTCR(deployed.budgetTCR).removalChallengeBaseDeposit(),
-            registryConfig.removalChallengeBaseDeposit
+            registryConfig.registryPolicy.removalChallengeBaseDeposit
         );
     }
 
@@ -1675,16 +1724,18 @@ contract BudgetTCRFactoryTest is Test {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
             allocationMechanismAdmin: makeAddr("governor"),
             invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://reg",
-            clearingMetaEvidence: "ipfs://clear",
             votingToken: IVotes(address(votingToken)),
-            submissionBaseDeposit: 100e18,
-            removalBaseDeposit: 50e18,
-            submissionChallengeBaseDeposit: 120e18,
-            removalChallengeBaseDeposit: 70e18,
-            challengePeriodDuration: 3 days,
-            submissionDepositStrategy: submissionDepositStrategy
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
         });
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,

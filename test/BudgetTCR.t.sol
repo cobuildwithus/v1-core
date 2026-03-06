@@ -32,6 +32,7 @@ import {CustomFlow} from "src/flows/CustomFlow.sol";
 
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -175,7 +176,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_stack_deployer_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.stackDeployer = address(0);
@@ -187,7 +188,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_goal_flow_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.goalFlow = IFlow(address(0));
@@ -199,7 +200,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_goal_treasury_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.goalTreasury = IGoalTreasury(address(0));
@@ -211,7 +212,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_goal_token_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.goalToken = IERC20(address(0));
@@ -223,7 +224,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_cobuild_token_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.cobuildToken = IERC20(address(0));
@@ -235,7 +236,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_allocation_mechanism_admin_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         registryConfig.allocationMechanismAdmin = address(0);
@@ -247,7 +248,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_goal_rulesets_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.goalRulesets = IJBRulesets(address(0));
@@ -259,7 +260,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_premium_escrow_implementation_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.premiumEscrowImplementation = address(0);
@@ -271,7 +272,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_premium_escrow_implementation_has_no_code() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         address noCodePremiumEscrowImplementation = makeAddr("no-code-premium-escrow-implementation");
@@ -288,7 +289,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.underwriterSlasherRouter = address(0);
@@ -300,7 +301,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_underwriter_slasher_router_has_no_code() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.underwriterSlasherRouter = makeAddr("no-code-underwriter-slasher-router");
@@ -312,7 +313,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_budget_premium_ppm_exceeds_scale() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         uint32 invalidBudgetPremiumPpm = 1_000_001;
@@ -325,7 +326,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_goal_treasury_budget_stake_ledger_unset() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         goalTreasury.setBudgetStakeLedger(address(0));
@@ -337,7 +338,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_max_execution_duration_lt_min_execution_duration() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.budgetValidationBounds.maxExecutionDuration =
@@ -350,7 +351,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_max_activation_threshold_lt_min_activation_threshold() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.budgetValidationBounds.maxActivationThreshold =
@@ -363,7 +364,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_oracle_liveness_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.oracleValidationBounds.liveness = 0;
@@ -375,7 +376,7 @@ contract BudgetTCRTest is TestUtils {
     function test_initialize_reverts_when_oracle_bond_amount_is_zero() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
         deploymentConfig.oracleValidationBounds.bondAmount = 0;
@@ -554,6 +555,27 @@ contract BudgetTCRTest is TestUtils {
         assertEq(PremiumEscrow(premiumEscrow).accountedManagerRewardReceived(), 0);
     }
 
+    function test_activateRegisteredBudget_initializesAllocationMechanismWithRegistryConfig() public {
+        bytes32 itemID = _registerDefaultListing();
+
+        (address childFlow,) = goalFlow.recipients(itemID);
+        AllocationMechanismTCR allocationMechanism =
+            AllocationMechanismTCR(MockBudgetChildFlow(childFlow).recipientAdmin());
+
+        assertTrue(address(allocationMechanism.arbitrator()) != address(0));
+        assertEq(allocationMechanism.factoryManager(), allocationMechanismAdmin);
+        assertEq(allocationMechanism.arbitratorExtraData(), bytes(""));
+        assertEq(allocationMechanism.registrationMetaEvidence(), "ipfs://budget-reg-meta");
+        assertEq(allocationMechanism.clearingMetaEvidence(), "ipfs://budget-clear-meta");
+        assertEq(address(allocationMechanism.erc20()), address(depositToken));
+        assertEq(address(allocationMechanism.submissionDepositStrategy()), address(submissionDepositStrategy));
+        assertEq(allocationMechanism.submissionBaseDeposit(), submissionBaseDeposit);
+        assertEq(allocationMechanism.removalBaseDeposit(), removalBaseDeposit);
+        assertEq(allocationMechanism.submissionChallengeBaseDeposit(), submissionChallengeBaseDeposit);
+        assertEq(allocationMechanism.removalChallengeBaseDeposit(), removalChallengeBaseDeposit);
+        assertEq(allocationMechanism.challengePeriodDuration(), challengePeriodDuration);
+    }
+
     function test_activateRegisteredBudget_exposesCanonicalTopologyAndReverseLookups() public {
         bytes32 itemID = _registerDefaultListing();
 
@@ -682,7 +704,7 @@ contract BudgetTCRTest is TestUtils {
     function test_activateRegisteredBudget_usesGlobalOracleBoundsForSuccessAssertionConfig() public {
         (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfig();
 
@@ -700,7 +722,7 @@ contract BudgetTCRTest is TestUtils {
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.oracleValidationBounds.liveness = expectedLiveness;
         deploymentConfig.oracleValidationBounds.bondAmount = expectedBond;
-        registryConfig.arbitrator = IArbitrator(freshArbProxy);
+        registryConfig.tcrConfig.arbitrator = IArbitrator(freshArbProxy);
 
         freshTcr.initialize(registryConfig, deploymentConfig);
         goalFlow.setRecipientAdmin(address(freshTcr));
@@ -2211,7 +2233,7 @@ contract BudgetTCRTest is TestUtils {
         internal
         returns (
             BudgetTCR freshTcr,
-            IBudgetTCR.RegistryConfig memory registryConfig,
+            IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         )
     {
@@ -2221,20 +2243,24 @@ contract BudgetTCRTest is TestUtils {
         deploymentConfig = _defaultDeploymentConfig();
     }
 
-    function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
-        registryConfig = IBudgetTCR.RegistryConfig({
+    function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
+        registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
-            arbitrator: IArbitrator(address(arbitrator)),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://budget-reg-meta",
-            clearingMetaEvidence: "ipfs://budget-clear-meta",
-            votingToken: IVotes(address(depositToken)),
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration,
-            submissionDepositStrategy: submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(address(arbitrator)),
+                votingToken: IVotes(address(depositToken)),
+                submissionDepositStrategy: submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: bytes(""),
+                    registrationMetaEvidence: "ipfs://budget-reg-meta",
+                    clearingMetaEvidence: "ipfs://budget-clear-meta",
+                    submissionBaseDeposit: submissionBaseDeposit,
+                    removalBaseDeposit: removalBaseDeposit,
+                    submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+                    challengePeriodDuration: challengePeriodDuration
+                })
+            })
         });
     }
 
@@ -2666,20 +2692,24 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         budgetTcr.executeRequest(itemID);
     }
 
-    function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
-        registryConfig = IBudgetTCR.RegistryConfig({
+    function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
+        registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
-            arbitrator: IArbitrator(address(arbitrator)),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://budget-reg-meta",
-            clearingMetaEvidence: "ipfs://budget-clear-meta",
-            votingToken: IVotes(address(depositToken)),
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration,
-            submissionDepositStrategy: submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(address(arbitrator)),
+                votingToken: IVotes(address(depositToken)),
+                submissionDepositStrategy: submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: bytes(""),
+                    registrationMetaEvidence: "ipfs://budget-reg-meta",
+                    clearingMetaEvidence: "ipfs://budget-clear-meta",
+                    submissionBaseDeposit: submissionBaseDeposit,
+                    removalBaseDeposit: removalBaseDeposit,
+                    submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+                    challengePeriodDuration: challengePeriodDuration
+                })
+            })
         });
     }
 

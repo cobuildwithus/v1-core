@@ -8,14 +8,13 @@ import {
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
-import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
-contract MockBudgetTCRSuperToken is ERC20 {
+contract BudgetTCRTestSuperToken is ERC20 {
     address private immutable _host;
 
     constructor() ERC20("Budget Super Token", "BST") {
-        MockBudgetTCRSuperTokenGDA gda = new MockBudgetTCRSuperTokenGDA();
-        _host = address(new MockBudgetTCRSuperTokenHost(address(gda)));
+        BudgetTCRTestSuperTokenGDA gda = new BudgetTCRTestSuperTokenGDA();
+        _host = address(new BudgetTCRTestSuperTokenHost(address(gda)));
     }
 
     function mint(address to, uint256 amount) external {
@@ -27,7 +26,7 @@ contract MockBudgetTCRSuperToken is ERC20 {
     }
 }
 
-contract MockBudgetTCRSuperTokenHost {
+contract BudgetTCRTestSuperTokenHost {
     address private immutable _gda;
 
     constructor(address gda_) {
@@ -48,13 +47,13 @@ contract MockBudgetTCRSuperTokenHost {
     }
 }
 
-contract MockBudgetTCRSuperTokenGDA {
+contract BudgetTCRTestSuperTokenGDA {
     function connectPool(ISuperfluidPool, bytes calldata) external pure returns (bytes memory) {
         return bytes("");
     }
 }
 
-contract MockBudgetTCRDistributionPool {
+contract BudgetTCRTestDistributionPool {
     mapping(address => uint256) private _totalAmountReceivedByMember;
 
     function setTotalAmountReceivedByMember(address member, uint256 amount) external {
@@ -66,7 +65,7 @@ contract MockBudgetTCRDistributionPool {
     }
 }
 
-contract MockBudgetChildFlow {
+contract BudgetTCRChildFlowHarness {
     error NOT_ALLOWED();
 
     ISuperToken private immutable _superToken;
@@ -197,7 +196,7 @@ contract MockBudgetChildFlow {
     }
 }
 
-contract MockGoalFlowForBudgetTCR {
+contract BudgetTCRGoalFlowHarness {
     error NOT_RECIPIENT_ADMIN();
     error NOT_OWNER_OR_RECIPIENT_ADMIN();
     error RECIPIENT_NOT_FOUND();
@@ -222,7 +221,7 @@ contract MockGoalFlowForBudgetTCR {
         _owner = owner_;
         _recipientAdmin = recipientAdmin_;
         _managerRewardPool = managerRewardPool_;
-        _childManagerRewardDistributionPool = address(new MockBudgetTCRDistributionPool());
+        _childManagerRewardDistributionPool = address(new BudgetTCRTestDistributionPool());
         _superToken = superToken_;
     }
 
@@ -313,7 +312,7 @@ contract MockGoalFlowForBudgetTCR {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
         address strategy = childStrategies.length == 0 ? address(0) : address(childStrategies[0]);
 
-        MockBudgetChildFlow child = new MockBudgetChildFlow(
+        BudgetTCRChildFlowHarness child = new BudgetTCRChildFlowHarness(
             _superToken,
             childRecipientAdmin,
             flowOperator,
@@ -349,7 +348,7 @@ contract MockGoalFlowForBudgetTCR {
     }
 }
 
-contract MockGoalTreasuryForBudgetTCR {
+contract BudgetTCRGoalTreasuryHarness {
     uint64 public deadline;
     address public budgetStakeLedger;
     address public flow;
@@ -374,7 +373,7 @@ contract MockGoalTreasuryForBudgetTCR {
             return;
         }
 
-        try MockRewardEscrowForBudgetTCR(rewardEscrow_).budgetStakeLedger() returns (address ledger) {
+        try BudgetTCRRewardEscrowHarness(rewardEscrow_).budgetStakeLedger() returns (address ledger) {
             budgetStakeLedger = ledger;
         } catch {
             budgetStakeLedger = rewardEscrow_;
@@ -407,7 +406,7 @@ contract MockGoalTreasuryForBudgetTCR {
     }
 }
 
-contract MockRewardEscrowForBudgetTCR {
+contract BudgetTCRRewardEscrowHarness {
     address public budgetStakeLedger;
 
     constructor(address budgetStakeLedger_) {
@@ -415,7 +414,7 @@ contract MockRewardEscrowForBudgetTCR {
     }
 }
 
-contract MockBudgetStakeLedgerForBudgetTCR {
+contract BudgetTCRStakeLedgerHarness {
     mapping(bytes32 => address) public budgetForRecipient;
 
     uint256 public registerCallCount;
@@ -435,7 +434,7 @@ contract MockBudgetStakeLedgerForBudgetTCR {
     }
 }
 
-contract MockStakeVaultForBudgetTCR {
+contract BudgetTCRStakeVaultHarness {
     address public goalTreasury;
     address public jurorSlasher;
     address public underwriterSlasher;
@@ -451,65 +450,4 @@ contract MockStakeVaultForBudgetTCR {
     function setUnderwriterSlasher(address underwriterSlasher_) external {
         underwriterSlasher = underwriterSlasher_;
     }
-}
-
-contract MockPremiumEscrowForBudgetTCR {
-    address public budgetTreasury;
-    address public budgetStakeLedger;
-    address public goalFlow;
-    address public underwriterSlasherRouter;
-    uint32 public budgetSlashPpm;
-    bool public closed;
-    IBudgetTreasury.BudgetState public finalState;
-    uint64 public activatedAt;
-    uint64 public closedAt;
-
-    function initialize(
-        address budgetTreasury_,
-        address budgetStakeLedger_,
-        address goalFlow_,
-        address underwriterSlasherRouter_,
-        uint32 budgetSlashPpm_
-    ) external {
-        budgetTreasury = budgetTreasury_;
-        budgetStakeLedger = budgetStakeLedger_;
-        goalFlow = goalFlow_;
-        underwriterSlasherRouter = underwriterSlasherRouter_;
-        budgetSlashPpm = budgetSlashPpm_;
-    }
-
-    function checkpoint(address) external {}
-
-    function claim(address) external pure returns (uint256 amount) {
-        return amount;
-    }
-
-    function close(IBudgetTreasury.BudgetState state_, uint64 activatedAt_, uint64 closedAt_) external {
-        closed = true;
-        finalState = state_;
-        activatedAt = activatedAt_;
-        closedAt = closedAt_;
-    }
-
-    function slash(address) external pure returns (uint256 slashWeight) {
-        return slashWeight;
-    }
-}
-
-contract MockUnderwriterSlasherRouterForBudgetTCR {
-    address public authority;
-    address public stakeVault;
-    mapping(address => bool) public isAuthorizedPremiumEscrow;
-
-    constructor(address authority_, address stakeVault_) {
-        authority = authority_;
-        stakeVault = stakeVault_;
-    }
-
-    function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external {
-        require(msg.sender == authority, "ONLY_AUTHORITY");
-        isAuthorizedPremiumEscrow[premiumEscrow] = authorized;
-    }
-
-    function slashUnderwriter(address, uint256) external {}
 }

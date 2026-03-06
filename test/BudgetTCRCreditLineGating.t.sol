@@ -4,11 +4,11 @@ pragma solidity ^0.8.34;
 import {TestUtils} from "test/utils/TestUtils.sol";
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
-    MockBudgetTCRSuperToken,
-    MockGoalFlowForBudgetTCR,
-    MockGoalTreasuryForBudgetTCR,
-    MockStakeVaultForBudgetTCR
-} from "test/mocks/MockBudgetTCRSystem.sol";
+    BudgetTCRTestSuperToken as MockBudgetTCRSuperToken,
+    BudgetTCRGoalFlowHarness as MockGoalFlowForBudgetTCR,
+    BudgetTCRGoalTreasuryHarness as MockGoalTreasuryForBudgetTCR,
+    BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
+} from "test/helpers/BudgetTCRSystemHarnesses.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
@@ -18,13 +18,14 @@ import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -92,9 +93,8 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");
         cobuildToken = new MockVotesToken("COBUILD", "COB");
-        submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken))))
-        );
+        submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken)))));
 
         depositToken.mint(requester, 1_000_000e18);
 
@@ -117,8 +117,9 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         stackDeployer = address(_deployBudgetTcrDeployer());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
 
-        bytes memory arbInit =
-            _defaultArbitratorInitData(owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost);
+        bytes memory arbInit = _defaultArbitratorInitData(
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         arbitrator = ERC20VotesArbitrator(arbProxy);
@@ -224,6 +225,63 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         budgetTcr.syncBudgetTreasuries(itemIDs);
     }
 
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenReceivedReadReverts() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "RECEIVED_READ_FAIL");
+
+        goalTreasury.setCoverageLambda(0);
+        goalFlow.setRecipientEnabledState(itemID, true);
+        vm.mockCallRevert(
+            address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), reason
+        );
+
+        vm.expectEmit(true, true, true, true, address(budgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID, budgetTreasury, address(goalFlow), IFlow.getTotalReceivedByMember.selector, reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertTrue(goalFlow.recipientEnabled(itemID));
+    }
+
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRecipientToggleReverts() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "RECIPIENT_TOGGLE_FAIL");
+
+        goalTreasury.setCoverageLambda(0);
+        goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
+        goalFlow.setRecipientEnabledState(itemID, true);
+        vm.mockCallRevert(
+            address(goalFlow), abi.encodeWithSelector(IFlow.setRecipientEnabled.selector, itemID, false), reason
+        );
+
+        vm.expectEmit(true, true, true, true, address(budgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertTrue(goalFlow.recipientEnabled(itemID));
+    }
+
     function test_syncBudgetTreasuries_enforcesCreditCapBeforeBudgetSync() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -282,11 +340,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
         emit BudgetCreditCapEnforcementFailed(
-            itemID,
-            budgetTreasury,
-            budgetTreasury,
-            IBudgetTreasury.executionDuration.selector,
-            reason
+            itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.executionDuration.selector, reason
         );
 
         bytes32[] memory itemIDs = new bytes32[](1);
@@ -313,11 +367,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
         emit BudgetCreditCapEnforcementFailed(
-            itemID,
-            budgetTreasury,
-            budgetTreasury,
-            IBudgetTreasury.runwayCap.selector,
-            reason
+            itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
         );
 
         bytes32[] memory itemIDs = new bytes32[](1);
@@ -340,13 +390,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         vm.prank(address(goalFlow));
         budgetStakeLedger.checkpointAllocation(
-            account,
-            0,
-            new bytes32[](0),
-            new uint32[](0),
-            weight,
-            recipientIds,
-            allocationPpm
+            account, 0, new bytes32[](0), new uint32[](0), weight, recipientIds, allocationPpm
         );
     }
 
@@ -374,20 +418,24 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         itemID = budgetTcr.addItem(abi.encode(listing));
     }
 
-    function _defaultRegistryConfig() internal view returns (IBudgetTCR.RegistryConfig memory registryConfig) {
-        registryConfig = IBudgetTCR.RegistryConfig({
+    function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
+        registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
-            arbitrator: IArbitrator(address(arbitrator)),
-            arbitratorExtraData: bytes(""),
-            registrationMetaEvidence: "ipfs://budget-reg-meta",
-            clearingMetaEvidence: "ipfs://budget-clear-meta",
-            votingToken: IVotes(address(depositToken)),
-            submissionBaseDeposit: submissionBaseDeposit,
-            removalBaseDeposit: removalBaseDeposit,
-            submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
-            removalChallengeBaseDeposit: removalChallengeBaseDeposit,
-            challengePeriodDuration: challengePeriodDuration,
-            submissionDepositStrategy: submissionDepositStrategy
+            tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(address(arbitrator)),
+                votingToken: IVotes(address(depositToken)),
+                submissionDepositStrategy: submissionDepositStrategy,
+                registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                    arbitratorExtraData: bytes(""),
+                    registrationMetaEvidence: "ipfs://budget-reg-meta",
+                    clearingMetaEvidence: "ipfs://budget-clear-meta",
+                    submissionBaseDeposit: submissionBaseDeposit,
+                    removalBaseDeposit: removalBaseDeposit,
+                    submissionChallengeBaseDeposit: submissionChallengeBaseDeposit,
+                    removalChallengeBaseDeposit: removalChallengeBaseDeposit,
+                    challengePeriodDuration: challengePeriodDuration
+                })
+            })
         });
     }
 
@@ -415,17 +463,21 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
                 maxActivationThreshold: 1_000_000e18,
                 maxRunwayCap: 2_000_000e18
             }),
-            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                liveness: 1 days,
-                bondAmount: 10e18
-            })
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            address(
+                new RoundFactory(
+                    address(new RoundSubmissionTCR()),
+                    address(new RoundPrizeVault()),
+                    address(new PrizePoolSubmissionDepositStrategy()),
+                    address(new ERC20VotesArbitrator())
+                )
+            ),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
@@ -446,8 +498,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleSpecHash: keccak256("budget-oracle-spec"),
-            assertionPolicyHash: keccak256("budget-assertion-policy")
+            oracleSpecHash: keccak256("budget-oracle-spec"), assertionPolicyHash: keccak256("budget-assertion-policy")
         });
     }
 }
@@ -461,7 +512,7 @@ contract BudgetTCRCreditLineGoalFlow is MockGoalFlowForBudgetTCR {
 
     constructor(address owner_, address recipientAdmin_, address managerRewardPool_, ISuperToken superToken_)
         MockGoalFlowForBudgetTCR(owner_, recipientAdmin_, managerRewardPool_, superToken_)
-    { }
+    {}
 
     function setTotalReceivedByMember(address member, uint256 amount) external {
         _totalReceivedByMember[member] = amount;
