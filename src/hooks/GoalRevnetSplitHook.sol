@@ -45,8 +45,6 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
 
     IJBDirectory public directory;
     IGoalTreasury public goalTreasury;
-    IFlow public flow;
-    ISuperToken public superToken;
     address public underlyingToken;
     uint256 public goalRevnetId;
 
@@ -86,15 +84,21 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
 
         directory = directory_;
         goalTreasury = goalTreasury_;
-        flow = flow_;
         goalRevnetId = goalRevnetId_;
-        superToken = flow_.superToken();
-        underlyingToken = superToken.getUnderlyingToken();
+        underlyingToken = flow_.superToken().getUnderlyingToken();
         if (underlyingToken == address(0)) revert ADDRESS_ZERO();
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
         return interfaceId == type(IJBSplitHook).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function flow() external view returns (IFlow flow_) {
+        flow_ = IFlow(goalTreasury.flow());
+    }
+
+    function superToken() external view returns (ISuperToken superToken_) {
+        superToken_ = goalTreasury.superToken();
     }
 
     function processSplitWith(JBSplitHookContext calldata context) external payable override nonReentrant {

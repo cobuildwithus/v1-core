@@ -165,7 +165,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         );
 
         // Connect the child flow to this flow's distribution pool.
-        FlowPools.connectAndInitializeFlowRecipient(cfg, recipient, 0);
+        FlowPools.connectFlowRecipient(cfg, recipient);
 
         return (_recipientId, recipient);
     }

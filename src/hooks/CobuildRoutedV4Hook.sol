@@ -107,7 +107,6 @@ contract CobuildRoutedV4Hook is BaseHook, IUniswapV3SwapCallback {
     error INVALID_HOOKDATA();
     error SLIPPAGE();
     error V3_CALLBACK_UNAUTHORIZED();
-    error V3_POOL_NOT_FOUND();
     error INVALID_TWAP_TICK();
     error CUSTOM_ROUTE_INPUT_UNAVAILABLE();
 

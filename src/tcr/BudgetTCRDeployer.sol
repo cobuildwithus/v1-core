@@ -56,10 +56,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         _disableInitializers();
     }
 
-    function initialize(address budgetTCR_, address premiumEscrowImplementation_) external initializer {
-        _initialize(budgetTCR_, premiumEscrowImplementation_, address(0));
-    }
-
     function initialize(
         address budgetTCR_,
         address premiumEscrowImplementation_,

@@ -115,7 +115,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost

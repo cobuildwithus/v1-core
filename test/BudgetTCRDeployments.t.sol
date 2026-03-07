@@ -617,7 +617,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         deployer = _deployBudgetTcrDeployer();
         premiumEscrowImplementation = new PremiumEscrow();
         underwriterSlasherRouter = new MockUnderwriterSlasherRouter(address(this), address(0));
-        deployer.initialize(address(this), address(premiumEscrowImplementation));
+        deployer.initialize(address(this), address(premiumEscrowImplementation), address(0));
 
         goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
         cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
@@ -637,7 +637,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         address nextPremiumEscrowImplementation = address(new PremiumEscrow());
 
         vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
-        deployer.initialize(makeAddr("next-budget-tcr"), nextPremiumEscrowImplementation);
+        deployer.initialize(makeAddr("next-budget-tcr"), nextPremiumEscrowImplementation, address(0));
 
         assertEq(deployer.budgetTCR(), initialBudgetTcr);
         assertEq(deployer.premiumEscrowImplementation(), initialPremiumEscrowImplementation);
@@ -654,7 +654,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         );
 
         vm.expectRevert(abi.encodeWithSelector(Initializable.InvalidInitialization.selector));
-        implementation.initialize(address(this), premiumEscrowImplementationAddress);
+        implementation.initialize(address(this), premiumEscrowImplementationAddress, address(0));
     }
 
     function test_initialize_withDiscoveryEmitter_setsDiscoveryEmitter() public {
@@ -705,7 +705,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
     function test_registerChildFlowRecipient_revertsWhenCallerIsNotBudgetTCR() public {
         BudgetTCRDeployer guardedDeployer = _deployBudgetTcrDeployer();
-        guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation));
+        guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation), address(0));
 
         vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
         guardedDeployer.registerChildFlowRecipient(bytes32(uint256(1)), makeAddr("child-flow"));
@@ -760,7 +760,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
     function test_emitBudgetStackDeployed_revertsWhenCallerIsNotBudgetTCR() public {
         BudgetTCRDeployer guardedDeployer = _deployBudgetTcrDeployer();
-        guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation));
+        guardedDeployer.initialize(makeAddr("budget-tcr"), address(premiumEscrowImplementation), address(0));
 
         vm.expectRevert(IBudgetTCRStackDeployer.ONLY_BUDGET_TCR.selector);
         guardedDeployer.emitBudgetStackDeployed(

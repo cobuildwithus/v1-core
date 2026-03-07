@@ -128,7 +128,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         goalFlowImpl = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImpl), "");

@@ -22,22 +22,13 @@ library FlowPools {
     }
 
     /**
-     * @notice Connects a new Flow contract to the distribution pool and initializes its member units
+     * @notice Connects a new Flow contract to the distribution pool.
      * @param cfg The config storage of the Flow contract
      * @param recipient The address of the new Flow contract
-     * @param defaultDistributionMemberUnits The number of units to assign in the distribution pool
      */
-    function connectAndInitializeFlowRecipient(
-        FlowTypes.Config storage cfg,
-        address recipient,
-        uint128 defaultDistributionMemberUnits
-    ) public {
+    function connectFlowRecipient(FlowTypes.Config storage cfg, address recipient) public {
         // Connect the new child contract to the distribution pool
         Flow(recipient).connectPool(cfg.distributionPool);
-
-        // Initialize member units
-        if (defaultDistributionMemberUnits == 0) return;
-        updateDistributionMemberUnits(cfg, recipient, defaultDistributionMemberUnits);
     }
 
     /**

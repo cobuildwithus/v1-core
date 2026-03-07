@@ -146,7 +146,7 @@ contract BudgetTCRTest is TestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -712,7 +712,7 @@ contract BudgetTCRTest is TestUtils {
         uint256 expectedBond = 77e18;
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation);
+        BudgetTCRDeployer(freshStackDeployer).initialize(address(freshTcr), premiumEscrowImplementation, address(0));
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
             owner, address(depositToken), address(freshTcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -2475,7 +2475,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation);
+        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
