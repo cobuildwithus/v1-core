@@ -376,8 +376,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashUsesCreditDrawnFirstLossCapAndIsIdempotent() public {
-        _configureCoverageLambda(10);
-
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -409,7 +407,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashWithCoverageChurn_capsByPeakCoverageRatherThanAverageCoverage() public {
-        _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(60);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -451,7 +448,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashRouterRevert_rollsBackSlashedState_andCanBeRetried() public {
-        _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(10);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -483,8 +479,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashUsesCreditDrawn_andCapsAtPeakCoverageSlashPercent() public {
-        _configureCoverageLambda(10);
-
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -507,7 +501,7 @@ contract PremiumEscrowTest is Test {
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
         vm.expectEmit(true, false, false, true, address(escrow));
-        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 1200, 120, 0, 20, 1200, 20, 20);
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 1200, 120, 20, 1200, 20, 20);
         uint256 slashWeight = escrow.slash(ALICE);
 
         assertEq(slashWeight, 20);
@@ -539,16 +533,6 @@ contract PremiumEscrowTest is Test {
 
         goalFlow.setRevertFlowOperator(true);
 
-        uint256 slashWeight = escrow.slash(ALICE);
-        assertEq(slashWeight, 20);
-        assertTrue(escrow.slashed(ALICE));
-        assertEq(router.slashCalls(), 1);
-    }
-
-    function test_slashIgnoresCoverageLambdaReadRevert() public {
-        _prepareStandardFailedSlashScenario();
-
-        goalTreasury.setRevertCoverageLambda(true);
         uint256 slashWeight = escrow.slash(ALICE);
         assertEq(slashWeight, 20);
         assertTrue(escrow.slashed(ALICE));
@@ -804,6 +788,8 @@ contract PremiumEscrowTest is Test {
         vm.prank(address(budgetTreasury));
         zeroSlashEscrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
 
+        vm.expectEmit(true, false, false, true, address(zeroSlashEscrow));
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, false, 100, 0, 20, 0, 0, 0);
         uint256 slashWeight = zeroSlashEscrow.slash(ALICE);
         assertEq(slashWeight, 0);
         assertEq(zeroSlashEscrow.creditDrawn(ALICE), 100);
@@ -812,7 +798,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashIgnoresConfiguredExecutionDuration_whenCloseIsDelayed() public {
-        _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(20);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -834,7 +819,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function test_slashIgnoresConfiguredExecutionDuration_whenCloseIsDelayed_andStillCapsByPeakCoverage() public {
-        _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(20);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -887,7 +871,6 @@ contract PremiumEscrowTest is Test {
     }
 
     function _prepareStandardFailedSlashScenario() internal {
-        _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(10);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -908,11 +891,6 @@ contract PremiumEscrowTest is Test {
         premiumToken.mint(address(escrow), amount);
     }
 
-    function _configureCoverageLambda(uint256 coverageLambda_) internal {
-        goalTreasury.setCoverageLambda(coverageLambda_);
-        goalFlow.setFlowOperator(address(goalTreasury));
-    }
-
     /// @dev Sets goal flow receipts so that on next checkpoint, creditDrawn accrues for accounts with coverage.
     function _setGoalFlowReceipts(uint256 totalReceived) internal {
         goalFlow.setTotalReceivedByMember(address(budgetFlow), totalReceived);
@@ -922,7 +900,6 @@ contract PremiumEscrowTest is Test {
 contract PremiumEscrowRealLifecycleTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 88;
     uint32 internal constant SLASH_PPM = 200_000;
-    uint256 internal constant COVERAGE_LAMBDA = 10;
     uint256 internal constant TARGET_SLASH_WEIGHT = 20e18;
 
     address internal constant ALICE = address(0xA11CE);
@@ -997,7 +974,6 @@ contract PremiumEscrowRealLifecycleTest is Test {
         budgetFlow.setManagerRewardDistributionPool(address(managerRewardPool));
         budgetTreasury.setFlow(address(budgetFlow));
         goalFlow.setFlowOperator(address(goalTreasury));
-        goalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
 
         goalToken.mint(ALICE, 70e18);
         cobuildToken.mint(ALICE, 50e18);
@@ -1268,27 +1244,11 @@ contract PremiumEscrowMockGoalFlow {
 }
 
 contract PremiumEscrowMockGoalTreasury {
-    uint256 internal _coverageLambda;
     IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
     bool internal _revertSettleLateResidual;
-    bool internal _revertCoverageLambda;
     uint256 public settleLateResidualCalls;
 
-    error COVERAGE_LAMBDA_REVERT();
     error SETTLE_LATE_RESIDUAL_REVERT();
-
-    function setCoverageLambda(uint256 coverageLambda_) external {
-        _coverageLambda = coverageLambda_;
-    }
-
-    function coverageLambda() external view returns (uint256) {
-        if (_revertCoverageLambda) revert COVERAGE_LAMBDA_REVERT();
-        return _coverageLambda;
-    }
-
-    function setRevertCoverageLambda(bool shouldRevert_) external {
-        _revertCoverageLambda = shouldRevert_;
-    }
 
     function setState(IGoalTreasury.GoalState state_) external {
         _state = state_;
