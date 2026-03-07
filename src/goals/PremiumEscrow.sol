@@ -36,7 +36,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error ALREADY_CLOSED();
     error NOT_CLOSED();
     error NOT_SLASHABLE();
-    error UNRESOLVED_CREDIT_SLASH_PARAMS(uint256 coverageLambda);
     error GOAL_TREASURY_UNAVAILABLE();
     error GOAL_NOT_SUCCEEDED(IGoalTreasury.GoalState state);
     error GOAL_NOT_EXPIRED(IGoalTreasury.GoalState state);
@@ -76,7 +75,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     );
 
     /// @notice Emitted with the inputs used to compute slashing for an underwriter.
-    /// @dev `usedCreditFormula == false` only on zero-duration/zero-slash-ppm early return paths.
+    /// @dev `coverageLambda` is retained for ABI continuity but is no longer consulted by first-loss slashing and is emitted as `0`.
+    ///      `usedCreditFormula == false` only on zero-slash-ppm early return paths; otherwise `rawSlashWeight` equals `creditDrawn` before the cap is applied.
     event UnderwriterSlashCalculated(
         address indexed underwriter,
         bool usedCreditFormula,
@@ -355,13 +355,14 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (accountState.slashed) return 0;
         accountState.slashed = true;
 
-        uint256 duration = uint256(IBudgetTreasury(budgetTreasury).executionDuration());
-        if (duration == 0 || budgetSlashPpm == 0) {
-            uint256 earlyCapWeight = Math.mulDiv(
-                accountState.peakCov,
-                uint256(budgetSlashPpm),
-                FlowProtocolConstants.PPM_SCALE_UINT256
-            );
+        uint256 duration = _resolveExecutionDuration();
+        uint256 capWeight = Math.mulDiv(
+            accountState.peakCov,
+            uint256(budgetSlashPpm),
+            FlowProtocolConstants.PPM_SCALE_UINT256
+        );
+
+        if (budgetSlashPpm == 0) {
             emit UnderwriterSlashCalculated(
                 underwriter,
                 false,
@@ -370,31 +371,14 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
                 0,
                 duration,
                 0,
-                earlyCapWeight,
+                capWeight,
                 0
             );
             emit UnderwriterSlashed(underwriter, accountState.exposureIntegral, 0, duration);
             return 0;
         }
 
-        // Credit-drawn-proportional slashing formula (normalized by configured execution duration):
-        //   avgCoverageEq = creditDrawn * coverageLambda / duration
-        //   rawSlashWeight = avgCoverageEq * budgetSlashPpm
-        //   slashWeight = min(rawSlashWeight, peakCoverage * budgetSlashPpm / 1e6)
-
-        uint256 coverageLambda = _resolveCoverageLambda();
-        if (coverageLambda == 0) revert UNRESOLVED_CREDIT_SLASH_PARAMS(coverageLambda);
-
-        uint256 rawSlashWeight;
-        uint256 capWeight = Math.mulDiv(
-            accountState.peakCov,
-            uint256(budgetSlashPpm),
-            FlowProtocolConstants.PPM_SCALE_UINT256
-        );
-        // avgCoverageEq = creditDrawn * coverageLambda / duration
-        uint256 avgCoverageEq = Math.mulDiv(accountState.creditDrawn, coverageLambda, duration);
-        // rawSlashWeight = avgCoverageEq * budgetSlashPpm / 1e6
-        rawSlashWeight = Math.mulDiv(avgCoverageEq, uint256(budgetSlashPpm), FlowProtocolConstants.PPM_SCALE_UINT256);
+        uint256 rawSlashWeight = accountState.creditDrawn;
         slashWeight = rawSlashWeight > capWeight ? capWeight : rawSlashWeight;
 
         if (slashWeight != 0) {
@@ -406,7 +390,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             true,
             accountState.creditDrawn,
             accountState.premiumEarned,
-            coverageLambda,
+            0,
             duration,
             rawSlashWeight,
             capWeight,
@@ -483,18 +467,11 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         accountState.userCreditIndex = creditIndex;
     }
 
-    function _resolveCoverageLambda() internal view returns (uint256 lambda) {
-        address resolvedGoalTreasury;
-        try IFlow(goalFlow).flowOperator() returns (address goalTreasury_) {
-            resolvedGoalTreasury = goalTreasury_;
+    function _resolveExecutionDuration() internal view returns (uint256 duration) {
+        try IBudgetTreasury(budgetTreasury).executionDuration() returns (uint64 duration_) {
+            duration = uint256(duration_);
         } catch {
-            return 0;
-        }
-        if (resolvedGoalTreasury == address(0) || resolvedGoalTreasury.code.length == 0) return 0;
-        try IGoalTreasury(resolvedGoalTreasury).coverageLambda() returns (uint256 lambda_) {
-            lambda = lambda_;
-        } catch {
-            lambda = 0;
+            duration = 0;
         }
     }
 

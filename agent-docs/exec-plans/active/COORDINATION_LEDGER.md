@@ -6,7 +6,7 @@ Use this file only for currently active coding work. Keep it minimal and current
 
 | Agent/Session | Task | Files in Scope | Symbols (add/rename/delete) | Dependency Notes | Updated (YYYY-MM-DD) |
 | --- | --- | --- | --- | --- | --- |
-| Codex-main-3 | Share treasury success-assertion post-deadline lifecycle helper without coupling full lifecycle policy | `src/goals/library/TreasurySuccessAssertionLifecycle.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, treasury tests/docs as needed | Add shared lifecycle helper for duplicated assertion clear/finalize wrapper logic; delete local duplicate helpers only if behavior stays identical | Shared hot spots with active treasury telemetry work; keep event surface and treasury-specific reassert/finalize policy stable | 2026-03-07 |
+| Codex-main | Standardize shared repo-tools/review-gpt integration and dependency bumps | `scripts/repo-tools.config.sh`, `package.json`, `pnpm-lock.yaml` | No Solidity/runtime symbol changes expected | Tooling-only rollout; avoid active protocol implementation files owned by Codex-main-4 | 2026-03-07 |
 ## Rules
 
 1. Add a row before your first code edit for every coding task (single-agent and multi-agent).

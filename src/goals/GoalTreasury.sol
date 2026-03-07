@@ -128,7 +128,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (config.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_BUDGET_SLASH_PPM(config.budgetSlashPpm);
         }
-        if (config.budgetSlashPpm != 0 && (config.budgetPremiumPpm == 0 || config.coverageLambda == 0)) {
+        if (config.budgetSlashPpm != 0 && config.budgetPremiumPpm == 0) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(
                 config.budgetPremiumPpm,
                 config.budgetSlashPpm,

@@ -980,18 +980,26 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
-    function test_deployGoal_revertsWhenSlashEnabledAndCoverageLambdaIsZero() public {
+    function test_deployGoal_allowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
         p.underwriting.coverageLambda = 0;
         p.underwriting.budgetPremiumPpm = 100_000;
         p.underwriting.budgetSlashPpm = 50_000;
 
+        uint256 deploymentNonce = vm.getNonce(address(factory));
+        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
+        revDeployer.setExpectedSplitHook(expectedSplitHook);
+        revDeployer.setRevertWithObserved(true);
         vm.expectRevert(
             abi.encodeWithSelector(
-                GoalFactory.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm,
-                p.underwriting.coverageLambda
+                MockRevDeployer.DeployForForwarding.selector,
+                DEFAULT_BUYBACK_POOL_FEE,
+                DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
+                true,
+                true,
+                true
             )
         );
         factory.deployGoal(p);

@@ -26,7 +26,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         clone.initialize(address(this), config);
     }
 
-    function test_initializeRevertsWhenSlashEnabledAndCoverageLambdaIsZero() public {
+    function test_initializeAllowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
@@ -35,15 +35,11 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                config.budgetPremiumPpm,
-                config.budgetSlashPpm,
-                config.coverageLambda
-            )
-        );
         clone.initialize(address(this), config);
+
+        assertEq(clone.coverageLambda(), config.coverageLambda);
+        assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
+        assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
 
     function test_cloneInitializeRevertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
@@ -66,7 +62,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         clone.initialize(address(this), config);
     }
 
-    function test_cloneInitializeRevertsWhenSlashEnabledAndCoverageLambdaIsZero() public {
+    function test_cloneInitializeAllowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
@@ -75,15 +71,11 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                config.budgetPremiumPpm,
-                config.budgetSlashPpm,
-                config.coverageLambda
-            )
-        );
         clone.initialize(address(this), config);
+
+        assertEq(clone.coverageLambda(), config.coverageLambda);
+        assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
+        assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
 
     function test_cloneInitializeAllowsSlashEnabledWhenPremiumAndCoverageAreNonZero() public {

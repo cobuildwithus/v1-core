@@ -100,8 +100,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Goal sync still fail-safe guards empty distribution: when total distribution units are zero, target rate is zero.
 - Budget credit-line gating uses:
   - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
-  - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
+  - insured line: `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`,
   - recipient gating: `goalFlow.setRecipientEnabled(itemID, enabled)` to force units to zero while over line and restore virtual units on re-enable,
+  - `runwayCap` acts as an additional lower ceiling when configured,
+  - budget `executionDuration` does not increase insured principal; it only affects downstream treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` in `syncBudgetTreasuries`,
   - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
 - Budget treasury active target flow-rate is composite:
@@ -116,7 +118,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total coverage is recycled to goal funding via goal flow,
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
-  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes spend-proportional slash weight from `creditDrawn` + spend-formula params (including fixed budget `executionDuration`), caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
+  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (failures are observable and retained),
@@ -172,8 +174,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `BudgetStakeLedger` is coverage-only accounting for per-budget allocated stake plus checkpoint history (no points/rent-time accrual subsystem).
 - `PremiumEscrow` checkpoints account coverage, accrues premium from indexed inflows, recycles orphan premium when coverage is zero, and gates claims on parent goal success.
 - On goal `Expired`, escrowed premium becomes unclaimable and can be swept to goal flow via `burnOnGoalFailure()` for terminal residual burn settlement.
-- `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` computes per-underwriter spend-proportional slash weight from `creditDrawn` + spend-formula params (including fixed budget `executionDuration`), caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`.
-- Slash requires resolvable non-zero spend-formula params (`coverageLambda`, budget `executionDuration`) and reverts when unresolved.
+- `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` treats `creditDrawn` as first-loss principal attributed to the underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`.
+- Slash no longer depends on `coverageLambda` or budget `executionDuration` resolution.
 - Underwriter withdrawals are caller-prepared post-resolution:
   - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
   - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.

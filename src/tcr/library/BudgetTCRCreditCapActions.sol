@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 library BudgetTCRCreditCapActions {
@@ -21,8 +22,13 @@ library BudgetTCRCreditCapActions {
         address childFlow,
         address budgetTreasury,
         address budgetStakeLedger,
-        uint256 lambda
+        uint32 budgetSlashPpm
     ) external {
+        if (budgetSlashPpm == 0) {
+            _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, false);
+            return;
+        }
+
         uint256 runwayCap;
         bool hasRunwayCap;
         try IBudgetTreasury(budgetTreasury).runwayCap() returns (uint256 cap) {
@@ -36,21 +42,6 @@ library BudgetTCRCreditCapActions {
                 IBudgetTreasury.runwayCap.selector,
                 reason
             );
-        }
-
-        if (lambda == 0) {
-            if (!hasRunwayCap) {
-                _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, true);
-                return;
-            }
-
-            (bool loadedReceived, uint256 received) = _tryLoadReceived(goalFlow, itemID, budgetTreasury, childFlow);
-            if (!loadedReceived) {
-                return;
-            }
-
-            _bestEffortSetRecipientEnabled(goalFlow, itemID, budgetTreasury, received < runwayCap);
-            return;
         }
 
         uint256 coverage;
@@ -88,44 +79,9 @@ library BudgetTCRCreditCapActions {
             return;
         }
 
-        uint64 duration;
-        try IBudgetTreasury(budgetTreasury).executionDuration() returns (uint64 dur) {
-            duration = dur;
-        } catch (bytes memory reason) {
-            if (hasRunwayCap) {
-                if (
-                    !_bestEffortDisableRecipientWhenRunwayExceeded(
-                        goalFlow,
-                        itemID,
-                        budgetTreasury,
-                        childFlow,
-                        runwayCap
-                    )
-                ) {
-                    _emitBudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        budgetTreasury,
-                        IBudgetTreasury.executionDuration.selector,
-                        reason
-                    );
-                    return;
-                }
-            }
+        uint256 insuredLine = Math.mulDiv(coverage, uint256(budgetSlashPpm), FlowProtocolConstants.PPM_SCALE_UINT256);
 
-            _emitBudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                budgetTreasury,
-                IBudgetTreasury.executionDuration.selector,
-                reason
-            );
-            return;
-        }
-
-        uint256 creditLine = Math.mulDiv(coverage, uint256(duration), lambda);
-
-        uint256 effectiveCap = creditLine;
+        uint256 effectiveCap = insuredLine;
         if (effectiveCap != 0 && hasRunwayCap && runwayCap < effectiveCap) {
             effectiveCap = runwayCap;
         }

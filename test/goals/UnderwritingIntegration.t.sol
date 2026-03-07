@@ -12,7 +12,6 @@ import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
-import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
@@ -370,7 +369,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         assertGt(cobuildToken.balanceOf(address(router)), 0);
     }
 
-    function test_failedBudgetAfterActivation_whenSpendParamsUnresolved_revertsAndCanRetryAfterParamsRestore() public {
+    function test_failedBudgetAfterActivation_goalFlowOperatorUnavailable_stillSlashes() public {
         budgetStakeLedger.setCoverage(ALICE, address(budgetTreasury), 100e18);
 
         vm.warp(10);
@@ -388,16 +387,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
         goalFlow.setFlowOperator(address(0));
 
-        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
-        escrow.slash(ALICE);
-
-        assertFalse(escrow.slashed(ALICE));
-        assertEq(stakeVault.stakedGoalOf(ALICE), stakedGoalBefore);
-        assertEq(stakeVault.stakedCobuildOf(ALICE), stakedCobuildBefore);
-        assertEq(goalSuperToken.balanceOf(GOAL_FUNDING_TARGET), fundingBefore);
-        assertEq(conversionTerminal.payCallCount(), 0);
-
-        goalFlow.setFlowOperator(address(goalTreasury));
         uint256 slashWeight = escrow.slash(ALICE);
 
         assertEq(slashWeight, TARGET_SLASH_WEIGHT);
@@ -1733,14 +1722,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
     }
 
     function _setGoalFlowCreditForTargetSlash(PremiumEscrow escrow_, uint256 targetSlashWeight) internal {
-        uint256 duration = uint256(IBudgetTreasury(escrow_.budgetTreasury()).executionDuration());
-        // New credit-drawn formula: targetSlashWeight = creditDrawn * coverageLambda / duration * budgetSlashPpm / 1e6
-        // => creditDrawn = targetSlashWeight * duration * 1e6 / (coverageLambda * budgetSlashPpm)
-        uint256 creditNeeded = (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256)
-            / (COVERAGE_LAMBDA * uint256(BUDGET_SLASH_PPM));
         address budgetFlow_ = escrow_.budgetFlow();
         (bool ok,) = escrow_.goalFlow()
-            .call(abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, creditNeeded));
+            .call(abi.encodeWithSignature("setTotalReceivedByMember(address,uint256)", budgetFlow_, targetSlashWeight));
         require(ok, "_setGoalFlowCreditForTargetSlash: setTotalReceivedByMember failed");
     }
 

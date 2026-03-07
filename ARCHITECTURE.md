@@ -89,9 +89,11 @@ cobuild-protocol/
     - total target is saturated to `int96.max` and applied with best-effort writes plus buffer-aware fallback semantics.
 - Budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
   - cumulative exposure meter is `goalFlow.getTotalReceivedByMember(childFlow)`,
-  - credit line is `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
+  - insured line is slashable first-loss principal `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`,
+  - optional `runwayCap` remains an additional lower ceiling on cumulative received funding,
   - over-limit recipients are disabled (`setRecipientEnabled(..., false)`) so effective pool units are forced to zero,
   - recipients are re-enabled once exposure is back under line after additional coverage credit,
+  - budget `executionDuration` no longer increases insured principal; it only affects downstream treasury pacing/lock time,
   - enforcement runs before per-budget treasury `sync()` in each batch iteration so the same cycle observes the updated gate state,
   - enforcement is best-effort per item; external-call failures emit `BudgetCreditCapEnforcementFailed` and batch sync continues.
 - Budget underwriting premium/slash routing is hard-cutover:
@@ -100,12 +102,8 @@ cobuild-protocol/
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
-  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` computes
-    spend-proportional slash weight from `premiumEarned`, `managerRewardPoolFlowRatePpm`, `coverageLambda`, and
-    `budgetSlashPpm`, caps by strict slash-percent principal
-    (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through the per-goal underwriter slasher router.
-  - slash requires resolvable non-zero spend-formula parameters (`managerRewardPoolFlowRatePpm`, `coverageLambda`);
-    unresolved params revert (no legacy exposure-integral fallback path).
+  - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter and slashes `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`, routing through the per-goal underwriter slasher router,
+  - slash no longer depends on `coverageLambda` or budget `executionDuration` resolution.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as StakeVault underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (conversion failures are observable and retained),

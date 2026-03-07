@@ -46,8 +46,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - goal target returns zero when distribution pool total units are zero (no enabled recipients).
 - Budget credit-line gating uses:
   - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
-  - credit line: `budgetTotalAllocatedStake(budgetTreasury) * executionDuration / coverageLambda`,
+  - insured line: `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`, optionally further bounded by `runwayCap`,
   - recipient gating: over-line disables goal-flow recipient (effective units `0`), under-line re-enables and restores saved virtual units,
+  - budget `executionDuration` does not increase insured principal; it only affects budget treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` during `BudgetTCR.syncBudgetTreasuries`,
   - enforcement is best-effort in batch sync; failures emit `BudgetCreditCapEnforcementFailed` and do not abort other items.
 - Budget active flow-rate targeting is trusted-incoming plus balance-spenddown:
@@ -62,10 +63,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
-- Budget failure slashing semantics are spend-proportional and activation-gated:
+- Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
-  - slash weight derives from `creditDrawn` with spend-formula params (`coverageLambda`, fixed budget `executionDuration`), applies `budgetSlashPpm`, and is capped by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`),
-  - unresolved spend-formula params revert slash (no exposure-integral fallback mode),
+  - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,
+  - slash does not depend on `coverageLambda` or fixed budget `executionDuration`,
   - slashing is idempotent per underwriter per escrow.
 - Slashed value recycle path is routed and observable:
   - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,

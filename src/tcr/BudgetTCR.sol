@@ -296,7 +296,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         bytes32[] calldata itemIDs
     ) external override nonReentrant returns (uint256 attempted, uint256 succeeded) {
         address budgetStakeLedger = _budgetStakeLedger();
-        uint256 lambda = goalTreasury.coverageLambda();
+        uint32 slashPpm = budgetSlashPpm;
 
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; i++) {
@@ -321,7 +321,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 deployment.childFlow,
                 budgetTreasury,
                 budgetStakeLedger,
-                lambda
+                slashPpm
             );
 
             bool success;

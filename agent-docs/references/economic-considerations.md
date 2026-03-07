@@ -132,6 +132,24 @@ Even with hard-cut reward removal, a motivated actor can still delay:
 
 ## Solved or Partially Mitigated
 
+### Duration-Amplified Budget Leverage [Mitigated by Design Change]
+
+### Prior issue
+
+Budget insured capacity previously scaled with `executionDuration`, so a longer-lived budget could pull more cumulative goal funding against the same coverage while failure slashing remained capped by slashable principal. That made collateral intensity decline as duration increased.
+
+### Current protocol posture (2026-03-07)
+
+- Budget underwriting now treats slashable first-loss capital as the insured line:
+  - `insured line = allocated coverage * budgetSlashPpm / 1e6`.
+- `runwayCap` can still reduce that line, but it cannot raise it.
+- `executionDuration` still affects treasury pacing / lock time, but it no longer increases insured principal.
+- On failure, per-underwriter slash is bounded by `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`.
+
+### Incentive implication
+
+A budget controller can no longer increase extractable insured value just by choosing a longer duration. To open more insured funding, the budget must attract more actual coverage (or a higher slash rate), which keeps leverage anchored to slashable first-loss capital.
+
 ### Deadline-Window Exclusion and "Keep Open Forever" Griefing [Partially Mitigated]
 
 ### Scenario

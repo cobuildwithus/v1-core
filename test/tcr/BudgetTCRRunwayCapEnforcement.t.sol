@@ -18,7 +18,7 @@ contract BudgetTCRHarness is BudgetTCR {
         address childFlow,
         address budgetTreasury,
         address budgetStakeLedger,
-        uint256 lambda
+        uint32 budgetSlashPpm
     ) external {
         BudgetTCRCreditCapActions.bestEffortEnforceBudgetCreditCap(
             goalFlow,
@@ -26,7 +26,7 @@ contract BudgetTCRHarness is BudgetTCR {
             childFlow,
             budgetTreasury,
             budgetStakeLedger,
-            lambda
+            budgetSlashPpm
         );
     }
 }
@@ -120,22 +120,21 @@ contract BudgetTCRRunwayCapEnforcementTest is Test {
         _tcr.setGoalFlow(address(_goalFlow));
     }
 
-    function test_recipientDisablesAtRunwayBoundaryEvenWhenCreditLineAllowsMore() public {
-        // creditLine = coverage * duration / lambda
-        // Choose parameters such that creditLine >> runwayCap.
+    function test_recipientDisablesAtRunwayBoundaryEvenWhenInsuredLineAllowsMore() public {
         uint64 duration = 100;
         uint256 runwayCap = 5_000;
-        uint256 coverage = 1_000;
-        uint256 lambda = 1;
+        uint256 coverage = 100_000;
+        uint32 budgetSlashPpm = 100_000;
 
-        // creditLine = 1000 * 100 / 1 = 100_000
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
-        // Received hits runway cap, but still below credit line.
+        // insuredLine = 100_000 * 10% = 10_000, so runwayCap is the lower ceiling.
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap);
 
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
@@ -143,143 +142,161 @@ contract BudgetTCRRunwayCapEnforcementTest is Test {
     function test_recipientRemainsEnabledBelowRunwayBoundary() public {
         uint64 duration = 100;
         uint256 runwayCap = 5_000;
-        uint256 coverage = 1_000;
-        uint256 lambda = 1;
+        uint256 coverage = 100_000;
+        uint32 budgetSlashPpm = 100_000;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
-        // One unit below runway cap => should still be enabled (credit line is much larger).
+        // One unit below runway cap => should still be enabled (insured line is much larger).
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap - 1);
 
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
         assertTrue(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_zeroRunwayCap_usesCreditLineBoundary() public {
+    function test_zeroRunwayCap_usesInsuredLineBoundary() public {
         uint64 duration = 10;
         uint256 runwayCap = 0; // no runway cap
         uint256 coverage = 100;
-        uint256 lambda = 1;
+        uint32 budgetSlashPpm = 100_000;
 
-        // creditLine = 100 * 10 / 1 = 1_000
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 999);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 9);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
         assertTrue(_goalFlow.recipientEnabled(ITEM_ID));
 
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 1_000);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 10);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_zeroCreditLine_disablesEvenWhenRunwayCapAllowsMore() public {
+    function test_zeroInsuredLine_disablesEvenWhenRunwayCapAllowsMore() public {
         uint64 duration = 100;
         uint256 runwayCap = 5_000;
-        uint256 coverage = 0; // => creditLine = 0
-        uint256 lambda = 1;
+        uint256 coverage = 0;
+        uint32 budgetSlashPpm = 100_000;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
-        // Even with received below runway cap, a zero credit line should disable.
+        // Even with received below runway cap, a zero insured line should disable.
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 0);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_zeroRunwayCapAndZeroCreditLine_disables() public {
+    function test_zeroRunwayCapAndZeroInsuredLine_disables() public {
         uint64 duration = 100;
         uint256 runwayCap = 0;
-        uint256 coverage = 0; // => creditLine = 0
-        uint256 lambda = 1;
+        uint256 coverage = 0;
+        uint32 budgetSlashPpm = 100_000;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 0);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_underwritingDisabled_stillEnforcesRunwayCapWhenNonzero() public {
+    function test_underwritingDisabled_hardDisablesEvenWhenRunwayCapIsNonzero() public {
         uint64 duration = 100;
         uint256 runwayCap = 500;
-        uint256 lambda = 0; // underwriting disabled
+        uint32 budgetSlashPpm = 0;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
 
+        _goalFlow.setRecipientEnabled(ITEM_ID, true);
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap - 1);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
-        assertTrue(_goalFlow.recipientEnabled(ITEM_ID));
-
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_nonzeroRunwayCap_doesNotOverrideStricterCreditLine() public {
+    function test_nonzeroRunwayCap_doesNotOverrideStricterInsuredLine() public {
         uint64 duration = 10;
         uint256 runwayCap = 5_000;
         uint256 coverage = 100;
-        uint256 lambda = 1;
-        uint256 creditLine = 1_000; // coverage * duration / lambda
+        uint32 budgetSlashPpm = 100_000;
+        uint256 insuredLine = 10;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
         _stakeLedger.setCoverage(address(budgetTreasury), coverage);
 
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, creditLine - 1);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, insuredLine - 1);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
         assertTrue(_goalFlow.recipientEnabled(ITEM_ID));
 
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, creditLine);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, insuredLine);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_underwritingDisabled_withoutRunwayCap_forceEnablesRecipient() public {
+    function test_underwritingDisabled_withoutRunwayCap_forceDisablesRecipient() public {
         uint64 duration = 100;
         uint256 runwayCap = 0;
-        uint256 lambda = 0; // underwriting disabled
+        uint32 budgetSlashPpm = 0;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(duration, runwayCap);
 
-        _goalFlow.setRecipientEnabled(ITEM_ID, false);
+        _goalFlow.setRecipientEnabled(ITEM_ID, true);
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, type(uint256).max);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
-        assertTrue(_goalFlow.recipientEnabled(ITEM_ID));
+        assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
     function test_stakeReadFailure_stillDisablesWhenRunwayCapExceeded() public {
         uint256 runwayCap = 500;
-        uint256 lambda = 1;
+        uint32 budgetSlashPpm = 100_000;
 
         MockBudgetTreasury budgetTreasury = new MockBudgetTreasury(100, runwayCap);
         RevertingBudgetStakeLedger revertingLedger = new RevertingBudgetStakeLedger();
 
         _goalFlow.setRecipientEnabled(ITEM_ID, true);
         _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(revertingLedger), lambda);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(revertingLedger), budgetSlashPpm
+        );
 
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }
 
-    function test_executionDurationReadFailure_stillDisablesWhenRunwayCapExceeded() public {
-        uint256 runwayCap = 500;
-        uint256 lambda = 1;
+    function test_executionDurationReadFailureIsIgnoredBecauseEnforcementNoLongerReadsIt() public {
+        uint256 runwayCap = 0;
+        uint32 budgetSlashPpm = 100_000;
 
         RevertingExecutionDurationBudgetTreasury budgetTreasury = new RevertingExecutionDurationBudgetTreasury(runwayCap);
-        _stakeLedger.setCoverage(address(budgetTreasury), 1_000);
+        _stakeLedger.setCoverage(address(budgetTreasury), 100);
 
         _goalFlow.setRecipientEnabled(ITEM_ID, true);
-        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, runwayCap);
-        _tcr.enforceBudgetInflowCaps(ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), lambda);
+        _goalFlow.setTotalReceivedByMember(CHILD_FLOW, 10);
+        _tcr.enforceBudgetInflowCaps(
+            ITEM_ID, CHILD_FLOW, address(budgetTreasury), address(_stakeLedger), budgetSlashPpm
+        );
 
         assertFalse(_goalFlow.recipientEnabled(ITEM_ID));
     }

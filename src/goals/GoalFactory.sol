@@ -309,10 +309,7 @@ contract GoalFactory {
         ) {
             revert INVALID_SCALE();
         }
-        if (
-            p.underwriting.budgetSlashPpm != 0 &&
-            (p.underwriting.budgetPremiumPpm == 0 || p.underwriting.coverageLambda == 0)
-        ) {
+        if (p.underwriting.budgetSlashPpm != 0 && p.underwriting.budgetPremiumPpm == 0) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(
                 p.underwriting.budgetPremiumPpm,
                 p.underwriting.budgetSlashPpm,
