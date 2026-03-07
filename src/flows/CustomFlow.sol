@@ -108,9 +108,7 @@ contract CustomFlow is ICustomFlow, Flow {
             _pipelineStorage(),
             strategy,
             msg.sender,
-            recipientIds,
-            allocationsPpm,
-            IAllocationPipeline.CommitKind.AllocationEdit
+            FlowAllocations.AllocationVector({ recipientIds: recipientIds, allocationsPpm: allocationsPpm })
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);
@@ -158,20 +156,23 @@ contract CustomFlow is ICustomFlow, Flow {
 
         uint128 totalUnitsBefore = _cfgStorage().distributionPool.getTotalUnits();
 
-        CustomFlowAllocationEngine.applyAllocationWithPipeline(
+        CustomFlowAllocationEngine.applyMaintenanceWithPipeline(
             _cfgStorage(),
             _recipientsStorage(),
             _allocStorage(),
             _pipelineStorage(),
-            strategy,
-            allocationKey,
-            prevWeight,
-            prevRecipientIds,
-            prevAllocationPpm,
-            prevRecipientIds,
-            prevAllocationPpm,
-            currentWeight,
-            IAllocationPipeline.CommitKind.MaintenanceSync
+            FlowAllocations.MaintenanceApplyRequest({
+                strategy: strategy,
+                allocationKey: allocationKey,
+                storedAllocation: FlowAllocations.PreviousAllocationData({
+                    allocation: FlowAllocations.AllocationVector({
+                        recipientIds: prevRecipientIds,
+                        allocationsPpm: prevAllocationPpm
+                    }),
+                    weight: prevWeight
+                }),
+                newWeight: currentWeight
+            })
         );
 
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);

@@ -7,8 +7,8 @@
 3. Primary allocation entrypoint derives key with `allocationKey(caller, "")`, verifies `canAllocate`, decodes previous
    snapshot state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
 4. Allocation commitment hashes are canonical over recipient ids + scaled allocation vectors (weight excluded from commit hash).
-5. Allocation deltas are applied through `FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked`
-   after caller-boundary validation of input invariants.
+5. Allocation deltas are applied through explicit typed `FlowAllocations` edit/maintenance helpers,
+   with structural validation and previous-state continuity enforced inside the core apply boundary.
 6. After successful allocation commit, `CustomFlow` invokes the configured allocation pipeline.
 7. With `GoalFlowAllocationLedgerPipeline` configured with a non-zero ledger, checkpoints are written to `BudgetStakeLedger`.
 8. When a parent budget stake delta changes and the corresponding child budget flow has an existing commit, child sync

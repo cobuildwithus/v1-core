@@ -13,6 +13,31 @@ import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 library FlowAllocations {
     uint8 internal constant SNAPSHOT_VERSION_V1 = 1;
 
+    struct AllocationVector {
+        bytes32[] recipientIds;
+        uint32[] allocationsPpm;
+    }
+
+    struct PreviousAllocationData {
+        AllocationVector allocation;
+        uint256 weight;
+    }
+
+    struct AllocationEditRequest {
+        address strategy;
+        uint256 allocationKey;
+        PreviousAllocationData previousAllocation;
+        AllocationVector newAllocation;
+        uint256 newWeight;
+    }
+
+    struct MaintenanceApplyRequest {
+        address strategy;
+        uint256 allocationKey;
+        PreviousAllocationData storedAllocation;
+        uint256 newWeight;
+    }
+
     /**
      * @notice Checks that the recipients and allocationsPpm are valid
      * @param recipientIds The recipientIds targeted by this allocation update.
@@ -22,50 +47,89 @@ library FlowAllocations {
         FlowTypes.RecipientsState storage recipients,
         bytes32[] calldata recipientIds,
         uint32[] calldata allocationsPpm
-    ) public view {
-        _assertSortedUnique(recipientIds);
-
-        // recipientIds & allocationsPpm must be equal length
-        if (recipientIds.length != allocationsPpm.length) {
-            revert IFlow.RECIPIENTS_ALLOCATIONS_MISMATCH(recipientIds.length, allocationsPpm.length);
-        }
-
-        uint256 sum = 0;
-
-        // ensure recipients exist and allocations are > 0
-        for (uint256 i = 0; i < recipientIds.length; i++) {
-            bytes32 recipientId = recipientIds[i];
-            if (recipients.recipients[recipientId].recipient == address(0)) revert IFlow.INVALID_RECIPIENT_ID();
-            if (recipients.recipients[recipientId].isRemoved) revert IFlow.NOT_APPROVED_RECIPIENT();
-            if (allocationsPpm[i] == 0) revert IFlow.ALLOCATION_MUST_BE_POSITIVE();
-            sum += allocationsPpm[i];
-        }
-
-        if (sum != FlowProtocolConstants.PPM_SCALE) revert IFlow.INVALID_SCALED_SUM();
+    ) internal view {
+        _validateAllocationVectorStructureCalldata(recipientIds, allocationsPpm);
+        _assertRecipientsActiveCalldata(recipients, recipientIds);
     }
 
     /**
-     * @dev Unchecked apply path for memory arrays with caller-supplied weight.
-     * Caller must enforce recipient activity and allocation-sum invariants for new allocations.
-     * This function validates previous-state commitment continuity only.
+     * @dev Applies a validated allocation edit with caller-supplied previous state and new weight.
+     * New recipients must be active and the allocation vector must be structurally canonical.
      */
-    function applyAllocationWithPreviousStateMemoryUnchecked(
+    function applyAllocationEdit(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        AllocationEditRequest memory request
+    ) internal {
+        _validateAllocationVectorStructureMemory(
+            request.previousAllocation.allocation.recipientIds,
+            request.previousAllocation.allocation.allocationsPpm,
+            true
+        );
+        _validateAllocationVectorStructureMemory(
+            request.newAllocation.recipientIds,
+            request.newAllocation.allocationsPpm,
+            false
+        );
+        _assertRecipientsActiveMemory(recipients, request.newAllocation.recipientIds);
+
+        _applyAllocation(
+            cfg,
+            recipients,
+            alloc,
+            request.strategy,
+            request.allocationKey,
+            request.previousAllocation,
+            request.newAllocation,
+            request.newWeight
+        );
+    }
+
+    /**
+     * @dev Reapplies a stored allocation composition during maintenance sync with a fresh weight.
+     * Removed recipients are tolerated, but the stored allocation vector must still be structurally valid.
+     */
+    function applyStoredAllocationMaintenance(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        MaintenanceApplyRequest memory request
+    ) internal {
+        _validateAllocationVectorStructureMemory(
+            request.storedAllocation.allocation.recipientIds,
+            request.storedAllocation.allocation.allocationsPpm,
+            false
+        );
+
+        _applyAllocation(
+            cfg,
+            recipients,
+            alloc,
+            request.strategy,
+            request.allocationKey,
+            request.storedAllocation,
+            request.storedAllocation.allocation,
+            request.newWeight
+        );
+    }
+
+    function _applyAllocation(
         FlowTypes.Config storage cfg,
         FlowTypes.RecipientsState storage recipients,
         FlowTypes.AllocationState storage alloc,
         address strategy,
         uint256 allocationKey,
-        bytes32[] memory prevRecipientIds,
-        uint32[] memory prevAllocationPpm,
-        uint256 prevWeight,
-        bytes32[] memory newRecipientIds,
-        uint32[] memory newAllocationPpm,
+        PreviousAllocationData memory previousAllocation,
+        AllocationVector memory newAllocation,
         uint256 newWeight
-    ) public {
-        // New inputs must be strictly sorted and unique for canonical hashing and linear merge
-        _assertSortedUniqueMemoryNonEmpty(newRecipientIds);
+    ) private {
+        bytes32[] memory prevRecipientIds = previousAllocation.allocation.recipientIds;
+        uint32[] memory prevAllocationPpm = previousAllocation.allocation.allocationsPpm;
+        bytes32[] memory newRecipientIds = newAllocation.recipientIds;
+        uint32[] memory newAllocationPpm = newAllocation.allocationsPpm;
+        uint256 prevWeight = previousAllocation.weight;
 
-        // --- determine prior state ---
         bytes32 oldCommit = alloc.allocCommit[strategy][allocationKey];
         uint256 oldWeightPlusOne = alloc.allocWeightPlusOne[strategy][allocationKey];
         bool isBrandNewKey = oldCommit == bytes32(0);
@@ -75,10 +139,13 @@ library FlowAllocations {
                 revert IFlow.INVALID_PREV_ALLOCATION();
             }
         } else {
+            if (oldWeightPlusOne == 0) revert IFlow.INVALID_PREV_ALLOCATION();
+            unchecked {
+                if (prevWeight != oldWeightPlusOne - 1) revert IFlow.INVALID_PREV_ALLOCATION();
+            }
             if (AllocationCommitment.hashMemory(prevRecipientIds, prevAllocationPpm) != oldCommit) {
                 revert IFlow.INVALID_PREV_ALLOCATION();
             }
-            if (oldWeightPlusOne == 0) revert IFlow.INVALID_PREV_ALLOCATION();
         }
 
         // --- assemble old & new unit pairs ---
@@ -232,6 +299,71 @@ library FlowAllocations {
             if (cur <= prev) revert IFlow.NOT_SORTED_OR_DUPLICATE();
             prev = cur;
         }
+    }
+
+    function _validateAllocationVectorStructureCalldata(
+        bytes32[] calldata recipientIds,
+        uint32[] calldata allocationsPpm
+    ) private pure {
+        _assertSortedUnique(recipientIds);
+
+        if (recipientIds.length != allocationsPpm.length) {
+            revert IFlow.RECIPIENTS_ALLOCATIONS_MISMATCH(recipientIds.length, allocationsPpm.length);
+        }
+
+        uint256 sum;
+        for (uint256 i = 0; i < recipientIds.length; ++i) {
+            if (allocationsPpm[i] == 0) revert IFlow.ALLOCATION_MUST_BE_POSITIVE();
+            sum += allocationsPpm[i];
+        }
+
+        if (sum != FlowProtocolConstants.PPM_SCALE) revert IFlow.INVALID_SCALED_SUM();
+    }
+
+    function _validateAllocationVectorStructureMemory(
+        bytes32[] memory recipientIds,
+        uint32[] memory allocationsPpm,
+        bool allowEmpty
+    ) private pure {
+        if (recipientIds.length != allocationsPpm.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
+        if (recipientIds.length == 0) {
+            if (allowEmpty) return;
+            revert IFlow.TOO_FEW_RECIPIENTS();
+        }
+
+        _assertSortedUniqueMemoryNonEmpty(recipientIds);
+
+        uint256 sum;
+        for (uint256 i = 0; i < allocationsPpm.length; ++i) {
+            if (allocationsPpm[i] == 0) revert IFlow.ALLOCATION_MUST_BE_POSITIVE();
+            sum += allocationsPpm[i];
+        }
+
+        if (sum != FlowProtocolConstants.PPM_SCALE) revert IFlow.INVALID_SCALED_SUM();
+    }
+
+    function _assertRecipientsActiveCalldata(
+        FlowTypes.RecipientsState storage recipients,
+        bytes32[] calldata recipientIds
+    ) private view {
+        for (uint256 i = 0; i < recipientIds.length; ++i) {
+            _assertRecipientActive(recipients, recipientIds[i]);
+        }
+    }
+
+    function _assertRecipientsActiveMemory(
+        FlowTypes.RecipientsState storage recipients,
+        bytes32[] memory recipientIds
+    ) private view {
+        for (uint256 i = 0; i < recipientIds.length; ++i) {
+            _assertRecipientActive(recipients, recipientIds[i]);
+        }
+    }
+
+    function _assertRecipientActive(FlowTypes.RecipientsState storage recipients, bytes32 recipientId) private view {
+        FlowTypes.FlowRecipient storage recipient = recipients.recipients[recipientId];
+        if (recipient.recipient == address(0)) revert IFlow.INVALID_RECIPIENT_ID();
+        if (recipient.isRemoved) revert IFlow.NOT_APPROVED_RECIPIENT();
     }
 
     function _assertSortedUniqueMemoryNonEmpty(bytes32[] memory ids) internal pure {

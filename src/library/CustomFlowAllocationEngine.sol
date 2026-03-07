@@ -17,74 +17,70 @@ library CustomFlowAllocationEngine {
         FlowTypes.PipelineState storage pipelineState,
         IAllocationStrategy strategy,
         address caller,
-        bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm,
-        IAllocationPipeline.CommitKind commitKind
-    ) external {
+        FlowAllocations.AllocationVector memory newAllocation
+    ) internal {
         uint256 allocationKey = strategy.allocationKey(caller, bytes(""));
         if (!strategy.canAllocate(allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
 
         address strategyAddress = address(strategy);
         (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) = CustomFlowPreviousState
             .loadAndResolvePreviousState(recipients, alloc, strategyAddress, allocationKey);
-        uint256 newWeight = strategy.currentWeight(allocationKey);
-
-        applyAllocationWithPipeline(
+        applyAllocationEditWithPipeline(
             cfg,
             recipients,
             alloc,
             pipelineState,
-            strategyAddress,
-            allocationKey,
-            prevWeight,
-            prevIds,
-            prevAllocationPpm,
-            recipientIds,
-            allocationsPpm,
-            newWeight,
-            commitKind
+            FlowAllocations.AllocationEditRequest({
+                strategy: strategyAddress,
+                allocationKey: allocationKey,
+                previousAllocation: _previousAllocation(prevIds, prevAllocationPpm, prevWeight),
+                newAllocation: newAllocation,
+                newWeight: strategy.currentWeight(allocationKey)
+            })
         );
     }
 
-    function applyAllocationWithPipeline(
+    function applyAllocationEditWithPipeline(
         FlowTypes.Config storage cfg,
         FlowTypes.RecipientsState storage recipients,
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
-        address strategy,
-        uint256 allocationKey,
-        uint256 prevWeight,
-        bytes32[] memory prevIds,
-        uint32[] memory prevAllocationPpm,
-        bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm,
-        uint256 newWeight,
-        IAllocationPipeline.CommitKind commitKind
-    ) public {
-        FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
-            cfg,
-            recipients,
-            alloc,
-            strategy,
-            allocationKey,
-            prevIds,
-            prevAllocationPpm,
-            prevWeight,
-            recipientIds,
-            allocationsPpm,
-            newWeight
-        );
+        FlowAllocations.AllocationEditRequest memory request
+    ) internal {
+        FlowAllocations.applyAllocationEdit(cfg, recipients, alloc, request);
         _runPipeline(
             pipelineState,
-            strategy,
-            allocationKey,
-            prevWeight,
-            prevIds,
-            prevAllocationPpm,
-            newWeight,
-            recipientIds,
-            allocationsPpm,
-            commitKind
+            request.strategy,
+            request.allocationKey,
+            request.previousAllocation.weight,
+            request.previousAllocation.allocation.recipientIds,
+            request.previousAllocation.allocation.allocationsPpm,
+            request.newWeight,
+            request.newAllocation.recipientIds,
+            request.newAllocation.allocationsPpm,
+            IAllocationPipeline.CommitKind.AllocationEdit
+        );
+    }
+
+    function applyMaintenanceWithPipeline(
+        FlowTypes.Config storage cfg,
+        FlowTypes.RecipientsState storage recipients,
+        FlowTypes.AllocationState storage alloc,
+        FlowTypes.PipelineState storage pipelineState,
+        FlowAllocations.MaintenanceApplyRequest memory request
+    ) internal {
+        FlowAllocations.applyStoredAllocationMaintenance(cfg, recipients, alloc, request);
+        _runPipeline(
+            pipelineState,
+            request.strategy,
+            request.allocationKey,
+            request.storedAllocation.weight,
+            request.storedAllocation.allocation.recipientIds,
+            request.storedAllocation.allocation.allocationsPpm,
+            request.newWeight,
+            request.storedAllocation.allocation.recipientIds,
+            request.storedAllocation.allocation.allocationsPpm,
+            IAllocationPipeline.CommitKind.MaintenanceSync
         );
     }
 
@@ -114,5 +110,19 @@ library CustomFlowAllocationEngine {
             allocationsPpm,
             commitKind
         );
+    }
+
+    function _previousAllocation(
+        bytes32[] memory recipientIds,
+        uint32[] memory allocationsPpm,
+        uint256 weight
+    ) private pure returns (FlowAllocations.PreviousAllocationData memory previousAllocation) {
+        previousAllocation = FlowAllocations.PreviousAllocationData({
+            allocation: FlowAllocations.AllocationVector({
+                recipientIds: recipientIds,
+                allocationsPpm: allocationsPpm
+            }),
+            weight: weight
+        });
     }
 }

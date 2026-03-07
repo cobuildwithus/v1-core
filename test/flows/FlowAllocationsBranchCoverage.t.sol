@@ -52,7 +52,7 @@ contract FlowAllocationsCoverageHarness {
         return _alloc.allocCommit[strategy][key];
     }
 
-    function applyMemoryUnchecked(
+    function applyAllocationEdit(
         address strategy,
         uint256 key,
         bytes32[] memory prevRecipientIds,
@@ -62,18 +62,53 @@ contract FlowAllocationsCoverageHarness {
         uint32[] memory newAllocationPpm,
         uint256 newWeight
     ) external {
-        FlowAllocations.applyAllocationWithPreviousStateMemoryUnchecked(
+        FlowAllocations.applyAllocationEdit(
             _cfg,
             _recipients,
             _alloc,
-            strategy,
-            key,
-            prevRecipientIds,
-            prevAllocationPpm,
-            prevWeight,
-            newRecipientIds,
-            newAllocationPpm,
-            newWeight
+            FlowAllocations.AllocationEditRequest({
+                strategy: strategy,
+                allocationKey: key,
+                previousAllocation: FlowAllocations.PreviousAllocationData({
+                    allocation: FlowAllocations.AllocationVector({
+                        recipientIds: prevRecipientIds,
+                        allocationsPpm: prevAllocationPpm
+                    }),
+                    weight: prevWeight
+                }),
+                newAllocation: FlowAllocations.AllocationVector({
+                    recipientIds: newRecipientIds,
+                    allocationsPpm: newAllocationPpm
+                }),
+                newWeight: newWeight
+            })
+        );
+    }
+
+    function applyMaintenance(
+        address strategy,
+        uint256 key,
+        bytes32[] memory storedRecipientIds,
+        uint32[] memory storedAllocationPpm,
+        uint256 storedWeight,
+        uint256 newWeight
+    ) external {
+        FlowAllocations.applyStoredAllocationMaintenance(
+            _cfg,
+            _recipients,
+            _alloc,
+            FlowAllocations.MaintenanceApplyRequest({
+                strategy: strategy,
+                allocationKey: key,
+                storedAllocation: FlowAllocations.PreviousAllocationData({
+                    allocation: FlowAllocations.AllocationVector({
+                        recipientIds: storedRecipientIds,
+                        allocationsPpm: storedAllocationPpm
+                    }),
+                    weight: storedWeight
+                }),
+                newWeight: newWeight
+            })
         );
     }
 }
@@ -107,6 +142,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     bytes32 internal constant ID_A = bytes32(uint256(1));
     bytes32 internal constant ID_B = bytes32(uint256(2));
+    bytes32 internal constant ID_C = bytes32(uint256(3));
 
     FlowAllocationsCoverageHarness internal harness;
     FlowAllocationsCoveragePool internal pool;
@@ -126,7 +162,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_brandNew_revertsWhenPrevStateProvided() public {
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
@@ -144,10 +180,10 @@ contract FlowAllocationsBranchCoverageTest is Test {
             ALLOCATION_KEY,
             AllocationCommitment.hashMemory(_ids(ID_A), _allocationPpm(FlowProtocolConstants.PPM_SCALE))
         );
-        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
+        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, TEST_WEIGHT + 1);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_B),
@@ -168,7 +204,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 0);
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             _ids(ID_A),
@@ -185,7 +221,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         uint32[] memory emptyAllocationPpm = new uint32[](0);
 
         vm.expectRevert(IFlow.TOO_FEW_RECIPIENTS.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             emptyIds,
@@ -201,7 +237,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
         bytes32[] memory unsorted = _ids(ID_B, ID_A);
 
         vm.expectRevert(IFlow.NOT_SORTED_OR_DUPLICATE.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             new bytes32[](0),
@@ -215,7 +251,7 @@ contract FlowAllocationsBranchCoverageTest is Test {
 
     function test_applyMemory_revertsOnLengthMismatchForNewArrays() public {
         vm.expectRevert(IFlow.ARRAY_LENGTH_MISMATCH.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             new bytes32[](0),
@@ -233,12 +269,12 @@ contract FlowAllocationsBranchCoverageTest is Test {
         bytes32[] memory emptyIds = new bytes32[](0);
         uint32[] memory emptyAllocationPpm = new uint32[](0);
 
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy), ALLOCATION_KEY, emptyIds, emptyAllocationPpm, 0, ids, allocationPpm, TEST_WEIGHT
         );
 
         bytes32 beforeCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy), ALLOCATION_KEY, ids, allocationPpm, TEST_WEIGHT, ids, allocationPpm, TEST_WEIGHT
         );
         bytes32 afterCommit = harness.commitOf(address(strategy), ALLOCATION_KEY);
@@ -251,12 +287,12 @@ contract FlowAllocationsBranchCoverageTest is Test {
         uint32[] memory oldAllocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
 
         harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldAllocationPpm));
-        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
+        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, TEST_WEIGHT + 1);
 
         pool.setUnits(makeAddr("recipient-b"), type(uint128).max);
 
         vm.expectRevert(IFlow.OVERFLOW.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             oldIds,
@@ -273,11 +309,11 @@ contract FlowAllocationsBranchCoverageTest is Test {
         uint32[] memory oldAllocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
 
         harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(oldIds, oldAllocationPpm));
-        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, 1);
+        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, TEST_WEIGHT + 1);
         pool.setUpdateOk(false);
 
         vm.expectRevert(IFlow.UNITS_UPDATE_FAILED.selector);
-        harness.applyMemoryUnchecked(
+        harness.applyAllocationEdit(
             address(strategy),
             ALLOCATION_KEY,
             oldIds,
@@ -286,6 +322,144 @@ contract FlowAllocationsBranchCoverageTest is Test {
             _ids(ID_B),
             _allocationPpm(FlowProtocolConstants.PPM_SCALE),
             TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_existing_revertsWhenPrevWeightDoesNotMatchCachedWeight() public {
+        bytes32[] memory ids = _ids(ID_A);
+        uint32[] memory allocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
+
+        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(ids, allocationPpm));
+        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, TEST_WEIGHT + 1);
+
+        vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            ids,
+            allocationPpm,
+            TEST_WEIGHT - 1,
+            ids,
+            allocationPpm,
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_revertsOnZeroAllocationPpm() public {
+        vm.expectRevert(IFlow.ALLOCATION_MUST_BE_POSITIVE.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            _ids(ID_A),
+            _allocationPpm(0),
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_revertsOnScaledSumMismatch() public {
+        vm.expectRevert(IFlow.INVALID_SCALED_SUM.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            _ids(ID_A, ID_B),
+            _allocationPpm(500_000, 400_000),
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_revertsOnInvalidRecipientId() public {
+        vm.expectRevert(IFlow.INVALID_RECIPIENT_ID.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            _ids(ID_C),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_revertsOnRemovedRecipient() public {
+        harness.setRecipient(ID_B, makeAddr("recipient-b-removed"), true, 2);
+
+        vm.expectRevert(IFlow.NOT_APPROVED_RECIPIENT.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            _ids(ID_B),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMemory_revertsWhenNewRecipientRemoved() public {
+        harness.setRecipient(ID_B, makeAddr("recipient-b-removed"), true, 2);
+
+        vm.expectRevert(IFlow.NOT_APPROVED_RECIPIENT.selector);
+        harness.applyAllocationEdit(
+            address(strategy),
+            ALLOCATION_KEY,
+            new bytes32[](0),
+            new uint32[](0),
+            0,
+            _ids(ID_B),
+            _allocationPpm(FlowProtocolConstants.PPM_SCALE),
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMaintenance_revertsOnScaledSumMismatchForStoredAllocation() public {
+        vm.expectRevert(IFlow.INVALID_SCALED_SUM.selector);
+        harness.applyMaintenance(
+            address(strategy),
+            ALLOCATION_KEY,
+            _ids(ID_A, ID_B),
+            _allocationPpm(500_000, 400_000),
+            TEST_WEIGHT,
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMaintenance_revertsWhenStoredWeightDoesNotMatchCachedWeight() public {
+        bytes32[] memory storedIds = _ids(ID_A);
+        uint32[] memory storedAllocationPpm = _allocationPpm(FlowProtocolConstants.PPM_SCALE);
+
+        harness.setCommit(address(strategy), ALLOCATION_KEY, AllocationCommitment.hashMemory(storedIds, storedAllocationPpm));
+        harness.setWeightPlusOne(address(strategy), ALLOCATION_KEY, TEST_WEIGHT + 1);
+
+        vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
+        harness.applyMaintenance(
+            address(strategy),
+            ALLOCATION_KEY,
+            storedIds,
+            storedAllocationPpm,
+            TEST_WEIGHT - 1,
+            TEST_WEIGHT
+        );
+    }
+
+    function test_applyMaintenance_revertsOnZeroAllocationPpmForStoredAllocation() public {
+        vm.expectRevert(IFlow.ALLOCATION_MUST_BE_POSITIVE.selector);
+        harness.applyMaintenance(
+            address(strategy), ALLOCATION_KEY, _ids(ID_A), _allocationPpm(0), TEST_WEIGHT, TEST_WEIGHT
+        );
+    }
+
+    function test_applyMaintenance_revertsOnLengthMismatchForStoredAllocation() public {
+        vm.expectRevert(IFlow.ARRAY_LENGTH_MISMATCH.selector);
+        harness.applyMaintenance(
+            address(strategy), ALLOCATION_KEY, _ids(ID_A), new uint32[](0), TEST_WEIGHT, TEST_WEIGHT
         );
     }
 
