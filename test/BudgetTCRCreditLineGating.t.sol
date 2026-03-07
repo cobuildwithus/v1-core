@@ -130,13 +130,17 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         goalFlow.setRecipientAdmin(address(budgetTcr));
     }
 
-    function test_syncBudgetTreasuries_withLambdaZero_enablesRecipient_whenReceivedBelowRunwayCap() public {
+    function test_syncBudgetTreasuries_ignoresCoverageLambdaAndEnablesBelowInsuredLine() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
+        uint256 coverage = 1_000e18;
+        uint256 received = 49e18;
+
         goalTreasury.setCoverageLambda(0);
-        goalFlow.setTotalReceivedByMember(childFlow, 999e18);
+        _checkpointCoverage(itemID, requester, coverage);
+        goalFlow.setTotalReceivedByMember(childFlow, received);
         goalFlow.setRecipientEnabledState(itemID, false);
 
         bytes32[] memory itemIDs = new bytes32[](1);
@@ -151,11 +155,14 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertTrue(goalFlow.recipientEnabled(itemID));
     }
 
-    function test_syncBudgetTreasuries_withLambdaZero_disablesRecipient_whenReceivedAtRunwayBoundary() public {
+    function test_syncBudgetTreasuries_ignoresCoverageLambdaAndDisablesAtRunwayBoundaryWhenRunwayIsLower() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
 
+        uint256 coverage = 50_000e18;
+
         goalTreasury.setCoverageLambda(0);
+        _checkpointCoverage(itemID, requester, coverage);
         goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
         goalFlow.setRecipientEnabledState(itemID, true);
 
@@ -170,17 +177,14 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertFalse(goalFlow.recipientEnabled(itemID));
     }
 
-    function test_syncBudgetTreasuries_disablesRecipient_whenReceivedAtCreditLineBoundary() public {
+    function test_syncBudgetTreasuries_disablesRecipient_whenReceivedAtInsuredLineBoundary() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
 
         uint256 coverage = 1_000e18;
-        uint64 duration = IBudgetTreasury(budgetTreasury).executionDuration();
-        uint256 lambda = uint256(duration);
-        uint256 received = coverage;
+        uint256 received = 50e18;
 
-        goalTreasury.setCoverageLambda(lambda);
         _checkpointCoverage(itemID, requester, coverage);
         goalFlow.setTotalReceivedByMember(childFlow, received);
         goalFlow.setRecipientEnabledState(itemID, true);
@@ -202,7 +206,6 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         bytes memory reason = abi.encodeWithSignature("Error(string)", "STAKE_READ_FAIL");
 
-        goalTreasury.setCoverageLambda(10);
         vm.mockCallRevert(
             address(budgetStakeLedger),
             abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
@@ -231,7 +234,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         bytes memory reason = abi.encodeWithSignature("Error(string)", "RECEIVED_READ_FAIL");
 
-        goalTreasury.setCoverageLambda(0);
+        _checkpointCoverage(itemID, requester, 50_000e18);
         goalFlow.setRecipientEnabledState(itemID, true);
         vm.mockCallRevert(
             address(goalFlow), abi.encodeWithSelector(IFlow.getTotalReceivedByMember.selector, childFlow), reason
@@ -259,7 +262,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         bytes memory reason = abi.encodeWithSignature("Error(string)", "RECIPIENT_TOGGLE_FAIL");
 
-        goalTreasury.setCoverageLambda(0);
+        _checkpointCoverage(itemID, requester, 50_000e18);
         goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
         goalFlow.setRecipientEnabledState(itemID, true);
         vm.mockCallRevert(
@@ -287,7 +290,6 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         bytes memory reason = abi.encodeWithSignature("Error(string)", "ORDER_CHECK");
 
-        goalTreasury.setCoverageLambda(10);
         vm.mockCallRevert(
             address(budgetStakeLedger),
             abi.encodeWithSelector(IBudgetStakeLedger.budgetTotalAllocatedStake.selector, budgetTreasury),
@@ -324,45 +326,17 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertEq(succeeded, 1);
     }
 
-    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenExecutionDurationReadReverts_andRunwayFallbackDisablesRecipient()
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRunwayCapReadReverts_andFallsBackToInsuredLine()
         public
     {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
-        bytes memory reason = abi.encodeWithSignature("Error(string)", "DURATION_READ_FAIL");
-
-        goalTreasury.setCoverageLambda(10);
-        _checkpointCoverage(itemID, requester, 1_000e18);
-        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.executionDuration.selector), reason);
-        goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
-        goalFlow.setRecipientEnabledState(itemID, true);
-
-        vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
-            itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.executionDuration.selector, reason
-        );
-
-        bytes32[] memory itemIDs = new bytes32[](1);
-        itemIDs[0] = itemID;
-
-        vm.prank(makeAddr("keeper"));
-        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
-
-        assertEq(attempted, 1);
-        assertEq(succeeded, 1);
-        assertFalse(goalFlow.recipientEnabled(itemID));
-    }
-
-    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRunwayCapReadReverts_andLambdaZeroForcesEnable()
-        public
-    {
-        bytes32 itemID = _registerDefaultListing();
-        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
         bytes memory reason = abi.encodeWithSignature("Error(string)", "RUNWAY_READ_FAIL");
 
-        goalTreasury.setCoverageLambda(0);
+        _checkpointCoverage(itemID, requester, 1_000e18);
         vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.runwayCap.selector), reason);
+        goalFlow.setTotalReceivedByMember(childFlow, 49e18);
         goalFlow.setRecipientEnabledState(itemID, false);
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
@@ -379,6 +353,35 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertTrue(goalFlow.recipientEnabled(itemID));
+    }
+
+    function test_syncBudgetTreasuries_emitsCreditCapFailure_whenRunwayCapReadReverts_andFallbackStillDisablesAtInsuredLine()
+        public
+    {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "RUNWAY_READ_FAIL");
+
+        _checkpointCoverage(itemID, requester, 1_000e18);
+        vm.mockCallRevert(budgetTreasury, abi.encodeWithSelector(IBudgetTreasury.runwayCap.selector), reason);
+        goalFlow.setTotalReceivedByMember(childFlow, 50e18);
+        goalFlow.setRecipientEnabledState(itemID, true);
+
+        vm.expectEmit(true, true, true, true, address(budgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertFalse(goalFlow.recipientEnabled(itemID));
     }
 
     function _checkpointCoverage(bytes32 itemID, address account, uint256 weight) internal {

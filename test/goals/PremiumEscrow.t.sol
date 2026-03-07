@@ -375,7 +375,7 @@ contract PremiumEscrowTest is Test {
         assertEq(escrow.exposureIntegral(ALICE), 1100);
     }
 
-    function test_slashComputesAverageCoverageWeightAndIsIdempotent() public {
+    function test_slashUsesCreditDrawnFirstLossCapAndIsIdempotent() public {
         _configureCoverageLambda(10);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
@@ -387,8 +387,7 @@ contract PremiumEscrowTest is Test {
         ledger.setCoverage(ALICE, address(budgetTreasury), 200);
         escrow.checkpoint(ALICE);
 
-        // creditDrawn=300 so credit-drawn-formula slash resolves to 30 for D=20 at (lambda=10, slashPpm=200_000)
-        // avgCoverageEq = 300 * 10 / 20 = 150; rawSlashWeight = 150 * 200_000 / 1e6 = 30
+        // creditDrawn=300; first-loss slash caps at peakCov=200 * 20% = 40.
         _setGoalFlowReceipts(300);
         escrow.checkpoint(ALICE);
 
@@ -399,18 +398,17 @@ contract PremiumEscrowTest is Test {
         uint256 firstSlash = escrow.slash(ALICE);
         uint256 secondSlash = escrow.slash(ALICE);
 
-        // Equivalent reference: E = 100*(20-10) + 200*(30-20) = 3000; D = 20; avg = 150; slash = avg * 20% = 30.
-        assertEq(firstSlash, 30);
+        assertEq(firstSlash, 40);
         assertEq(secondSlash, 0);
         assertEq(escrow.exposureIntegral(ALICE), 3000);
         assertTrue(escrow.slashed(ALICE));
 
         assertEq(router.slashCalls(), 1);
         assertEq(router.lastUnderwriter(), ALICE);
-        assertEq(router.lastWeight(), 30);
+        assertEq(router.lastWeight(), 40);
     }
 
-    function test_slashFairness_withCoverageIncreaseAndDecrease_matchesAverageCoverageTimesSlashPpm() public {
+    function test_slashWithCoverageChurn_capsByPeakCoverageRatherThanAverageCoverage() public {
         _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(60);
 
@@ -433,8 +431,7 @@ contract PremiumEscrowTest is Test {
         ledger.setCoverage(ALICE, address(budgetTreasury), 160);
         escrow.checkpoint(ALICE);
 
-        // creditDrawn=870 so credit-drawn slash resolves to 29 for D=60 at (lambda=10, slashPpm=200_000)
-        // avgCoverageEq = 870 * 10 / 60 = 145; rawSlashWeight = 145 * 200_000 / 1e6 = 29
+        // creditDrawn=870; first-loss slash caps at peakCov=220 * 20% = 44.
         _setGoalFlowReceipts(870);
         escrow.checkpoint(ALICE);
 
@@ -445,9 +442,7 @@ contract PremiumEscrowTest is Test {
         uint256 slashWeight = escrow.slash(ALICE);
 
         uint256 expectedExposure = 100 * 10 + 220 * 15 + 40 * 10 + 160 * 25; // 8,700
-        uint256 expectedDuration = 60;
-        uint256 expectedAverageCoverage = expectedExposure / expectedDuration; // 145
-        uint256 expectedSlashWeight = (expectedAverageCoverage * SLASH_PPM) / FlowProtocolConstants.PPM_SCALE_UINT256; // 29
+        uint256 expectedSlashWeight = 44;
 
         assertEq(escrow.exposureIntegral(ALICE), expectedExposure);
         assertEq(slashWeight, expectedSlashWeight);
@@ -463,7 +458,7 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
 
-        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
+        // creditDrawn=100; first-loss slash caps at peakCov=100 * 20% = 20.
         _setGoalFlowReceipts(100);
         escrow.checkpoint(ALICE);
 
@@ -487,13 +482,13 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 20);
     }
 
-    function test_slashUsesCreditDrawnFormula_andCapsAtPeakCoverageSlashPercent() public {
+    function test_slashUsesCreditDrawn_andCapsAtPeakCoverageSlashPercent() public {
         _configureCoverageLambda(10);
 
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
-        // Accrue creditDrawn=1200 (rawSlash = 1200*10/20*200_000/1e6 = 120, capped at peakCov=100 → 20)
+        // Accrue creditDrawn=1200; first-loss slash caps at peakCov=100 * 20% = 20.
         _setGoalFlowReceipts(1200);
         escrow.checkpoint(ALICE);
 
@@ -512,7 +507,7 @@ contract PremiumEscrowTest is Test {
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 30);
 
         vm.expectEmit(true, false, false, true, address(escrow));
-        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 1200, 120, 10, 20, 120, 20, 20);
+        emit PremiumEscrow.UnderwriterSlashCalculated(ALICE, true, 1200, 120, 0, 20, 1200, 20, 20);
         uint256 slashWeight = escrow.slash(ALICE);
 
         assertEq(slashWeight, 20);
@@ -521,7 +516,7 @@ contract PremiumEscrowTest is Test {
         assertEq(router.lastWeight(), 20);
     }
 
-    function test_slashRevertsWhenCreditSlashParamsAreUnresolved() public {
+    function test_slashIgnoresGoalFlowOperatorReadFailureWhenNoCreditWasDrawn() public {
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
 
@@ -532,54 +527,38 @@ contract PremiumEscrowTest is Test {
         vm.prank(address(budgetTreasury));
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
 
-        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
-        escrow.slash(ALICE);
+        uint256 slashWeight = escrow.slash(ALICE);
+
+        assertEq(slashWeight, 0);
+        assertTrue(escrow.slashed(ALICE));
         assertEq(router.slashCalls(), 0);
     }
 
-    function test_slashRevertsWhenCoverageLambdaUnresolvable_andCanRetry() public {
+    function test_slashIgnoresGoalFlowOperatorReadFailure_andStillSlashes() public {
         _prepareStandardFailedSlashScenario();
 
         goalFlow.setRevertFlowOperator(true);
 
-        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
-        escrow.slash(ALICE);
-        assertFalse(escrow.slashed(ALICE));
-        assertEq(router.slashCalls(), 0);
-
-        goalFlow.setRevertFlowOperator(false);
         uint256 slashWeight = escrow.slash(ALICE);
         assertEq(slashWeight, 20);
         assertTrue(escrow.slashed(ALICE));
         assertEq(router.slashCalls(), 1);
     }
 
-    function test_slashRevertsWhenCoverageLambdaReadReverts_andCanRetryAfterRestore() public {
+    function test_slashIgnoresCoverageLambdaReadRevert() public {
         _prepareStandardFailedSlashScenario();
 
         goalTreasury.setRevertCoverageLambda(true);
-        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
-        escrow.slash(ALICE);
-        assertFalse(escrow.slashed(ALICE));
-        assertEq(router.slashCalls(), 0);
-
-        goalTreasury.setRevertCoverageLambda(false);
         uint256 slashWeight = escrow.slash(ALICE);
         assertEq(slashWeight, 20);
         assertTrue(escrow.slashed(ALICE));
         assertEq(router.slashCalls(), 1);
     }
 
-    function test_slashRevertsWhenGoalTreasuryOperatorHasNoCode_andCanRetryAfterRestore() public {
+    function test_slashIgnoresGoalTreasuryOperatorWithNoCode() public {
         _prepareStandardFailedSlashScenario();
 
         goalFlow.setFlowOperator(address(0xBEEF));
-        vm.expectRevert(abi.encodeWithSelector(PremiumEscrow.UNRESOLVED_CREDIT_SLASH_PARAMS.selector, 0));
-        escrow.slash(ALICE);
-        assertFalse(escrow.slashed(ALICE));
-        assertEq(router.slashCalls(), 0);
-
-        goalFlow.setFlowOperator(address(goalTreasury));
         uint256 slashWeight = escrow.slash(ALICE);
         assertEq(slashWeight, 20);
         assertTrue(escrow.slashed(ALICE));
@@ -771,7 +750,7 @@ contract PremiumEscrowTest is Test {
         escrow.slash(ALICE);
     }
 
-    function test_slashZeroDurationMarksUnderwriterWithoutRouterCall() public {
+    function test_slashWithZeroDurationAndZeroCreditReturnsZeroWithoutRouterCall() public {
         budgetTreasury.setExecutionDuration(0);
         ledger.setCoverage(ALICE, address(budgetTreasury), 100);
         escrow.checkpoint(ALICE);
@@ -787,7 +766,52 @@ contract PremiumEscrowTest is Test {
         assertEq(router.slashCalls(), 0);
     }
 
-    function test_slashUsesConfiguredExecutionDuration_whenCloseIsDelayed() public {
+    function test_slashWithZeroDurationStillUsesCreditDrawnFirstLossCap() public {
+        budgetTreasury.setExecutionDuration(0);
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        escrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(20);
+
+        _setGoalFlowReceipts(100);
+        escrow.checkpoint(ALICE);
+
+        vm.warp(25);
+        vm.prank(address(budgetTreasury));
+        escrow.close(IBudgetTreasury.BudgetState.Failed, 20, 20);
+
+        uint256 slashWeight = escrow.slash(ALICE);
+        assertEq(slashWeight, 20);
+        assertTrue(escrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 1);
+        assertEq(router.lastWeight(), 20);
+    }
+
+    function test_slashWithZeroSlashPpmMarksUnderwriterWithoutRouterCall() public {
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow zeroSlashEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+        zeroSlashEscrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), 0);
+        vm.prank(address(budgetTreasury));
+        zeroSlashEscrow.connectManagerRewardPool(address(managerRewardPool));
+
+        ledger.setCoverage(ALICE, address(budgetTreasury), 100);
+        zeroSlashEscrow.checkpoint(ALICE);
+        budgetTreasury.setActivatedAt(10);
+
+        _setGoalFlowReceipts(100);
+        zeroSlashEscrow.checkpoint(ALICE);
+
+        vm.warp(20);
+        vm.prank(address(budgetTreasury));
+        zeroSlashEscrow.close(IBudgetTreasury.BudgetState.Failed, 10, 20);
+
+        uint256 slashWeight = zeroSlashEscrow.slash(ALICE);
+        assertEq(slashWeight, 0);
+        assertEq(zeroSlashEscrow.creditDrawn(ALICE), 100);
+        assertTrue(zeroSlashEscrow.slashed(ALICE));
+        assertEq(router.slashCalls(), 0);
+    }
+
+    function test_slashIgnoresConfiguredExecutionDuration_whenCloseIsDelayed() public {
         _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(20);
 
@@ -795,8 +819,7 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
 
-        // creditDrawn=100 => with executionDuration=20:
-        // avgCoverageEq = 100 * 10 / 20 = 50; rawSlashWeight = 50 * 200_000 / 1e6 = 10
+        // creditDrawn=100; first-loss slash ignores execution duration and caps at peakCov=100 * 20% = 20.
         _setGoalFlowReceipts(100);
         escrow.checkpoint(ALICE);
 
@@ -805,12 +828,12 @@ contract PremiumEscrowTest is Test {
         escrow.close(IBudgetTreasury.BudgetState.Failed, 10, 70);
 
         uint256 slashWeight = escrow.slash(ALICE);
-        assertEq(slashWeight, 10);
+        assertEq(slashWeight, 20);
         assertEq(router.slashCalls(), 1);
-        assertEq(router.lastWeight(), 10);
+        assertEq(router.lastWeight(), 20);
     }
 
-    function test_slashUsesConfiguredExecutionDuration_whenCloseIsDelayed_andCapsByPeakCoverage() public {
+    function test_slashIgnoresConfiguredExecutionDuration_whenCloseIsDelayed_andStillCapsByPeakCoverage() public {
         _configureCoverageLambda(10);
         budgetTreasury.setExecutionDuration(20);
 
@@ -818,9 +841,7 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
 
-        // creditDrawn=400 => with executionDuration=20:
-        // avgCoverageEq = 400 * 10 / 20 = 200; rawSlashWeight = 200 * 200_000 / 1e6 = 40
-        // capWeight = peakCov * 200_000 / 1e6 = 20 => final slash is capped at 20.
+        // creditDrawn=400; first-loss slash ignores execution duration and caps at peakCov=100 * 20% = 20.
         _setGoalFlowReceipts(400);
         escrow.checkpoint(ALICE);
 
@@ -873,7 +894,7 @@ contract PremiumEscrowTest is Test {
         escrow.checkpoint(ALICE);
         budgetTreasury.setActivatedAt(10);
 
-        // creditDrawn=100 so credit-drawn slash resolves to 20 for D=10 at (lambda=10, slashPpm=200_000)
+        // creditDrawn=100; first-loss slash caps at peakCov=100 * 20% = 20.
         _setGoalFlowReceipts(100);
         escrow.checkpoint(ALICE);
 
@@ -1067,10 +1088,7 @@ contract PremiumEscrowRealLifecycleTest is Test {
     }
 
     function _setGoalFlowCreditForTargetSlash(uint256 targetSlashWeight) internal {
-        uint256 duration = uint256(budgetTreasury.executionDuration());
-        uint256 creditNeeded = (targetSlashWeight * duration * FlowProtocolConstants.PPM_SCALE_UINT256)
-            / (COVERAGE_LAMBDA * uint256(SLASH_PPM));
-        goalFlow.setTotalReceivedByMember(address(budgetFlow), creditNeeded);
+        goalFlow.setTotalReceivedByMember(address(budgetFlow), targetSlashWeight);
     }
 }
 
