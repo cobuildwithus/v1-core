@@ -1766,7 +1766,6 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 9001;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
-    uint8 internal constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
     uint8 internal constant DIRECTORY_FAILURE_INVALID = 1;
     uint8 internal constant DIRECTORY_FAILURE_REVERT = 2;
 
@@ -2072,7 +2071,83 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(controller.lastBurnMemoHash(), TERMINAL_BURN_MEMO_HASH);
     }
 
-    function test_sync_falseAssertionFinalizeCleanupRevert_emitsTerminalSideEffectFailed() public {
+    function test_sync_atDeadline_flowStopFailure_emitsTerminalFlowStopFailed() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+        flow.setShouldRevertSetFlowRate(true);
+
+        vm.warp(treasury.deadline());
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IGoalTreasury.TerminalFlowStopFailed(abi.encodeWithSelector(SharedMockFlow.SET_FLOW_RATE_REVERT.selector));
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertTrue(treasury.resolved());
+    }
+
+    function test_sync_atDeadline_stakeVaultResolveFailure_emitsTerminalStakeVaultResolutionFailed() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+        stakeVault.setShouldRevertMark(true);
+
+        vm.warp(treasury.deadline());
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IGoalTreasury.TerminalStakeVaultResolutionFailed(abi.encodeWithSelector(
+                SharedMockStakeVault.MARK_REVERT.selector
+            ));
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertFalse(stakeVault.goalResolved());
+    }
+
+    function test_sync_atDeadline_residualSettlementFailure_emitsTerminalResidualSettlementFailed() public {
+        uint256 residual = 9e18;
+        controller.setShouldRevertBurn(true);
+        superToken.mint(address(flow), residual);
+
+        vm.warp(block.timestamp + 4 days);
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IGoalTreasury.TerminalResidualSettlementFailed(abi.encodeWithSelector(
+                UnderwritingMockController.BURN_REVERT.selector
+            ));
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertEq(superToken.balanceOf(address(flow)), residual);
+        assertEq(controller.burnCallCount(), 0);
+    }
+
+    function test_processHookSplit_deferredFundingSettlementFailure_emitsTerminalDeferredHookFundingSettlementFailed()
+        public
+    {
+        uint256 deferredAmount = 15e18;
+
+        vm.warp(block.timestamp + 4 days);
+        underlyingToken.mint(address(treasury), deferredAmount);
+        vm.prank(address(hook));
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            treasury.processHookSplit(address(underlyingToken), deferredAmount);
+
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
+        assertEq(superTokenAmount, deferredAmount);
+        assertEq(burnAmount, 0);
+        assertEq(treasury.deferredHookSuperTokenAmount(), deferredAmount);
+
+        controller.setShouldRevertBurn(true);
+
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IGoalTreasury.TerminalDeferredHookFundingSettlementFailed(abi.encodeWithSelector(
+                UnderwritingMockController.BURN_REVERT.selector
+            ));
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Expired));
+        assertEq(treasury.deferredHookSuperTokenAmount(), deferredAmount);
+        assertEq(controller.burnCallCount(), 0);
+    }
+
+    function test_sync_falseAssertionFinalizeCleanupRevert_emitsSuccessAssertionFinalizeFailed() public {
         distributionPool.setTotalUnits(40);
         _activateGoal();
 
@@ -2109,14 +2184,33 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(true, false, false, true, address(treasury));
-        emit IGoalTreasury.TerminalSideEffectFailed(
-            TERMINAL_OP_ASSERTION_FINALIZE,
-            abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
+        emit IGoalTreasury.SuccessAssertionFinalizeFailed(
+            assertionId, abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
         );
         treasury.sync();
 
         assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
         assertTrue(treasury.reassertGraceUsed());
+    }
+
+    function test_clearSuccessAssertion_afterDeadline_activatesGoalReassertGrace() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+
+        bytes32 assertionId = keccak256("goal-clear-after-deadline");
+        vm.prank(address(successResolverConfig));
+        treasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(treasury.deadline());
+        vm.expectEmit(true, false, false, false, address(treasury));
+        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(true, true, false, false, address(treasury));
+        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+
+        vm.prank(address(successResolverConfig));
+        treasury.clearSuccessAssertion(assertionId);
+
+        _assertGoalFailClosedGraceState(treasury);
     }
 
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_emitsFailClosedTelemetry()
@@ -2699,11 +2793,14 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
     }
 
     contract UnderwritingMockController {
+        error BURN_REVERT();
+
         UnderwritingMockTokens internal _tokens;
         uint256 internal _burnCallCount;
         uint256 internal _lastBurnProjectId;
         uint256 internal _lastBurnAmount;
         bytes32 internal _lastBurnMemoHash;
+        bool internal _shouldRevertBurn;
 
         constructor(UnderwritingMockTokens tokens_) {
             _tokens = tokens_;
@@ -2713,7 +2810,12 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
             return _tokens;
         }
 
+        function setShouldRevertBurn(bool shouldRevertBurn_) external {
+            _shouldRevertBurn = shouldRevertBurn_;
+        }
+
         function burnTokensOf(address, uint256 projectId, uint256 tokenCount, string calldata memo) external {
+            if (_shouldRevertBurn) revert BURN_REVERT();
             _burnCallCount += 1;
             _lastBurnProjectId = projectId;
             _lastBurnAmount = tokenCount;

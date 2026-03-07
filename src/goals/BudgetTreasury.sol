@@ -5,7 +5,6 @@ import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
-import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
 import { IBudgetTCR } from "../tcr/interfaces/IBudgetTCR.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -14,6 +13,7 @@ import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
+import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
 
 contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
@@ -21,11 +21,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     uint256 private constant INT96_MAX_UINT = uint256(uint96(type(int96).max));
-    uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
-    uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
-    uint8 private constant TERMINAL_OP_PREMIUM_ESCROW_CLOSE = 3;
-    uint8 private constant TERMINAL_OP_PARENT_PRUNE = 4;
-    uint8 private constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -189,8 +184,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (currentState == BudgetState.Funding) {
             if (!_isFundingWindowEnded()) revert FUNDING_WINDOW_NOT_ENDED();
         } else {
-            if (TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0))
+            if (TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0)) {
                 revert SUCCESS_ASSERTION_PENDING();
+            }
             if (block.timestamp < deadline) revert DEADLINE_NOT_REACHED();
         }
 
@@ -236,8 +232,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
     function clearSuccessAssertion(bytes32 assertionId) external override {
         if (msg.sender != successResolver) revert ONLY_SUCCESS_RESOLVER();
-        bytes32 clearedAssertionId = _successAssertions.clearMatching(assertionId);
-        emit SuccessAssertionCleared(clearedAssertionId);
+        bytes32 clearedAssertionId = TreasurySuccessAssertionLifecycle.clearMatching(_successAssertions, assertionId);
+        _emitSuccessAssertionCleared(clearedAssertionId);
         _tryActivateReassertGrace(clearedAssertionId);
     }
 
@@ -246,7 +242,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
         successResolutionDisabled = true;
         _reassertGrace.clearDeadline();
-        _clearPendingSuccessAssertion();
+        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
         emit SuccessResolutionDisabled();
     }
 
@@ -371,7 +367,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
         _reassertGrace.clearDeadline();
-        _clearPendingSuccessAssertion();
+        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
 
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
@@ -384,9 +380,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function _runTerminalSideEffects(BudgetState finalState) internal {
         _tryClosePremiumEscrow(finalState);
 
-        (bool flowStopped, bytes memory flowStopReason) = _tryForceFlowRateToZero();
+        (bool flowStopped, bytes memory flowStopRevertData) = _tryForceFlowRateToZero();
         if (!flowStopped) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_FLOW_STOP, flowStopReason);
+            emit TerminalFlowStopFailed(flowStopRevertData);
         }
 
         _tryPruneTerminalRecipientFromParent();
@@ -397,14 +393,14 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         address escrow = premiumEscrow;
         if (escrow == address(0)) return;
 
-        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_PREMIUM_ESCROW_CLOSE, reason);
+        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) {} catch (bytes memory revertData) {
+            emit TerminalPremiumEscrowCloseFailed(revertData);
         }
     }
 
     function _trySettleResidualToParent() internal {
-        try this.settleResidualToParentForFinalize() {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_RESIDUAL_SETTLE, reason);
+        try this.settleResidualToParentForFinalize() {} catch (bytes memory revertData) {
+            emit TerminalResidualSettlementToParentFailed(revertData);
         }
     }
 
@@ -412,12 +408,15 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         address controller_ = controller;
         if (controller_.code.length == 0) return;
 
-        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) returns (bool, bool goalSynced) {
+        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) returns (
+            bool removedFromParent,
+            bool goalSynced
+        ) {
             if (!goalSynced) {
-                emit TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, abi.encodePacked("GOAL_SYNC_NOT_APPLIED"));
+                emit TerminalParentGoalSyncNotApplied(removedFromParent);
             }
-        } catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, reason);
+        } catch (bytes memory revertData) {
+            emit TerminalParentPruneFailed(revertData);
         }
     }
 
@@ -457,18 +456,14 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return !derivedState.deadlinePassed;
     }
 
-    function _clearPendingSuccessAssertion() internal returns (bytes32 clearedAssertionId) {
-        clearedAssertionId = _successAssertions.clear();
-        if (clearedAssertionId == bytes32(0)) return clearedAssertionId;
+    function _emitSuccessAssertionCleared(bytes32 clearedAssertionId) internal {
+        if (clearedAssertionId == bytes32(0)) return;
         emit SuccessAssertionCleared(clearedAssertionId);
     }
 
     function _tryFinalizePostDeadline() internal returns (bool) {
-        (
-            bytes32 pendingAssertionId,
-            TreasuryPostDeadlineFinalize.Decision decision,
-            TreasurySuccessAssertions.FailClosedReason failClosedReason
-        ) = TreasuryPostDeadlineFinalize.evaluate(
+        TreasurySuccessAssertionLifecycle.PostDeadlineResolution memory resolution = TreasurySuccessAssertionLifecycle
+            .resolvePostDeadline(
                 _successAssertions,
                 _reassertGrace,
                 successResolver,
@@ -476,25 +471,21 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
                 successAssertionBond
             );
 
-        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(resolution.pendingAssertionId, resolution.failClosedReason);
         }
 
-        if (decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
-        if (decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
             _finalize(BudgetState.Succeeded);
             return true;
         }
-        if (decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
-            bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
-            if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch (
-                    bytes memory reason
-                ) {
-                    emit TerminalSideEffectFailed(TERMINAL_OP_ASSERTION_FINALIZE, reason);
-                }
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
+            _emitSuccessAssertionCleared(resolution.clearedAssertionId);
+            if (resolution.finalizeFailureData.length != 0) {
+                emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
             }
-            _tryActivateReassertGrace(clearedAssertionId);
+            _tryActivateReassertGrace(resolution.clearedAssertionId);
             return false;
         }
 

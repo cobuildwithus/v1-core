@@ -34,8 +34,6 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 contract BudgetTreasuryTest is Test {
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     uint32 internal constant REAL_ESCROW_BUDGET_SLASH_PPM = 200_000;
-    uint8 internal constant TERMINAL_OP_PARENT_PRUNE = 4;
-    uint8 internal constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
     event FlowRateSyncManualInterventionRequired(
         address indexed flow, int96 targetRate, int96 fallbackRate, int96 currentRate
     );
@@ -888,8 +886,8 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(finalizeCleanupTreasury.deadline());
         vm.expectEmit(true, false, false, true, address(finalizeCleanupTreasury));
-        emit IBudgetTreasury.TerminalSideEffectFailed(
-            TERMINAL_OP_ASSERTION_FINALIZE,
+        emit IBudgetTreasury.SuccessAssertionFinalizeFailed(
+            assertionId,
             abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
         );
         finalizeCleanupTreasury.sync();
@@ -1884,6 +1882,8 @@ contract BudgetTreasuryTest is Test {
         flow.setShouldRevertSetFlowRate(true);
 
         vm.warp(treasury.deadline());
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IBudgetTreasury.TerminalFlowStopFailed(abi.encodeWithSelector(SharedMockFlow.SET_FLOW_RATE_REVERT.selector));
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1938,6 +1938,10 @@ contract BudgetTreasuryTest is Test {
         flow.setShouldRevertSweep(true);
 
         vm.warp(treasury.deadline());
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IBudgetTreasury.TerminalResidualSettlementToParentFailed(
+            abi.encodeWithSelector(SharedMockFlow.SWEEP_REVERT.selector)
+        );
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1964,6 +1968,10 @@ contract BudgetTreasuryTest is Test {
         treasury.sync();
 
         vm.warp(treasury.deadline());
+        vm.expectEmit(false, false, false, true, address(treasury));
+        emit IBudgetTreasury.TerminalPremiumEscrowCloseFailed(
+            abi.encodeWithSignature("Error(string)", "PREMIUM_ESCROW_CLOSE_FAILED")
+        );
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -2007,9 +2015,7 @@ contract BudgetTreasuryTest is Test {
 
         _warpPastFundingDeadline(target);
         vm.expectEmit(true, false, false, true, address(target));
-        emit IBudgetTreasury.TerminalSideEffectFailed(
-            TERMINAL_OP_PARENT_PRUNE, abi.encodeWithSignature("Error(string)", "PRUNE_FAILED")
-        );
+        emit IBudgetTreasury.TerminalParentPruneFailed(abi.encodeWithSignature("Error(string)", "PRUNE_FAILED"));
         vm.prank(address(controllerMock));
         target.resolveFailure();
 
@@ -2027,7 +2033,28 @@ contract BudgetTreasuryTest is Test {
 
         _warpPastFundingDeadline(target);
         vm.expectEmit(true, false, false, true, address(target));
-        emit IBudgetTreasury.TerminalSideEffectFailed(TERMINAL_OP_PARENT_PRUNE, abi.encodePacked("GOAL_SYNC_NOT_APPLIED"));
+        emit IBudgetTreasury.TerminalParentGoalSyncNotApplied(true);
+        vm.prank(address(controllerMock));
+        target.resolveFailure();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
+    }
+
+    function test_finalize_terminalSideEffects_pruneHookGoalSyncFalse_tracksRemovedFromParentFalse() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+        controllerMock.setReturnRemovedFromParent(false);
+        controllerMock.setReturnGoalSynced(false);
+
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        target.initialize(address(controllerMock), config);
+
+        _warpPastFundingDeadline(target);
+        vm.expectEmit(false, false, false, true, address(target));
+        emit IBudgetTreasury.TerminalParentGoalSyncNotApplied(false);
         vm.prank(address(controllerMock));
         target.resolveFailure();
 
@@ -2396,6 +2423,7 @@ contract BudgetTreasuryPremiumEscrowRouterMock {
 
 contract BudgetTreasuryMockController {
     bool public shouldRevertPrune;
+    bool public returnRemovedFromParent = true;
     bool public returnGoalSynced = true;
     uint256 public pruneCallCount;
     address public lastBudgetTreasury;
@@ -2408,6 +2436,10 @@ contract BudgetTreasuryMockController {
         returnGoalSynced = returnGoalSynced_;
     }
 
+    function setReturnRemovedFromParent(bool returnRemovedFromParent_) external {
+        returnRemovedFromParent = returnRemovedFromParent_;
+    }
+
     function pruneTerminalBudget(address budgetTreasury)
         external
         returns (bool removedFromParent, bool goalSynced)
@@ -2415,7 +2447,7 @@ contract BudgetTreasuryMockController {
         pruneCallCount += 1;
         lastBudgetTreasury = budgetTreasury;
         if (shouldRevertPrune) revert("PRUNE_FAILED");
-        return (true, returnGoalSynced);
+        return (returnRemovedFromParent, returnGoalSynced);
     }
 }
 

@@ -7,7 +7,6 @@ import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
-import { IUMATreasurySuccessResolver } from "../interfaces/IUMATreasurySuccessResolver.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -25,6 +24,7 @@ import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
+import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
 contract GoalTreasury is IGoalTreasury, TreasuryBase {
@@ -37,11 +37,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     string private constant SUCCESS_SETTLEMENT_BURN_MEMO = "GOAL_SUCCESS_SETTLEMENT_BURN";
     string private constant SUCCESS_RESIDUAL_BURN_MEMO = "GOAL_SUCCESS_RESIDUAL_BURN";
     string private constant TERMINAL_RESIDUAL_BURN_MEMO = "GOAL_TERMINAL_RESIDUAL_BURN";
-    uint8 private constant TERMINAL_OP_FLOW_STOP = 1;
-    uint8 private constant TERMINAL_OP_RESIDUAL_SETTLE = 2;
-    uint8 private constant TERMINAL_OP_DEFERRED_SETTLE = 3;
-    uint8 private constant TERMINAL_OP_STAKE_VAULT_RESOLVE = 4;
-    uint8 private constant TERMINAL_OP_ASSERTION_FINALIZE = 5;
     uint8 private constant DIRECTORY_FAILURE_NONE = 0;
     uint8 private constant DIRECTORY_FAILURE_INVALID = 1;
     uint8 private constant DIRECTORY_FAILURE_REVERT = 2;
@@ -330,8 +325,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function clearSuccessAssertion(bytes32 assertionId) external override {
         _requireSuccessResolver();
-        bytes32 clearedAssertionId = _successAssertions.clearMatching(assertionId);
-        emit SuccessAssertionCleared(clearedAssertionId);
+        bytes32 clearedAssertionId = TreasurySuccessAssertionLifecycle.clearMatching(_successAssertions, assertionId);
+        _emitSuccessAssertionCleared(clearedAssertionId);
         _tryActivateReassertGrace(clearedAssertionId);
     }
 
@@ -502,7 +497,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
         _reassertGrace.clearDeadline();
-        _clearPendingSuccessAssertion();
+        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
 
         uint64 finalizedAt = uint64(block.timestamp);
         _setState(finalState);
@@ -517,9 +512,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _runTerminalSideEffects(GoalState finalState) internal {
-        (bool flowStopped, bytes memory flowStopReason) = _tryForceFlowRateToZero();
+        (bool flowStopped, bytes memory flowStopRevertData) = _tryForceFlowRateToZero();
         if (!flowStopped) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_FLOW_STOP, flowStopReason);
+            emit TerminalFlowStopFailed(flowStopRevertData);
         }
 
         _trySettleResidual(finalState);
@@ -528,14 +523,14 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _trySettleResidual(GoalState finalState) internal {
-        try this.settleResidualForFinalize(finalState) {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_RESIDUAL_SETTLE, reason);
+        try this.settleResidualForFinalize(finalState) {} catch (bytes memory revertData) {
+            emit TerminalResidualSettlementFailed(revertData);
         }
     }
 
     function _trySettleDeferredHookFunding(GoalState finalState) internal {
-        try this.settleDeferredHookFundingForFinalize(finalState) {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_DEFERRED_SETTLE, reason);
+        try this.settleDeferredHookFundingForFinalize(finalState) {} catch (bytes memory revertData) {
+            emit TerminalDeferredHookFundingSettlementFailed(revertData);
         }
     }
 
@@ -543,14 +538,14 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         bool stakeVaultResolved;
         try _stakeVault.goalResolved() returns (bool resolved_) {
             stakeVaultResolved = resolved_;
-        } catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_STAKE_VAULT_RESOLVE, reason);
+        } catch (bytes memory revertData) {
+            emit TerminalStakeVaultResolutionFailed(revertData);
             return;
         }
         if (stakeVaultResolved) return;
 
-        try _stakeVault.markGoalResolved() {} catch (bytes memory reason) {
-            emit TerminalSideEffectFailed(TERMINAL_OP_STAKE_VAULT_RESOLVE, reason);
+        try _stakeVault.markGoalResolved() {} catch (bytes memory revertData) {
+            emit TerminalStakeVaultResolutionFailed(revertData);
         }
     }
 
@@ -563,11 +558,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _tryFinalizePostDeadline() internal returns (bool) {
-        (
-            bytes32 pendingAssertionId,
-            TreasuryPostDeadlineFinalize.Decision decision,
-            TreasurySuccessAssertions.FailClosedReason failClosedReason
-        ) = TreasuryPostDeadlineFinalize.evaluate(
+        TreasurySuccessAssertionLifecycle.PostDeadlineResolution memory resolution = TreasurySuccessAssertionLifecycle
+            .resolvePostDeadline(
                 _successAssertions,
                 _reassertGrace,
                 successResolver,
@@ -575,25 +567,21 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
                 successAssertionBond
             );
 
-        if (failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-            emit SuccessAssertionResolutionFailClosed(pendingAssertionId, failClosedReason);
+        if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
+            emit SuccessAssertionResolutionFailClosed(resolution.pendingAssertionId, resolution.failClosedReason);
         }
 
-        if (decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
-        if (decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
             _finalize(GoalState.Succeeded);
             return true;
         }
-        if (decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
-            bytes32 clearedAssertionId = _clearPendingSuccessAssertion();
-            if (clearedAssertionId != bytes32(0)) {
-                try IUMATreasurySuccessResolver(successResolver).finalize(clearedAssertionId) {} catch (
-                    bytes memory reason
-                ) {
-                    emit TerminalSideEffectFailed(TERMINAL_OP_ASSERTION_FINALIZE, reason);
-                }
+        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
+            _emitSuccessAssertionCleared(resolution.clearedAssertionId);
+            if (resolution.finalizeFailureData.length != 0) {
+                emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
             }
-            _tryActivateReassertGrace(clearedAssertionId);
+            _tryActivateReassertGrace(resolution.clearedAssertionId);
             return false;
         }
 
@@ -626,9 +614,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         return stateValue == GoalState.Succeeded || stateValue == GoalState.Expired;
     }
 
-    function _clearPendingSuccessAssertion() internal returns (bytes32 clearedAssertionId) {
-        clearedAssertionId = _successAssertions.clear();
-        if (clearedAssertionId == bytes32(0)) return bytes32(0);
+    function _emitSuccessAssertionCleared(bytes32 clearedAssertionId) internal {
+        if (clearedAssertionId == bytes32(0)) return;
         emit SuccessAssertionCleared(clearedAssertionId);
     }
 

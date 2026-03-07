@@ -120,10 +120,14 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     );
     event ResidualSettled(GoalState indexed finalState, uint256 totalSettled, uint256 controllerBurnAmount);
     event GoalFinalized(GoalState finalState);
-    event TerminalSideEffectFailed(uint8 indexed operation, bytes reason);
+    event TerminalFlowStopFailed(bytes revertData);
+    event TerminalResidualSettlementFailed(bytes revertData);
+    event TerminalDeferredHookFundingSettlementFailed(bytes revertData);
+    event TerminalStakeVaultResolutionFailed(bytes revertData);
     event StateTransition(GoalState previousState, GoalState newState);
     event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
     event SuccessAssertionCleared(bytes32 indexed assertionId);
+    event SuccessAssertionFinalizeFailed(bytes32 indexed assertionId, bytes revertData);
     event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
     event HookFundingDeferred(
         address indexed sourceToken,

@@ -96,7 +96,11 @@ interface IBudgetTreasury is
         uint256 superTokenAmount
     );
     event BudgetFinalized(BudgetState finalState);
-    event TerminalSideEffectFailed(uint8 indexed operation, bytes reason);
+    event TerminalFlowStopFailed(bytes revertData);
+    event TerminalPremiumEscrowCloseFailed(bytes revertData);
+    event TerminalResidualSettlementToParentFailed(bytes revertData);
+    event TerminalParentPruneFailed(bytes revertData);
+    event TerminalParentGoalSyncNotApplied(bool removedFromParent);
     event ResidualSettled(address indexed destination, uint256 amount);
     event StateTransition(BudgetState previousState, BudgetState newState);
     event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
@@ -105,6 +109,7 @@ interface IBudgetTreasury is
         bytes32 indexed assertionId,
         TreasurySuccessAssertions.FailClosedReason indexed reason
     );
+    event SuccessAssertionFinalizeFailed(bytes32 indexed assertionId, bytes revertData);
     event SuccessResolutionDisabled();
     event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
 
