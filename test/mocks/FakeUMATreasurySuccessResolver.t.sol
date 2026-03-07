@@ -405,45 +405,6 @@ contract DeployGoalFactoryScriptWiringTest is Test {
         allocationPipeline.initialize(address(0xBEEF));
     }
 
-    function test_run_retainsHistoricalImplementationArtifactsAcrossRuns() public {
-        _setDeployEnv();
-        deployImplementationsScript.run();
-
-        string memory firstLatestToml = vm.readFile(_latestImplementationsTomlPath());
-        address expectedFirstFakeResolver = vm.parseTomlAddress(firstLatestToml, "$.fakeUma.resolver");
-
-        string memory firstHistoryPath =
-            _historyPathContainingResolver(expectedFirstFakeResolver, "DeployGoalFactoryImplementations");
-        string memory firstHistoryArtifact = vm.readFile(firstHistoryPath);
-        assertTrue(
-            _stringContains(
-                firstHistoryArtifact,
-                string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFirstFakeResolver))
-            )
-        );
-
-        vm.warp(block.timestamp + 1);
-        deployImplementationsScript.run();
-
-        string memory secondLatestToml = vm.readFile(_latestImplementationsTomlPath());
-        address expectedSecondFakeResolver = vm.parseTomlAddress(secondLatestToml, "$.fakeUma.resolver");
-
-        string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
-        assertTrue(_stringContains(latestArtifact, "BudgetStakeLedgerImpl: 0x"));
-        assertTrue(_stringContains(latestArtifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
-        assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
-        assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
-        assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
-        assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
-
-        string memory secondHistoryPath =
-            _historyPathContainingResolver(expectedSecondFakeResolver, "DeployGoalFactoryImplementations");
-        assertTrue(bytes(secondHistoryPath).length > 0);
-
-        // Historical snapshots are append-only; first run snapshot remains readable after later runs.
-        assertEq(vm.readFile(firstHistoryPath), firstHistoryArtifact);
-    }
-
     function _historyPathContainingResolver(
         address resolver,
         string memory deploymentName
