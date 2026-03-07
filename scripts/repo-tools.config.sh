@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+COBUILD_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 repo_tools_join_lines() {
   local out_var="$1"
   shift
@@ -11,6 +13,24 @@ repo_tools_join_lines() {
   done
   printf -v "$out_var" '%s' "$joined"
   export "$out_var"
+}
+
+cobuild_repo_tool_bin() {
+  local bin_name="$1"
+  local local_bin="$COBUILD_REPO_ROOT/node_modules/.bin/$bin_name"
+
+  if [ -x "$local_bin" ]; then
+    printf '%s\n' "$local_bin"
+    return 0
+  fi
+
+  if command -v "$bin_name" >/dev/null 2>&1; then
+    command -v "$bin_name"
+    return 0
+  fi
+
+  echo "Error: missing repo-tools executable '$bin_name'. Install dependencies first." >&2
+  return 1
 }
 
 required_files=(
@@ -49,3 +69,28 @@ export COBUILD_DRIFT_CHANGED_COUNT_EXCLUDE_PATTERN='^agent-docs/generated/|^agen
 export COBUILD_DRIFT_ALLOW_RELEASE_ARTIFACTS_ONLY='0'
 export COBUILD_COMMITTER_EXAMPLE='fix(protocol): tighten treasury sync guard'
 export COBUILD_COMMITTER_DISALLOW_GLOBS=lib/\*$'\n'./lib/\*$'\n'
+export COBUILD_AUDIT_CONTEXT_PREFIX='cobuild-protocol-audit'
+export COBUILD_AUDIT_CONTEXT_TITLE='Cobuild Protocol Audit Bundle'
+export COBUILD_AUDIT_CONTEXT_REPO_LABEL='protocol'
+export COBUILD_AUDIT_CONTEXT_INCLUDE_TESTS_DEFAULT='0'
+export COBUILD_AUDIT_CONTEXT_INCLUDE_CI_DEFAULT='0'
+export COBUILD_AUDIT_CONTEXT_VALIDATE_SOLIDITY_IMPORT_CLOSURE='1'
+repo_tools_join_lines COBUILD_AUDIT_CONTEXT_ALWAYS_PATHS \
+  "AGENTS.md" \
+  "ARCHITECTURE.md" \
+  "README.md" \
+  "foundry.toml" \
+  "remappings.txt" \
+  "package.json"
+repo_tools_join_lines COBUILD_AUDIT_CONTEXT_SCAN_SPECS \
+  "src:*.sol"
+repo_tools_join_lines COBUILD_AUDIT_CONTEXT_TEST_SCAN_SPECS \
+  "test:*.sol"
+repo_tools_join_lines COBUILD_AUDIT_CONTEXT_DOC_SCAN_SPECS \
+  "agent-docs:*.md"
+repo_tools_join_lines COBUILD_AUDIT_CONTEXT_EXCLUDE_GLOBS \
+  "*CobuildSwap*" \
+  "*cobuildswap*" \
+  "src/interfaces/ICobuildSwap.sol" \
+  "src/interfaces/external/uniswap/IUniversalRouter.sol" \
+  "src/interfaces/external/uniswap/permit2/IAllowanceTransfer.sol"
