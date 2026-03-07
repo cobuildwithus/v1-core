@@ -661,10 +661,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         );
 
         bytes[][] memory allocationData = _parentAllocationData();
-        bytes32[] memory recipientIds = new bytes32[](1);
-        recipientIds[0] = SECOND_BUDGET_RECIPIENT_ID;
-        uint32[] memory scaled = new uint32[](1);
-        scaled[0] = FULL_SCALED;
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
 
         _setWeights(80e18);
         _allocateWithPrevStateForStrategy(
@@ -716,6 +713,49 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(ledger.checkpointCallCount(), checkpointsBefore);
         assertEq(childFlow.syncCallCount(), 0);
         assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(reducedStake, FULL_SCALED));
+        assertEq(
+            flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
+        );
+    }
+
+    function test_allocate_treasuryResolvedBeforeStakeVaultResolved_redirectsUnitsWhileSkippingLedgerAndChildSync()
+        public
+    {
+        FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
+        _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
+
+        _setWeights(25e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit-1"));
+        secondChildFlow.setCommit(keccak256("child-commit-2"));
+
+        goalTreasury.setResolved(true);
+        assertTrue(goalTreasury.resolved());
+        assertFalse(stakeVault.goalResolved());
+
+        bytes[][] memory allocationData = _parentAllocationData();
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
+
+        uint256 checkpointsBefore = ledger.checkpointCallCount();
+        uint256 premiumCheckpointsBefore = premiumEscrow.checkpointCallCount();
+
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), checkpointsBefore);
+        assertEq(premiumEscrow.checkpointCallCount(), premiumCheckpointsBefore);
+        assertEq(secondPremiumEscrow.checkpointCallCount(), 0);
+        assertEq(childFlow.syncCallCount(), 0);
+        assertEq(secondChildFlow.syncCallCount(), 0);
+        assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), 0);
+        assertEq(flow.distributionPool().getUnits(SECOND_BUDGET_RECIPIENT), _units(25e18, FULL_SCALED));
         assertEq(
             flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
         );
@@ -917,10 +957,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         benchmarkFlow.addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
         benchmarkLedger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(benchmarkBudgetTreasury));
 
-        bytes32[] memory recipientIds = new bytes32[](1);
-        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
-        uint32[] memory scaled = new uint32[](1);
-        scaled[0] = FULL_SCALED;
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
 
         uint256 initialWeight = 100 * UNIT_WEIGHT_SCALE;
         uint256 reducedWeight = 75 * UNIT_WEIGHT_SCALE;
@@ -968,12 +1005,20 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         ledger.setBudget(recipientId, budgetTreasuryAddress);
     }
 
-    function _singleParentAllocation() internal pure returns (bytes32[] memory recipientIds, uint32[] memory scaled) {
+    function _singleAllocation(bytes32 recipientId)
+        internal
+        pure
+        returns (bytes32[] memory recipientIds, uint32[] memory scaled)
+    {
         recipientIds = new bytes32[](1);
-        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        recipientIds[0] = recipientId;
 
         scaled = new uint32[](1);
         scaled[0] = FULL_SCALED;
+    }
+
+    function _singleParentAllocation() internal pure returns (bytes32[] memory recipientIds, uint32[] memory scaled) {
+        return _singleAllocation(PARENT_BUDGET_RECIPIENT_ID);
     }
 }
 
