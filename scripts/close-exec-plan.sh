@@ -2,4 +2,5 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-exec pnpm exec cobuild-close-exec-plan "$@"
+source scripts/repo-tools.config.sh
+exec "$(cobuild_repo_tool_bin cobuild-close-exec-plan)" "$@"
