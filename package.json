@@ -57,7 +57,7 @@
     "copy:changed-sol": "scripts/copy-sol-to-clipboard.sh --changed-non-tests",
     "copy:changed-sol-tests": "scripts/copy-sol-to-clipboard.sh --changed-tests",
     "copy:all-sol": "scripts/copy-all-sol.sh",
-    "zip:src": "scripts/package-audit-context.sh",
+    "zip:src": "bash scripts/package-audit-context.sh",
     "review:gpt": "cobuild-review-gpt --config scripts/review-gpt.config.sh",
     "review:gpt:nozip": "scripts/build-nozip-review-prompt.sh",
     "review:gpt:nozip:list": "scripts/build-nozip-review-prompt.sh --list-profiles",
