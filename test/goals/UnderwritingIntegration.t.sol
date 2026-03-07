@@ -58,7 +58,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
     uint256 internal constant COBUILD_REVNET_ID = 78;
     uint32 internal constant BUDGET_SLASH_PPM = 200_000; // 20%
     uint32 internal constant BUDGET_PREMIUM_PPM = 100_000;
-    uint256 internal constant COVERAGE_LAMBDA = 10;
     uint256 internal constant TARGET_SLASH_WEIGHT = 20e18;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
 
@@ -180,7 +179,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         goalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
         goalTreasury = new UnderwritingMockGoalTreasuryResolutionReporter(address(this), address(budgetStakeLedger));
         topologyStrategy = new UnderwritingBudgetTopologyStrategy();
-        goalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
         goalFlow.setFlowOperator(address(goalTreasury));
 
         PremiumEscrow implementation = new PremiumEscrow();
@@ -1262,7 +1260,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         delayedBudgetFlow.setManagerRewardDistributionPool(address(delayedManagerRewardPool));
         delayedBudgetTreasury.setFlow(address(delayedBudgetFlow));
         UnderwritingMockGoalFlow delayedGoalFlow = new UnderwritingMockGoalFlow(ISuperToken(address(goalSuperToken)));
-        delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
         delayedGoalFlow.setFlowOperator(address(delayedGoalTreasury));
         delayedBudgetStakeLedger.registerBudget(address(delayedBudgetTreasury));
 
@@ -1307,7 +1304,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
         delayedGoalTreasury =
             new UnderwritingMockGoalTreasuryResolutionReporter(address(this), predictedBudgetStakeLedger);
-        delayedGoalTreasury.setCoverageLambda(COVERAGE_LAMBDA);
         delayedGoalTreasury.setFlow(address(delayedGoalFlow));
         delayedGoalFlow.setFlowOperator(address(delayedGoalTreasury));
         delayedBudgetStakeLedger = new BudgetStakeLedger(address(delayedGoalTreasury));
@@ -1506,7 +1502,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     goalRevnetId: GOAL_REVNET_ID,
                     minRaiseDeadline: uint64(block.timestamp + 3 days),
                     minRaise: 100e18,
-                    coverageLambda: COVERAGE_LAMBDA,
                     budgetPremiumPpm: BUDGET_PREMIUM_PPM,
                     budgetSlashPpm: BUDGET_SLASH_PPM,
                     successResolver: address(stack.goalSuccessResolver),
@@ -2419,7 +2414,6 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             goalRevnetId: GOAL_REVNET_ID,
             minRaiseDeadline: uint64(block.timestamp + 3 days),
             minRaise: 100e18,
-            coverageLambda: 10,
             budgetPremiumPpm: 0,
             budgetSlashPpm: 0,
             successResolver: address(successResolverConfig),
@@ -2608,7 +2602,6 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
         address public immutable authority;
         address public immutable budgetStakeLedger;
         address public flow;
-        uint256 public coverageLambda;
         IGoalTreasury.GoalState internal _state = IGoalTreasury.GoalState.Succeeded;
         uint256 public settleLateResidualCalls;
 
@@ -2623,10 +2616,6 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
 
         function setFlow(address flow_) external {
             flow = flow_;
-        }
-
-        function setCoverageLambda(uint256 coverageLambda_) external {
-            coverageLambda = coverageLambda_;
         }
 
         function setState(IGoalTreasury.GoalState state_) external {

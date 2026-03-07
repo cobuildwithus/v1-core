@@ -33,7 +33,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         uint256 goalRevnetId;
         uint64 minRaiseDeadline;
         uint256 minRaise;
-        uint256 coverageLambda;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
         address successResolver;
@@ -70,7 +69,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     error DEADLINE_NOT_DERIVABLE();
     error INVALID_BUDGET_PREMIUM_PPM(uint256 ppm);
     error INVALID_BUDGET_SLASH_PPM(uint256 ppm);
-    error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm, uint256 coverageLambda);
+    error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
     error STAKE_VAULT_GOAL_MISMATCH(address expected, address actual);
     error BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address expected, address actual);
     error FLOW_AUTHORITY_MISMATCH(address expected, address flowOperator, address sweeper);
@@ -149,7 +148,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     function successAt() external view returns (uint64);
     function resolvedAt() external view returns (uint64);
     function minRaise() external view returns (uint256);
-    function coverageLambda() external view returns (uint256);
     function budgetPremiumPpm() external view returns (uint32);
     function budgetSlashPpm() external view returns (uint32);
     function totalRaised() external view returns (uint256);

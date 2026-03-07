@@ -66,7 +66,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,
-  - slash does not depend on `coverageLambda` or fixed budget `executionDuration`,
+  - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on fixed budget
+    `executionDuration`,
   - slashing is idempotent per underwriter per escrow.
 - Slashed value recycle path is routed and observable:
   - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,

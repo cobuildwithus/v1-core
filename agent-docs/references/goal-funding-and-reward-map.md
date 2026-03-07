@@ -70,7 +70,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - Premium inflow with zero budget coverage is recycled to goal funding path (no orphan premium custody).
 - On goal `Expired`, escrowed premium can be swept via `PremiumEscrow.burnOnGoalFailure()` to goal flow for terminal residual burn settlement.
 - On escrow close to `Failed` or post-activation `Expired`, `PremiumEscrow.slash(underwriter)` treats `creditDrawn` as first-loss principal attributed to that underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and calls `UnderwriterSlasherRouter`.
-- Slash no longer depends on `coverageLambda` or budget `executionDuration` resolution.
+- Slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
+  `executionDuration`.
 - `UnderwriterSlasherRouter` receives slashed stake via `StakeVault`, best-effort converts cobuild -> goal token, upgrades to goal SuperToken, and forwards to goal funding target; failures remain observable and retryable via `retryForwarding`.
 - Post-goal-resolution underwriter withdrawals are caller-prepared, not globally budget-gated:
   - each underwriter runs `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over registered budgets,

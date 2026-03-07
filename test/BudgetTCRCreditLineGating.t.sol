@@ -130,7 +130,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         goalFlow.setRecipientAdmin(address(budgetTcr));
     }
 
-    function test_syncBudgetTreasuries_ignoresCoverageLambdaAndEnablesBelowInsuredLine() public {
+    function test_syncBudgetTreasuries_enablesBelowInsuredLine() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -138,7 +138,6 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         uint256 coverage = 1_000e18;
         uint256 received = 49e18;
 
-        goalTreasury.setCoverageLambda(0);
         _checkpointCoverage(itemID, requester, coverage);
         goalFlow.setTotalReceivedByMember(childFlow, received);
         goalFlow.setRecipientEnabledState(itemID, false);
@@ -155,13 +154,12 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         assertTrue(goalFlow.recipientEnabled(itemID));
     }
 
-    function test_syncBudgetTreasuries_ignoresCoverageLambdaAndDisablesAtRunwayBoundaryWhenRunwayIsLower() public {
+    function test_syncBudgetTreasuries_disablesAtRunwayBoundaryWhenRunwayIsLower() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
 
         uint256 coverage = 50_000e18;
 
-        goalTreasury.setCoverageLambda(0);
         _checkpointCoverage(itemID, requester, coverage);
         goalFlow.setTotalReceivedByMember(childFlow, 1_000e18);
         goalFlow.setRecipientEnabledState(itemID, true);

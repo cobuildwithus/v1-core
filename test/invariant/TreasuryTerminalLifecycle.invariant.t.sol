@@ -472,7 +472,6 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 goalRevnetId: PROJECT_ID,
                 minRaiseDeadline: uint64(block.timestamp + 3 days),
                 minRaise: 100e18,
-                coverageLambda: 0,
                 budgetPremiumPpm: 0,
                 budgetSlashPpm: 0,
                 successResolver: address(this),

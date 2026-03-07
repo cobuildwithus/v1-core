@@ -11,7 +11,6 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        config.coverageLambda = 10;
         config.budgetPremiumPpm = 0;
         config.budgetSlashPpm = 50_000;
 
@@ -19,25 +18,22 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
             abi.encodeWithSelector(
                 IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
                 config.budgetPremiumPpm,
-                config.budgetSlashPpm,
-                config.coverageLambda
+                config.budgetSlashPpm
             )
         );
         clone.initialize(address(this), config);
     }
 
-    function test_initializeAllowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
+    function test_initializeAllowsSlashEnabledWhenPremiumIsNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        config.coverageLambda = 0;
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
         clone.initialize(address(this), config);
 
-        assertEq(clone.coverageLambda(), config.coverageLambda);
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
@@ -47,7 +43,6 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        config.coverageLambda = 10;
         config.budgetPremiumPpm = 0;
         config.budgetSlashPpm = 50_000;
 
@@ -55,41 +50,36 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
             abi.encodeWithSelector(
                 IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
                 config.budgetPremiumPpm,
-                config.budgetSlashPpm,
-                config.coverageLambda
+                config.budgetSlashPpm
             )
         );
         clone.initialize(address(this), config);
     }
 
-    function test_cloneInitializeAllowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
+    function test_cloneInitializeAllowsSlashEnabledWhenPremiumIsNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        config.coverageLambda = 0;
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
         clone.initialize(address(this), config);
 
-        assertEq(clone.coverageLambda(), config.coverageLambda);
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
 
-    function test_cloneInitializeAllowsSlashEnabledWhenPremiumAndCoverageAreNonZero() public {
+    function test_cloneInitializeAllowsSlashEnabledWhenPremiumAndSlashAreNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        config.coverageLambda = 10;
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
         clone.initialize(address(this), config);
 
-        assertEq(clone.coverageLambda(), config.coverageLambda);
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }

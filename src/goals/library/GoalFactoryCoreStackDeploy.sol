@@ -54,7 +54,6 @@ library GoalFactoryCoreStackDeploy {
         string flowUrl;
         uint64 minRaiseDeadline;
         uint256 minRaise;
-        uint256 coverageLambda;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
         address successResolver;
@@ -164,7 +163,6 @@ library GoalFactoryCoreStackDeploy {
             goalRevnetId: request.goalRevnetId,
             minRaiseDeadline: request.minRaiseDeadline,
             minRaise: request.minRaise,
-            coverageLambda: request.coverageLambda,
             budgetPremiumPpm: request.budgetPremiumPpm,
             budgetSlashPpm: request.budgetSlashPpm,
             successResolver: request.successResolver,

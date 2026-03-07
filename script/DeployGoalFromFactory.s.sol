@@ -55,7 +55,6 @@ contract DeployGoalFromFactory is DeployScript {
         string memory flowImage = vm.envOr("FLOW_IMAGE", string("ipfs://IMAGE"));
         string memory flowTagline = vm.envOr("FLOW_TAGLINE", string(""));
         string memory flowUrl = vm.envOr("FLOW_URL", string(""));
-        uint256 coverageLambda = vm.envOr("UNDERWRITING_COVERAGE_LAMBDA", uint256(0));
         uint256 budgetPremiumPpmRaw = vm.envOr("BUDGET_PREMIUM_PPM", uint256(0));
         if (budgetPremiumPpmRaw > 1_000_000) {
             revert BUDGET_PREMIUM_PPM_INVALID(budgetPremiumPpmRaw);
@@ -129,7 +128,6 @@ contract DeployGoalFromFactory is DeployScript {
                 title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
             underwriting: GoalFactory.UnderwritingParams({
-                coverageLambda: coverageLambda,
                 budgetPremiumPpm: budgetPremiumPpm,
                 budgetSlashPpm: budgetSlashPpm
             }),

@@ -11,6 +11,8 @@ Implement the underwriting redesign where budget credit is backed by bounded sla
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/GoalTreasury.sol`
 - `src/goals/GoalFactory.sol`
+- `src/interfaces/IGoalTreasury.sol`
+- `src/goals/library/GoalFactoryCoreStackDeploy.sol`
 - Architecture/spec docs:
   - `ARCHITECTURE.md`
   - `agent-docs/cobuild-protocol-architecture.md`
@@ -32,21 +34,25 @@ Implement the underwriting redesign where budget credit is backed by bounded sla
 ## Design
 
 1. Budget credit-cap gating:
-- replace duration-based line `coverage * executionDuration / coverageLambda` with slashable first-loss line `coverage * budgetSlashPpm / 1e6`,
+- replace the prior duration-amplified insured line with slashable first-loss line `coverage * budgetSlashPpm / 1e6`,
 - continue applying `runwayCap` as an optional lower ceiling,
 - keep gating receive-side and best-effort.
 
 2. Budget failure slashing:
 - treat `creditDrawn` as insured principal attributed to the underwriter,
 - slash `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,
-- remove dependence on `coverageLambda` and `executionDuration` for slash weight calculation.
+- remove dependence on the legacy coverage-ratio field and `executionDuration` for slash weight calculation.
 
 3. Goal config validation:
 - keep `budgetSlashPpm != 0 => budgetPremiumPpm != 0`,
-- stop requiring `coverageLambda != 0` for slash-enabled goals.
+- stop requiring the legacy coverage-ratio field for slash-enabled goals.
 
 4. Docs:
 - update architecture/spec references from duration-normalized credit/slash semantics to first-loss tranche semantics.
+
+5. Follow-up cleanup:
+- remove inert legacy underwriting config/storage/getter plumbing now that runtime underwriting logic no longer uses it,
+- update tests and docs to treat that removal as an interface cleanup, not a behavior change.
 
 ## Verification Plan
 
@@ -69,6 +75,7 @@ Implement the underwriting redesign where budget credit is backed by bounded sla
 - 2026-03-07: Applied the first-loss underwriting redesign across `BudgetTCR`, `BudgetTCRCreditCapActions`, `PremiumEscrow`, `GoalTreasury`, and `GoalFactory`.
 - 2026-03-07: Updated architecture/spec/economic docs to describe slashable first-loss insured line semantics and duration-independent slashing.
 - 2026-03-07: Updated targeted underwriting tests for the new semantics and added focused regressions for zero-duration and zero-slash edge cases.
+- 2026-03-07: Coverage audit added a focused regression for the zero-slash `UnderwriterSlashCalculated` event shape after the legacy underwriting field was removed.
 - 2026-03-07: Targeted test runs passed:
   - `forge test --match-path test/goals/PremiumEscrow.t.sol`
   - `forge test --match-path test/goals/GoalTreasuryUnderwritingConfigGuard.t.sol`
@@ -86,3 +93,5 @@ Implement the underwriting redesign where budget credit is backed by bounded sla
     - `test/goals/BudgetStakeLedgerDerivedStateAudit.t.sol`
     - `test/goals/BudgetStakeLedgerRecipientIdMaxMerge.t.sol`
     - real-topology tests in `test/goals/UnderwritingIntegration.t.sol`.
+- 2026-03-07: Follow-up accepted: remove the now-inert legacy underwriting field entirely because it has no remaining runtime effect.
+- 2026-03-07: Follow-up verification reran `pnpm -s lint:solidity:warnings` successfully and `pnpm -s verify:required` reproduced the same pre-existing 12 `INVALID_BUDGET_TOPOLOGY` failures with no new regressions.

@@ -75,14 +75,13 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     );
 
     /// @notice Emitted with the inputs used to compute slashing for an underwriter.
-    /// @dev `coverageLambda` is retained for ABI continuity but is no longer consulted by first-loss slashing and is emitted as `0`.
-    ///      `usedCreditFormula == false` only on zero-slash-ppm early return paths; otherwise `rawSlashWeight` equals `creditDrawn` before the cap is applied.
+    /// @dev `usedCreditFormula == false` only on zero-slash-ppm early return paths; otherwise
+    ///      `rawSlashWeight` equals `creditDrawn` before the cap is applied.
     event UnderwriterSlashCalculated(
         address indexed underwriter,
         bool usedCreditFormula,
         uint256 creditDrawn,
         uint256 premiumEarned,
-        uint256 coverageLambda,
         uint256 duration,
         uint256 rawSlashWeight,
         uint256 capWeight,
@@ -368,7 +367,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
                 false,
                 accountState.creditDrawn,
                 accountState.premiumEarned,
-                0,
                 duration,
                 0,
                 capWeight,
@@ -390,7 +388,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
             true,
             accountState.creditDrawn,
             accountState.premiumEarned,
-            0,
             duration,
             rawSlashWeight,
             capWeight,

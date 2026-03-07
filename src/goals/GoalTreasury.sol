@@ -62,7 +62,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     uint64 public override minRaiseDeadline;
     uint64 public override deadline;
     uint256 public override minRaise;
-    uint256 public override coverageLambda;
     uint32 public override budgetPremiumPpm;
     uint32 public override budgetSlashPpm;
     address public override successResolver;
@@ -129,11 +128,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             revert INVALID_BUDGET_SLASH_PPM(config.budgetSlashPpm);
         }
         if (config.budgetSlashPpm != 0 && config.budgetPremiumPpm == 0) {
-            revert INVALID_UNDERWRITING_SLASH_CONFIG(
-                config.budgetPremiumPpm,
-                config.budgetSlashPpm,
-                config.coverageLambda
-            );
+            revert INVALID_UNDERWRITING_SLASH_CONFIG(config.budgetPremiumPpm, config.budgetSlashPpm);
         }
 
         uint256 nowTs = block.timestamp;
@@ -173,7 +168,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         minRaiseDeadline = config.minRaiseDeadline;
         deadline = derivedDeadline;
         minRaise = config.minRaise;
-        coverageLambda = config.coverageLambda;
         budgetPremiumPpm = config.budgetPremiumPpm;
         budgetSlashPpm = config.budgetSlashPpm;
         successResolver = config.successResolver;

@@ -175,7 +175,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - `PremiumEscrow` checkpoints account coverage, accrues premium from indexed inflows, recycles orphan premium when coverage is zero, and gates claims on parent goal success.
 - On goal `Expired`, escrowed premium becomes unclaimable and can be swept to goal flow via `burnOnGoalFailure()` for terminal residual burn settlement.
 - `PremiumEscrow.close` freezes coverage at budget terminalization; `PremiumEscrow.slash` treats `creditDrawn` as first-loss principal attributed to the underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`.
-- Slash no longer depends on `coverageLambda` or budget `executionDuration` resolution.
+- Slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
+  `executionDuration`.
 - Underwriter withdrawals are caller-prepared post-resolution:
   - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
   - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.

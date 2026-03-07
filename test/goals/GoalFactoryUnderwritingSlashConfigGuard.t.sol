@@ -965,7 +965,6 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_deployGoal_revertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.underwriting.coverageLambda = 10;
         p.underwriting.budgetPremiumPpm = 0;
         p.underwriting.budgetSlashPpm = 50_000;
 
@@ -973,16 +972,14 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             abi.encodeWithSelector(
                 GoalFactory.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
                 p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm,
-                p.underwriting.coverageLambda
+                p.underwriting.budgetSlashPpm
             )
         );
         factory.deployGoal(p);
     }
 
-    function test_deployGoal_allowsSlashEnabledWhenCoverageLambdaIsZero_ifPremiumIsNonZero() public {
+    function test_deployGoal_allowsSlashEnabledWhenPremiumIsNonZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.underwriting.coverageLambda = 0;
         p.underwriting.budgetPremiumPpm = 100_000;
         p.underwriting.budgetSlashPpm = 50_000;
 

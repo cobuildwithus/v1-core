@@ -95,7 +95,6 @@ contract GoalFactory {
     }
 
     struct UnderwritingParams {
-        uint256 coverageLambda;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
     }
@@ -153,7 +152,7 @@ contract GoalFactory {
     error INVALID_TAX_RATE();
     error INVALID_ASSERTION_CONFIG();
     error INVALID_SCALE();
-    error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm, uint256 coverageLambda);
+    error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
     error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
     error INVALID_COBUILD_TERMINAL_DIRECTORY(address expected, address actual);
@@ -310,11 +309,7 @@ contract GoalFactory {
             revert INVALID_SCALE();
         }
         if (p.underwriting.budgetSlashPpm != 0 && p.underwriting.budgetPremiumPpm == 0) {
-            revert INVALID_UNDERWRITING_SLASH_CONFIG(
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm,
-                p.underwriting.coverageLambda
-            );
+            revert INVALID_UNDERWRITING_SLASH_CONFIG(p.underwriting.budgetPremiumPpm, p.underwriting.budgetSlashPpm);
         }
 
         GoalTreasury goalTreasury = GoalTreasury(Clones.clone(GOAL_TREASURY_IMPL));
@@ -437,7 +432,6 @@ contract GoalFactory {
                     flowUrl: p.flowMetadata.url,
                     minRaiseDeadline: minRaiseDeadline,
                     minRaise: p.timing.minRaise,
-                    coverageLambda: p.underwriting.coverageLambda,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm,
                     successResolver: p.success.successResolver,

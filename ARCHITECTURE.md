@@ -103,7 +103,8 @@ cobuild-protocol/
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter and slashes `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`, routing through the per-goal underwriter slasher router,
-  - slash no longer depends on `coverageLambda` or budget `executionDuration` resolution.
+  - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
+    `executionDuration`.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as StakeVault underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (conversion failures are observable and retained),

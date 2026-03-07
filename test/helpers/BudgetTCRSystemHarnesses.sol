@@ -353,7 +353,6 @@ contract BudgetTCRGoalTreasuryHarness {
     address public budgetStakeLedger;
     address public flow;
     address public stakeVault;
-    uint256 public coverageLambda;
     bool public resolved;
     bool public shouldRevertSync;
     uint256 public syncCallCount;
@@ -386,10 +385,6 @@ contract BudgetTCRGoalTreasuryHarness {
 
     function setStakeVault(address stakeVault_) external {
         stakeVault = stakeVault_;
-    }
-
-    function setCoverageLambda(uint256 coverageLambda_) external {
-        coverageLambda = coverageLambda_;
     }
 
     function setResolved(bool resolved_) external {
