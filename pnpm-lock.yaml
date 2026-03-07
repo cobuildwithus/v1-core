@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@cobuild/repo-tools':
-        specifier: ^0.1.10
-        version: 0.1.10
+        specifier: ^0.1.12
+        version: 0.1.12
       '@cobuild/review-gpt':
         specifier: ^0.2.15
         version: 0.2.15
@@ -26,8 +26,8 @@ importers:
 
 packages:
 
-  '@cobuild/repo-tools@0.1.10':
-    resolution: {integrity: sha512-Hzo5eFDoxfZFCXqrcYqyVEgsikgWVoqKBMGBGoJUhHNfJDaTQWZtmZkq5Y3mft0hTvx9Nbyho0zJKxOZhwZ6ng==}
+  '@cobuild/repo-tools@0.1.12':
+    resolution: {integrity: sha512-8IWXjyV8FzvCybuiL9imoXxaMC6QWwf7/BH+b4tYzaGtq5fcNIfovhFMwZVIav99n3UHG1roWiDgUicYyORwng==}
     hasBin: true
 
   '@cobuild/review-gpt@0.2.15':
@@ -60,7 +60,7 @@ packages:
 
 snapshots:
 
-  '@cobuild/repo-tools@0.1.10': {}
+  '@cobuild/repo-tools@0.1.12': {}
 
   '@cobuild/review-gpt@0.2.15': {}
 
