@@ -13,6 +13,7 @@ import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
@@ -1340,7 +1341,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         vm.prank(address(delayedGoalTreasury));
         delayedVault.setUnderwriterSlasher(address(delayedRouter));
 
-        delayedBudgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        delayedBudgetFlow = new UnderwritingTopologyAwareMockFlow(
+            ISuperToken(address(goalSuperToken)), IAllocationStrategy(address(topologyStrategy))
+        );
         delayedBudgetFlow.setParent(address(delayedGoalFlow));
         delayedBudgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
         SharedMockSuperfluidPool delayedManagerRewardPool = new SharedMockSuperfluidPool();
@@ -1471,7 +1474,9 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
             GOAL_FUNDING_TARGET
         );
 
-        stack.budgetFlow = new SharedMockFlow(ISuperToken(address(goalSuperToken)));
+        stack.budgetFlow = new UnderwritingTopologyAwareMockFlow(
+            ISuperToken(address(goalSuperToken)), IAllocationStrategy(address(topologyStrategy))
+        );
         stack.budgetFlow.setParent(address(stack.goalFlow));
         stack.budgetFlow.setManagerRewardPoolFlowRatePpm(BUDGET_PREMIUM_PPM);
         SharedMockSuperfluidPool delayedManagerRewardPool = new SharedMockSuperfluidPool();
@@ -2485,6 +2490,18 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
 
         function userAllocatedStakeOnBudget(address account, address budgetTreasury) external view returns (uint256) {
             return _coverage[account][budgetTreasury];
+        }
+    }
+
+    contract UnderwritingTopologyAwareMockFlow is SharedMockFlow {
+        IAllocationStrategy[] internal _strategies;
+
+        constructor(ISuperToken superToken_, IAllocationStrategy strategy_) SharedMockFlow(superToken_) {
+            _strategies.push(strategy_);
+        }
+
+        function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
+            strategies_ = _strategies;
         }
     }
 

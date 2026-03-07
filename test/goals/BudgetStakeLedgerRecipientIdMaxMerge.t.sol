@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
@@ -32,7 +33,7 @@ contract BudgetStakeLedgerRecipientIdMaxMergeTest is Test, IBudgetStackTopologyR
         ledger = new BudgetStakeLedger(address(goalTreasury));
 
         topologyStrategy = new RecipientIdMaxTopologyStrategy();
-        RecipientIdMaxBudgetFlow budgetFlow = new RecipientIdMaxBudgetFlow(address(goalFlow));
+        RecipientIdMaxBudgetFlow budgetFlow = new RecipientIdMaxBudgetFlow(address(goalFlow), address(topologyStrategy));
         maxBudget = new RecipientIdMaxBudgetTreasury(address(budgetFlow));
 
         _setTopology(
@@ -187,9 +188,16 @@ contract RecipientIdMaxGoalFlow {
 
 contract RecipientIdMaxBudgetFlow {
     address public parent;
+    address internal _strategy;
 
-    constructor(address parent_) {
+    constructor(address parent_, address strategy_) {
         parent = parent_;
+        _strategy = strategy_;
+    }
+
+    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
+        strategies_ = new IAllocationStrategy[](1);
+        strategies_[0] = IAllocationStrategy(_strategy);
     }
 }
 

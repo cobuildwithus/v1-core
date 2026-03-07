@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
@@ -34,7 +35,7 @@ contract BudgetStakeLedgerDerivedStateAuditTest is Test, IBudgetStackTopologyRea
 
         topologyStrategy = new BudgetStakeLedgerDerivedStateTopologyStrategy();
         BudgetStakeLedgerDerivedStateBudgetFlow budgetFlow =
-            new BudgetStakeLedgerDerivedStateBudgetFlow(address(goalFlow));
+            new BudgetStakeLedgerDerivedStateBudgetFlow(address(goalFlow), address(topologyStrategy));
         budget = new BudgetStakeLedgerDerivedStateBudgetTreasury(address(budgetFlow));
 
         _setTopology(
@@ -194,9 +195,16 @@ contract BudgetStakeLedgerDerivedStateGoalFlow {
 
 contract BudgetStakeLedgerDerivedStateBudgetFlow {
     address public parent;
+    address internal _strategy;
 
-    constructor(address parent_) {
+    constructor(address parent_, address strategy_) {
         parent = parent_;
+        _strategy = strategy_;
+    }
+
+    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
+        strategies_ = new IAllocationStrategy[](1);
+        strategies_[0] = IAllocationStrategy(_strategy);
     }
 }
 

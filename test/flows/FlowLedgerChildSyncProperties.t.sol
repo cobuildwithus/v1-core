@@ -807,7 +807,8 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         vm.prank(address(budgetRegistryManager));
         ICustomFlow(realFlow).addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
 
-        FlowLedgerPropBudgetFlowRegistrable registrableBudgetFlow = new FlowLedgerPropBudgetFlowRegistrable(realFlow);
+        FlowLedgerPropBudgetFlowRegistrable registrableBudgetFlow =
+            new FlowLedgerPropBudgetFlowRegistrable(realFlow, address(strategy));
         FlowLedgerPropPremiumEscrow registrablePremiumEscrow = new FlowLedgerPropPremiumEscrow();
         FlowLedgerPropBudgetTreasuryRegistrable registrableBudgetTreasury = new FlowLedgerPropBudgetTreasuryRegistrable(
             address(registrableBudgetFlow), address(registrablePremiumEscrow), uint64(block.timestamp)
@@ -1396,9 +1397,16 @@ contract FlowLedgerPropChildFlow {
 
 contract FlowLedgerPropBudgetFlowRegistrable {
     address public parent;
+    address internal _strategy;
 
-    constructor(address parent_) {
+    constructor(address parent_, address strategy_) {
         parent = parent_;
+        _strategy = strategy_;
+    }
+
+    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
+        strategies_ = new IAllocationStrategy[](1);
+        strategies_[0] = IAllocationStrategy(_strategy);
     }
 }
 
