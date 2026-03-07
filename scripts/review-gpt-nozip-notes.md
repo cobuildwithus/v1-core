@@ -68,6 +68,6 @@ Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
 Notes:
 
-- `--prompt-file` is provided by `cobuild-review-gpt` (in `review-gpt-cli`), and the direct wrappers now call that CLI directly with `--config scripts/review-gpt.config.sh`.
-- If your installed CLI does not show `--prompt-file` in `pnpm exec cobuild-review-gpt --help`, install/update from `../review-gpt-cli` first.
+- `--prompt-file` is provided by `cobuild-review-gpt` (in `review-gpt`), and the direct wrappers now call that CLI directly with `--config scripts/review-gpt.config.sh`.
+- If your installed CLI does not show `--prompt-file` in `pnpm exec cobuild-review-gpt --help`, install/update from `../review-gpt` first.
 - Repeat `--prompt-file` to combine multiple local markdown payloads in one request when within the model size cap.

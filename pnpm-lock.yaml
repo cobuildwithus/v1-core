@@ -9,11 +9,11 @@ importers:
   .:
     devDependencies:
       '@cobuild/repo-tools':
-        specifier: ^0.1.8
-        version: 0.1.8
+        specifier: ^0.1.10
+        version: 0.1.10
       '@cobuild/review-gpt':
-        specifier: ^0.2.13
-        version: 0.2.13
+        specifier: ^0.2.15
+        version: 0.2.15
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -26,12 +26,12 @@ importers:
 
 packages:
 
-  '@cobuild/repo-tools@0.1.8':
-    resolution: {integrity: sha512-Z/0PFzwL0pckp6fh/axd++ltcbme9TIdH1hIJXkOH49rrbOJdOjlWTkSv5NqbWrRiAU3tBBtbeIAteLKz8lGZg==}
+  '@cobuild/repo-tools@0.1.10':
+    resolution: {integrity: sha512-Hzo5eFDoxfZFCXqrcYqyVEgsikgWVoqKBMGBGoJUhHNfJDaTQWZtmZkq5Y3mft0hTvx9Nbyho0zJKxOZhwZ6ng==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.2.13':
-    resolution: {integrity: sha512-HVbDG/PaLj6V3ghMG/G+2XWDCenreJAXaygz+c56Raxr/gZM++4lsy1uVBc70lhADgVUV0/PF1bY7R43VKOuSQ==}
+  '@cobuild/review-gpt@0.2.15':
+    resolution: {integrity: sha512-wxpb5fwLya/DjNlBS1YOzqrccPk73OoEFxViMpMVDmIfI+UjcA16qSzO+hLndwpGAY3Xnzbk2yMvlZvtrlkDbw==}
     hasBin: true
 
   '@solidity-parser/parser@0.20.2':
@@ -60,9 +60,9 @@ packages:
 
 snapshots:
 
-  '@cobuild/repo-tools@0.1.8': {}
+  '@cobuild/repo-tools@0.1.10': {}
 
-  '@cobuild/review-gpt@0.2.13': {}
+  '@cobuild/review-gpt@0.2.15': {}
 
   '@solidity-parser/parser@0.20.2': {}
 
