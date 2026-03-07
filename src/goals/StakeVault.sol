@@ -603,23 +603,23 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function currentWeight(uint256 key) external view override returns (uint256) {
-        if (goalResolved) return 0;
+        if (_allocationFrozen()) return 0;
         return _stakeWeightOf(_accountForKey(key));
     }
 
     function canAllocate(uint256 key, address caller) external view override returns (bool) {
-        if (goalResolved) return false;
+        if (_allocationFrozen()) return false;
         address allocator = _accountForKey(key);
         return caller == allocator && _stakeWeightOf(allocator) > 0;
     }
 
     function canAccountAllocate(address account) external view override returns (bool) {
-        if (goalResolved) return false;
+        if (_allocationFrozen()) return false;
         return _stakeWeightOf(account) > 0;
     }
 
     function accountAllocationWeight(address account) external view override returns (uint256) {
-        if (goalResolved) return 0;
+        if (_allocationFrozen()) return 0;
         return _stakeWeightOf(account);
     }
 
@@ -771,6 +771,10 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
     function _requireStakingOpen() internal view {
         _requireCurrentRuleset(goalRulesets, goalRevnetId);
+    }
+
+    function _allocationFrozen() private view returns (bool) {
+        return goalResolved || _goalTreasuryReportsResolved();
     }
 
     function _goalTreasuryReportsResolved() private view returns (bool) {

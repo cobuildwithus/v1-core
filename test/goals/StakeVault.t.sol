@@ -110,6 +110,13 @@ contract StakeVaultTest is Test {
         return address(this);
     }
 
+    function _assertAllocationFrozen(StakeVault targetVault, uint256 key, address account) internal {
+        assertEq(targetVault.currentWeight(key), 0);
+        assertEq(targetVault.accountAllocationWeight(account), 0);
+        assertFalse(targetVault.canAllocate(key, account));
+        assertFalse(targetVault.canAccountAllocate(account));
+    }
+
     function registeredBudgetCount() external pure returns (uint256) {
         return 0;
     }
@@ -195,10 +202,39 @@ contract StakeVaultTest is Test {
 
         vault.markGoalResolved();
 
-        assertEq(vault.currentWeight(key), 0);
-        assertEq(vault.accountAllocationWeight(alice), 0);
-        assertFalse(vault.canAllocate(key, alice));
-        assertFalse(vault.canAccountAllocate(alice));
+        _assertAllocationFrozen(vault, key, alice);
+    }
+
+    function test_strategy_whenTreasuryReportsResolved_allocationDisabledAndWeightZero() public {
+        VaultResolvedSignal signal = new VaultResolvedSignal();
+
+        StakeVault signalVault = new StakeVault(
+            address(signal),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        vm.startPrank(alice);
+        goalToken.approve(address(signalVault), type(uint256).max);
+        cobuildToken.approve(address(signalVault), type(uint256).max);
+        signalVault.depositGoal(20e18);
+        signalVault.depositCobuild(5e18);
+        vm.stopPrank();
+
+        uint256 key = uint256(uint160(alice));
+        assertEq(signalVault.currentWeight(key), 15e18);
+        assertEq(signalVault.accountAllocationWeight(alice), 15e18);
+        assertTrue(signalVault.canAllocate(key, alice));
+        assertTrue(signalVault.canAccountAllocate(alice));
+        assertFalse(signalVault.goalResolved());
+
+        signal.setResolved(true);
+
+        assertFalse(signalVault.goalResolved());
+        _assertAllocationFrozen(signalVault, key, alice);
     }
 
     function test_constructor_revertsOnZeroGoalToken() public {
