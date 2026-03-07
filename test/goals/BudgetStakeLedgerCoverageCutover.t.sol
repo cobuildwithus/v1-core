@@ -9,6 +9,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
+import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
@@ -37,6 +38,9 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
         strategy = new BudgetStakeLedgerCoverageStrategy();
         budgetFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(goalFlow));
+        address[] memory childStrategies = new address[](1);
+        childStrategies[0] = address(strategy);
+        budgetFlow.setStrategies(childStrategies);
         budget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
 
         _configureTopology(RECIPIENT, address(budget), address(budgetFlow), address(strategy), true);
@@ -427,6 +431,34 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(0xBEEF), true);
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        );
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTopologyStrategyDoesNotMatchChildFlowStrategy() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageStrategy otherStrategy = new BudgetStakeLedgerCoverageStrategy();
+
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(otherStrategy), true);
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        );
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenChildFlowDoesNotExposeSingleStrategy() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageStrategy otherStrategy = new BudgetStakeLedgerCoverageStrategy();
+        address[] memory childStrategies = new address[](2);
+        childStrategies[0] = address(strategy);
+        childStrategies[1] = address(otherStrategy);
+        budgetFlow.setStrategies(childStrategies);
+
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         vm.expectRevert(
             abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
         );
@@ -853,9 +885,25 @@ contract BudgetStakeLedgerCoverageGoalFlow {
 
 contract BudgetStakeLedgerCoverageBudgetFlow {
     address public parent;
+    address[] private _strategyAddresses;
 
     constructor(address parent_) {
         parent = parent_;
+    }
+
+    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
+        uint256 count = _strategyAddresses.length;
+        strategies_ = new IAllocationStrategy[](count);
+        for (uint256 i = 0; i < count; ) {
+            strategies_[i] = IAllocationStrategy(_strategyAddresses[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function setStrategies(address[] memory strategyAddresses_) external {
+        _strategyAddresses = strategyAddresses_;
     }
 }
 

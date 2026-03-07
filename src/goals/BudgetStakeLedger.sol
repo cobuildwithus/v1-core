@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IBudgetStackTopologyReader } from "../interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { FlowUnitMath } from "../library/FlowUnitMath.sol";
@@ -380,6 +381,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         address budgetFlow = _readBudgetFlow(budgetTreasury, budget);
         if (budgetFlow != topology.childFlow) revert INVALID_BUDGET_TOPOLOGY(budget);
         _requireBudgetFlowParent(goalFlow, budgetFlow);
+        _requireChildFlowUsesExpectedSingleStrategy(budgetFlow, topology.strategy, budget);
 
         if (_readExecutionDuration(budgetTreasury, budget) == 0) revert INVALID_BUDGET_EXECUTION_DURATION(budget);
         if (_readFundingDeadline(budgetTreasury, budget) == 0) revert INVALID_BUDGET_FUNDING_DEADLINE(budget);
@@ -413,6 +415,22 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         if (parentFlow != goalFlow) {
             revert INVALID_BUDGET_PARENT_MISMATCH(budgetFlow, goalFlow, parentFlow);
         }
+    }
+
+    function _requireChildFlowUsesExpectedSingleStrategy(
+        address childFlow,
+        address expectedStrategy,
+        address budget
+    ) internal view {
+        IAllocationStrategy[] memory childStrategies;
+        try IFlow(childFlow).strategies() returns (IAllocationStrategy[] memory strategies_) {
+            childStrategies = strategies_;
+        } catch {
+            revert INVALID_BUDGET_TOPOLOGY(budget);
+        }
+
+        if (childStrategies.length != 1) revert INVALID_BUDGET_TOPOLOGY(budget);
+        if (address(childStrategies[0]) != expectedStrategy) revert INVALID_BUDGET_TOPOLOGY(budget);
     }
 
     function _readExecutionDuration(
