@@ -725,22 +725,28 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
         uint256 reservePremium = boosted - issuanceBase;
         if (reservePremium == 0) return issuanceBase;
 
-        // Fetch activation + deadline from the treasury. These are best-effort: if unavailable or unset,
-        // fall back to fully reserve-boosted weight.
-        if (goalTreasury.code.length == 0) return boosted;
+        // Activation/pre-activation still receives the full reserve premium, but the metadata reads that
+        // determine decay are required for this accounting path and must fail closed if unavailable.
+        if (goalTreasury.code.length == 0) revert GOAL_TREASURY_WEIGHT_METADATA_UNAVAILABLE();
 
         uint64 activated;
         uint64 end;
         IGoalTreasury treasury = IGoalTreasury(goalTreasury);
         try treasury.activatedAt() returns (uint64 activatedAt_) {
             activated = activatedAt_;
-        } catch {}
+        } catch {
+            revert GOAL_TREASURY_WEIGHT_METADATA_UNAVAILABLE();
+        }
         try treasury.deadline() returns (uint64 deadline_) {
             end = deadline_;
-        } catch {}
+        } catch {
+            revert GOAL_TREASURY_WEIGHT_METADATA_UNAVAILABLE();
+        }
 
-        // Not yet activated or deadline unknown => no decay.
-        if (activated == 0 || end == 0) return boosted;
+        if (end == 0) revert GOAL_TREASURY_WEIGHT_METADATA_UNAVAILABLE();
+
+        // Not yet activated => no decay.
+        if (activated == 0) return boosted;
 
         // If the activation/deadline window is degenerate, treat as fully decayed reserve premium.
         if (end <= activated) return issuanceBase;

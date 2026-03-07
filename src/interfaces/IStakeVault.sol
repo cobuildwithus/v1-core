@@ -17,6 +17,7 @@ interface IStakeVault {
     error INVALID_AMOUNT();
     error TRANSFER_AMOUNT_MISMATCH();
     error ZERO_WEIGHT_DELTA();
+    error GOAL_TREASURY_WEIGHT_METADATA_UNAVAILABLE();
     error GOAL_NOT_RESOLVED();
     error INSUFFICIENT_STAKED_BALANCE();
     error GOAL_STAKING_CLOSED();
