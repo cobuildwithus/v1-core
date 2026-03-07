@@ -736,11 +736,13 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         secondChildFlow.setCommit(keccak256("child-commit-2"));
 
         goalTreasury.setResolved(true);
-        assertTrue(goalTreasury.resolved());
         assertFalse(stakeVault.goalResolved());
 
         bytes[][] memory allocationData = _parentAllocationData();
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
+        ICustomFlow.ChildSyncRequirement[] memory reqs =
+            flow.previewChildSyncRequirements(address(strategy), parentKey, recipientIds, scaled);
+        assertEq(reqs.length, 0);
 
         uint256 checkpointsBefore = ledger.checkpointCallCount();
         uint256 premiumCheckpointsBefore = premiumEscrow.checkpointCallCount();
