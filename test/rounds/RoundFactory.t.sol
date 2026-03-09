@@ -9,6 +9,7 @@ import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
@@ -34,6 +35,22 @@ contract RoundTestZeroUnderlyingSuperToken {
 }
 
 contract RoundFactoryTest is Test {
+    struct LegacyArbitratorConfig {
+        uint256 votingPeriod;
+        uint256 votingDelay;
+        uint256 revealPeriod;
+        uint256 arbitrationCost;
+        uint256 wrongOrMissedSlashBps;
+        uint256 slashCallerBountyBps;
+    }
+
+    struct LegacyAllocationMechanismConfig {
+        RoundFactory.RoundTiming timing;
+        address roundOperator;
+        IGeneralizedTCRConfig.RegistryPolicy tcrPolicy;
+        LegacyArbitratorConfig arbConfig;
+    }
+
     MockVotesToken internal underlying;
     RoundTestSuperToken internal superToken;
 
@@ -135,9 +152,7 @@ contract RoundFactoryTest is Test {
                 votingPeriod: 1,
                 votingDelay: 1,
                 revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST,
-                wrongOrMissedSlashBps: 0,
-                slashCallerBountyBps: 0
+                arbitrationCost: ARBITRATION_COST
             })
         );
     }
@@ -273,6 +288,103 @@ contract RoundFactoryTest is Test {
         assertEq(arb.slashCallerBountyBps(), 0);
         assertEq(arb.fixedBudgetTreasury(), address(budgetTreasury));
         assertEq(arb.stakeVault(), address(stakeVault));
+    }
+
+    function test_deployForBudget_decodesReducedConfigAndKeepsArbitratorNonSlashing() public {
+        bytes32 roundId = keccak256("round-generic-factory");
+        uint64 startAt = uint64(block.timestamp + 5);
+        uint64 endAt = uint64(block.timestamp + 45 days);
+        RoundFactory.AllocationMechanismConfig memory cfg = RoundFactory.AllocationMechanismConfig({
+            timing: RoundFactory.RoundTiming({ startAt: startAt, endAt: endAt }),
+            roundOperator: roundOperator,
+            tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: hex"baddcafe",
+                registrationMetaEvidence: "round-reg",
+                clearingMetaEvidence: "round-clr",
+                submissionBaseDeposit: 3e18,
+                removalBaseDeposit: 4e18,
+                submissionChallengeBaseDeposit: 5e18,
+                removalChallengeBaseDeposit: 6e18,
+                challengePeriodDuration: 2 days
+            }),
+            arbConfig: RoundFactory.ArbitratorConfig({
+                votingPeriod: 1,
+                votingDelay: 1,
+                revealPeriod: 1,
+                arbitrationCost: ARBITRATION_COST
+            })
+        });
+
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(roundId, address(budgetTreasury), abi.encode(cfg));
+
+        assertTrue(deployed.mechanism.code.length > 0);
+        assertTrue(deployed.payoutRecipient.code.length > 0);
+        assertTrue(deployed.arbitrator.code.length > 0);
+        assertTrue(deployed.auxiliary.code.length > 0);
+
+        RoundSubmissionTCR tcr = RoundSubmissionTCR(deployed.mechanism);
+        assertEq(tcr.roundId(), roundId);
+        assertEq(tcr.startAt(), startAt);
+        assertEq(tcr.endAt(), endAt);
+        assertEq(tcr.prizeVault(), deployed.payoutRecipient);
+        assertEq(address(tcr.submissionDepositStrategy()), deployed.auxiliary);
+
+        PrizePoolSubmissionDepositStrategy strategy = PrizePoolSubmissionDepositStrategy(deployed.auxiliary);
+        assertEq(address(strategy.token()), address(underlying));
+        assertEq(strategy.prizePool(), deployed.payoutRecipient);
+
+        RoundPrizeVault vault = RoundPrizeVault(deployed.payoutRecipient);
+        assertEq(address(vault.submissionsTCR()), deployed.mechanism);
+        assertEq(vault.operator(), roundOperator);
+
+        ERC20VotesArbitrator arb = ERC20VotesArbitrator(deployed.arbitrator);
+        assertEq(address(arb.arbitrable()), deployed.mechanism);
+        assertEq(arb.invalidRoundRewardsSink(), deployed.payoutRecipient);
+        assertEq(arb.fixedBudgetTreasury(), address(budgetTreasury));
+        assertEq(arb.stakeVault(), address(stakeVault));
+        assertEq(arb.wrongOrMissedSlashBps(), 0);
+        assertEq(arb.slashCallerBountyBps(), 0);
+    }
+
+    function test_deployForBudget_legacyConfigPayloadStillKeepsArbitratorNonSlashing() public {
+        bytes32 roundId = keccak256("round-generic-factory-legacy-config");
+        uint64 startAt = uint64(block.timestamp + 7);
+        uint64 endAt = uint64(block.timestamp + 21 days);
+        LegacyAllocationMechanismConfig memory legacyCfg = LegacyAllocationMechanismConfig({
+            timing: RoundFactory.RoundTiming({ startAt: startAt, endAt: endAt }),
+            roundOperator: roundOperator,
+            tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: hex"feedface",
+                registrationMetaEvidence: "legacy-round-reg",
+                clearingMetaEvidence: "legacy-round-clr",
+                submissionBaseDeposit: 7e18,
+                removalBaseDeposit: 8e18,
+                submissionChallengeBaseDeposit: 9e18,
+                removalChallengeBaseDeposit: 10e18,
+                challengePeriodDuration: 4 days
+            }),
+            arbConfig: LegacyArbitratorConfig({
+                votingPeriod: 3,
+                votingDelay: 4,
+                revealPeriod: 5,
+                arbitrationCost: ARBITRATION_COST + 1,
+                wrongOrMissedSlashBps: 1234,
+                slashCallerBountyBps: 321
+            })
+        });
+
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(roundId, address(budgetTreasury), abi.encode(legacyCfg));
+
+        RoundSubmissionTCR tcr = RoundSubmissionTCR(deployed.mechanism);
+        assertEq(tcr.roundId(), roundId);
+        assertEq(tcr.startAt(), startAt);
+        assertEq(tcr.endAt(), endAt);
+
+        ERC20VotesArbitrator arb = ERC20VotesArbitrator(deployed.arbitrator);
+        assertEq(arb.wrongOrMissedSlashBps(), 0);
+        assertEq(arb.slashCallerBountyBps(), 0);
     }
 
     function test_createRoundForBudget_initializesClonesAndGuardsReinitialize() public {
@@ -424,9 +536,7 @@ contract RoundFactoryTest is Test {
             votingPeriod: 1,
             votingDelay: 1,
             revealPeriod: 1,
-            arbitrationCost: ARBITRATION_COST,
-            wrongOrMissedSlashBps: 0,
-            slashCallerBountyBps: 0
+            arbitrationCost: ARBITRATION_COST
         });
     }
 }

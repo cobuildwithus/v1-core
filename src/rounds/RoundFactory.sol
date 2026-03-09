@@ -26,7 +26,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
  *
  *         Each deployed round consists of:
  *         - A RoundSubmissionTCR: per-round registry of submissions.
- *         - An ERC20VotesArbitrator: adjudicates disputes for the registry (stake-vault voting).
+ *         - An ERC20VotesArbitrator: adjudicates disputes for the registry (stake-vault voting, no juror slashing).
  *         - A RoundPrizeVault: holds prize funds and pays out in the underlying goal token.
  *         - A PrizePoolSubmissionDepositStrategy: routes accepted submission deposits into the prize vault.
  */
@@ -54,14 +54,12 @@ contract RoundFactory is IAllocationMechanismFactory {
         uint64 endAt;
     }
 
-    /// @notice Configuration for an ERC20VotesArbitrator instance.
+    /// @notice Configuration for a non-slashing ERC20VotesArbitrator instance.
     struct ArbitratorConfig {
         uint256 votingPeriod;
         uint256 votingDelay;
         uint256 revealPeriod;
         uint256 arbitrationCost;
-        uint256 wrongOrMissedSlashBps;
-        uint256 slashCallerBountyBps;
     }
 
     /// @notice Returned addresses for a deployed round stack.
@@ -112,7 +110,7 @@ contract RoundFactory is IAllocationMechanismFactory {
     /// @param timing Submission window for the round.
     /// @param roundOperator Trusted operator allowed to set payout entitlements in the prize vault.
     /// @param tcrPolicy Shared registry policy for the per-round submission registry.
-    /// @param arbConfig Configuration for the arbitrator (set slash bps to 0 to disable slashing).
+    /// @param arbConfig Configuration for the round arbitrator voting windows and arbitration cost.
     function createRoundForBudget(
         bytes32 roundId,
         address budgetTreasury,
@@ -173,8 +171,8 @@ contract RoundFactory is IAllocationMechanismFactory {
                 arbitrationCost: arbConfig.arbitrationCost,
                 stakeVault: stakeVault,
                 fixedBudgetTreasury: budgetTreasury,
-                wrongOrMissedSlashBps: arbConfig.wrongOrMissedSlashBps,
-                slashCallerBountyBps: arbConfig.slashCallerBountyBps
+                wrongOrMissedSlashBps: 0,
+                slashCallerBountyBps: 0
             })
         );
 

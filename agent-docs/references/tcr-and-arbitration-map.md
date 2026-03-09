@@ -51,6 +51,7 @@
 ## Mechanism Registry Notes
 
 - `RoundFactory` is a permissionless implementation of the generic allocation-mechanism factory interface and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
+- Canonical round deployments use stake-vault-backed voting power but intentionally hardcode non-slashing arbitrators; only the budget TCR and allocation-mechanism TCR arbitrators are router-authorized slashers.
 - `AllocationMechanismTCR` now gates mechanism deployment factories through one governor-managed control:
   - `mechanismFactoryAllowed[factory]` allowlist.
 - Mechanism deployment config (factory + opaque mechanism payload) is immutable per curated listing payload.

@@ -231,6 +231,7 @@ cobuild-protocol/
   - `GoalTreasury.initialize` sets both StakeVault slashers exactly once,
   - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
   - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
+  - `RoundFactory` round arbitrators keep stake-vault voting but are intentionally deployed as non-slashing and are never added to the router allowlist.
 - Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
   - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
   - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.

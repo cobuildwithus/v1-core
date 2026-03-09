@@ -57,8 +57,6 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
     uint256 public lastVotingDelay;
     uint256 public lastRevealPeriod;
     uint256 public lastArbitrationCost;
-    uint256 public lastWrongOrMissedSlashBps;
-    uint256 public lastSlashCallerBountyBps;
 
     function setNextDeployedMechanism(DeployedMechanism calldata next) external {
         nextDeployedMechanism = next;
@@ -89,8 +87,6 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
         lastVotingDelay = cfg.arbConfig.votingDelay;
         lastRevealPeriod = cfg.arbConfig.revealPeriod;
         lastArbitrationCost = cfg.arbConfig.arbitrationCost;
-        lastWrongOrMissedSlashBps = cfg.arbConfig.wrongOrMissedSlashBps;
-        lastSlashCallerBountyBps = cfg.arbConfig.slashCallerBountyBps;
         out = nextDeployedMechanism;
     }
 }
@@ -264,9 +260,7 @@ contract AllocationMechanismTCRTest is Test {
                 votingPeriod: 1,
                 votingDelay: 1,
                 revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST,
-                wrongOrMissedSlashBps: 0,
-                slashCallerBountyBps: 0
+                arbitrationCost: ARBITRATION_COST
             })
         });
     }
@@ -734,9 +728,7 @@ contract AllocationMechanismTCRTest is Test {
                 votingPeriod: 10,
                 votingDelay: 11,
                 revealPeriod: 12,
-                arbitrationCost: ARBITRATION_COST + 42,
-                wrongOrMissedSlashBps: 1337,
-                slashCallerBountyBps: 777
+                arbitrationCost: ARBITRATION_COST + 42
             })
         });
         listing.deploymentConfig = _mechanismDeploymentConfig(
@@ -762,8 +754,6 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(mockFactory.lastVotingDelay(), cfg.arbConfig.votingDelay);
         assertEq(mockFactory.lastRevealPeriod(), cfg.arbConfig.revealPeriod);
         assertEq(mockFactory.lastArbitrationCost(), cfg.arbConfig.arbitrationCost);
-        assertEq(mockFactory.lastWrongOrMissedSlashBps(), cfg.arbConfig.wrongOrMissedSlashBps);
-        assertEq(mockFactory.lastSlashCallerBountyBps(), cfg.arbConfig.slashCallerBountyBps);
         assertEq(keccak256(mockFactory.lastArbitratorExtraData()), keccak256(cfg.tcrPolicy.arbitratorExtraData));
         assertEq(
             keccak256(bytes(mockFactory.lastRegistrationMetaEvidence())),

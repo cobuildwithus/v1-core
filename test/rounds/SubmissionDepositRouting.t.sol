@@ -90,9 +90,7 @@ contract SubmissionDepositRoutingTest is Test {
                 votingPeriod: 1,
                 votingDelay: 1,
                 revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST,
-                wrongOrMissedSlashBps: 0,
-                slashCallerBountyBps: 0
+                arbitrationCost: ARBITRATION_COST
             })
         );
 

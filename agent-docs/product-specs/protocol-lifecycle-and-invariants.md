@@ -113,6 +113,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
     (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
   - The same authenticated mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the goal's `JurorSlasherRouter`; budget activation must fail closed if that authorization cannot be applied.
+  - Round stacks deployed later through `RoundFactory` keep stake-vault voting but do not participate in juror stake slashing; no round arbitrator router authorization step exists or is required.
 - Per-goal `BudgetTCR` is also the canonical runtime topology registry for accepted budgets:
   - activation records `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism, and
     allocation-mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
