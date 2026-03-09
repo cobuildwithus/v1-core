@@ -47,7 +47,7 @@ library FlowAllocations {
         FlowTypes.RecipientsState storage recipients,
         bytes32[] calldata recipientIds,
         uint32[] calldata allocationsPpm
-    ) internal view {
+    ) public view {
         _validateAllocationVectorStructureCalldata(recipientIds, allocationsPpm);
         _assertRecipientsActiveCalldata(recipients, recipientIds);
     }
@@ -212,7 +212,7 @@ library FlowAllocations {
         _PairUnits[] memory oldPairs,
         _PairUnits[] memory newPairs,
         bytes32 commit
-    ) internal {
+    ) private {
         uint256 oldIndex = 0;
         uint256 newIndex = 0;
         while (oldIndex < oldPairs.length || newIndex < newPairs.length) {
@@ -291,7 +291,7 @@ library FlowAllocations {
         }
     }
 
-    function _assertSortedUnique(bytes32[] calldata ids) internal pure {
+    function _assertSortedUnique(bytes32[] calldata ids) private pure {
         if (ids.length == 0) revert IFlow.TOO_FEW_RECIPIENTS();
         bytes32 prev = ids[0];
         for (uint256 i = 1; i < ids.length; ++i) {
@@ -366,7 +366,7 @@ library FlowAllocations {
         if (recipient.isRemoved) revert IFlow.NOT_APPROVED_RECIPIENT();
     }
 
-    function _assertSortedUniqueMemoryNonEmpty(bytes32[] memory ids) internal pure {
+    function _assertSortedUniqueMemoryNonEmpty(bytes32[] memory ids) private pure {
         if (ids.length == 0) revert IFlow.TOO_FEW_RECIPIENTS();
         bytes32 prev = ids[0];
         for (uint256 i = 1; i < ids.length; ++i) {
@@ -380,7 +380,7 @@ library FlowAllocations {
         bytes32[] memory ids,
         uint32[] memory allocationPpm,
         uint256 weight
-    ) internal pure returns (_PairUnits[] memory pairs) {
+    ) private pure returns (_PairUnits[] memory pairs) {
         if (ids.length != allocationPpm.length) revert IFlow.ARRAY_LENGTH_MISMATCH();
         pairs = new _PairUnits[](ids.length);
         for (uint256 i; i < ids.length; ) {
@@ -391,7 +391,7 @@ library FlowAllocations {
         }
     }
 
-    function _computedUnits(uint256 weight, uint32 allocationPpm) internal pure returns (uint128) {
+    function _computedUnits(uint256 weight, uint32 allocationPpm) private pure returns (uint128) {
         uint256 units = FlowUnitMath.poolUnitsFromScaledAllocation(
             weight,
             allocationPpm,

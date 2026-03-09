@@ -18,7 +18,7 @@ library CustomFlowAllocationEngine {
         IAllocationStrategy strategy,
         address caller,
         FlowAllocations.AllocationVector memory newAllocation
-    ) internal {
+    ) external {
         uint256 allocationKey = strategy.allocationKey(caller, bytes(""));
         if (!strategy.canAllocate(allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
 
@@ -46,7 +46,7 @@ library CustomFlowAllocationEngine {
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
         FlowAllocations.AllocationEditRequest memory request
-    ) internal {
+    ) public {
         FlowAllocations.applyAllocationEdit(cfg, recipients, alloc, request);
         _runPipeline(
             pipelineState,
@@ -68,7 +68,7 @@ library CustomFlowAllocationEngine {
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
         FlowAllocations.MaintenanceApplyRequest memory request
-    ) internal {
+    ) public {
         FlowAllocations.applyStoredAllocationMaintenance(cfg, recipients, alloc, request);
         _runPipeline(
             pipelineState,
