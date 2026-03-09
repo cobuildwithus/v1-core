@@ -70,7 +70,7 @@
     "review:gpt:nozip:run": "scripts/run-review-gpt-nozip.sh"
   },
   "devDependencies": {
-    "@cobuild/repo-tools": "^0.1.12",
+    "@cobuild/repo-tools": "^0.1.13",
     "@cobuild/review-gpt": "^0.2.15",
     "husky": "^8.0.0",
     "prettier": "^3.0.3",
