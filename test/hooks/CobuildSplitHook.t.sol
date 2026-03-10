@@ -41,7 +41,8 @@ contract CobuildSplitHookTest is Test {
         goalTerminalTwo = new CobuildSplitHookMockGoalTerminal(communityToken);
         goalTreasuryOne = new CobuildSplitHookMockGoalTreasury(GOAL_ID_ONE);
         goalTreasuryTwo = new CobuildSplitHookMockGoalTreasury(GOAL_ID_TWO);
-        goalRegistry = new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID, address(communityToken));
+        goalRegistry =
+            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(communityToken));
 
         hook = _deployHook(goalRegistry);
 
@@ -55,7 +56,7 @@ contract CobuildSplitHookTest is Test {
 
     function test_initialize_revertsWhenGoalRegistryCommunityMismatch() public {
         CobuildSplitHookMockGoalRegistry mismatchedRegistry =
-            new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID + 1, address(communityToken));
+            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID + 1, address(communityToken));
 
         CobuildSplitHook implementation = new CobuildSplitHook();
         CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
@@ -77,7 +78,7 @@ contract CobuildSplitHookTest is Test {
     function test_initialize_revertsWhenGoalRegistryTokenMismatch() public {
         CobuildSplitHookMockToken wrongToken = new CobuildSplitHookMockToken("Wrong", "WRONG");
         CobuildSplitHookMockGoalRegistry mismatchedRegistry =
-            new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID, address(wrongToken));
+            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(wrongToken));
 
         CobuildSplitHook implementation = new CobuildSplitHook();
         CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
@@ -85,6 +86,31 @@ contract CobuildSplitHookTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(
                 CobuildSplitHook.INVALID_SOURCE_TOKEN.selector, address(communityToken), address(wrongToken)
+            )
+        );
+        deployedHook.initialize(
+            IJBDirectory(address(directory)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            routeSetter,
+            ICommunityGoalRegistry(address(mismatchedRegistry))
+        );
+    }
+
+    function test_initialize_revertsWhenGoalRegistryDirectoryMismatch() public {
+        CobuildSplitHookMockDirectory mismatchedDirectory = new CobuildSplitHookMockDirectory();
+        CobuildSplitHookMockGoalRegistry mismatchedRegistry = new CobuildSplitHookMockGoalRegistry(
+            IJBDirectory(address(mismatchedDirectory)), COMMUNITY_REVNET_ID, address(communityToken)
+        );
+
+        CobuildSplitHook implementation = new CobuildSplitHook();
+        CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildSplitHook.INVALID_DIRECTORY.selector,
+                address(directory),
+                address(mismatchedDirectory)
             )
         );
         deployedHook.initialize(
@@ -384,6 +410,7 @@ contract CobuildSplitHookMockGoalTreasury {
 }
 
 contract CobuildSplitHookMockGoalRegistry {
+    IJBDirectory public directory;
     uint256 public communityRevnetId;
     address public communityToken;
 
@@ -391,7 +418,8 @@ contract CobuildSplitHookMockGoalRegistry {
     mapping(uint256 goalId => bool selectable) internal _isSelectable;
     mapping(uint256 goalId => address goalTreasury) internal _goalTreasuryOf;
 
-    constructor(uint256 communityRevnetId_, address communityToken_) {
+    constructor(IJBDirectory directory_, uint256 communityRevnetId_, address communityToken_) {
+        directory = directory_;
         communityRevnetId = communityRevnetId_;
         communityToken = communityToken_;
     }

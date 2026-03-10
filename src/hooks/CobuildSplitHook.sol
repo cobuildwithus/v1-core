@@ -27,6 +27,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error INVALID_COMMUNITY_REVNET_ID();
     error INVALID_PROJECT(uint256 expectedProjectId, uint256 actualProjectId);
     error INVALID_SOURCE_TOKEN(address expectedToken, address actualToken);
+    error INVALID_DIRECTORY(address expectedDirectory, address actualDirectory);
     error INVALID_SPLIT_GROUP(uint256 expectedGroupId, uint256 actualGroupId);
     error INVALID_ROUTE_LENGTHS(uint256 goalIdsLength, uint256 weightsLength);
     error INVALID_ROUTE_WEIGHT(uint256 index);
@@ -134,6 +135,10 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         address goalRegistryToken = goalRegistry_.communityToken();
         if (goalRegistryToken != communityTokenAddress) {
             revert INVALID_SOURCE_TOKEN(communityTokenAddress, goalRegistryToken);
+        }
+        address goalRegistryDirectory = address(goalRegistry_.directory());
+        if (goalRegistryDirectory != directoryAddress) {
+            revert INVALID_DIRECTORY(directoryAddress, goalRegistryDirectory);
         }
 
         directory = directory_;
