@@ -394,6 +394,18 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         assertFalse(treasury.resolved());
     }
 
+    function test_deadline_isUnsetBeforeActivation() public view {
+        assertEq(treasury.activatedAt(), 0);
+        assertEq(treasury.deadline(), 0);
+        assertEq(treasury.timeRemaining(), 0);
+
+        IBudgetTreasury.BudgetLifecycleStatus memory status = treasury.lifecycleStatus();
+        assertFalse(status.hasDeadline);
+        assertFalse(status.isDeadlinePassed);
+        assertEq(status.deadline, 0);
+        assertEq(status.timeRemaining, 0);
+    }
+
     function test_sync_fundingActivation_setsActiveDeadlineAndFlowRate() public {
         superToken.mint(address(flow), 300e18);
         _setIncomingFlowRate(250);
@@ -535,6 +547,13 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
         assertTrue(treasury.resolved());
+        assertEq(treasury.activatedAt(), 0);
+        assertEq(treasury.deadline(), 0);
+
+        IBudgetTreasury.BudgetLifecycleStatus memory status = treasury.lifecycleStatus();
+        assertFalse(status.hasDeadline);
+        assertFalse(status.isDeadlinePassed);
+        assertEq(status.deadline, 0);
     }
 
     function test_sync_fundingAtThreshold_activates() public {
