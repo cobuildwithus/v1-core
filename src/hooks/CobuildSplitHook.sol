@@ -16,8 +16,9 @@ import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Community-level split hook that routes reserved community tokens into registry-curated child goals.
-/// @dev A fixed init-time wrapper seeds one-shot routes before the community revnet pay executes. Explicit routes are
-/// the only source of historical market signal; defaulted routes consume that signal without reinforcing it.
+/// @dev A fixed init-time wrapper seeds one-shot explicit routes before the community revnet pay executes. Explicit
+/// routes are the only source of historical market signal. All non-explicit historical routing is deferred into the
+/// paginated backlog flush path.
 contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -56,7 +57,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256[] goalIds,
         uint32[] weights
     );
-    event PendingHistoricalRouteStarted(address indexed payer, address indexed beneficiary, uint256 backlogTokenCount);
     event PendingRouteConsumed(
         address indexed payer,
         address indexed beneficiary,
@@ -64,7 +64,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256[] goalIds,
         uint32[] weights
     );
-    event PendingHistoricalRouteConsumed(address indexed payer, address indexed beneficiary, uint256 sourceAmount);
     event HistoricalBacklogDeferred(uint256 amount, uint256 newBacklogAmount);
     event HistoricalBacklogFlushed(uint256 amount, uint256 remainingBacklogAmount);
     event HistoricalBacklogFlushReset(uint256 indexed epoch, uint256 remainingBacklogAmount);
@@ -88,7 +87,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint64 createdAt;
         uint256 backlogTokenCount;
         bool active;
-        bool usesHistoricalDefault;
         uint256[] goalIds;
         uint32[] weights;
     }
@@ -230,7 +228,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             beneficiary: route.beneficiary,
             createdAt: route.createdAt,
             backlogTokenCount: route.backlogTokenCount,
-            usesHistoricalDefault: route.usesHistoricalDefault,
             goalIds: _copyUint256Array(route.goalIds),
             weights: _copyUint32Array(route.weights)
         });
@@ -258,29 +255,9 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         route.createdAt = uint64(block.timestamp);
         route.backlogTokenCount = backlogTokenCount;
         route.active = true;
-        route.usesHistoricalDefault = false;
         _replaceStorageRoute(route.goalIds, route.weights, goalIds, weights);
 
         emit PendingRouteStarted(payer, beneficiary, backlogTokenCount, goalIds, weights);
-    }
-
-    function beginPendingHistoricalRoute(
-        address payer,
-        address beneficiary,
-        uint256 backlogTokenCount
-    ) external override onlyRouteSetter {
-        if (_pendingRoute.active) revert PENDING_ROUTE_EXISTS();
-        if (payer == address(0) || beneficiary == address(0)) revert ADDRESS_ZERO();
-
-        PendingRoute storage route = _pendingRoute;
-        route.payer = payer;
-        route.beneficiary = beneficiary;
-        route.createdAt = uint64(block.timestamp);
-        route.backlogTokenCount = backlogTokenCount;
-        route.active = true;
-        route.usesHistoricalDefault = true;
-
-        emit PendingHistoricalRouteStarted(payer, beneficiary, backlogTokenCount);
     }
 
     function cancelPendingRoute() external override onlyRouteSetter {
@@ -324,25 +301,9 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             PendingRoute storage pending = _pendingRoute;
             address payer = pending.payer;
             address beneficiary = pending.beneficiary;
-            bool usesHistoricalDefault = pending.usesHistoricalDefault;
             uint256 backlogTokenCount = pending.backlogTokenCount;
             if (backlogTokenCount > amount) revert INVALID_BACKLOG_SNAPSHOT(backlogTokenCount, amount);
             uint256 routeAmount = amount - backlogTokenCount;
-
-            if (usesHistoricalDefault) {
-                _clearPendingRoute();
-                if (backlogTokenCount != 0) _deferHistoricalBacklog(backlogTokenCount);
-                if (routeAmount != 0) {
-                    if (_routeUsingHistoricalVolumesToBeneficiary(token, routeAmount, beneficiary, true)) {
-                        emit PendingHistoricalRouteConsumed(payer, beneficiary, routeAmount);
-                        return;
-                    }
-
-                    _deferHistoricalBacklog(routeAmount);
-                }
-
-                return;
-            }
 
             uint256[] memory goalIds = _copyUint256Array(pending.goalIds);
             uint32[] memory weights = _copyUint32Array(pending.weights);
@@ -367,15 +328,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             return;
         }
 
-        if (historicalBacklogAmount != 0) {
-            _deferHistoricalBacklog(amount);
-            return;
-        }
-
-        if (!_routeUsingHistoricalVolumesToGoalTreasuries(token, amount)) {
-            _deferHistoricalBacklog(amount);
-            return;
-        }
+        _deferHistoricalBacklog(amount);
     }
 
     function _routeToGoals(RouteRuntime memory route) internal {
@@ -397,75 +350,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             uint256 goalId = route.goalIds[i];
             _payGoal(route.token, goalId, amountForGoal, route.beneficiary, route.fromPendingRoute);
         }
-    }
-
-    function _routeUsingHistoricalVolumesToBeneficiary(
-        IERC20 token,
-        uint256 sourceAmount,
-        address beneficiary,
-        bool fromPendingRoute
-    ) internal returns (bool didRoute) {
-        if (beneficiary == address(0)) return false;
-
-        (
-            uint256[] memory goalIds,
-            uint256[] memory volumes,
-            uint256 totalHistoricalVolume
-        ) = _loadHistoricalRouteRuntime();
-        if (goalIds.length == 0) return false;
-
-        uint256 remaining = sourceAmount;
-        for (uint256 i = 0; i < goalIds.length; i++) {
-            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
-                sourceAmount,
-                volumes[i],
-                totalHistoricalVolume,
-                remaining,
-                i,
-                goalIds.length
-            );
-            remaining = nextRemaining;
-            if (amountForGoal == 0) continue;
-
-            uint256 goalId = goalIds[i];
-            _payGoal(token, goalId, amountForGoal, beneficiary, fromPendingRoute);
-        }
-
-        return true;
-    }
-
-    function _routeUsingHistoricalVolumesToGoalTreasuries(
-        IERC20 token,
-        uint256 sourceAmount
-    ) internal returns (bool didRoute) {
-        (
-            uint256[] memory goalIds,
-            uint256[] memory volumes,
-            uint256 totalHistoricalVolume
-        ) = _loadHistoricalRouteRuntime();
-        if (goalIds.length == 0) return false;
-
-        uint256 remaining = sourceAmount;
-        for (uint256 i = 0; i < goalIds.length; i++) {
-            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
-                sourceAmount,
-                volumes[i],
-                totalHistoricalVolume,
-                remaining,
-                i,
-                goalIds.length
-            );
-            remaining = nextRemaining;
-            if (amountForGoal == 0) continue;
-
-            uint256 goalId = goalIds[i];
-            address beneficiary = _goalDeploymentRegistry.goalTreasuryOf(goalId);
-            if (beneficiary == address(0)) revert NO_GOAL_TREASURY(goalId);
-
-            _payGoal(token, goalId, amountForGoal, beneficiary, false);
-        }
-
-        return true;
     }
 
     function _payGoal(

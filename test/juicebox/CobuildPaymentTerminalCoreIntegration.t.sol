@@ -107,82 +107,75 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(wrapperFixture.hook.cumulativeObservedVolume(), 20e18);
     }
 
-    function test_wrapperHistoricalRoute_usesObservedHistoryAndFundsGoalsInSameTransaction() public {
+    function test_wrapperWithoutExplicitRoute_defersReservedTokensIntoBacklogEvenWhenHistoryExists() public {
         _seedObservedHistoryForWrapperFixture(wrapperFixture, DIRECT_PAY_AMOUNT);
+        uint256 goalTerminalOneReceivedBefore = wrapperFixture.goalTerminalOne.totalReceived();
+        uint256 goalTerminalTwoReceivedBefore = wrapperFixture.goalTerminalTwo.totalReceived();
         uint256 observedVolumeOneBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne);
         uint256 observedVolumeTwoBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo);
         uint256 cumulativeObservedBefore = wrapperFixture.hook.cumulativeObservedVolume();
 
         uint256 beneficiaryTokenCount =
-            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "historical-route", bytes(""));
-
-        assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
-        assertEq(wrapperFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
-        assertFalse(wrapperFixture.hook.hasPendingRoute());
-        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
-        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
-        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
-        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), payerTwo);
-        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), payerTwo);
-        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne), observedVolumeOneBefore);
-        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), observedVolumeTwoBefore);
-        assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
-    }
-
-    function test_wrapperHistoricalRoute_routesOnlyNewDelta_andDefersOlderBacklogForPermissionlessFlush() public {
-        _seedObservedHistoryForWrapperFixture(wrapperFixture, DIRECT_PAY_AMOUNT);
-        _payCommunityDirect(
-            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
-        );
-
-        uint256 observedVolumeOneBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne);
-        uint256 observedVolumeTwoBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo);
-        uint256 cumulativeObservedBefore = wrapperFixture.hook.cumulativeObservedVolume();
-
-        uint256 beneficiaryTokenCount =
-            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "historical-route", bytes(""));
+            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "defer-to-backlog", bytes(""));
 
         assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
         assertFalse(wrapperFixture.hook.hasPendingRoute());
         assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
         assertEq(wrapperFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT / 2);
-        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
-        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
-        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), payerTwo);
-        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), payerTwo);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), goalTerminalOneReceivedBefore);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), goalTerminalTwoReceivedBefore);
         assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne), observedVolumeOneBefore);
         assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), observedVolumeTwoBefore);
         assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
-
-        uint256 flushedBacklogAmount = wrapperFixture.hook.flushHistoricalBacklog(2);
-
-        assertEq(flushedBacklogAmount, DIRECT_PAY_AMOUNT / 2);
-        assertEq(wrapperFixture.hook.historicalBacklogAmount(), 0);
-        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 15e18);
-        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 45e18);
-        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), address(wrapperFixture.goalTreasuryOne));
-        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), address(wrapperFixture.goalTreasuryTwo));
     }
 
-    function test_wrapperHistoricalRoute_withFullReservedMintPreservesBeneficiaryAndFlushesReservedTokens() public {
+    function test_wrapperWithoutExplicitRoute_flushesExistingControllerBacklogIntoHookBacklog() public {
+        _seedObservedHistoryForWrapperFixture(wrapperFixture, DIRECT_PAY_AMOUNT);
+        _payCommunityDirect(
+            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+        );
+
+        uint256 goalTerminalOneReceivedBefore = wrapperFixture.goalTerminalOne.totalReceived();
+        uint256 goalTerminalTwoReceivedBefore = wrapperFixture.goalTerminalTwo.totalReceived();
+        uint256 observedVolumeOneBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne);
+        uint256 observedVolumeTwoBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo);
+        uint256 cumulativeObservedBefore = wrapperFixture.hook.cumulativeObservedVolume();
+
+        uint256 beneficiaryTokenCount =
+            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "defer-to-backlog", bytes(""));
+
+        assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
+        assertEq(wrapperFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
+        assertFalse(wrapperFixture.hook.hasPendingRoute());
+        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
+        assertEq(wrapperFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), goalTerminalOneReceivedBefore);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), goalTerminalTwoReceivedBefore);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne), observedVolumeOneBefore);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), observedVolumeTwoBefore);
+        assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
+    }
+
+    function test_wrapperWithoutExplicitRoute_withFullReservedMintDefersAllReservedTokensIntoBacklog() public {
         WrapperFixture memory fullReservedFixture = _deployWrapperFixture(FULL_RESERVED_PERCENT);
         _seedObservedHistoryForWrapperFixture(fullReservedFixture, DIRECT_PAY_AMOUNT);
+        uint256 goalTerminalOneReceivedBefore = fullReservedFixture.goalTerminalOne.totalReceived();
+        uint256 goalTerminalTwoReceivedBefore = fullReservedFixture.goalTerminalTwo.totalReceived();
         uint256 observedVolumeOneBefore = fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdOne);
         uint256 observedVolumeTwoBefore = fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdTwo);
         uint256 cumulativeObservedBefore = fullReservedFixture.hook.cumulativeObservedVolume();
 
         uint256 beneficiaryTokenCount =
-            _payWrapper(fullReservedFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "historical-route", bytes(""));
+            _payWrapper(fullReservedFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "defer-to-backlog", bytes(""));
 
         assertEq(beneficiaryTokenCount, 0);
         assertEq(fullReservedFixture.communityToken.balanceOf(payerTwo), 0);
         assertFalse(fullReservedFixture.hook.hasPendingRoute());
         assertEq(controller.pendingReservedTokenBalanceOf(fullReservedFixture.communityRevnetId), 0);
-        assertEq(fullReservedFixture.goalTerminalOne.totalReceived(), 20e18);
-        assertEq(fullReservedFixture.goalTerminalTwo.totalReceived(), 60e18);
-        assertEq(fullReservedFixture.goalTerminalOne.lastBeneficiary(), payerTwo);
-        assertEq(fullReservedFixture.goalTerminalTwo.lastBeneficiary(), payerTwo);
+        assertEq(fullReservedFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT);
+        assertEq(fullReservedFixture.goalTerminalOne.totalReceived(), goalTerminalOneReceivedBefore);
+        assertEq(fullReservedFixture.goalTerminalTwo.totalReceived(), goalTerminalTwoReceivedBefore);
         assertEq(fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdOne), observedVolumeOneBefore);
         assertEq(fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdTwo), observedVolumeTwoBefore);
         assertEq(fullReservedFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
@@ -271,11 +264,11 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(manualFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT);
     }
 
-    function test_wrapperHistoricalRouteWithoutHistory_defersBacklog_untilExplicitRouteSeedsHistoryAndFlushes() public {
+    function test_wrapperWithoutExplicitRoute_defersBacklog_untilExplicitRouteSeedsHistoryAndFlushes() public {
         WrapperFixture memory freshFixture = _deployWrapperFixture(HALF_RESERVED_PERCENT);
 
         uint256 initialBeneficiaryTokenCount =
-            _payWrapper(freshFixture, payer, DIRECT_PAY_AMOUNT, payer, "historical-route", bytes(""));
+            _payWrapper(freshFixture, payer, DIRECT_PAY_AMOUNT, payer, "defer-to-backlog", bytes(""));
 
         assertEq(initialBeneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(freshFixture.communityToken.balanceOf(payer), DIRECT_PAY_AMOUNT / 2);
@@ -336,6 +329,17 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         controller.sendReservedTokensToSplitsOf(manualFixture.communityRevnetId);
 
         assertEq(controller.pendingReservedTokenBalanceOf(manualFixture.communityRevnetId), 0);
+        assertEq(manualFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT);
+        assertEq(manualFixture.goalTerminalOne.totalReceived(), 25e18);
+        assertEq(manualFixture.goalTerminalTwo.totalReceived(), 75e18);
+        assertEq(manualFixture.hook.observedVolumeOf(manualFixture.goalIdOne), observedVolumeOneBefore);
+        assertEq(manualFixture.hook.observedVolumeOf(manualFixture.goalIdTwo), observedVolumeTwoBefore);
+        assertEq(manualFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
+
+        uint256 flushedBacklogAmount = manualFixture.hook.flushHistoricalBacklog(2);
+
+        assertEq(flushedBacklogAmount, DIRECT_PAY_AMOUNT);
+        assertEq(manualFixture.hook.historicalBacklogAmount(), 0);
         assertEq(manualFixture.goalTerminalOne.totalReceived(), 35e18);
         assertEq(manualFixture.goalTerminalTwo.totalReceived(), 105e18);
         assertEq(manualFixture.goalTerminalOne.lastBeneficiary(), address(manualFixture.goalTreasuryOne));

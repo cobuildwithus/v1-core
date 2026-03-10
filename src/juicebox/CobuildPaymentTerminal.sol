@@ -15,8 +15,8 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
 
 /// @notice Terminal wrapper that lets a payer route the community revnet's reserved-token split into selected child goals.
-/// @dev The wrapper seeds either an explicit route or a historical-default route on `CobuildSplitHook` immediately
-/// before calling the community revnet's primary terminal.
+/// @dev The wrapper only seeds explicit routes on `CobuildSplitHook`. If no explicit route metadata is provided, any
+/// newly created reserved tokens are flushed into hook-managed backlog for later permissionless historical routing.
 contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -223,11 +223,8 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
 
         IJBTerminal destinationTerminal = _destinationTerminalOf();
         bool hasExplicitRoute = goalIds.length != 0;
-        if (hasExplicitRoute) {
+        if (hasExplicitRoute)
             SPLIT_HOOK.beginPendingRoute(msg.sender, beneficiary, backlogTokenCount, goalIds, weights);
-        } else {
-            SPLIT_HOOK.beginPendingHistoricalRoute(msg.sender, beneficiary, backlogTokenCount);
-        }
 
         cobuildToken.forceApprove(address(destinationTerminal), cobuildAmount);
 
@@ -243,16 +240,14 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
 
         cobuildToken.forceApprove(address(destinationTerminal), 0);
 
-        if (!SPLIT_HOOK.hasPendingRoute()) return beneficiaryTokenCount;
-
         uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
         if (pendingReservedTokenBalance <= backlogTokenCount) {
-            SPLIT_HOOK.cancelPendingRoute();
+            if (hasExplicitRoute) SPLIT_HOOK.cancelPendingRoute();
             return beneficiaryTokenCount;
         }
 
         controller.sendReservedTokensToSplitsOf(COMMUNITY_REVNET_ID);
-        if (SPLIT_HOOK.hasPendingRoute()) revert ROUTE_NOT_CONSUMED();
+        if (hasExplicitRoute && SPLIT_HOOK.hasPendingRoute()) revert ROUTE_NOT_CONSUMED();
     }
 
     function _destinationTerminalOf() internal view returns (IJBTerminal destinationTerminal) {

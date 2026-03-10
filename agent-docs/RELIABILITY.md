@@ -68,12 +68,13 @@
   delta.
 - If a wrapper-routed pay creates no reserved tokens, the wrapper should clear the unused pending route instead of
   leaving stale routing state behind.
-- Only explicit routed community pays should update historical routing volume; passive/defaulted flows must not make the default self-reinforcing.
+- Only explicit routed community pays should update historical routing volume; backlog flushes must not make the
+  historical signal self-reinforcing.
 - Hook-managed historical backlog should be flushed through the paginated permissionless path instead of piggybacking
   older backlog through unrelated direct community pays.
 - Direct community pays with no usable historical route should defer backlog for later permissionless historical retry
   instead of inferring a downstream route.
-- Direct community pays that do route should use each registry-listed goal's treasury as the downstream beneficiary sink.
+- Permissionless backlog flushes should use each registry-listed goal's treasury as the downstream beneficiary sink.
 
 ## Verification Matrix
 

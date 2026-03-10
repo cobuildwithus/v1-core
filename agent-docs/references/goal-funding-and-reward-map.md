@@ -8,9 +8,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
    - Canonical deployment of the `CobuildPaymentTerminal` + `CobuildSplitHook` pair is `CobuildPaymentTerminalFactory.deployFor(...)`, which deterministically predicts both addresses and initializes the hook with the deployed wrapper as fixed `routeSetter` in one transaction.
 2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
    - explicit metadata seeds an explicit per-payment route,
-   - empty metadata seeds a historical-default route for the same beneficiary.
+   - empty metadata means no explicit route, so the wrapper will flush any newly created reserved tokens into backlog.
    - the wrapper snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
-     delta can use the selected route.
+     delta can use the selected route when an explicit route exists.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - owner-backed system goals can be pinned/unpinned directly,
@@ -26,10 +26,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 8. If older backlog was included in that controller flush, `CobuildSplitHook` parks it as hook-managed historical backlog
    for later permissionless retry instead of routing it through the current payer's selection.
 9. Permissionless backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked backlog in bounded chunks.
-10. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
-11. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's deployment-registry-provided treasury as beneficiary.
-12. If older backlog is already parked on-hook, later direct-pay historical callbacks defer the new amount into backlog instead of piggybacking the backlog through that payer transaction.
-13. If no usable historical route exists, the split hook defers that backlog on-hook for later permissionless historical flush instead of blocking wrapper-routed mints.
+10. Only explicit routed payments record observed per-goal volume; backlog flushes follow that signal without reinforcing it.
+11. If no pending route exists, the split hook defers the full controller callback amount into hook-managed backlog instead of routing it inline.
+12. If no usable historical route exists, the split hook defers that backlog on-hook for later permissionless historical flush instead of blocking wrapper-routed mints.
 
 ## Goal Funding Path
 

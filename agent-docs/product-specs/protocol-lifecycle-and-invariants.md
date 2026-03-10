@@ -71,7 +71,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - deploys the wrapper before hook initialization so `routeSetter` can still be fixed at init time,
     - initializes the hook with the deployed wrapper as the fixed `routeSetter` in the same transaction.
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
-    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, pays the configured community
+    seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays the configured community
     revnet, and synchronously flushes reserved-token splits through the community controller when that pay created
     reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
@@ -96,10 +96,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     stale routing state behind.
   - Hook-managed historical backlog is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
-    only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
-    uses each goal's deployment-registry-provided treasury sink for raw direct-pay fallback beneficiaries,
-    defers new direct-pay historical amounts when older backlog is already parked on-hook,
-    and otherwise defers historical backlog on-hook for later permissionless retry when no usable historical route exists.
+    only into registry-selectable child goals for explicit wrapper-selected routes, derives backlog flush routing from
+    registry-selectable goals with observed explicit routed volume, uses each goal's deployment-registry-provided
+    treasury sink for backlog flush beneficiaries, and otherwise defers historical backlog on-hook for later
+    permissionless retry when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,

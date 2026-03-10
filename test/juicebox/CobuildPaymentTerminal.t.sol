@@ -80,14 +80,12 @@ contract CobuildPaymentTerminalTest is Test {
         assertEq(destinationTerminal.lastMinReturnedTokens(), 5);
         assertEq(destinationTerminal.lastMetadata().length, 0);
         assertEq(splitHook.beginPendingRouteCallCount(), 1);
-        assertEq(splitHook.beginPendingHistoricalRouteCallCount(), 0);
         assertFalse(splitHook.hasPendingRoute());
         assertEq(splitHook.lastBacklogTokenCount(), 0);
         assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
         assertEq(controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID), 0);
         assertEq(splitHook.lastPayer(), address(this));
         assertEq(splitHook.lastBeneficiary(), address(this));
-        assertFalse(splitHook.lastUsesHistoricalDefault());
 
         uint256[] memory storedGoalIds = splitHook.lastGoalIds();
         uint32[] memory storedWeights = splitHook.lastWeights();
@@ -123,7 +121,7 @@ contract CobuildPaymentTerminalTest is Test {
         );
     }
 
-    function test_payWithCobuild_usesHistoricalPendingRouteWhenMetadataEmpty() public {
+    function test_payWithCobuild_withoutMetadataFlushesNewReservedTokensIntoBacklog() public {
         destinationTerminal.setReturnedTokenCount(2 ether);
 
         cobuildToken.mint(address(this), 5 ether);
@@ -136,29 +134,27 @@ contract CobuildPaymentTerminalTest is Test {
         assertEq(beneficiaryTokenCount, 2 ether);
         assertEq(destinationTerminal.lastReceivedCobuild(), 5 ether);
         assertEq(splitHook.beginPendingRouteCallCount(), 0);
-        assertEq(splitHook.beginPendingHistoricalRouteCallCount(), 1);
         assertFalse(splitHook.hasPendingRoute());
-        assertEq(splitHook.lastBacklogTokenCount(), 0);
         assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
         assertEq(controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID), 0);
-        assertEq(splitHook.lastPayer(), address(this));
-        assertEq(splitHook.lastBeneficiary(), address(this));
-        assertTrue(splitHook.lastUsesHistoricalDefault());
     }
 
-    function test_payWithCobuild_revertsWhenHistoricalRouteIsNotConsumed() public {
+    function test_payWithCobuild_withoutMetadataDoesNotRequirePendingRouteConsumption() public {
         destinationTerminal.setReturnedTokenCount(2 ether);
         controller.setConsumePendingRouteOnSend(false);
         cobuildToken.mint(address(this), 5 ether);
         cobuildToken.approve(address(paymentTerminal), 5 ether);
 
-        vm.expectRevert(CobuildPaymentTerminal.ROUTE_NOT_CONSUMED.selector);
-        paymentTerminal.pay(
+        uint256 beneficiaryTokenCount = paymentTerminal.pay(
             COMMUNITY_REVNET_ID, address(cobuildToken), 5 ether, address(this), 0, "community-pay", bytes("")
         );
+
+        assertEq(beneficiaryTokenCount, 2 ether);
+        assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
+        assertFalse(splitHook.hasPendingRoute());
     }
 
-    function test_payWithCobuild_cancelsPendingRouteWhenNoReservedTokensWereCreated() public {
+    function test_payWithCobuild_withoutMetadataDoesNotTouchPendingRouteWhenNoReservedTokensWereCreated() public {
         destinationTerminal.setReturnedTokenCount(5 ether);
 
         cobuildToken.mint(address(this), 5 ether);
@@ -169,8 +165,8 @@ contract CobuildPaymentTerminalTest is Test {
         );
 
         assertEq(beneficiaryTokenCount, 5 ether);
-        assertEq(splitHook.beginPendingHistoricalRouteCallCount(), 1);
-        assertEq(splitHook.cancelPendingRouteCallCount(), 1);
+        assertEq(splitHook.beginPendingRouteCallCount(), 0);
+        assertEq(splitHook.cancelPendingRouteCallCount(), 0);
         assertFalse(splitHook.hasPendingRoute());
         assertEq(controller.sendReservedTokensToSplitsCallCount(), 0);
         assertEq(controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID), 0);
@@ -181,9 +177,13 @@ contract CobuildPaymentTerminalTest is Test {
         destinationTerminal.setReturnedTokenCount(0.5 ether);
         cobuildToken.mint(address(this), 1 ether);
         cobuildToken.approve(address(paymentTerminal), 1 ether);
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = 11;
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
 
         uint256 beneficiaryTokenCount = paymentTerminal.pay(
-            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", abi.encode(goalIds, weights)
         );
 
         assertEq(beneficiaryTokenCount, 0.5 ether);
@@ -197,9 +197,13 @@ contract CobuildPaymentTerminalTest is Test {
         destinationTerminal.setReturnedTokenCount(1 ether);
         cobuildToken.mint(address(this), 1 ether);
         cobuildToken.approve(address(paymentTerminal), 1 ether);
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = 11;
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
 
         uint256 beneficiaryTokenCount = paymentTerminal.pay(
-            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", abi.encode(goalIds, weights)
         );
 
         assertEq(beneficiaryTokenCount, 1 ether);
@@ -501,10 +505,8 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     address public override goalRegistry;
     uint256 public override historicalBacklogAmount;
     bool internal _hasPendingRoute;
-    bool internal _lastUsesHistoricalDefault;
 
     uint256 public beginPendingRouteCallCount;
-    uint256 public beginPendingHistoricalRouteCallCount;
     uint256 public cancelPendingRouteCallCount;
     uint256 public lastBacklogTokenCount;
     address public lastPayer;
@@ -564,7 +566,6 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
             beneficiary: lastBeneficiary,
             createdAt: 0,
             backlogTokenCount: lastBacklogTokenCount,
-            usesHistoricalDefault: _lastUsesHistoricalDefault,
             goalIds: _copyUint256Array(_lastGoalIds),
             weights: _copyUint32Array(_lastWeights)
         });
@@ -583,27 +584,11 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     ) external override {
         beginPendingRouteCallCount += 1;
         _hasPendingRoute = true;
-        _lastUsesHistoricalDefault = false;
         lastBacklogTokenCount = backlogTokenCount;
         lastPayer = payer;
         lastBeneficiary = beneficiary;
         _lastGoalIds = _copyUint256Calldata(goalIds);
         _lastWeights = _copyUint32Calldata(weights);
-    }
-
-    function beginPendingHistoricalRoute(
-        address payer,
-        address beneficiary,
-        uint256 backlogTokenCount
-    ) external override {
-        beginPendingHistoricalRouteCallCount += 1;
-        _hasPendingRoute = true;
-        _lastUsesHistoricalDefault = true;
-        lastBacklogTokenCount = backlogTokenCount;
-        lastPayer = payer;
-        lastBeneficiary = beneficiary;
-        delete _lastGoalIds;
-        delete _lastWeights;
     }
 
     function cancelPendingRoute() external override {
@@ -624,10 +609,6 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
 
     function consumePendingRoute() external {
         _hasPendingRoute = false;
-    }
-
-    function lastUsesHistoricalDefault() external view returns (bool) {
-        return _lastUsesHistoricalDefault;
     }
 
     function lastGoalIds() external view returns (uint256[] memory) {

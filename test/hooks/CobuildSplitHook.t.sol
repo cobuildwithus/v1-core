@@ -27,7 +27,6 @@ contract CobuildSplitHookTest is Test {
     address internal controller = makeAddr("controller");
     address internal routeSetter;
     address internal beneficiary = makeAddr("beneficiary");
-    address internal historicalBeneficiary = makeAddr("historical-beneficiary");
 
     CobuildSplitHookMockToken internal communityToken;
     CobuildSplitHookMockDirectory internal directory;
@@ -180,28 +179,7 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_usesHistoricalRouteForPendingHistoricalRoute() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
-
-        vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 0);
-
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 60e18);
-        assertEq(goalTerminalTwo.totalReceived(), 90e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 40e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 60e18);
-        assertEq(hook.cumulativeObservedVolume(), 100e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
-    }
-
-    function test_processSplitWith_usesCanonicalGoalTreasuriesForDirectPayHistoricalRoute() public {
+    function test_processSplitWith_defersDirectPayEvenWhenHistoricalRouteExists() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 
         communityToken.mint(address(hook), 50e18);
@@ -209,10 +187,10 @@ contract CobuildSplitHookTest is Test {
         vm.prank(controller);
         hook.processSplitWith(_context(50e18));
 
-        assertEq(goalTerminalOne.totalReceived(), 60e18);
-        assertEq(goalTerminalTwo.totalReceived(), 90e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
-        assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+        assertEq(hook.historicalBacklogAmount(), 50e18);
+        assertEq(communityToken.balanceOf(address(hook)), 50e18);
         assertEq(hook.cumulativeObservedVolume(), 100e18);
         assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
@@ -315,9 +293,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.flushHistoricalBacklog(1), 16e18);
         assertEq(hook.historicalBacklogAmount(), 24e18);
 
-        vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 10e18);
-
         communityToken.mint(address(hook), 10e18);
 
         vm.prank(controller);
@@ -409,22 +384,6 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(100e18));
     }
 
-    function test_processSplitWith_defersPendingHistoricalRouteWhenNoHistoryExists() public {
-        vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 0);
-
-        communityToken.mint(address(hook), 90e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(90e18));
-
-        assertFalse(hook.hasPendingRoute());
-        assertEq(hook.historicalBacklogAmount(), 90e18);
-        assertEq(communityToken.balanceOf(address(hook)), 90e18);
-        assertEq(goalTerminalOne.totalReceived(), 0);
-        assertEq(goalTerminalTwo.totalReceived(), 0);
-    }
-
     function test_processSplitWith_defersDirectPayWhenNoHistoryExists() public {
         communityToken.mint(address(hook), 50e18);
 
@@ -469,9 +428,9 @@ contract CobuildSplitHookTest is Test {
         vm.prank(controller);
         hook.processSplitWith(_context(40e18));
 
-        assertEq(goalTerminalOne.totalReceived(), 65e18);
+        assertEq(goalTerminalOne.totalReceived(), 25e18);
         assertEq(goalTerminalTwo.totalReceived(), 75e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
+        assertEq(hook.historicalBacklogAmount(), 40e18);
 
         (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
         assertEq(historicalGoalIds.length, 1);
@@ -674,12 +633,6 @@ contract CobuildSplitHookTest is Test {
         hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
     }
 
-    function test_beginPendingHistoricalRoute_revertsWhenCallerIsNotRouteSetter() public {
-        vm.prank(makeAddr("not-route-setter"));
-        vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
-        hook.beginPendingHistoricalRoute(beneficiary, beneficiary, 0);
-    }
-
     function test_processSplitWith_revertsWhenCallerIsNotController() public {
         communityToken.mint(address(hook), 10e18);
 
@@ -710,8 +663,10 @@ contract CobuildSplitHookTest is Test {
         communityToken.mint(address(hook), 40e18);
 
         vm.prank(controller);
-        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NO_GOAL_TREASURY.selector, missingGoalId));
         hook.processSplitWith(_context(40e18));
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NO_GOAL_TREASURY.selector, missingGoalId));
+        hook.flushHistoricalBacklog(1);
     }
 
     function test_selectableGoalIds_followRegistrySelectabilityIncludingTerminalPresence() public {

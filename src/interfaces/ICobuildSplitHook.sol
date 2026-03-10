@@ -9,7 +9,6 @@ interface ICobuildSplitHook is IJBSplitHook {
         address beneficiary;
         uint64 createdAt;
         uint256 backlogTokenCount;
-        bool usesHistoricalDefault;
         uint256[] goalIds;
         uint32[] weights;
     }
@@ -54,8 +53,6 @@ interface ICobuildSplitHook is IJBSplitHook {
         uint256[] calldata goalIds,
         uint32[] calldata weights
     ) external;
-
-    function beginPendingHistoricalRoute(address payer, address beneficiary, uint256 backlogTokenCount) external;
 
     function cancelPendingRoute() external;
 

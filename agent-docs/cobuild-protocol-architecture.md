@@ -108,7 +108,7 @@ Community root routing
   - direct COBUILD pays are forwarded without the intermediate conversion step.
 - The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
-  - empty metadata seeds a one-shot historical-default route for the same beneficiary.
+  - empty metadata means "no explicit route", so any reserved tokens created by the pay are flushed into hook-managed backlog.
 - Before seeding a new route, the wrapper snapshots the community controller's current pending reserved-token balance so
   older backlog can be separated from the current pay's newly created reserved-token delta.
 - After the community pay returns, if it created reserved tokens, the wrapper immediately calls
@@ -136,12 +136,10 @@ Community root routing
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
 - Only explicit routed payments record observed per-goal volume.
-- Historical-default routing is derived from registry-selectable goals with non-zero observed explicit volume;
-  passive/defaulted flow follows that signal but does not update it.
-- If no pending route exists, the hook routes using historical explicit-volume weights only and uses each listed goal's
-  deployment-registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
-- If hook-managed historical backlog already exists, later direct community-pay historical callbacks defer the new
-  amount into backlog instead of piggybacking the old backlog through that payer's transaction.
+- Historical backlog routing is derived from registry-selectable goals with non-zero observed explicit volume and is
+  only executed through the paginated permissionless backlog-flush path.
+- If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
+  routing it inline through the current transaction.
 - If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
   retry instead of blocking wrapper-routed mints.
 
@@ -215,13 +213,14 @@ Community root routing
   - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route and are the only flows
     that update observed historical volume,
   - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
-  - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
+  - empty-metadata wrapper pays do not seed any pending route and instead flush any newly created reserved tokens into
+    hook-managed backlog,
   - wrapper-routed pays snapshot and defer preexisting controller backlog so the selected route stays scoped to the
     current payer's new reserved-token delta,
   - goal membership is sourced from fixed init-time `CommunityGoalRegistry` state while treasury beneficiaries are
     sourced from fixed init-time `GoalDeploymentRegistry` state,
-  - direct/defaulted routing uses canonical goal treasury beneficiaries rather than a global default beneficiary,
-  - missing explicit/historical data fails closed by reverting rather than guessing downstream funding destinations.
+  - permissionless backlog flushes use canonical goal treasury beneficiaries rather than a global default beneficiary,
+  - missing historical data fails open by keeping backlog escrowed on-hook rather than guessing downstream funding destinations.
 
 4. Budget treasury lifecycle
 - Budget treasury uses live treasury balance (`superToken.balanceOf(flow)`) for activation/expiry checks.

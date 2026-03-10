@@ -139,10 +139,10 @@ cobuild-protocol/
     - it deterministically predicts both addresses from deployment config + caller salt,
     - deploys the wrapper before hook initialization,
     - initializes `CobuildSplitHook` with the deployed wrapper as its fixed `routeSetter` in the same transaction.
-  - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
-    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, pays the configured community
-    revnet, and synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created
-    reserved tokens.
+  - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from
+    `pay(...).metadata`, seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays the
+    configured community revnet, and synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)`
+    when that pay created reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - owner-backed system goals can be pinned/unpinned directly,
@@ -152,22 +152,25 @@ cobuild-protocol/
     - owner-authorized future goal-factory versions can register into the same registry over time,
     - treasury identity is immutable per goal id once registered.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
-    contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates explicit
-    routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
-    registry-selected child goals, records observed volume only from explicit routed pays, and derives all
-    non-explicit routing from that explicit-only historical volume.
-  - Wrapper-routed community pays fail closed if the community already has pending reserved tokens before the wrapper pay,
-    so a user-selected route cannot capture earlier backlog.
+    contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
+    explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
+    registry-selected child goals only for explicit wrapper-selected routes, records observed volume only from
+    explicit routed pays, and routes historical backlog only through the paginated permissionless backlog-flush path.
+  - Wrapper-routed community pays snapshot any preexisting controller backlog before the wrapper pay so a user-selected
+    route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
     (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because the hook backlog-snapshot
     math assumes one coherent bucket.
-  - If the wrapper pay creates reserved tokens, the wrapper forces same-transaction split delivery and the pending route
-    must be consumed in that same transaction.
-  - If the wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
-    routing state behind.
-  - Raw direct community pays use historical explicit-volume weights only and pay each child goal terminal with that
-    goal's deployment-registry-provided treasury as beneficiary; those direct/defaulted flows must not mutate the
-    historical routing signal.
+  - If the wrapper pay creates reserved tokens, the wrapper forces same-transaction split delivery; explicit-route
+    pending state must be consumed in that same transaction.
+  - If an explicit wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of
+    leaving stale routing state behind.
+  - Empty-metadata wrapper pays do not seed any pending route. Any reserved tokens created by that pay are flushed into
+    hook-managed backlog for later permissionless historical routing.
+  - Raw direct community pays and all controller callbacks without a pending explicit route defer the full amount into
+    hook-managed backlog instead of routing it inline. Backlog flushes use historical explicit-volume weights and pay
+    each child goal terminal with that goal's deployment-registry-provided treasury as beneficiary; backlog flushes do
+    not mutate the historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.
