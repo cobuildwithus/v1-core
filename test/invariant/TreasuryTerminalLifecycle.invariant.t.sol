@@ -381,10 +381,12 @@ contract TreasuryTerminalInvariantController {
 
 contract TreasuryTerminalInvariantHook {
     TreasuryTerminalInvariantDirectory private immutable _directory;
+    TreasuryTerminalInvariantUnderlying private immutable _underlying;
     IGoalTreasury private _treasury;
 
-    constructor(TreasuryTerminalInvariantDirectory directory_) {
+    constructor(TreasuryTerminalInvariantDirectory directory_, TreasuryTerminalInvariantUnderlying underlying_) {
         _directory = directory_;
+        _underlying = underlying_;
     }
 
     function setTreasury(IGoalTreasury treasury_) external {
@@ -395,8 +397,12 @@ contract TreasuryTerminalInvariantHook {
         return IJBDirectory(address(_directory));
     }
 
-    function pushFunding(uint256 amount) external returns (bool accepted) {
-        accepted = _treasury.recordHookFunding(amount);
+    function pushFunding(uint256 amount)
+        external
+        returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
+    {
+        _underlying.mint(address(_treasury), amount);
+        return _treasury.processHookSplit(address(_underlying), amount);
     }
 }
 
@@ -463,7 +469,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test, SpendPolicyTestUtils
         GoalTreasury goalTreasuryImplementation = new GoalTreasury();
         LinearSpendPolicy goalSpendPolicy =
             _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
-        goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
+        goalHook = new TreasuryTerminalInvariantHook(goalDirectory, goalUnderlying);
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         goalStakeVault.setGoalTreasury(predictedGoalTreasury);
         goalBudgetStakeLedger = new BudgetStakeLedger(predictedGoalTreasury);
@@ -544,7 +550,15 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test, SpendPolicyTestUtils
     function goalRecordHookFunding(uint256 amount) external {
         if (goalTreasury.resolved()) return;
         uint256 boundedAmount = bound(amount, 1, MAX_AMOUNT);
-        try goalHook.pushFunding(boundedAmount) returns (bool) {} catch {}
+        try goalHook.pushFunding(boundedAmount) returns (
+            IGoalTreasury.HookSplitAction action,
+            uint256 superTokenAmount,
+            uint256
+        ) {
+            if (action == IGoalTreasury.HookSplitAction.Funded) {
+                totalGoalFlowMinted += superTokenAmount;
+            }
+        } catch {}
     }
 
     function goalMintFlowBalance(uint256 amount) external {

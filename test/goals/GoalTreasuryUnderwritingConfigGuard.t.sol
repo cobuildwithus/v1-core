@@ -80,12 +80,19 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
     }
 
-    function test_recordHookFunding_returnsFalseAtOrAfterDeadline_insteadOfReverting() public {
+    function test_processHookSplit_atOrAfterDeadline_defersFunding_insteadOfReverting() public {
         vm.warp(treasury.deadline());
 
-        vm.prank(address(hook));
-        bool accepted = treasury.recordHookFunding(1e18);
+        (
+            IGoalTreasury.HookSplitAction action,
+            uint256 superTokenAmount,
+            uint256 burnAmount
+        ) = _processGoalHookSplit(treasury, 1e18);
 
-        assertFalse(accepted);
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
+        assertEq(superTokenAmount, 1e18);
+        assertEq(burnAmount, 0);
+        assertEq(treasury.totalRaised(), 0);
+        assertEq(treasury.deferredHookSuperTokenAmount(), 1e18);
     }
 }

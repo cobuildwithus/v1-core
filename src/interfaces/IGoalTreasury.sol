@@ -157,7 +157,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     function cobuildRevnetId() external view returns (uint256);
     function budgetStakeLedger() external view returns (address);
 
-    function recordHookFunding(uint256 amount) external returns (bool accepted);
     function canAcceptHookFunding() external view returns (bool);
     function isMintingOpen() external view returns (bool);
     function deferredHookSuperTokenAmount() external view returns (uint256);

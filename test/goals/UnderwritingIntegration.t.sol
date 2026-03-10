@@ -1602,11 +1602,19 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
     }
 
     function _activateRealGoal(RealGoalBudgetEscrowStack memory stack, uint256 amount) internal {
-        goalSuperToken.mint(address(stack.goalFlow), amount);
-        vm.prank(address(goalHook));
-        assertTrue(stack.goalTreasury.recordHookFunding(amount));
+        _fundGoalViaHook(stack.goalTreasury, amount);
         stack.goalTreasury.sync();
         assertEq(uint256(stack.goalTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+    }
+
+    function _fundGoalViaHook(GoalTreasury targetTreasury, uint256 amount) internal {
+        goalToken.mint(address(targetTreasury), amount);
+        vm.prank(targetTreasury.hook());
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            targetTreasury.processHookSplit(address(goalToken), amount);
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Funded));
+        assertEq(superTokenAmount, amount);
+        assertEq(burnAmount, 0);
     }
 
     function _activateRealBudget(RealGoalBudgetEscrowStack memory stack, uint64 activatedAt, uint256 amount) internal {
@@ -1927,9 +1935,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function test_sync_clampsOutflowUntilCoverageIncreases() public {
         distributionPool.setTotalUnits(9);
 
-        superToken.mint(address(flow), 100e18);
-        vm.prank(address(hook));
-        assertTrue(treasury.recordHookFunding(100e18));
+        _fundGoalViaHook(treasury, 100e18);
         treasury.sync();
 
         int96 initialTargetRate = treasury.targetFlowRate();
@@ -1942,6 +1948,21 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         // Non-zero distribution units should not clamp spend-down target by coverage.
         assertEq(treasury.targetFlowRate(), initialTargetRate);
         assertEq(flow.targetOutflowRate(), initialTargetRate);
+    }
+
+    function test_processHookSplit_fundingIngress_updatesTotalRaisedAndFlowBalance() public {
+        uint256 sourceAmount = 15e18;
+        uint256 flowBalanceBefore = superToken.balanceOf(address(flow));
+
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            _processGoalHookSplit(treasury, sourceAmount);
+
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Funded));
+        assertEq(superTokenAmount, sourceAmount);
+        assertEq(burnAmount, 0);
+        assertEq(treasury.totalRaised(), sourceAmount);
+        assertEq(superToken.balanceOf(address(flow)), flowBalanceBefore + sourceAmount);
+        assertEq(treasury.deferredHookSuperTokenAmount(), 0);
     }
 
     function test_initialize_revertsWhenBudgetStakeLedgerGoalTreasuryMismatch() public {
@@ -2025,9 +2046,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         cfa.setDepositPerFlowRate(6_000_000);
 
         uint256 balance = 600_000_000;
-        superToken.mint(address(flow), balance);
-        vm.prank(address(hook));
-        assertTrue(candidateTreasury.recordHookFunding(balance));
+        _fundGoalViaHook(candidateTreasury, balance);
 
         candidateTreasury.sync();
 
@@ -2053,9 +2072,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         cfa.setDepositPerFlowRate(6_000_000);
 
         uint256 balance = 600_000_000;
-        superToken.mint(address(flow), balance);
-        vm.prank(address(hook));
-        assertTrue(candidateTreasury.recordHookFunding(balance));
+        _fundGoalViaHook(candidateTreasury, balance);
 
         candidateTreasury.sync();
 
@@ -2071,9 +2088,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
         distributionPool.setTotalUnits(80);
 
-        superToken.mint(address(flow), 100e18);
-        vm.prank(address(hook));
-        assertTrue(treasury.recordHookFunding(100e18));
+        _fundGoalViaHook(treasury, 100e18);
         treasury.sync();
 
         int96 previousAppliedRate = flow.targetOutflowRate();
@@ -2094,9 +2109,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function test_sync_characterizesZeroUnitsRestartDeadZone_outflowRemainsZeroUntilNextSyncAfterUnitsRestore() public {
         distributionPool.setTotalUnits(80);
 
-        superToken.mint(address(flow), 100e18);
-        vm.prank(address(hook));
-        assertTrue(treasury.recordHookFunding(100e18));
+        _fundGoalViaHook(treasury, 100e18);
         treasury.sync();
 
         int96 rateBeforeClamp = flow.targetOutflowRate();
@@ -2358,9 +2371,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
 
         distributionPool.setTotalUnits(40);
-        superToken.mint(address(flow), 1_000);
-        vm.prank(address(hook));
-        assertTrue(candidateTreasury.recordHookFunding(1_000));
+        _fundGoalViaHook(candidateTreasury, 1_000);
         candidateTreasury.sync();
 
         bytes32 assertionId = keccak256("goal-policy-fail-closed-zero-target");
@@ -2511,11 +2522,26 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     }
 
     function _activateGoal(GoalTreasury targetTreasury) internal {
-        superToken.mint(address(flow), 100e18);
-        vm.prank(address(hook));
-        assertTrue(targetTreasury.recordHookFunding(100e18));
+        _fundGoalViaHook(targetTreasury, 100e18);
         targetTreasury.sync();
         assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
+    }
+
+    function _fundGoalViaHook(GoalTreasury targetTreasury, uint256 amount) internal {
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            _processGoalHookSplit(targetTreasury, amount);
+        assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Funded));
+        assertEq(superTokenAmount, amount);
+        assertEq(burnAmount, 0);
+    }
+
+    function _processGoalHookSplit(GoalTreasury targetTreasury, uint256 amount)
+        internal
+        returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
+    {
+        underlyingToken.mint(address(targetTreasury), amount);
+        vm.prank(targetTreasury.hook());
+        return targetTreasury.processHookSplit(address(underlyingToken), amount);
     }
 
     function _deployGoalTreasuryWithResolver(address resolver) internal returns (GoalTreasury candidateTreasury) {

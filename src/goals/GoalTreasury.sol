@@ -198,19 +198,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         );
     }
 
-    function recordHookFunding(uint256 amount) external override nonReentrant returns (bool accepted) {
-        if (msg.sender != _hook) revert ONLY_HOOK();
-        if (amount == 0) return false;
-        if (block.timestamp >= deadline) return false;
-        if (!canAcceptHookFunding()) return false;
-
-        totalRaised += amount;
-
-        emit HookFundingRecorded(amount, totalRaised);
-
-        return true;
-    }
-
     function canAcceptHookFunding() public view override returns (bool) {
         return _canAcceptHookFunding(_deriveGoalDerivedState());
     }
