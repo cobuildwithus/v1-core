@@ -5,6 +5,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Community root routing path
 
 1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
+   - Canonical deployment of the `CobuildPaymentTerminal` + `CobuildSplitHook` pair is `CobuildPaymentTerminalFactory.deployFor(...)`, which deterministically predicts both addresses and initializes the hook with the deployed wrapper as fixed `routeSetter` in one transaction.
 2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
    - explicit metadata seeds an explicit per-payment route,
    - empty metadata seeds a historical-default route for the same beneficiary.
@@ -106,3 +107,5 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/UnderwriterSlasherRouter.sol`
 - `src/allocation-strategies/BudgetFlowRouterStrategy.sol`
+- `src/juicebox/CobuildPaymentTerminal.sol`
+- `src/juicebox/CobuildPaymentTerminalFactory.sol`

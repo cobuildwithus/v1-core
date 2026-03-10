@@ -26,12 +26,14 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     uint256 public immutable COMMUNITY_REVNET_ID;
 
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error NO_VALUE();
     error INCORRECT_VALUE();
     error UNSUPPORTED_TOKEN(address token);
     error UNSUPPORTED_CALL();
     error INVALID_PROJECT(uint256 expectedProjectId, uint256 actualProjectId);
     error INVALID_COMMUNITY_TOKEN(address expectedToken, address actualToken);
+    error INVALID_ROUTE_SETTER(address expectedRouteSetter, address actualRouteSetter);
     error NO_COBUILD_ETH_TERMINAL();
     error NO_DEST_TERMINAL();
     error DEST_TERMINAL_IS_SELF();
@@ -54,16 +56,9 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         ) {
             revert ADDRESS_ZERO();
         }
-
-        uint256 configuredCommunityRevnetId = splitHook.communityRevnetId();
-        if (configuredCommunityRevnetId != communityRevnetId) {
-            revert INVALID_PROJECT(configuredCommunityRevnetId, communityRevnetId);
-        }
-
-        address configuredCommunityToken = splitHook.communityToken();
-        if (configuredCommunityToken != cobuildToken) {
-            revert INVALID_COMMUNITY_TOKEN(cobuildToken, configuredCommunityToken);
-        }
+        if (address(directory).code.length == 0) revert NOT_A_CONTRACT(address(directory));
+        if (address(splitHook).code.length == 0) revert NOT_A_CONTRACT(address(splitHook));
+        if (cobuildToken.code.length == 0) revert NOT_A_CONTRACT(cobuildToken);
 
         DIRECTORY = directory;
         SPLIT_HOOK = splitHook;
@@ -85,7 +80,9 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         string calldata memo,
         bytes calldata metadata
     ) external payable override nonReentrant returns (uint256 beneficiaryTokenCount) {
-        if (projectId != COMMUNITY_REVNET_ID) revert INVALID_PROJECT(COMMUNITY_REVNET_ID, projectId);
+        if (projectId != COMMUNITY_REVNET_ID) {
+            revert INVALID_PROJECT(COMMUNITY_REVNET_ID, projectId);
+        }
 
         (uint256[] memory goalIds, uint32[] memory weights) = _decodeRoutingMetadata(metadata);
         if (token == JBConstants.NATIVE_TOKEN) {
@@ -217,6 +214,8 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         uint256[] memory goalIds,
         uint32[] memory weights
     ) internal returns (uint256 beneficiaryTokenCount) {
+        _requireSplitHookConfiguration();
+
         IJBTerminal destinationTerminal = _destinationTerminalOf();
         bool hasExplicitRoute = goalIds.length != 0;
         if (hasExplicitRoute) {
@@ -249,6 +248,23 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         destinationTerminal = DIRECTORY.primaryTerminalOf(COMMUNITY_REVNET_ID, COBUILD_TOKEN);
         if (address(destinationTerminal) == address(0)) revert NO_DEST_TERMINAL();
         if (address(destinationTerminal) == address(this)) revert DEST_TERMINAL_IS_SELF();
+    }
+
+    function _requireSplitHookConfiguration() internal view {
+        uint256 configuredCommunityRevnetId = SPLIT_HOOK.communityRevnetId();
+        if (configuredCommunityRevnetId != COMMUNITY_REVNET_ID) {
+            revert INVALID_PROJECT(COMMUNITY_REVNET_ID, configuredCommunityRevnetId);
+        }
+
+        address configuredCommunityToken = SPLIT_HOOK.communityToken();
+        if (configuredCommunityToken != COBUILD_TOKEN) {
+            revert INVALID_COMMUNITY_TOKEN(COBUILD_TOKEN, configuredCommunityToken);
+        }
+
+        address configuredRouteSetter = SPLIT_HOOK.routeSetter();
+        if (configuredRouteSetter != address(this)) {
+            revert INVALID_ROUTE_SETTER(address(this), configuredRouteSetter);
+        }
     }
 
     function _decodeRoutingMetadata(

@@ -66,6 +66,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
 - Community root routing is wrapper-seeded and split-driven:
+  - `CobuildPaymentTerminalFactory` is the canonical deployer for the community-routing pair:
+    - it deterministically derives the wrapper + hook addresses from `(caller, config, salt)`,
+    - deploys the wrapper before hook initialization so `routeSetter` can still be fixed at init time,
+    - initializes the hook with the deployed wrapper as the fixed `routeSetter` in the same transaction.
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
     seeds either an explicit route or a historical-default route on `CobuildSplitHook`, and then pays the configured community revnet.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
@@ -75,7 +79,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
-  - `CobuildSplitHook` keeps both the wrapper `routeSetter`, the `CommunityGoalRegistry` reference, and the
+  - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
   - Empty-metadata wrapper pays fail closed when the seeded historical/default route remains unconsumed after a pay that returned nonzero beneficiary tokens; if the pay returns zero beneficiary tokens, the wrapper clears the unused pending route instead of reverting.

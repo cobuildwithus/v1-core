@@ -33,7 +33,6 @@ contract CobuildSplitHookGasProfileTest is Test {
     uint256 internal constant TOKENS_PER_GOAL = 1e18;
     // Keep these aligned with the current CobuildSplitHook storage layout.
     uint256 internal constant OBSERVED_VOLUME_MAPPING_SLOT = 6;
-    uint256 internal constant CUMULATIVE_OBSERVED_VOLUME_SLOT = 7;
 
     bytes32 internal constant SCENARIO_DIRECT_HISTORICAL = keccak256("direct_historical_goal_treasuries");
     bytes32 internal constant SCENARIO_PENDING_HISTORICAL = keccak256("pending_historical_beneficiary");
@@ -220,6 +219,7 @@ contract CobuildSplitHookGasProfileTest is Test {
         }
 
         _seedHistoricalVolumes(hook, goalCount);
+        assertEq(hook.observedVolumeOf(GOAL_ID_BASE + 1), TOKENS_PER_GOAL);
 
         scenario = Scenario({
             hook: hook, token: token, controller: controller, routeSetter: routeSetter, beneficiary: beneficiary
@@ -244,8 +244,6 @@ contract CobuildSplitHookGasProfileTest is Test {
     }
 
     function _seedHistoricalVolumes(CobuildSplitHook hook, uint256 goalCount) internal {
-        uint256 totalObservedVolume;
-
         for (uint256 i = 0; i < goalCount; i++) {
             uint256 goalId = GOAL_ID_BASE + i + 1;
             vm.store(
@@ -253,10 +251,7 @@ contract CobuildSplitHookGasProfileTest is Test {
                 keccak256(abi.encode(goalId, uint256(OBSERVED_VOLUME_MAPPING_SLOT))),
                 bytes32(TOKENS_PER_GOAL)
             );
-            totalObservedVolume += TOKENS_PER_GOAL;
         }
-
-        vm.store(address(hook), bytes32(uint256(CUMULATIVE_OBSERVED_VOLUME_SLOT)), bytes32(totalObservedVolume));
     }
 
     function _context(address token, uint256 amount) internal pure returns (JBSplitHookContext memory context) {

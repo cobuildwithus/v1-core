@@ -50,7 +50,7 @@ cobuild-protocol/
 - Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
-- Community reserved-token routing layer: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`.
+- Community reserved-token routing layer: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`, `src/juicebox/CobuildPaymentTerminalFactory.sol`.
 
 ### TCR and arbitration system
 
@@ -135,6 +135,10 @@ cobuild-protocol/
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
 - Community reserved-token routing is wrapper-seeded and split-driven:
+  - `CobuildPaymentTerminalFactory` is the canonical deployment path for the community-routing pair:
+    - it deterministically predicts both addresses from deployment config + caller salt,
+    - deploys the wrapper before hook initialization,
+    - initializes `CobuildSplitHook` with the deployed wrapper as its fixed `routeSetter` in the same transaction.
   - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
     seeds either an explicit route or a historical-default route on `CobuildSplitHook`, then pays the configured community revnet.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
@@ -146,7 +150,7 @@ cobuild-protocol/
     - owner-authorized future goal-factory versions can register into the same registry over time,
     - treasury identity is immutable per goal id once registered.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
-    `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates explicit
+    contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates explicit
     routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
     registry-selected child goals, records observed volume only from explicit routed pays, and derives all
     non-explicit routing from that explicit-only historical volume.

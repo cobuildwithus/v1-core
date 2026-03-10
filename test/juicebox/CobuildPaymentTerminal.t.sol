@@ -167,6 +167,38 @@ contract CobuildPaymentTerminalTest is Test {
         paymentTerminal.pay(999, JBConstants.NATIVE_TOKEN, 1 ether, address(this), 0, "memo", bytes(""));
     }
 
+    function test_constructor_revertsWhenSplitHookIsNotContract() public {
+        address nonContract = makeAddr("not-contract");
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildPaymentTerminal.NOT_A_CONTRACT.selector, nonContract));
+        new CobuildPaymentTerminal(
+            IJBDirectory(address(directory)),
+            ICobuildSplitHook(nonContract),
+            address(cobuildToken),
+            COBUILD_REVNET_ID,
+            COMMUNITY_REVNET_ID
+        );
+    }
+
+    function test_constructor_allowsFactoryBootstrapBeforeHookInitialization() public {
+        CobuildPaymentTerminalMockSplitHook bootstrapHook = new CobuildPaymentTerminalMockSplitHook(0, address(0));
+        CobuildPaymentTerminal bootstrapTerminal = new CobuildPaymentTerminal(
+            IJBDirectory(address(directory)),
+            ICobuildSplitHook(address(bootstrapHook)),
+            address(cobuildToken),
+            COBUILD_REVNET_ID,
+            COMMUNITY_REVNET_ID
+        );
+
+        cobuildToken.mint(address(this), 1 ether);
+        cobuildToken.approve(address(bootstrapTerminal), 1 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildPaymentTerminal.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID, 0));
+        bootstrapTerminal.pay(
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
+        );
+    }
+
     function test_pay_revertsWhenSplitHookCommunityRevnetIdDoesNotMatchTerminal() public {
         CobuildPaymentTerminalMockSplitHook mismatchedHook =
             new CobuildPaymentTerminalMockSplitHook(COMMUNITY_REVNET_ID + 1, address(cobuildToken));

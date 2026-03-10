@@ -37,7 +37,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Underwriting premium/slash modules: `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
-- Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`
+- Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`, `src/juicebox/CobuildPaymentTerminalFactory.sol`
 
 ### Curation and arbitration domain
 
@@ -98,6 +98,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - seat changes hard-remove departed recipients and recompute equal allocations locally on the child flow.
 
 Community root routing
+- Canonical deployment of the routing pair is `CobuildPaymentTerminalFactory.deployFor(...)`:
+  - the factory deterministically derives the split-hook clone address and wrapper CREATE2 address from caller + config + salt,
+  - deploys the wrapper before calling `CobuildSplitHook.initialize(...)`,
+  - initializes the hook with the deployed wrapper as its fixed `routeSetter` in the same transaction.
 - Community payments can arrive through `CobuildPaymentTerminal`.
 - The wrapper accepts native ETH or COBUILD:
   - native ETH is first paid into the COBUILD revnet to acquire COBUILD,
@@ -114,7 +118,7 @@ Community root routing
   - `GoalFactory` registers each deployed goal treasury exactly once,
   - future owner-authorized goal-factory versions can register into the same registry,
   - treasury identity is immutable per goal id.
-- `CobuildSplitHook` stores a fixed init-time `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
+- `CobuildSplitHook` stores a fixed init-time contract `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
 - During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
 - `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
