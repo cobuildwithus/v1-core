@@ -13,6 +13,7 @@ import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.so
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
 import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 
@@ -424,6 +425,86 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(10e18));
     }
 
+    function test_processSplitWith_revertsWhenReservedSplitPercentIsFractional() public {
+        communityToken.mint(address(hook), 10e18);
+
+        vm.prank(controller);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildSplitHook.INVALID_SPLIT_PERCENT.selector, JBConstants.SPLITS_TOTAL_PERCENT, uint256(1)
+            )
+        );
+        hook.processSplitWith(_contextWithPercent(10e18, 1));
+    }
+
+    function test_processSplitWith_revertsWhenSelectedGoalTerminalHasNoCode() public {
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = GOAL_ID_ONE;
+
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
+
+        address noCodeTerminal = makeAddr("no-code-terminal");
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(noCodeTerminal));
+
+        communityToken.mint(address(hook), 10e18);
+
+        vm.prank(controller);
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NOT_A_CONTRACT.selector, noCodeTerminal));
+        hook.processSplitWith(_context(10e18));
+    }
+
+    function test_processSplitWith_revertsWhenGoalTerminalDoesNotSpendFullAmount() public {
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = GOAL_ID_ONE;
+
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
+
+        CobuildSplitHookMockShortPullTerminal shortPullTerminal =
+            new CobuildSplitHookMockShortPullTerminal(communityToken, 4e18);
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(shortPullTerminal)));
+
+        communityToken.mint(address(hook), 10e18);
+
+        vm.prank(controller);
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildSplitHook.GOAL_PAYMENT_OUTFLOW_MISMATCH.selector, GOAL_ID_ONE, 10e18, 4e18)
+        );
+        hook.processSplitWith(_context(10e18));
+    }
+
+    function test_processSplitWith_revertsAtomicallyWhenLaterGoalTerminalDoesNotSpendFullAmount() public {
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 3));
+
+        CobuildSplitHookMockShortPullTerminal shortPullTerminal =
+            new CobuildSplitHookMockShortPullTerminal(communityToken, 50e18);
+        directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(shortPullTerminal)));
+
+        communityToken.mint(address(hook), 100e18);
+
+        vm.prank(controller);
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildSplitHook.GOAL_PAYMENT_OUTFLOW_MISMATCH.selector, GOAL_ID_TWO, 75e18, 50e18)
+        );
+        hook.processSplitWith(_context(100e18));
+
+        assertTrue(hook.hasPendingRoute());
+        assertEq(goalTerminalOne.totalReceived(), 0);
+        assertEq(shortPullTerminal.tokenBalance(), 0);
+        assertEq(communityToken.balanceOf(address(hook)), 100e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
+        assertEq(hook.cumulativeObservedVolume(), 0);
+    }
+
     function test_beginPendingRoute_revertsForUnapprovedGoal() public {
         uint256[] memory goalIds = new uint256[](1);
         goalIds[0] = 999;
@@ -530,6 +611,14 @@ contract CobuildSplitHookTest is Test {
     }
 
     function _context(uint256 amount) internal view returns (JBSplitHookContext memory context) {
+        return _contextWithPercent(amount, uint32(JBConstants.SPLITS_TOTAL_PERCENT));
+    }
+
+    function _contextWithPercent(uint256 amount, uint32 splitPercent)
+        internal
+        view
+        returns (JBSplitHookContext memory context)
+    {
         context = JBSplitHookContext({
             token: address(communityToken),
             amount: amount,
@@ -537,7 +626,7 @@ contract CobuildSplitHookTest is Test {
             projectId: COMMUNITY_REVNET_ID,
             groupId: RESERVED_TOKENS_GROUP_ID,
             split: JBSplit({
-                percent: 0,
+                percent: splitPercent,
                 projectId: 0,
                 beneficiary: payable(address(0)),
                 preferAddToBalance: false,
@@ -671,7 +760,8 @@ contract CobuildSplitHookMockGoalRegistry {
     }
 
     function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
-        return _isSelectable[goalId] && address(directory.primaryTerminalOf(goalId, communityToken)) != address(0);
+        address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
+        return _isSelectable[goalId] && terminalAddress != address(0) && terminalAddress.code.length != 0;
     }
 
     function _removeGoal(uint256 goalId) internal {
@@ -696,3 +786,29 @@ contract CobuildSplitHookMockToken is ERC20 {
 }
 
 contract CobuildSplitHookRouteSetterStub {}
+
+contract CobuildSplitHookMockShortPullTerminal {
+    CobuildSplitHookMockToken internal immutable _token;
+    uint256 internal immutable _amountToPull;
+
+    constructor(CobuildSplitHookMockToken token_, uint256 amountToPull_) {
+        _token = token_;
+        _amountToPull = amountToPull_;
+    }
+
+    function pay(uint256, address token, uint256 amount, address, uint256, string calldata, bytes calldata)
+        external
+        returns (uint256 beneficiaryTokenCount)
+    {
+        require(token == address(_token), "token");
+        if (_amountToPull != 0) {
+            _token.transferFrom(msg.sender, address(this), _amountToPull);
+        }
+
+        return amount;
+    }
+
+    function tokenBalance() external view returns (uint256) {
+        return _token.balanceOf(address(this));
+    }
+}
