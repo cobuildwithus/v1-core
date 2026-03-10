@@ -5,7 +5,6 @@ import { TeamFlow } from "src/teamflow/TeamFlow.sol";
 import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IManagedFlow } from "src/interfaces/IManagedFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -28,21 +27,17 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
         bytes32 indexed mechanismId,
         address indexed budgetTreasury,
         address indexed teamFlow,
-        address childFlow,
         address manager,
         uint256 perSeatRate,
         uint256 maxTotalRate
     );
 
     address public immutable teamFlowImplementation;
-    address public immutable customFlowImplementation;
 
-    constructor(address teamFlowImplementation_, address customFlowImplementation_) {
+    constructor(address teamFlowImplementation_) {
         _assertImplementationAddress(teamFlowImplementation_);
-        _assertImplementationAddress(customFlowImplementation_);
 
         teamFlowImplementation = teamFlowImplementation_;
-        customFlowImplementation = customFlowImplementation_;
     }
 
     function deployForBudget(
@@ -58,47 +53,34 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
         address superToken = _requireDeployedContract(address(IManagedFlow(budgetFlow).superToken()));
 
         TeamFlow teamFlow = TeamFlow(teamFlowImplementation.clone());
-        ICustomFlow childFlow = ICustomFlow(customFlowImplementation.clone());
+
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(teamFlow));
 
         teamFlow.initialize(
             TeamFlow.InitConfig({
                 mechanismId: mechanismId,
                 manager: cfg.manager,
-                childFlow: address(childFlow),
+                superToken: superToken,
+                flowImplementation: teamFlowImplementation,
                 perSeatRate: cfg.perSeatRate,
-                maxTotalRate: cfg.maxTotalRate
-            })
-        );
-
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(teamFlow));
-
-        childFlow.initialize(
-            superToken,
-            customFlowImplementation,
-            address(teamFlow),
-            address(teamFlow),
-            address(teamFlow),
-            address(0),
-            address(0),
-            address(0),
-            IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
-            cfg.flowMetadata,
+                maxTotalRate: cfg.maxTotalRate,
+                metadata: cfg.flowMetadata
+            }),
             strategies
         );
 
         out = IAllocationMechanismFactory.DeployedMechanism({
             mechanism: address(teamFlow),
-            payoutRecipient: address(childFlow),
+            payoutRecipient: address(teamFlow),
             arbitrator: address(0),
-            auxiliary: address(childFlow)
+            auxiliary: address(0)
         });
 
         emit TeamFlowDeployed(
             mechanismId,
             budgetTreasury,
             address(teamFlow),
-            address(childFlow),
             cfg.manager,
             cfg.perSeatRate,
             cfg.maxTotalRate

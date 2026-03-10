@@ -2353,7 +2353,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             address(new PrizePoolSubmissionDepositStrategy()),
             address(new ERC20VotesArbitrator())
         );
-        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()), address(new CustomFlow()));
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
             address(roundFactory),
@@ -2821,7 +2821,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             address(new PrizePoolSubmissionDepositStrategy()),
             address(new ERC20VotesArbitrator())
         );
-        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()), address(new CustomFlow()));
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
             address(roundFactory),

@@ -135,7 +135,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
         TeamFlow teamFlowImpl = new TeamFlow();
-        TeamFlowFactory teamFlowFactoryImpl = new TeamFlowFactory(address(teamFlowImpl), address(flowImpl));
+        TeamFlowFactory teamFlowFactoryImpl = new TeamFlowFactory(address(teamFlowImpl));
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
         BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(

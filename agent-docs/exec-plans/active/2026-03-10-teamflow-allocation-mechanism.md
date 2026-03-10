@@ -2,6 +2,8 @@
 
 Add a `TeamFlow` allocation mechanism family and make each new per-budget `AllocationMechanismTCR` start with both `RoundFactory` and `TeamFlowFactory` allowlisted so TeamFlow is immediately available as a curated mechanism type without moving seat logic into treasuries.
 
+Runtime topology note: the original manager-plus-child-`CustomFlow` shape described in this plan was later superseded by `agent-docs/exec-plans/active/2026-03-10-teamflow-flow-runtime-refactor.md`; `TeamFlowFactory` now deploys a single `TeamFlow` payout runtime and returns it as both `mechanism` and `payoutRecipient`.
+
 # Scope
 
 - `src/tcr/AllocationMechanismTCR.sol`

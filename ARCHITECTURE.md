@@ -29,7 +29,7 @@ cobuild-protocol/
 ### Flow system
 
 - Base engine: `src/Flow.sol`.
-- Concrete implementation: `src/flows/CustomFlow.sol`.
+- Concrete runtimes: `src/flows/CustomFlow.sol` and `src/teamflow/TeamFlow.sol`.
 - Core libraries: `src/library/FlowInitialization.sol`, `src/library/FlowAllocations.sol`, `src/library/FlowRates.sol`, `src/library/FlowPools.sol`, `src/library/FlowRecipients.sol`.
 - Storage layout boundary: `src/storage/FlowStorage.sol`.
 - Child runtime deployment uses EIP-1167 minimal clones (`Clones.clone`) for initializer-based setup and isolated storage per flow instance.
@@ -254,10 +254,10 @@ cobuild-protocol/
   - active count decrements on funding-stop and removal-finalization recipient removals.
 - New per-budget `AllocationMechanismTCR` instances initialize with a non-empty initial factory set from
   `BudgetTCRDeployer`; the default stack seeds both `RoundFactory` and `TeamFlowFactory`.
-- `TeamFlowFactory` deploys a `TeamFlow` manager plus standalone child `CustomFlow`, returns that child flow as the
-  mechanism payout recipient, and keeps the existing mechanism-escrow release path unchanged.
-- `TeamFlow` owns the child flow's `recipientAdmin`, `flowOperator`, and `sweeper` roles, acts as the child flow's
-  single allocation strategy, equal-splits active seats, and hard-removes departed seats via `removeRecipient`.
+- `TeamFlowFactory` deploys a single `TeamFlow` runtime, returns it as both the mechanism and payout recipient, and
+  keeps the existing mechanism-escrow release path unchanged.
+- `TeamFlow` is a concrete payout `Flow` runtime with self-owned `recipientAdmin`, `flowOperator`, and `sweeper`
+  roles; it assigns fixed per-seat units and hard-removes departed seats via `removeRecipient`.
 - Runtime budget recipient add/remove operations are executed directly by `BudgetTCR`, so goal-flow `recipientAdmin` should be configured to the per-goal `BudgetTCR`.
 - Child flow synchronization is explicit per recipient:
   - `ParentSynced` (default): parent allocation pipeline computes/applies child sync updates.

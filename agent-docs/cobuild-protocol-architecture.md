@@ -11,7 +11,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 ### Flow distribution domain
 
 - Core engine: `src/Flow.sol`
-- Concrete implementation: `src/flows/CustomFlow.sol`
+- Concrete runtimes: `src/flows/CustomFlow.sol`, `src/teamflow/TeamFlow.sol`
 - Shared flow libraries:
   - `src/library/FlowInitialization.sol`
   - `src/library/FlowAllocations.sol`
@@ -64,7 +64,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 ## Key Interaction Paths
 
 1. Flow initialization and allocation
-- `CustomFlow.initialize` -> `Flow.__Flow_init` -> `FlowInitialization` checks.
+- Concrete flow runtimes initialize through their own entrypoints (`CustomFlow.initialize`, `TeamFlow.initialize`) -> `Flow.__Flow_initWithRoles` -> `FlowInitialization` checks.
 - Flow initialization requires exactly one configured allocation strategy.
 - `CustomFlow.allocate(bytes32[] ids, uint32[] scaled)` is the primary entrypoint and derives the allocation key from
   caller + empty aux data on the configured strategy.
@@ -92,10 +92,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - continues when individual treasury `sync()` calls fail.
 - Flow rate mutators are role-gated:
   - `setTargetOutflowRate` and `refreshTargetOutflowRate`: flow-operator/parent.
-- `TeamFlow` uses a standalone child `CustomFlow` payout lane:
-  - child flow `recipientAdmin`, `flowOperator`, and `sweeper` are all the deployed `TeamFlow`,
-  - TeamFlow is the child flow's only allocation strategy,
-  - seat changes hard-remove departed recipients and recompute equal allocations locally on the child flow.
+- `TeamFlow` is itself the payout flow runtime:
+  - the activated mechanism and payout recipient are the same deployed `TeamFlow`,
+  - `recipientAdmin`, `flowOperator`, and `sweeper` are all self-owned by that deployed `TeamFlow`,
+  - seat changes hard-remove departed recipients and assign fixed per-seat units directly on the flow runtime.
 
 Community root routing
 - Canonical deployment of the routing pair is `CobuildPaymentTerminalFactory.deployFor(...)`:

@@ -132,6 +132,26 @@ contract TeamFlowFactoryTest is Test {
         factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(cfg));
     }
 
+    function test_teamFlow_initialize_revertsWhenStrategyConfigIsInvalid() public {
+        TeamFlow teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
+        TeamFlow.InitConfig memory initConfig = _teamFlowInitConfig(100, 150);
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](0);
+
+        vm.expectRevert(abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 0));
+        teamFlow.initialize(initConfig, strategies);
+
+        teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
+        strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(budgetFlowStrategy));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(budgetFlowStrategy)
+            )
+        );
+        teamFlow.initialize(initConfig, strategies);
+    }
+
     function test_teamFlow_onlyManagerCanMutateSeatsAndRateConfig() public {
         IAllocationMechanismFactory.DeployedMechanism memory deployed =
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
@@ -332,6 +352,21 @@ contract TeamFlowFactoryTest is Test {
             perSeatRate: perSeatRate,
             maxTotalRate: maxTotalRate,
             flowMetadata: _recipientMetadata("Team Flow")
+        });
+    }
+
+    function _teamFlowInitConfig(
+        uint256 perSeatRate,
+        uint256 maxTotalRate
+    ) internal view returns (TeamFlow.InitConfig memory cfg) {
+        cfg = TeamFlow.InitConfig({
+            mechanismId: MECHANISM_ID,
+            manager: manager,
+            superToken: address(superToken),
+            flowImplementation: factory.teamFlowImplementation(),
+            perSeatRate: perSeatRate,
+            maxTotalRate: maxTotalRate,
+            metadata: _recipientMetadata("Team Flow")
         });
     }
 

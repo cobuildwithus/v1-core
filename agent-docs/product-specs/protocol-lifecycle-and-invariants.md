@@ -8,7 +8,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 
 ### Flow lifecycle
 
-- Flows initialize via `CustomFlow.initialize` -> `Flow.__Flow_init`.
+- Flows initialize through concrete runtime entrypoints (`CustomFlow.initialize`, `TeamFlow.initialize`) -> `Flow.__Flow_initWithRoles`.
 - Deployment-time flow knobs are init-only:
   - `flowImpl`, `managerRewardPoolFlowRatePpm`, `managerRewardPool`, and `allocationPipeline`.
   - Runtime mutator entrypoints for these knobs are removed.
@@ -135,11 +135,11 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Per-budget mechanism registries initialize with a non-empty initial factory set supplied by the stack deployer; the
   current default stack seeds both `RoundFactory` and `TeamFlowFactory` as immediately allowlisted mechanism
   factories.
-- `TeamFlowFactory` deploys a `TeamFlow` manager plus standalone child `CustomFlow` and keeps the existing
-  mechanism-funding escrow release path by using that child flow as the payout recipient.
-- `TeamFlow` is the child flow's single allocation strategy and equal-split seat manager:
-  - seat removal uses hard `removeRecipient` on the child flow rather than enable/disable toggles,
-  - re-adding a previously removed member creates a fresh child-flow recipient id instead of reusing the removed one.
+- `TeamFlowFactory` deploys a single `TeamFlow` payout flow and keeps the existing
+  mechanism-funding escrow release path by using that deployed `TeamFlow` runtime as the payout recipient.
+- `TeamFlow` is a self-administered payout flow with fixed per-seat units:
+  - seat removal uses hard `removeRecipient` on the `TeamFlow` runtime rather than enable/disable toggles,
+  - re-adding a previously removed member creates a fresh TeamFlow recipient id instead of reusing the removed one.
 - Factory discovery invariants:
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery

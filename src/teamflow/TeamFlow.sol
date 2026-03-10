@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
+import { Flow } from "src/Flow.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import { FlowPools } from "src/library/FlowPools.sol";
+import { FlowRecipients } from "src/library/FlowRecipients.sol";
 import { TreasuryFlowRateSync } from "src/goals/library/TreasuryFlowRateSync.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
+import { IFlow } from "src/interfaces/IFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-contract TeamFlow is Initializable, IAllocationStrategy {
+contract TeamFlow is Flow {
     uint32 public constant DEFAULT_MEMBER_UNITS = 20;
     string public constant STRATEGY_KEY = "TeamFlow";
 
@@ -21,9 +23,11 @@ contract TeamFlow is Initializable, IAllocationStrategy {
     struct InitConfig {
         bytes32 mechanismId;
         address manager;
-        address childFlow;
+        address superToken;
+        address flowImplementation;
         uint256 perSeatRate;
         uint256 maxTotalRate;
+        FlowTypes.RecipientMetadata metadata;
     }
 
     struct SeatState {
@@ -35,13 +39,12 @@ contract TeamFlow is Initializable, IAllocationStrategy {
     error ONLY_MANAGER();
     error MEMBER_ALREADY_ACTIVE(address member);
     error MEMBER_NOT_ACTIVE(address member);
-    error INVALID_CHILD_FLOW(address childFlow);
-    error TOO_MANY_ACTIVE_MEMBERS(uint256 activeMembers);
+    error TEAMFLOW_REQUIRES_SELF_STRATEGY(address strategy);
 
     event TeamFlowInitialized(
         bytes32 indexed mechanismId,
         address indexed manager,
-        address indexed childFlow,
+        address indexed superToken,
         uint256 perSeatRate,
         uint256 maxTotalRate
     );
@@ -52,7 +55,6 @@ contract TeamFlow is Initializable, IAllocationStrategy {
 
     bytes32 public mechanismId;
     address public manager;
-    ICustomFlow public childFlow;
     uint256 public perSeatRate;
     uint256 public maxTotalRate;
 
@@ -68,22 +70,38 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         _;
     }
 
-    function initialize(InitConfig calldata config) external initializer {
+    function initialize(InitConfig calldata config, IAllocationStrategy[] calldata strategies) external initializer {
         if (config.manager == address(0)) revert ADDRESS_ZERO();
-        if (config.childFlow == address(0) || config.childFlow.code.length == 0) {
-            revert INVALID_CHILD_FLOW(config.childFlow);
-        }
+        if (config.superToken.code.length == 0) revert NOT_A_CONTRACT(config.superToken);
+        if (config.flowImplementation.code.length == 0) revert NOT_A_CONTRACT(config.flowImplementation);
+        if (strategies.length != 1) revert FLOW_REQUIRES_SINGLE_STRATEGY(strategies.length);
+        if (address(strategies[0]) != address(this)) revert TEAMFLOW_REQUIRES_SELF_STRATEGY(address(strategies[0]));
 
         mechanismId = config.mechanismId;
         manager = config.manager;
-        childFlow = ICustomFlow(config.childFlow);
         perSeatRate = config.perSeatRate;
         maxTotalRate = config.maxTotalRate;
+
+        __Flow_initWithRoles(
+            IFlow.FlowInitConfig({
+                superToken: config.superToken,
+                flowImplementation: config.flowImplementation,
+                recipientAdmin: address(this),
+                managerRewardPool: address(0),
+                allocationPipeline: address(0),
+                parent: address(0),
+                flowParams: IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
+                metadata: config.metadata
+            }),
+            address(this),
+            address(this),
+            strategies
+        );
 
         emit TeamFlowInitialized(
             config.mechanismId,
             config.manager,
-            config.childFlow,
+            config.superToken,
             config.perSeatRate,
             config.maxTotalRate
         );
@@ -107,8 +125,20 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         seat.activeIndexPlusOne = _activeMembers.length + 1;
         _activeMembers.push(member);
 
-        childFlow.addRecipient(recipientId, member, metadata);
-        _syncTeamState();
+        FlowTypes.RecipientsState storage recipientsState = _recipientsStorage();
+        FlowRecipients.addRecipient(
+            recipientsState,
+            recipientId,
+            member,
+            metadata,
+            address(this),
+            _cfgStorage().managerRewardPool
+        );
+
+        emit RecipientCreated(recipientId, recipientsState.recipients[recipientId], msg.sender);
+
+        FlowPools.updateDistributionMemberUnits(_cfgStorage(), member, uint128(DEFAULT_MEMBER_UNITS));
+        _syncTargetRate();
 
         emit TeamFlowMemberAdded(member, recipientId, seat.nonce);
     }
@@ -119,13 +149,23 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         if (activeIndexPlusOne == 0) revert MEMBER_NOT_ACTIVE(member);
 
         removedRecipientId = seat.recipientId;
-        childFlow.removeRecipient(removedRecipientId);
+
+        FlowTypes.RecipientsState storage recipientsState = _recipientsStorage();
+        address recipientAddress = FlowRecipients.markRecipientRemoved(
+            recipientsState,
+            _childFlowsSet(),
+            removedRecipientId
+        );
+
+        emit RecipientRemoved(recipientAddress, removedRecipientId);
+
+        FlowPools.removeFromPools(_cfgStorage(), recipientAddress);
 
         _removeActiveMember(activeIndexPlusOne);
         delete seat.activeIndexPlusOne;
         delete seat.recipientId;
 
-        _syncTeamState();
+        _syncTargetRate();
 
         emit TeamFlowMemberRemoved(member, removedRecipientId);
     }
@@ -134,12 +174,12 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         perSeatRate = perSeatRate_;
         maxTotalRate = maxTotalRate_;
 
-        _syncTeamState();
+        _syncTargetRate();
         emit TeamFlowRateConfigUpdated(perSeatRate_, maxTotalRate_);
     }
 
     function sync() external returns (int96 appliedRate) {
-        appliedRate = _syncTeamState();
+        appliedRate = _syncTargetRate();
     }
 
     function activeMembers() external view returns (address[] memory members) {
@@ -154,89 +194,38 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         recipientId = _seatState[member].recipientId;
     }
 
-    function allocationKey(address caller, bytes calldata) external pure override returns (uint256) {
+    function allocationKey(address caller, bytes calldata) external pure returns (uint256) {
         return uint256(uint160(caller));
     }
 
-    function currentWeight(uint256 key) external view override returns (uint256) {
+    function currentWeight(uint256 key) external view returns (uint256) {
         if (key != _selfAllocationKey()) return 0;
         return _allocationWeight();
     }
 
-    function canAllocate(uint256 key, address caller) external view override returns (bool) {
+    function canAllocate(uint256 key, address caller) external view returns (bool) {
         return key == _selfAllocationKey() && caller == address(this);
     }
 
-    function canAccountAllocate(address account) external view override returns (bool) {
+    function canAccountAllocate(address account) external view returns (bool) {
         return account == address(this);
     }
 
-    function accountAllocationWeight(address account) external view override returns (uint256) {
+    function accountAllocationWeight(address account) external view returns (uint256) {
         if (account != address(this)) return 0;
         return _allocationWeight();
     }
 
-    function strategyKey() external pure override returns (string memory) {
+    function strategyKey() external pure returns (string memory) {
         return STRATEGY_KEY;
     }
 
-    function _syncTeamState() internal returns (int96 appliedRate) {
+    function _syncTargetRate() internal returns (int96 appliedRate) {
         uint256 activeCount = _activeMembers.length;
-        if (activeCount == 0) {
-            bytes32 existingCommit = childFlow.getAllocationCommitment(address(this), _selfAllocationKey());
-            if (existingCommit != bytes32(0)) {
-                childFlow.clearStaleAllocation(address(this), _selfAllocationKey());
-            }
-
-            appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(IFlow(address(childFlow)), 0);
-            emit TeamFlowSynced(0, 0, appliedRate);
-            return appliedRate;
-        }
-
-        if (activeCount > FlowProtocolConstants.PPM_SCALE_UINT256) {
-            revert TOO_MANY_ACTIVE_MEMBERS(activeCount);
-        }
-
-        (bytes32[] memory recipientIds, uint32[] memory allocationsPpm) = _equalAllocationVector(activeCount);
-        childFlow.allocate(recipientIds, allocationsPpm);
-
         int96 targetRate = _targetRate(activeCount);
-        appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(IFlow(address(childFlow)), targetRate);
+        appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(IFlow(address(this)), targetRate);
 
         emit TeamFlowSynced(activeCount, targetRate, appliedRate);
-    }
-
-    function _equalAllocationVector(
-        uint256 activeCount
-    ) internal view returns (bytes32[] memory recipientIds, uint32[] memory allocationsPpm) {
-        recipientIds = new bytes32[](activeCount);
-        allocationsPpm = new uint32[](activeCount);
-
-        for (uint256 i = 0; i < activeCount; i++) {
-            recipientIds[i] = _seatState[_activeMembers[i]].recipientId;
-        }
-        _sortRecipientIds(recipientIds);
-
-        uint256 baseAllocation = FlowProtocolConstants.PPM_SCALE_UINT256 / activeCount;
-        uint256 remainder = FlowProtocolConstants.PPM_SCALE_UINT256 % activeCount;
-        for (uint256 i = 0; i < activeCount; i++) {
-            allocationsPpm[i] = SafeCast.toUint32(baseAllocation + (i < remainder ? 1 : 0));
-        }
-    }
-
-    function _sortRecipientIds(bytes32[] memory recipientIds) internal pure {
-        uint256 count = recipientIds.length;
-        for (uint256 i = 1; i < count; i++) {
-            bytes32 current = recipientIds[i];
-            uint256 j = i;
-            while (j != 0 && current < recipientIds[j - 1]) {
-                recipientIds[j] = recipientIds[j - 1];
-                unchecked {
-                    j -= 1;
-                }
-            }
-            recipientIds[j] = current;
-        }
     }
 
     function _allocationWeight() internal view returns (uint256 weight) {
@@ -280,5 +269,18 @@ contract TeamFlow is Initializable, IAllocationStrategy {
         }
 
         _activeMembers.pop();
+    }
+
+    function _deployFlowRecipient(
+        bytes32,
+        RecipientMetadata calldata,
+        address,
+        address,
+        address,
+        address,
+        uint32,
+        IAllocationStrategy[] calldata
+    ) internal pure override returns (address) {
+        revert NESTED_FLOW_RECIPIENTS_DISABLED();
     }
 }
