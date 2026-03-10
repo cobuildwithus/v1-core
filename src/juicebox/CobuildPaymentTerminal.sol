@@ -41,7 +41,6 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     error ZERO_COBUILD_OUT();
     error ROUTE_NOT_CONSUMED();
     error NO_CONTROLLER();
-    error PENDING_RESERVED_TOKENS(uint256 tokenCount);
 
     constructor(
         IJBDirectory directory,
@@ -220,15 +219,14 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         _requireSplitHookConfiguration();
 
         IJBController controller = _controllerOf();
-        uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
-        if (pendingReservedTokenBalance != 0) revert PENDING_RESERVED_TOKENS(pendingReservedTokenBalance);
+        uint256 backlogTokenCount = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
 
         IJBTerminal destinationTerminal = _destinationTerminalOf();
         bool hasExplicitRoute = goalIds.length != 0;
         if (hasExplicitRoute) {
-            SPLIT_HOOK.beginPendingRoute(msg.sender, beneficiary, goalIds, weights);
+            SPLIT_HOOK.beginPendingRoute(msg.sender, beneficiary, backlogTokenCount, goalIds, weights);
         } else {
-            SPLIT_HOOK.beginPendingHistoricalRoute(msg.sender, beneficiary);
+            SPLIT_HOOK.beginPendingHistoricalRoute(msg.sender, beneficiary, backlogTokenCount);
         }
 
         cobuildToken.forceApprove(address(destinationTerminal), cobuildAmount);
@@ -247,8 +245,8 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
 
         if (!SPLIT_HOOK.hasPendingRoute()) return beneficiaryTokenCount;
 
-        pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
-        if (pendingReservedTokenBalance == 0) {
+        uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
+        if (pendingReservedTokenBalance <= backlogTokenCount) {
             SPLIT_HOOK.cancelPendingRoute();
             return beneficiaryTokenCount;
         }

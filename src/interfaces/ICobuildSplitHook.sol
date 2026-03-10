@@ -8,6 +8,7 @@ interface ICobuildSplitHook is IJBSplitHook {
         address payer;
         address beneficiary;
         uint64 createdAt;
+        uint256 backlogTokenCount;
         bool usesHistoricalDefault;
         uint256[] goalIds;
         uint32[] weights;
@@ -27,6 +28,8 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function currentHistoricalTotalVolume() external view returns (uint256);
 
+    function historicalBacklogAmount() external view returns (uint256);
+
     function selectableGoalIds() external view returns (uint256[] memory goalIds);
 
     function historicalRoute() external view returns (uint256[] memory goalIds, uint256[] memory volumes);
@@ -38,11 +41,15 @@ interface ICobuildSplitHook is IJBSplitHook {
     function beginPendingRoute(
         address payer,
         address beneficiary,
+        uint256 backlogTokenCount,
         uint256[] calldata goalIds,
         uint32[] calldata weights
     ) external;
 
-    function beginPendingHistoricalRoute(address payer, address beneficiary) external;
+    function beginPendingHistoricalRoute(address payer, address beneficiary, uint256 backlogTokenCount) external;
 
     function cancelPendingRoute() external;
+
+    /// @notice Best-effort permissionless backlog flush. Returns 0 and leaves backlog parked when no historical route exists.
+    function flushHistoricalBacklog() external returns (uint256 routedAmount);
 }

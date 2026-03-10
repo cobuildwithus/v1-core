@@ -9,8 +9,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
    - explicit metadata seeds an explicit per-payment route,
    - empty metadata seeds a historical-default route for the same beneficiary.
-   - the wrapper rejects the pay if the community already has pending reserved tokens, so the selected route cannot be
-     applied to earlier backlog.
+   - the wrapper snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
+     delta can use the selected route.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - owner-backed system goals can be pinned/unpinned directly,
@@ -19,13 +19,15 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 5. If the wrapper-created community pay minted reserved tokens, the wrapper immediately calls the community controller's
    `sendReservedTokensToSplitsOf(...)` in the same transaction.
 6. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which consumes the pending route and
-   forwards reserved community tokens into registry-selectable child goals by paying each goal's primary terminal for the
-   community token.
+   forwards only the current pay's newly created reserved-token delta into registry-selectable child goals by paying
+   each goal's primary terminal for the community token.
 7. If the wrapper-created pay minted no reserved tokens, the wrapper clears the unused pending route instead of leaving
    stale routing state behind.
-8. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
-9. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's deployment-registry-provided treasury as beneficiary.
-10. If no usable historical route exists, the direct/defaulted community pay reverts instead of default-routing or escrowing reserved tokens.
+8. If older backlog was included in that controller flush, `CobuildSplitHook` parks it as hook-managed historical backlog
+   for later permissionless retry instead of routing it through the current payer's selection.
+9. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
+10. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's deployment-registry-provided treasury as beneficiary.
+11. If no usable historical route exists, the split hook defers that backlog on-hook for later permissionless historical flush instead of blocking wrapper-routed mints.
 
 ## Goal Funding Path
 

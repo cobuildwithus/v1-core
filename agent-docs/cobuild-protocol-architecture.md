@@ -109,7 +109,8 @@ Community root routing
 - The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
   - empty metadata seeds a one-shot historical-default route for the same beneficiary.
-- Before seeding a new route, the wrapper requires the community controller's pending reserved-token balance to be zero.
+- Before seeding a new route, the wrapper snapshots the community controller's current pending reserved-token balance so
+  older backlog can be separated from the current pay's newly created reserved-token delta.
 - After the community pay returns, if it created reserved tokens, the wrapper immediately calls
   `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
 - If the community pay created no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
@@ -128,13 +129,17 @@ Community root routing
 - During wrapper-routed community pays, reserved-token split delivery is forced synchronously by the wrapper through the
   community controller's `sendReservedTokensToSplitsOf(...)` call.
 - `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
-  goals by paying each goal's primary terminal for the community token.
+  goals by paying each goal's primary terminal for the community token, but only for the current pay's newly created
+  reserved-token delta.
+- Older controller backlog encountered during a wrapper-routed pay is moved into hook-managed historical backlog and is
+  distributed later through permissionless historical routing.
 - Only explicit routed payments record observed per-goal volume.
 - Historical-default routing is derived from registry-selectable goals with non-zero observed explicit volume;
   passive/defaulted flow follows that signal but does not update it.
 - If no pending route exists, the hook routes using historical explicit-volume weights only and uses each listed goal's
   deployment-registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
-- If no usable historical route exists, the community pay fails closed instead of default-routing or escrowing.
+- If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
+  retry instead of blocking wrapper-routed mints.
 
 3. Goal treasury funding and resolution
 - Revnet ingress arrives through `GoalRevnetSplitHook.processSplitWith`.
@@ -207,8 +212,8 @@ Community root routing
     that update observed historical volume,
   - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
-  - wrapper-routed pays fail closed when preexisting pending reserved-token backlog would make the selected route unsafe
-    to apply,
+  - wrapper-routed pays snapshot and defer preexisting controller backlog so the selected route stays scoped to the
+    current payer's new reserved-token delta,
   - goal membership is sourced from fixed init-time `CommunityGoalRegistry` state while treasury beneficiaries are
     sourced from fixed init-time `GoalDeploymentRegistry` state,
   - direct/defaulted routing uses canonical goal treasury beneficiaries rather than a global default beneficiary,

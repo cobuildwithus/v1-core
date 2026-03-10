@@ -159,7 +159,7 @@ contract CobuildSplitHookTest is Test {
 
     function test_processSplitWith_consumesPendingRoute_andRecordsObservedVolume() public {
         vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, _goalIds(), _weights(1, 3));
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 3));
 
         communityToken.mint(address(hook), 100e18);
 
@@ -182,7 +182,7 @@ contract CobuildSplitHookTest is Test {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 0);
 
         communityToken.mint(address(hook), 50e18);
 
@@ -215,23 +215,90 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_revertsWithoutHistoryForPendingHistoricalRoute() public {
+    function test_processSplitWith_routesOnlyPendingExplicitDelta_andDefersSnapshottedBacklog() public {
         vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 100e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(100e18));
+
+        assertFalse(hook.hasPendingRoute());
+        assertEq(goalTerminalOne.totalReceived(), 15e18);
+        assertEq(goalTerminalTwo.totalReceived(), 45e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 15e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 45e18);
+        assertEq(hook.cumulativeObservedVolume(), 60e18);
+        assertEq(hook.historicalBacklogAmount(), 40e18);
+        assertEq(communityToken.balanceOf(address(hook)), 40e18);
+    }
+
+    function test_flushHistoricalBacklog_routesDeferredBalanceUsingHistoricalGoalTreasuries() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        assertEq(hook.historicalBacklogAmount(), 40e18);
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+
+        uint256 routedAmount = hook.flushHistoricalBacklog();
+
+        assertEq(routedAmount, 40e18);
+        assertEq(hook.historicalBacklogAmount(), 0);
+        assertEq(goalTerminalOne.totalReceived(), 56e18);
+        assertEq(goalTerminalTwo.totalReceived(), 84e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
+        assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
+        assertEq(communityToken.balanceOf(address(hook)), 0);
+    }
+
+    function test_processSplitWith_revertsWhenBacklogSnapshotExceedsSourceAmount() public {
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 101e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 100e18);
+
+        vm.prank(controller);
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.INVALID_BACKLOG_SNAPSHOT.selector, 101e18, 100e18));
+        hook.processSplitWith(_context(100e18));
+    }
+
+    function test_processSplitWith_defersPendingHistoricalRouteWhenNoHistoryExists() public {
+        vm.prank(routeSetter);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 0);
 
         communityToken.mint(address(hook), 90e18);
 
         vm.prank(controller);
-        vm.expectRevert(CobuildSplitHook.NO_ROUTE_AVAILABLE.selector);
         hook.processSplitWith(_context(90e18));
+
+        assertFalse(hook.hasPendingRoute());
+        assertEq(hook.historicalBacklogAmount(), 90e18);
+        assertEq(communityToken.balanceOf(address(hook)), 90e18);
+        assertEq(goalTerminalOne.totalReceived(), 0);
+        assertEq(goalTerminalTwo.totalReceived(), 0);
     }
 
-    function test_processSplitWith_revertsWithoutHistoryForDirectPay() public {
+    function test_processSplitWith_defersDirectPayWhenNoHistoryExists() public {
         communityToken.mint(address(hook), 50e18);
 
         vm.prank(controller);
-        vm.expectRevert(CobuildSplitHook.NO_ROUTE_AVAILABLE.selector);
         hook.processSplitWith(_context(50e18));
+
+        assertEq(hook.historicalBacklogAmount(), 50e18);
+        assertEq(communityToken.balanceOf(address(hook)), 50e18);
+        assertEq(goalTerminalOne.totalReceived(), 0);
+        assertEq(goalTerminalTwo.totalReceived(), 0);
     }
 
     function test_processSplitWith_ignoresGoalsRemovedFromRegistryWhenDerivingHistoricalRoute() public {
@@ -346,7 +413,7 @@ contract CobuildSplitHookTest is Test {
         weights[0] = 1;
 
         vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
 
         directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(0)));
 
@@ -366,13 +433,13 @@ contract CobuildSplitHookTest is Test {
 
         vm.prank(routeSetter);
         vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.GOAL_NOT_APPROVED.selector, 999));
-        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
     }
 
     function test_beginPendingHistoricalRoute_revertsWhenCallerIsNotRouteSetter() public {
         vm.prank(makeAddr("not-route-setter"));
         vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
-        hook.beginPendingHistoricalRoute(beneficiary, beneficiary);
+        hook.beginPendingHistoricalRoute(beneficiary, beneficiary, 0);
     }
 
     function test_processSplitWith_revertsWhenCallerIsNotController() public {
@@ -395,7 +462,7 @@ contract CobuildSplitHookTest is Test {
         weights[0] = 1;
 
         vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
 
         communityToken.mint(address(hook), 100e18);
 
@@ -442,7 +509,7 @@ contract CobuildSplitHookTest is Test {
         internal
     {
         vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary_, beneficiary_, _goalIds(), _weights(firstWeight, secondWeight));
+        hook.beginPendingRoute(beneficiary_, beneficiary_, 0, _goalIds(), _weights(firstWeight, secondWeight));
 
         communityToken.mint(address(hook), amount);
 

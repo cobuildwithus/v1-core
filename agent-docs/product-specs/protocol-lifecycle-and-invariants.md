@@ -84,15 +84,18 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
-  - Wrapper-routed community pays fail closed when preexisting pending reserved-token backlog exists, so a new user
-    route cannot capture earlier backlog.
-  - If a wrapper-routed pay creates reserved tokens, the wrapper must force same-transaction split delivery and pending-route consumption.
+  - Wrapper-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
+    pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
+    historical flushing so a new user route cannot capture earlier backlog.
+  - If a wrapper-routed pay creates reserved tokens, the wrapper must force same-transaction split delivery and
+    pending-route consumption for that newly created delta.
   - If a wrapper-routed pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving
     stale routing state behind.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
     uses each goal's deployment-registry-provided treasury sink for raw direct-pay fallback beneficiaries,
-    and otherwise fails closed when no usable historical route exists.
+    and otherwise defers historical backlog on-hook for later permissionless retry when no usable historical route
+    exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,

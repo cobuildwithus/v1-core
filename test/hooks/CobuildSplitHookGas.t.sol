@@ -178,7 +178,7 @@ contract CobuildSplitHookGasProfileTest is Test {
 
         if (usesPendingHistoricalRoute) {
             vm.prank(scenario.routeSetter);
-            scenario.hook.beginPendingHistoricalRoute(scenario.beneficiary, scenario.beneficiary);
+            scenario.hook.beginPendingHistoricalRoute(scenario.beneficiary, scenario.beneficiary, 0);
         }
 
         scenario.token.mint(address(scenario.hook), sourceAmount);
