@@ -21,14 +21,16 @@ contract CobuildSplitHookTest is Test {
 
     address internal controller = makeAddr("controller");
     address internal routeSetter = makeAddr("route-setter");
+    address internal goalManager = makeAddr("goal-manager");
     address internal beneficiary = makeAddr("beneficiary");
     address internal historicalBeneficiary = makeAddr("historical-beneficiary");
-    address internal newOwner = makeAddr("new-owner");
 
     CobuildSplitHookMockToken internal communityToken;
     CobuildSplitHookMockDirectory internal directory;
     CobuildSplitHookMockGoalTerminal internal goalTerminalOne;
     CobuildSplitHookMockGoalTerminal internal goalTerminalTwo;
+    CobuildSplitHookMockGoalTreasury internal goalTreasuryOne;
+    CobuildSplitHookMockGoalTreasury internal goalTreasuryTwo;
     CobuildSplitHook internal hook;
 
     function setUp() public {
@@ -36,6 +38,8 @@ contract CobuildSplitHookTest is Test {
         directory = new CobuildSplitHookMockDirectory();
         goalTerminalOne = new CobuildSplitHookMockGoalTerminal(communityToken);
         goalTerminalTwo = new CobuildSplitHookMockGoalTerminal(communityToken);
+        goalTreasuryOne = new CobuildSplitHookMockGoalTreasury(GOAL_ID_ONE);
+        goalTreasuryTwo = new CobuildSplitHookMockGoalTreasury(GOAL_ID_TWO);
 
         hook = _deployHook();
 
@@ -43,9 +47,10 @@ contract CobuildSplitHookTest is Test {
         directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(goalTerminalOne)));
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(goalTerminalTwo)));
 
-        hook.setApprovedGoal(GOAL_ID_ONE, true);
-        hook.setApprovedGoal(GOAL_ID_TWO, true);
-        hook.setRouteSetter(routeSetter);
+        vm.startPrank(goalManager);
+        hook.addApprovedGoal(GOAL_ID_ONE, address(goalTreasuryOne));
+        hook.addApprovedGoal(GOAL_ID_TWO, address(goalTreasuryTwo));
+        vm.stopPrank();
     }
 
     function test_processSplitWith_consumesPendingRoute_andRecordsObservedVolume() public {
@@ -88,27 +93,8 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.observedTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_usesManualDefaultForPendingHistoricalRouteWithoutHistory() public {
-        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
-
-        vm.prank(routeSetter);
-        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
-
-        communityToken.mint(address(hook), 90e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(90e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 60e18);
-        assertEq(goalTerminalTwo.totalReceived(), 30e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
-        assertEq(hook.observedTotalVolume(), 0);
-    }
-
-    function test_processSplitWith_usesHistoricalRouteForDirectPayWhenDefaultBeneficiarySet() public {
+    function test_processSplitWith_usesGoalTreasuriesForDirectPayHistoricalRoute() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
-        hook.setDefaultBeneficiary(historicalBeneficiary);
 
         communityToken.mint(address(hook), 50e18);
 
@@ -117,95 +103,35 @@ contract CobuildSplitHookTest is Test {
 
         assertEq(goalTerminalOne.totalReceived(), 60e18);
         assertEq(goalTerminalTwo.totalReceived(), 90e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
+        assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
         assertEq(hook.observedTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_usesManualDefaultForDirectPayWhenNoHistoryExists() public {
-        hook.setDefaultBeneficiary(beneficiary);
-        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
-
-        communityToken.mint(address(hook), 90e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(90e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 60e18);
-        assertEq(goalTerminalTwo.totalReceived(), 30e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
-        assertEq(hook.observedTotalVolume(), 0);
-    }
-
-    function test_processSplitWith_prefersHistoricalRouteOverManualDefaultForPendingHistoricalRoute() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
-        hook.setDefaultRoute(_goalIds(), _weights(5, 1));
-
+    function test_processSplitWith_revertsWithoutHistoryForPendingHistoricalRoute() public {
         vm.prank(routeSetter);
         hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
 
-        communityToken.mint(address(hook), 60e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(60e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 40e18);
-        assertEq(goalTerminalTwo.totalReceived(), 120e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
-    }
-
-    function test_processSplitWith_prefersHistoricalRouteOverManualDefaultForDirectPay() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
-        hook.setDefaultBeneficiary(historicalBeneficiary);
-        hook.setDefaultRoute(_goalIds(), _weights(5, 1));
-
-        communityToken.mint(address(hook), 60e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(60e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 40e18);
-        assertEq(goalTerminalTwo.totalReceived(), 120e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
-        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
-    }
-
-    function test_processSplitWith_escrowsDirectPayWithoutDefaultBeneficiaryEvenWhenHistoryExists() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
-
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 40e18);
-        assertEq(goalTerminalTwo.totalReceived(), 60e18);
-        assertEq(communityToken.balanceOf(address(hook)), 50e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 40e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 60e18);
-        assertEq(hook.observedTotalVolume(), 100e18);
-    }
-
-    function test_processSplitWith_escrowsDirectPayWithoutDefaultBeneficiaryEvenWhenManualDefaultExists() public {
-        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
-
         communityToken.mint(address(hook), 90e18);
 
         vm.prank(controller);
+        vm.expectRevert(CobuildSplitHook.NO_ROUTE_AVAILABLE.selector);
         hook.processSplitWith(_context(90e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 0);
-        assertEq(goalTerminalTwo.totalReceived(), 0);
-        assertEq(communityToken.balanceOf(address(hook)), 90e18);
-        assertEq(hook.observedTotalVolume(), 0);
     }
 
-    function test_processSplitWith_ignoresUnapprovedGoalsWhenDerivingHistoricalRoute() public {
+    function test_processSplitWith_revertsWithoutHistoryForDirectPay() public {
+        communityToken.mint(address(hook), 50e18);
+
+        vm.prank(controller);
+        vm.expectRevert(CobuildSplitHook.NO_ROUTE_AVAILABLE.selector);
+        hook.processSplitWith(_context(50e18));
+    }
+
+    function test_processSplitWith_ignoresRemovedGoalsWhenDerivingHistoricalRoute() public {
         _seedObservedRoute(100e18, 1, 3, beneficiary);
-        hook.setApprovedGoal(GOAL_ID_TWO, false);
-        hook.setDefaultBeneficiary(historicalBeneficiary);
+
+        vm.prank(goalManager);
+        hook.removeApprovedGoal(GOAL_ID_TWO);
 
         communityToken.mint(address(hook), 40e18);
 
@@ -214,7 +140,7 @@ contract CobuildSplitHookTest is Test {
 
         assertEq(goalTerminalOne.totalReceived(), 65e18);
         assertEq(goalTerminalTwo.totalReceived(), 75e18);
-        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
 
         (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
         assertEq(historicalGoalIds.length, 1);
@@ -233,28 +159,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
         assertEq(historicalVolumes.length, 1);
         assertEq(historicalVolumes[0], 25e18);
-    }
-
-    function test_processSplitWith_escrowsWhenNoRouteIsAvailable() public {
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 0);
-        assertEq(goalTerminalTwo.totalReceived(), 0);
-        assertEq(communityToken.balanceOf(address(hook)), 50e18);
-    }
-
-    function test_sweepEscrowed_routesHeldBalanceUsingExplicitRoute() public {
-        communityToken.mint(address(hook), 80e18);
-
-        uint256 sweptAmount = hook.sweepEscrowed(beneficiary, _goalIds(), _weights(1, 1));
-
-        assertEq(sweptAmount, 80e18);
-        assertEq(goalTerminalOne.totalReceived(), 40e18);
-        assertEq(goalTerminalTwo.totalReceived(), 40e18);
-        assertEq(communityToken.balanceOf(address(hook)), 0);
     }
 
     function test_processSplitWith_revertsWhenSelectedGoalHasNoPrimaryTerminal() public {
@@ -301,19 +205,63 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(10e18));
     }
 
-    function test_transferOwnership_updatesRouteSetterWhenPreviousOwnerWasRouteSetter() public {
-        hook.setRouteSetter(address(this));
+    function test_addApprovedGoal_revertsWhenCallerIsNotGoalManager() public {
+        CobuildSplitHookMockGoalTreasury newGoalTreasury = new CobuildSplitHookMockGoalTreasury(303);
 
-        hook.transferOwnership(newOwner);
+        vm.prank(makeAddr("not-goal-manager"));
+        vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
+        hook.addApprovedGoal(303, address(newGoalTreasury));
+    }
 
-        assertEq(hook.owner(), newOwner);
-        assertEq(hook.routeSetter(), newOwner);
+    function test_addApprovedGoal_revertsWhenTreasuryGoalIdMismatch() public {
+        CobuildSplitHookMockGoalTreasury mismatchedTreasury = new CobuildSplitHookMockGoalTreasury(999);
+
+        vm.prank(goalManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildSplitHook.INVALID_GOAL_TREASURY.selector, address(mismatchedTreasury), 303, 999
+            )
+        );
+        hook.addApprovedGoal(303, address(mismatchedTreasury));
+    }
+
+    function test_addApprovedGoal_revertsWhenTreasuryGoalIdLookupReverts() public {
+        CobuildSplitHookMockRevertingGoalTreasury revertingTreasury = new CobuildSplitHookMockRevertingGoalTreasury();
+
+        vm.prank(goalManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildSplitHook.INVALID_GOAL_TREASURY.selector, address(revertingTreasury), 303, 0)
+        );
+        hook.addApprovedGoal(303, address(revertingTreasury));
+    }
+
+    function test_removeApprovedGoal_revertsWhenCallerIsNotGoalManager() public {
+        vm.prank(makeAddr("not-goal-manager"));
+        vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
+        hook.removeApprovedGoal(GOAL_ID_ONE);
+    }
+
+    function test_removeApprovedGoal_clearsGoalTreasuryMapping() public {
+        vm.prank(goalManager);
+        hook.removeApprovedGoal(GOAL_ID_TWO);
+
+        assertEq(hook.goalTreasuryOf(GOAL_ID_TWO), address(0));
+
+        uint256[] memory approvedGoalIds = hook.approvedGoals();
+        assertEq(approvedGoalIds.length, 1);
+        assertEq(approvedGoalIds[0], GOAL_ID_ONE);
     }
 
     function _deployHook() internal returns (CobuildSplitHook deployedHook) {
         CobuildSplitHook implementation = new CobuildSplitHook();
         deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
-        deployedHook.initialize(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(communityToken), address(this));
+        deployedHook.initialize(
+            IJBDirectory(address(directory)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            routeSetter,
+            goalManager
+        );
     }
 
     function _seedObservedRoute(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_) internal {
@@ -408,6 +356,20 @@ contract CobuildSplitHookMockGoalTerminal {
         lastAmount = amount;
 
         return amount;
+    }
+}
+
+contract CobuildSplitHookMockGoalTreasury {
+    uint256 public immutable goalRevnetId;
+
+    constructor(uint256 goalRevnetId_) {
+        goalRevnetId = goalRevnetId_;
+    }
+}
+
+contract CobuildSplitHookMockRevertingGoalTreasury {
+    function goalRevnetId() external pure returns (uint256) {
+        revert("goalRevnetId");
     }
 }
 
