@@ -34,6 +34,7 @@ interface IBudgetTreasury is
         uint256 successAssertionBond;
         bytes32 successOracleSpecHash;
         bytes32 successAssertionPolicyHash;
+        address spendPolicy;
     }
 
     struct BudgetLifecycleStatus {
@@ -58,6 +59,7 @@ interface IBudgetTreasury is
 
     error ADDRESS_ZERO();
     error NOT_A_CONTRACT(address account);
+    error INVALID_SPEND_POLICY(address policy);
     error INVALID_DEADLINES();
     error INVALID_EXECUTION_DURATION();
     error INVALID_THRESHOLDS(uint256 activationThreshold, uint256 runwayCap);
@@ -137,6 +139,7 @@ interface IBudgetTreasury is
     function flow() external view returns (address);
     function premiumEscrow() external view returns (address);
     function superToken() external view returns (ISuperToken);
+    function spendPolicy() external view returns (address);
 
     function treasuryBalance() external view returns (uint256);
     function timeRemaining() external view returns (uint256);

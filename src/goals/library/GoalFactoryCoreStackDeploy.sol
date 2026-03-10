@@ -169,7 +169,8 @@ library GoalFactoryCoreStackDeploy {
             successAssertionLiveness: request.successAssertionLiveness,
             successAssertionBond: request.successAssertionBond,
             successOracleSpecHash: request.successOracleSpecHash,
-            successAssertionPolicyHash: request.successAssertionPolicyHash
+            successAssertionPolicyHash: request.successAssertionPolicyHash,
+            spendPolicy: address(0)
         });
 
         out.goalTreasury.initialize(request.budgetTcrFactory, goalCfg);

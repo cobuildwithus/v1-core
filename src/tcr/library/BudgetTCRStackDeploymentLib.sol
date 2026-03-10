@@ -83,7 +83,8 @@ library BudgetTCRStackDeploymentLib {
                 successAssertionLiveness: successAssertionLiveness,
                 successAssertionBond: successAssertionBond,
                 successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-                successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
+                successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
+                spendPolicy: address(0)
             })
         );
 

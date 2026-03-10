@@ -4,24 +4,27 @@ pragma solidity ^0.8.34;
 import "forge-std/StdInvariant.sol";
 import "forge-std/Test.sol";
 
-import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBRulesetApprovalHook } from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
-import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
-import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
-import { JBApprovalStatus } from "@bananapus/core-v5/enums/JBApprovalStatus.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBRulesetApprovalHook} from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
+import {IJBToken} from "@bananapus/core-v5/interfaces/IJBToken.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {JBApprovalStatus} from "@bananapus/core-v5/enums/JBApprovalStatus.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract TreasuryTerminalInvariantUnderlying is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -311,7 +314,11 @@ contract TreasuryTerminalInvariantRulesets {
         ruleset.weight = _weightOf[projectId];
     }
 
-    function latestQueuedOf(uint256 projectId) external view returns (JBRuleset memory ruleset, JBApprovalStatus status) {
+    function latestQueuedOf(uint256 projectId)
+        external
+        view
+        returns (JBRuleset memory ruleset, JBApprovalStatus status)
+    {
         RulesetPair storage pair = _pairOf[projectId];
         if (!pair.configured) return (ruleset, JBApprovalStatus.Empty);
         return (pair.terminal, JBApprovalStatus.Approved);
@@ -433,9 +440,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
 
     constructor() {
         goalUnderlying = new TreasuryTerminalInvariantUnderlying("Invariant Goal Underlying", "iGUND");
-        goalSuperToken = new TreasuryTerminalInvariantSuperToken(
-            address(goalUnderlying), "Invariant Goal Super", "iGSUP"
-        );
+        goalSuperToken =
+            new TreasuryTerminalInvariantSuperToken(address(goalUnderlying), "Invariant Goal Super", "iGSUP");
         TreasuryTerminalInvariantGDA gda = new TreasuryTerminalInvariantGDA();
         superfluidHost = new TreasuryTerminalInvariantHost(address(gda));
         goalSuperToken.setHost(address(superfluidHost));
@@ -478,7 +484,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("goal-oracle-spec"),
-                successAssertionPolicyHash: keccak256("goal-assertion-policy")
+                successAssertionPolicyHash: keccak256("goal-assertion-policy"),
+                spendPolicy: address(0)
             })
         );
         goalHook.setTreasury(goalTreasury);
@@ -510,7 +517,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
-                successAssertionPolicyHash: keccak256("budget-assertion-policy")
+                successAssertionPolicyHash: keccak256("budget-assertion-policy"),
+                spendPolicy: address(0)
             })
         );
         premiumEscrow.initialize(
@@ -531,7 +539,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     function goalRecordHookFunding(uint256 amount) external {
         if (goalTreasury.resolved()) return;
         uint256 boundedAmount = bound(amount, 1, MAX_AMOUNT);
-        try goalHook.pushFunding(boundedAmount) returns (bool) { } catch { }
+        try goalHook.pushFunding(boundedAmount) returns (bool) {} catch {}
     }
 
     function goalMintFlowBalance(uint256 amount) external {
@@ -544,24 +552,24 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     function goalActivate() external {
         if (goalTreasury.resolved()) return;
         if (goalTreasury.state() != IGoalTreasury.GoalState.Funding) return;
-        try goalTreasury.sync() { } catch { }
+        try goalTreasury.sync() {} catch {}
     }
 
     function goalSync() external {
         if (goalTreasury.resolved()) return;
-        try goalTreasury.sync() { } catch { }
+        try goalTreasury.sync() {} catch {}
     }
 
     function goalResolveSuccess() external {
         if (goalTreasury.resolved()) return;
-        try goalTreasury.resolveSuccess() { } catch { }
+        try goalTreasury.resolveSuccess() {} catch {}
     }
 
     function goalSyncAtDeadline(uint256 seed) external {
         if (goalTreasury.resolved()) return;
         uint256 jump = bound(seed, 1 days, 30 days);
         vm.warp(block.timestamp + jump);
-        try goalTreasury.sync() { } catch { }
+        try goalTreasury.sync() {} catch {}
     }
 
     function goalSettleLateResidual(uint256 amount) external {
@@ -573,7 +581,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
             totalGoalFlowMinted += boundedAmount;
         }
 
-        try goalTreasury.settleLateResidual() { } catch { }
+        try goalTreasury.settleLateResidual() {} catch {}
     }
 
     function budgetMintFlowBalance(uint256 amount) external {
@@ -586,17 +594,17 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
     function budgetActivate() external {
         if (budgetTreasury.resolved()) return;
         if (budgetTreasury.state() != IBudgetTreasury.BudgetState.Funding) return;
-        try budgetTreasury.sync() { } catch { }
+        try budgetTreasury.sync() {} catch {}
     }
 
     function budgetSync() external {
         if (budgetTreasury.resolved()) return;
-        try budgetTreasury.sync() { } catch { }
+        try budgetTreasury.sync() {} catch {}
     }
 
     function budgetResolveSuccess() external {
         if (budgetTreasury.resolved()) return;
-        try budgetTreasury.resolveSuccess() { } catch { }
+        try budgetTreasury.resolveSuccess() {} catch {}
     }
 
     function budgetResolveFailure() external {
@@ -609,9 +617,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
             vm.warp(budgetTreasury.deadline());
         }
 
-        try budgetTreasury.resolveFailure() { } catch { }
+        try budgetTreasury.resolveFailure() {} catch {}
     }
-
 }
 
 contract TreasuryTerminalLifecycleInvariantTest is StdInvariant, Test {

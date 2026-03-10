@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
 /// @dev Minimal SuperToken stub for `BudgetTreasury.treasuryBalance()` in tests.
 contract MockSuperToken {
@@ -62,7 +62,8 @@ contract MockFlow {
 
 contract MockPremiumEscrow {
     // Intentionally empty; BudgetTreasury.initialize only checks code length.
-}
+
+    }
 
 contract BudgetTreasuryRunwayCapDonationTest is Test {
     function test_donationsStillAllowedBeyondRunwayCap() public {
@@ -89,7 +90,8 @@ contract BudgetTreasuryRunwayCapDonationTest is Test {
             successAssertionLiveness: 1,
             successAssertionBond: 0,
             successOracleSpecHash: bytes32(uint256(1)),
-            successAssertionPolicyHash: bytes32(uint256(2))
+            successAssertionPolicyHash: bytes32(uint256(2)),
+            spendPolicy: address(0)
         });
 
         treasury.initialize(address(this), config);

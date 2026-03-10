@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
+import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { IBudgetTCR } from "../tcr/interfaces/IBudgetTCR.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -40,6 +41,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     uint256 public override successAssertionBond;
     bytes32 public override successOracleSpecHash;
     bytes32 public override successAssertionPolicyHash;
+    address public override spendPolicy;
 
     uint64 public override deadline;
     uint64 public override activatedAt;
@@ -65,6 +67,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (premiumEscrow_ == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrow_.code.length == 0) revert NOT_A_CONTRACT(premiumEscrow_);
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
+        if (config.spendPolicy != address(0) && config.spendPolicy.code.length == 0) {
+            revert NOT_A_CONTRACT(config.spendPolicy);
+        }
+        if (config.spendPolicy != address(0)) _requireValidSpendPolicy(config.spendPolicy);
         if (
             config.successAssertionLiveness == 0 ||
             config.successOracleSpecHash == bytes32(0) ||
@@ -108,6 +114,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         successAssertionBond = config.successAssertionBond;
         successOracleSpecHash = config.successOracleSpecHash;
         successAssertionPolicyHash = config.successAssertionPolicyHash;
+        spendPolicy = config.spendPolicy;
 
         _state = BudgetState.Funding;
 
@@ -280,13 +287,21 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function targetFlowRate() public view override returns (int96) {
         if (_state != BudgetState.Active) return 0;
 
+        uint256 balance = treasuryBalance();
         uint256 remaining = timeRemaining();
         // slither-disable-next-line incorrect-equality
         if (remaining == 0) return 0;
 
-        int96 incomingRate = _incomingFlowRate();
-        int96 spenddownRate = _linearBalanceSpenddownFlowRate(treasuryBalance(), remaining);
-        return _composeTargetFlowRate(incomingRate, spenddownRate);
+        if (spendPolicy == address(0)) {
+            int96 incomingRate = _incomingFlowRate();
+            int96 spenddownRate = _linearBalanceSpenddownFlowRate(balance, remaining);
+            return _composeTargetFlowRate(incomingRate, spenddownRate);
+        }
+
+        uint128 totalUnits = _flow.distributionPool().getTotalUnits();
+        if (totalUnits == 0) return 0;
+
+        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining, totalUnits));
     }
 
     function lifecycleStatus() external view override returns (BudgetLifecycleStatus memory status) {
@@ -339,6 +354,55 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return SafeCast.toInt96(SafeCast.toInt256(incoming + spenddown));
     }
 
+    function _buildSpendContext(
+        uint256 balance,
+        uint256 remaining,
+        uint128 totalUnits
+    ) internal view returns (ISpendPolicy.SpendContext memory ctx) {
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: uint64(block.timestamp),
+            activatedAt: activatedAt,
+            deadline: deadline,
+            treasuryBalance: balance,
+            timeRemaining: remaining,
+            incomingRate: _incomingFlowRate(),
+            currentOutflowRate: _flow.targetOutflowRate(),
+            totalRecipientUnits: totalUnits
+        });
+    }
+
+    function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
+        if (spendPolicy == address(0)) return ISpendPolicy.SyncMode.Capped;
+        return ISpendPolicy(spendPolicy).syncMode();
+    }
+
+    function _requireValidSpendPolicy(address candidate) internal view {
+        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
+            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
+                revert INVALID_SPEND_POLICY(candidate);
+            }
+        } catch {
+            revert INVALID_SPEND_POLICY(candidate);
+        }
+
+        try
+            ISpendPolicy(candidate).targetFlowRate(
+                ISpendPolicy.SpendContext({
+                    nowTs: uint64(block.timestamp),
+                    activatedAt: 0,
+                    deadline: 0,
+                    treasuryBalance: 0,
+                    timeRemaining: 0,
+                    incomingRate: 0,
+                    currentOutflowRate: 0,
+                    totalRecipientUnits: 0
+                })
+            )
+        returns (int96) {} catch {
+            revert INVALID_SPEND_POLICY(candidate);
+        }
+    }
+
     function _activateAndSync() internal {
         if (_state != BudgetState.Funding) revert INVALID_STATE();
         uint256 balance = treasuryBalance();
@@ -356,10 +420,17 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function _syncFlowRate() internal {
+        uint256 balance = treasuryBalance();
+        uint256 remaining = timeRemaining();
         int96 targetRate = targetFlowRate();
-        int96 appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow, targetRate);
+        int96 appliedRate;
+        if (_syncMode() == ISpendPolicy.SyncMode.LinearSpendDownFallback) {
+            appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(_flow, targetRate, balance, remaining);
+        } else {
+            appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow, targetRate);
+        }
 
-        emit FlowRateSynced(targetRate, appliedRate, treasuryBalance(), timeRemaining());
+        emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
     }
 
     function _finalize(BudgetState finalState) internal {

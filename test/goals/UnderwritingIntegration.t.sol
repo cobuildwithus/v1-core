@@ -9,12 +9,15 @@ import {StakeVault} from "src/goals/StakeVault.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
+import {UnitsCapSpendPolicy} from "src/goals/policies/UnitsCapSpendPolicy.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
@@ -1371,7 +1374,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("underwriting-budget-success-oracle-spec"),
-                successAssertionPolicyHash: keccak256("underwriting-budget-success-policy")
+                successAssertionPolicyHash: keccak256("underwriting-budget-success-policy"),
+                spendPolicy: address(0)
             })
         );
 
@@ -1513,7 +1517,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     successAssertionLiveness: uint64(1 days),
                     successAssertionBond: 10e18,
                     successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
-                    successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy")
+                    successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy"),
+                    spendPolicy: address(0)
                 })
             );
 
@@ -1531,7 +1536,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     successAssertionLiveness: uint64(1 days),
                     successAssertionBond: 10e18,
                     successOracleSpecHash: keccak256("underwriting-real-budget-success-oracle-spec"),
-                    successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy")
+                    successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy"),
+                    spendPolicy: address(0)
                 })
             );
 
@@ -1755,6 +1761,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     SharedMockUnderlying internal underlyingToken;
     SharedMockSuperToken internal superToken;
+    SharedMockSuperfluidHost internal host;
+    SharedMockCFA internal cfa;
     SharedMockFlow internal flow;
     SharedMockSuperfluidPool internal distributionPool;
     SharedMockStakeVault internal stakeVault;
@@ -1774,8 +1782,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
         superToken = new SharedMockSuperToken(address(underlyingToken));
-        SharedMockSuperfluidHost host = new SharedMockSuperfluidHost();
-        SharedMockCFA cfa = new SharedMockCFA();
+        host = new SharedMockSuperfluidHost();
+        cfa = new SharedMockCFA();
         cfa.setDepositPerFlowRate(0);
         host.setCFA(address(cfa));
         superToken.setHost(address(host));
@@ -1955,6 +1963,79 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, invalidLedger));
         candidateTreasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
+    }
+
+    function test_initialize_revertsWhenSpendPolicyHasNoCode() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.spendPolicy = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, config.spendPolicy));
+        candidateTreasury.initialize(address(this), config);
+    }
+
+    function test_initialize_revertsWhenSpendPolicyDoesNotImplementInterface() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.spendPolicy = address(new GoalTreasuryNonSpendPolicy());
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
+        candidateTreasury.initialize(address(this), config);
+    }
+
+    function test_sync_unitsCapSpendPolicy_usesConfiguredTargetAndCappedSyncMode() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(100, 1_000, 0, 1, false);
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.minRaise = 1;
+        config.spendPolicy = address(spendPolicy);
+        candidateTreasury.initialize(address(this), config);
+
+        distributionPool.setTotalUnits(2);
+        cfa.setDepositPerFlowRate(10);
+
+        uint256 balance = 1_000;
+        superToken.mint(address(flow), balance);
+        vm.prank(address(hook));
+        assertTrue(candidateTreasury.recordHookFunding(balance));
+
+        candidateTreasury.sync();
+
+        assertEq(candidateTreasury.targetFlowRate(), 200);
+        assertEq(flow.targetOutflowRate(), 100);
+    }
+
+    function test_sync_linearSpendPolicy_usesLinearFallbackMode() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.minRaise = 1;
+        config.spendPolicy = address(spendPolicy);
+        candidateTreasury.initialize(address(this), config);
+
+        distributionPool.setTotalUnits(2);
+        cfa.setDepositPerFlowRate(6_000_000);
+
+        uint256 balance = 600_000_000;
+        superToken.mint(address(flow), balance);
+        vm.prank(address(hook));
+        assertTrue(candidateTreasury.recordHookFunding(balance));
+
+        candidateTreasury.sync();
+
+        uint256 remaining = candidateTreasury.timeRemaining();
+        int96 expectedTarget = int96(uint96(balance / remaining));
+        uint256 linearSafeRate = (balance * 100) / (balance + (100 * remaining));
+
+        assertEq(candidateTreasury.targetFlowRate(), expectedTarget);
+        assertEq(flow.targetOutflowRate(), int96(uint96(linearSafeRate)));
+        assertLt(flow.targetOutflowRate(), candidateTreasury.targetFlowRate());
     }
 
     function test_sync_characterizesCoverageDropLag_withoutSyncAppliedOutflowRemainsStaleUntilSync() public {
@@ -2230,6 +2311,40 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         _assertGoalFailClosedGraceState(unresolvedConfigTreasury);
     }
 
+    function test_sync_unitsCapSpendPolicy_atDeadline_failClosedGraceKeepsZeroTarget() public {
+        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig = new UnderwritingRevertingOptimisticOracleResolverConfig(
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(100, 1_000, 0, 1, false);
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.minRaise = 1;
+        config.successResolver = address(revertingResolverConfig);
+        config.spendPolicy = address(spendPolicy);
+        candidateTreasury.initialize(address(this), config);
+
+        distributionPool.setTotalUnits(40);
+        superToken.mint(address(flow), 1_000);
+        vm.prank(address(hook));
+        assertTrue(candidateTreasury.recordHookFunding(1_000));
+        candidateTreasury.sync();
+
+        bytes32 assertionId = keccak256("goal-policy-fail-closed-zero-target");
+        vm.prank(address(revertingResolverConfig));
+        candidateTreasury.registerSuccessAssertion(assertionId);
+
+        vm.warp(candidateTreasury.deadline());
+        candidateTreasury.sync();
+
+        _assertGoalFailClosedGraceState(candidateTreasury);
+        assertEq(candidateTreasury.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAddressZero_emitsFailClosedTelemetry()
         public
     {
@@ -2385,6 +2500,27 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(address(this), config);
     }
 
+    function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
+        internal
+        returns (LinearSpendPolicy policy)
+    {
+        LinearSpendPolicy implementation = new LinearSpendPolicy();
+        policy = LinearSpendPolicy(Clones.clone(address(implementation)));
+        policy.initialize(includeIncomingRate, syncMode);
+    }
+
+    function _deployUnitsCapSpendPolicy(
+        uint128 ratePerUnitPerSecond,
+        uint128 maxTotalRate,
+        uint256 reserveFloor,
+        uint64 minRunwaySeconds,
+        bool includeIncomingRate
+    ) internal returns (UnitsCapSpendPolicy policy) {
+        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
+        policy = UnitsCapSpendPolicy(Clones.clone(address(implementation)));
+        policy.initialize(ratePerUnitPerSecond, maxTotalRate, reserveFloor, minRunwaySeconds, includeIncomingRate);
+    }
+
     function _cloneGoalTreasuryWithPredictedAddress() internal returns (GoalTreasury candidateTreasury) {
         address predictedTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         stakeVault.setGoalTreasury(predictedTreasury);
@@ -2425,7 +2561,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
             successOracleSpecHash: keccak256("goal-oracle-spec"),
-            successAssertionPolicyHash: keccak256("goal-assertion-policy")
+            successAssertionPolicyHash: keccak256("goal-assertion-policy"),
+            spendPolicy: address(0)
         });
     }
 }
@@ -2447,6 +2584,8 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
         revert OPTIMISTIC_ORACLE_REVERT();
     }
 }
+
+    contract GoalTreasuryNonSpendPolicy {}
 
     contract UnderwritingRevertingGetAssertionOracle {
         error GET_ASSERTION_REVERT();

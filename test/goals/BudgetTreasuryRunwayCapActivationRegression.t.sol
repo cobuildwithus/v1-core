@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
     SharedMockFlow,
-    SharedMockStakeVault,
     SharedMockSuperToken,
     SharedMockUnderlying
 } from "test/goals/helpers/TreasurySharedMocks.sol";
 
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
     address internal controller = address(0xA11CE);
@@ -24,7 +23,6 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
     SharedMockSuperToken internal superToken;
     SharedMockFlow internal flow;
     SharedMockFlow internal parentFlow;
-    SharedMockStakeVault internal stakeVault;
     BudgetTreasury internal budgetTreasuryImplementation;
     BudgetTreasury internal treasury;
     address internal premiumEscrow;
@@ -44,14 +42,12 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
         flow.setParent(address(parentFlow));
         flow.setMaxSafeFlowRate(type(int96).max);
 
-        stakeVault = new SharedMockStakeVault();
         budgetTreasuryImplementation = new BudgetTreasury();
         treasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         premiumEscrow = address(new BudgetTreasuryRunwayMockPremiumEscrow());
 
         flow.setFlowOperator(address(treasury));
         flow.setSweeper(address(treasury));
-        stakeVault.setGoalTreasury(address(treasury));
 
         treasury.initialize(
             controller,
@@ -66,7 +62,8 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
-                successAssertionPolicyHash: keccak256("budget-assertion-policy")
+                successAssertionPolicyHash: keccak256("budget-assertion-policy"),
+                spendPolicy: address(0)
             })
         );
     }
@@ -78,11 +75,13 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
-        assertEq(treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration())));
+        assertEq(
+            treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()))
+        );
         assertGt(flow.targetOutflowRate(), 0);
     }
 }
 
 contract BudgetTreasuryRunwayMockPremiumEscrow {
-    function close(IBudgetTreasury.BudgetState, uint64, uint64) external { }
+    function close(IBudgetTreasury.BudgetState, uint64, uint64) external {}
 }

@@ -40,6 +40,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         uint256 successAssertionBond;
         bytes32 successOracleSpecHash;
         bytes32 successAssertionPolicyHash;
+        address spendPolicy;
     }
 
     struct GoalLifecycleStatus {
@@ -61,6 +62,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
 
     error ADDRESS_ZERO();
     error NOT_A_CONTRACT(address account);
+    error INVALID_SPEND_POLICY(address policy);
     error INVALID_DEADLINES();
     error ONLY_HOOK();
     error INVALID_STATE();
@@ -175,6 +177,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     function stakeVault() external view returns (address);
     function hook() external view returns (address);
     function superToken() external view returns (ISuperToken);
+    function spendPolicy() external view returns (address);
 
     function treasuryBalance() external view returns (uint256);
     function timeRemaining() external view returns (uint256);

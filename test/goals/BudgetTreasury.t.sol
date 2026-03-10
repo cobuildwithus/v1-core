@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { TreasuryBase } from "src/goals/TreasuryBase.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
-import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
-import { TreasurySuccessAssertions } from "src/goals/library/TreasurySuccessAssertions.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {TreasuryBase} from "src/goals/TreasuryBase.sol";
+import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
+import {UnitsCapSpendPolicy} from "src/goals/policies/UnitsCapSpendPolicy.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import {TreasurySuccessAssertions} from "src/goals/library/TreasurySuccessAssertions.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
@@ -25,11 +28,13 @@ import {
     TreasuryMockUmaResolverConfigWithFinalize
 } from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
-import { ISuperToken, ISuperfluidPool } from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract BudgetTreasuryTest is Test {
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
@@ -44,8 +49,11 @@ contract BudgetTreasuryTest is Test {
 
     SharedMockUnderlying internal underlyingToken;
     SharedMockSuperToken internal superToken;
+    SharedMockSuperfluidHost internal host;
+    SharedMockCFA internal cfa;
     SharedMockFlow internal flow;
     SharedMockFlow internal parentFlow;
+    SharedMockSuperfluidPool internal distributionPool;
     TreasuryMockOptimisticOracleV3 internal assertionOracle;
     TreasuryMockUmaResolverConfig internal successResolverConfig;
     BudgetTreasury internal treasury;
@@ -63,27 +71,24 @@ contract BudgetTreasuryTest is Test {
         );
         owner = address(successResolverConfig);
         superToken = new SharedMockSuperToken(address(underlyingToken));
-        SharedMockSuperfluidHost host = new SharedMockSuperfluidHost();
-        SharedMockCFA cfa = new SharedMockCFA();
+        host = new SharedMockSuperfluidHost();
+        cfa = new SharedMockCFA();
         cfa.setDepositPerFlowRate(1);
         host.setCFA(address(cfa));
         host.setGDA(address(new SharedMockGDA()));
         superToken.setHost(address(host));
         flow = new SharedMockFlow(ISuperToken(address(superToken)));
         parentFlow = new SharedMockFlow(ISuperToken(address(superToken)));
+        distributionPool = new SharedMockSuperfluidPool();
         SharedMockSuperfluidPool managerRewardDistributionPool = new SharedMockSuperfluidPool();
         flow.setParent(address(parentFlow));
+        flow.setDistributionPool(ISuperfluidPool(address(distributionPool)));
         flow.setManagerRewardDistributionPool(ISuperfluidPool(address(managerRewardDistributionPool)));
         flow.setMaxSafeFlowRate(type(int96).max);
         budgetTreasuryImplementation = new BudgetTreasury();
         premiumEscrow = address(new BudgetTreasuryMockPremiumEscrow());
 
-        treasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(30 days),
-            100e18,
-            500e18
-        );
+        treasury = _deploy(uint64(block.timestamp + 3 days), uint64(30 days), 100e18, 500e18);
     }
 
     function test_initialize_revertsOnZeroAddresses() public {
@@ -101,6 +106,15 @@ contract BudgetTreasuryTest is Test {
         config.premiumEscrow = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.NOT_A_CONTRACT.selector, config.premiumEscrow));
+        candidate.initialize(owner, config);
+    }
+
+    function test_initialize_revertsWhenSpendPolicyDoesNotImplementInterface() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.spendPolicy = address(new BudgetTreasuryNonSpendPolicy());
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
         candidate.initialize(owner, config);
     }
 
@@ -246,6 +260,15 @@ contract BudgetTreasuryTest is Test {
         candidate.initialize(owner, _defaultBudgetConfig());
     }
 
+    function test_initialize_revertsWhenSpendPolicyHasNoCode() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.spendPolicy = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.NOT_A_CONTRACT.selector, config.spendPolicy));
+        candidate.initialize(owner, config);
+    }
+
     function test_canAcceptFunding_falseWhenFundingWindowEnds() public {
         _warpPastFundingDeadline(treasury);
         assertFalse(treasury.canAcceptFunding());
@@ -301,7 +324,8 @@ contract BudgetTreasuryTest is Test {
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
-                successAssertionPolicyHash: keccak256("budget-assertion-policy")
+                successAssertionPolicyHash: keccak256("budget-assertion-policy"),
+                spendPolicy: address(0)
             })
         );
 
@@ -357,18 +381,15 @@ contract BudgetTreasuryTest is Test {
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
-        assertEq(treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration())));
+        assertEq(
+            treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()))
+        );
         assertEq(treasury.activatedAt(), uint64(block.timestamp));
         assertGt(flow.targetOutflowRate(), 0);
     }
 
     function test_sync_fundingActivation_ignoresFlowMaxSafeRateHint() public {
-        BudgetTreasury uncappedTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(30 days),
-            100e18,
-            0
-        );
+        BudgetTreasury uncappedTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(30 days), 100e18, 0);
 
         superToken.mint(address(flow), 2_000_000e18);
         int96 incomingRate = 2_000;
@@ -380,12 +401,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_fundingActivation_ignoresZeroFlowMaxSafeRateHint() public {
-        BudgetTreasury uncappedTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(30 days),
-            100e18,
-            0
-        );
+        BudgetTreasury uncappedTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(30 days), 100e18, 0);
 
         superToken.mint(address(flow), 2_000_000e18);
         int96 incomingRate = 2_000;
@@ -397,12 +413,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_fundingActivation_ignoresNegativeFlowMaxSafeRateHint() public {
-        BudgetTreasury uncappedTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(30 days),
-            100e18,
-            0
-        );
+        BudgetTreasury uncappedTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(30 days), 100e18, 0);
 
         superToken.mint(address(flow), 2_000_000e18);
         int96 incomingRate = 2_000;
@@ -516,12 +527,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_sync_earlyActivationWithShortExecution_stillAllowsResolveSuccessAfterFundingDeadline() public {
-        BudgetTreasury shortExecutionTreasury = _deploy(
-            uint64(block.timestamp + 10 days),
-            uint64(1 days),
-            100e18,
-            0
-        );
+        BudgetTreasury shortExecutionTreasury = _deploy(uint64(block.timestamp + 10 days), uint64(1 days), 100e18, 0);
 
         superToken.mint(address(flow), 100e18);
         shortExecutionTreasury.sync();
@@ -529,7 +535,9 @@ contract BudgetTreasuryTest is Test {
         assertEq(uint256(shortExecutionTreasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
         assertEq(
             shortExecutionTreasury.deadline(),
-            uint64(uint256(shortExecutionTreasury.fundingDeadline()) + uint256(shortExecutionTreasury.executionDuration()))
+            uint64(
+                uint256(shortExecutionTreasury.fundingDeadline()) + uint256(shortExecutionTreasury.executionDuration())
+            )
         );
         assertGt(shortExecutionTreasury.deadline(), shortExecutionTreasury.fundingDeadline());
 
@@ -610,6 +618,82 @@ contract BudgetTreasuryTest is Test {
         assertEq(flow.targetOutflowRate(), expectedTrustedRate);
     }
 
+    function test_sync_active_unitsCapSpendPolicy_throttlesBelowLegacyRate() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(100, 1_000, 0, 1, false);
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.fundingDeadline = uint64(block.timestamp + 1);
+        config.executionDuration = 5;
+        config.activationThreshold = 1;
+        config.spendPolicy = address(spendPolicy);
+        candidate.initialize(owner, config);
+
+        distributionPool.setTotalUnits(2);
+        cfa.setDepositPerFlowRate(10);
+        superToken.mint(address(flow), 1_000);
+        _setIncomingFlowRate(200);
+
+        candidate.sync();
+
+        int96 legacyTarget = _expectedTargetFlowRateWithIncoming(candidate, 200);
+        assertEq(candidate.targetFlowRate(), 200);
+        assertEq(flow.targetOutflowRate(), 100);
+        assertGt(legacyTarget, candidate.targetFlowRate());
+    }
+
+    function test_sync_active_unitsCapSpendPolicy_canUseTrustedIncomingRate() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(50, 500, 1_000, 1, true);
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.fundingDeadline = uint64(block.timestamp + 1);
+        config.executionDuration = 5;
+        config.activationThreshold = 1;
+        config.spendPolicy = address(spendPolicy);
+        candidate.initialize(owner, config);
+
+        distributionPool.setTotalUnits(10);
+        superToken.mint(address(flow), 1_000);
+
+        _setIncomingFlowRate(20);
+        candidate.sync();
+
+        assertEq(candidate.targetFlowRate(), 20);
+        assertEq(flow.targetOutflowRate(), 20);
+
+        _setIncomingFlowRate(0);
+        candidate.sync();
+
+        assertEq(candidate.targetFlowRate(), 0);
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_sync_active_linearSpendPolicy_canUseLinearFallbackMode() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.fundingDeadline = uint64(block.timestamp + 1);
+        config.executionDuration = 5;
+        config.activationThreshold = 1;
+        config.spendPolicy = address(spendPolicy);
+        candidate.initialize(owner, config);
+
+        distributionPool.setTotalUnits(3);
+        cfa.setDepositPerFlowRate(10);
+        superToken.mint(address(flow), 1_000);
+
+        candidate.sync();
+
+        uint256 remaining = candidate.timeRemaining();
+        int96 expectedTarget = int96(uint96(candidate.treasuryBalance() / remaining));
+        uint256 maxBufferRate = candidate.treasuryBalance() / 10;
+        uint256 linearSafeRate =
+            (candidate.treasuryBalance() * maxBufferRate) / (candidate.treasuryBalance() + (maxBufferRate * remaining));
+
+        assertEq(candidate.targetFlowRate(), expectedTarget);
+        assertEq(flow.targetOutflowRate(), int96(uint96(linearSafeRate)));
+        assertLt(flow.targetOutflowRate(), candidate.targetFlowRate());
+    }
+
     function test_sync_activeNoRateChange_reappliesCachedTargetOutflow() public {
         superToken.mint(address(flow), 100e18);
         _setIncomingFlowRate(80);
@@ -669,7 +753,9 @@ contract BudgetTreasuryTest is Test {
         uint256 callCountBefore = flow.setFlowRateCallCount();
 
         vm.expectEmit(true, false, false, true, address(treasury));
-        emit FlowRateSyncManualInterventionRequired(address(flow), expectedTargetRate, expectedTargetRate, flowRateBefore);
+        emit FlowRateSyncManualInterventionRequired(
+            address(flow), expectedTargetRate, expectedTargetRate, flowRateBefore
+        );
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
@@ -835,8 +921,9 @@ contract BudgetTreasuryTest is Test {
         assertEq(finalizeCleanupTreasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizeRevertStillOpensReassertGrace(
-    ) public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizeRevertStillOpensReassertGrace()
+        public
+    {
         TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
             OptimisticOracleV3Interface(address(assertionOracle)),
             IERC20(address(underlyingToken)),
@@ -887,8 +974,7 @@ contract BudgetTreasuryTest is Test {
         vm.warp(finalizeCleanupTreasury.deadline());
         vm.expectEmit(true, false, false, true, address(finalizeCleanupTreasury));
         emit IBudgetTreasury.SuccessAssertionFinalizeFailed(
-            assertionId,
-            abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
+            assertionId, abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
         );
         finalizeCleanupTreasury.sync();
 
@@ -920,11 +1006,14 @@ contract BudgetTreasuryTest is Test {
         assertEq(treasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_opensReassertGrace() public {
-        RevertingOptimisticOracleResolverConfig revertingResolverConfig =
-            new RevertingOptimisticOracleResolverConfig(
-                IERC20(address(underlyingToken)), successResolverConfig.escalationManager(), successResolverConfig.domainId()
-            );
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_opensReassertGrace()
+        public
+    {
+        RevertingOptimisticOracleResolverConfig revertingResolverConfig = new RevertingOptimisticOracleResolverConfig(
+            IERC20(address(underlyingToken)),
+            successResolverConfig.escalationManager(),
+            successResolverConfig.domainId()
+        );
 
         BudgetTreasury unresolvedConfigTreasury = _cloneBudgetTreasury();
 
@@ -1006,7 +1095,9 @@ contract BudgetTreasuryTest is Test {
         assertEq(zeroOracleTreasury.reassertGraceDeadline(), uint64(block.timestamp + 1 days));
     }
 
-    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAssertionReadFailure_opensReassertGrace() public {
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAssertionReadFailure_opensReassertGrace()
+        public
+    {
         BudgetRevertingGetAssertionOracle revertingOracle = new BudgetRevertingGetAssertionOracle();
         TreasuryMockUmaResolverConfig revertingAssertionReadResolver = new TreasuryMockUmaResolverConfig(
             OptimisticOracleV3Interface(address(revertingOracle)),
@@ -1351,9 +1442,7 @@ contract BudgetTreasuryTest is Test {
         treasury.registerSuccessAssertion(assertionId);
 
         vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetTreasury.SUCCESS_ASSERTION_ALREADY_PENDING.selector, assertionId)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.SUCCESS_ASSERTION_ALREADY_PENDING.selector, assertionId));
         treasury.registerSuccessAssertion(keccak256("budget-second-assertion"));
     }
 
@@ -1674,12 +1763,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_targetFlowRate_capsAtInt96Max() public {
-        BudgetTreasury uncappedTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(30 days),
-            100e18,
-            0
-        );
+        BudgetTreasury uncappedTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(30 days), 100e18, 0);
 
         superToken.mint(address(flow), 100e18);
         _setIncomingFlowRate(type(int96).max);
@@ -1690,12 +1774,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_targetFlowRate_capsAtInt96Max_whenSpenddownRateAloneExceedsInt96Max() public {
-        BudgetTreasury shortExecutionTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(1 days),
-            1,
-            0
-        );
+        BudgetTreasury shortExecutionTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(1 days), 1, 0);
 
         superToken.mint(address(flow), 1);
         shortExecutionTreasury.sync();
@@ -1709,12 +1788,7 @@ contract BudgetTreasuryTest is Test {
     }
 
     function test_targetFlowRate_capsAtInt96Max_whenIncomingPlusSpenddownOverflows() public {
-        BudgetTreasury shortExecutionTreasury = _deploy(
-            uint64(block.timestamp + 3 days),
-            uint64(1 days),
-            1,
-            0
-        );
+        BudgetTreasury shortExecutionTreasury = _deploy(uint64(block.timestamp + 3 days), uint64(1 days), 1, 0);
 
         superToken.mint(address(flow), 1);
         shortExecutionTreasury.sync();
@@ -1734,14 +1808,10 @@ contract BudgetTreasuryTest is Test {
     function test_composeTargetFlowRate_revertsOnNegativeComponent() public {
         BudgetTreasuryComposeHarness composeHarness = new BudgetTreasuryComposeHarness();
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(-1), int96(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(-1), int96(0)));
         composeHarness.composeTargetFlowRate(-1, 0);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(0), int96(-1))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.NEGATIVE_FLOW_COMPONENT.selector, int96(0), int96(-1)));
         composeHarness.composeTargetFlowRate(0, -1);
     }
 
@@ -1782,6 +1852,7 @@ contract BudgetTreasuryTest is Test {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
         assertTrue(treasury.resolved());
     }
+
     function test_sync_noOpWhenResolvedByExpiry() public {
         _warpPastFundingDeadline(treasury);
         treasury.sync();
@@ -1883,7 +1954,9 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(false, false, false, true, address(treasury));
-        emit IBudgetTreasury.TerminalFlowStopFailed(abi.encodeWithSelector(SharedMockFlow.SET_FLOW_RATE_REVERT.selector));
+        emit IBudgetTreasury.TerminalFlowStopFailed(abi.encodeWithSelector(
+                SharedMockFlow.SET_FLOW_RATE_REVERT.selector
+            ));
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1939,9 +2012,9 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(false, false, false, true, address(treasury));
-        emit IBudgetTreasury.TerminalResidualSettlementToParentFailed(
-            abi.encodeWithSelector(SharedMockFlow.SWEEP_REVERT.selector)
-        );
+        emit IBudgetTreasury.TerminalResidualSettlementToParentFailed(abi.encodeWithSelector(
+                SharedMockFlow.SWEEP_REVERT.selector
+            ));
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -1969,9 +2042,9 @@ contract BudgetTreasuryTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(false, false, false, true, address(treasury));
-        emit IBudgetTreasury.TerminalPremiumEscrowCloseFailed(
-            abi.encodeWithSignature("Error(string)", "PREMIUM_ESCROW_CLOSE_FAILED")
-        );
+        emit IBudgetTreasury.TerminalPremiumEscrowCloseFailed(abi.encodeWithSignature(
+                "Error(string)", "PREMIUM_ESCROW_CLOSE_FAILED"
+            ));
         vm.prank(owner);
         treasury.resolveFailure();
 
@@ -2177,12 +2250,10 @@ contract BudgetTreasuryTest is Test {
         assertFalse(afterBoundary.canAcceptFunding);
     }
 
-    function _deploy(
-        uint64 fundingDeadline,
-        uint64 executionDuration,
-        uint256 activationThreshold,
-        uint256 runwayCap
-    ) internal returns (BudgetTreasury deployed) {
+    function _deploy(uint64 fundingDeadline, uint64 executionDuration, uint256 activationThreshold, uint256 runwayCap)
+        internal
+        returns (BudgetTreasury deployed)
+    {
         deployed = _cloneBudgetTreasury();
         deployed.initialize(
             owner,
@@ -2197,7 +2268,8 @@ contract BudgetTreasuryTest is Test {
                 successAssertionLiveness: uint64(1 days),
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
-                successAssertionPolicyHash: keccak256("budget-assertion-policy")
+                successAssertionPolicyHash: keccak256("budget-assertion-policy"),
+                spendPolicy: address(0)
             })
         );
     }
@@ -2240,7 +2312,8 @@ contract BudgetTreasuryTest is Test {
             successAssertionLiveness: uint64(1 days),
             successAssertionBond: 10e18,
             successOracleSpecHash: keccak256("budget-oracle-spec"),
-            successAssertionPolicyHash: keccak256("budget-assertion-policy")
+            successAssertionPolicyHash: keccak256("budget-assertion-policy"),
+            spendPolicy: address(0)
         });
     }
 
@@ -2248,6 +2321,27 @@ contract BudgetTreasuryTest is Test {
         deployed = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         flow.setFlowOperator(address(deployed));
         flow.setSweeper(address(deployed));
+    }
+
+    function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
+        internal
+        returns (LinearSpendPolicy policy)
+    {
+        LinearSpendPolicy implementation = new LinearSpendPolicy();
+        policy = LinearSpendPolicy(Clones.clone(address(implementation)));
+        policy.initialize(includeIncomingRate, syncMode);
+    }
+
+    function _deployUnitsCapSpendPolicy(
+        uint128 ratePerUnitPerSecond,
+        uint128 maxTotalRate,
+        uint256 reserveFloor,
+        uint64 minRunwaySeconds,
+        bool includeIncomingRate
+    ) internal returns (UnitsCapSpendPolicy policy) {
+        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
+        policy = UnitsCapSpendPolicy(Clones.clone(address(implementation)));
+        policy.initialize(ratePerUnitPerSecond, maxTotalRate, reserveFloor, minRunwaySeconds, includeIncomingRate);
     }
 
     function _warpPastFundingDeadline(BudgetTreasury target) internal {
@@ -2276,11 +2370,9 @@ contract BudgetTreasuryTest is Test {
         _registerSuccessAssertionWithSettlement(target, false, false);
     }
 
-    function _registerSuccessAssertionWithSettlement(
-        BudgetTreasury target,
-        bool settled,
-        bool settlementResolution
-    ) internal {
+    function _registerSuccessAssertionWithSettlement(BudgetTreasury target, bool settled, bool settlementResolution)
+        internal
+    {
         bytes32 assertionId = keccak256(abi.encodePacked(address(target), block.timestamp));
         vm.prank(owner);
         target.registerSuccessAssertion(assertionId);
@@ -2315,7 +2407,11 @@ contract BudgetTreasuryTest is Test {
         parentFlow.setMemberFlowRate(address(flow), incomingFlowRate);
     }
 
-    function _expectedTargetFlowRateWithIncoming(BudgetTreasury target, int96 incomingFlowRate) internal view returns (int96) {
+    function _expectedTargetFlowRateWithIncoming(BudgetTreasury target, int96 incomingFlowRate)
+        internal
+        view
+        returns (int96)
+    {
         if (target.state() != IBudgetTreasury.BudgetState.Active) return 0;
 
         uint256 remaining = target.timeRemaining();
@@ -2348,111 +2444,112 @@ contract RevertingOptimisticOracleResolverConfig is IUMATreasurySuccessResolverC
     }
 }
 
-contract BudgetRevertingGetAssertionOracle {
-    error GET_ASSERTION_REVERT();
+    contract BudgetTreasuryNonSpendPolicy {}
 
-    function getAssertion(bytes32) external pure returns (OptimisticOracleV3Interface.Assertion memory) {
-        revert GET_ASSERTION_REVERT();
-    }
-}
+    contract BudgetRevertingGetAssertionOracle {
+        error GET_ASSERTION_REVERT();
 
-contract BudgetParentFlowWithoutMemberRate { }
-
-contract BudgetReentrantUnderlying is SharedMockUnderlying {
-    bytes4 private constant DONATE_UNDERLYING_AND_UPGRADE_SELECTOR =
-        bytes4(keccak256("donateUnderlyingAndUpgrade(uint256)"));
-
-    address private _targetTreasury;
-    uint256 private _reentryAmount;
-    bool private _armed;
-    bool private _reentered;
-
-    function armReentry(address targetTreasury_, uint256 reentryAmount_) external {
-        _targetTreasury = targetTreasury_;
-        _reentryAmount = reentryAmount_;
-        _armed = true;
-        _reentered = false;
+        function getAssertion(bytes32) external pure returns (OptimisticOracleV3Interface.Assertion memory) {
+            revert GET_ASSERTION_REVERT();
+        }
     }
 
-    function _update(address from, address to, uint256 value) internal override {
-        if (_armed && !_reentered && from != address(0) && to != address(0)) {
-            _reentered = true;
-            (bool ok, bytes memory returndata) = _targetTreasury.call(
-                abi.encodeWithSelector(DONATE_UNDERLYING_AND_UPGRADE_SELECTOR, _reentryAmount)
-            );
-            if (!ok) {
-                assembly ("memory-safe") {
-                    revert(add(returndata, 0x20), mload(returndata))
-                }
-            }
+    contract BudgetParentFlowWithoutMemberRate {}
+
+    contract BudgetReentrantUnderlying is SharedMockUnderlying {
+        bytes4 private constant DONATE_UNDERLYING_AND_UPGRADE_SELECTOR =
+            bytes4(keccak256("donateUnderlyingAndUpgrade(uint256)"));
+
+        address private _targetTreasury;
+        uint256 private _reentryAmount;
+        bool private _armed;
+        bool private _reentered;
+
+        function armReentry(address targetTreasury_, uint256 reentryAmount_) external {
+            _targetTreasury = targetTreasury_;
+            _reentryAmount = reentryAmount_;
+            _armed = true;
+            _reentered = false;
         }
 
-        super._update(from, to, value);
-    }
-}
+        function _update(address from, address to, uint256 value) internal override {
+            if (_armed && !_reentered && from != address(0) && to != address(0)) {
+                _reentered = true;
+                (bool ok, bytes memory returndata) =
+                    _targetTreasury.call(abi.encodeWithSelector(DONATE_UNDERLYING_AND_UPGRADE_SELECTOR, _reentryAmount));
+                if (!ok) {
+                    assembly ("memory-safe") {
+                        revert(add(returndata, 0x20), mload(returndata))
+                    }
+                }
+            }
 
-contract BudgetTreasuryMockPremiumEscrow {
-    bool public shouldRevertClose;
-    bool public closed;
-    IBudgetTreasury.BudgetState public lastState;
-    uint64 public lastActivatedAt;
-    uint64 public lastClosedAt;
-
-    function setShouldRevertClose(bool shouldRevertClose_) external {
-        shouldRevertClose = shouldRevertClose_;
-    }
-
-    function close(IBudgetTreasury.BudgetState state_, uint64 activatedAt_, uint64 closedAt_) external {
-        if (shouldRevertClose) revert("PREMIUM_ESCROW_CLOSE_FAILED");
-        closed = true;
-        lastState = state_;
-        lastActivatedAt = activatedAt_;
-        lastClosedAt = closedAt_;
-    }
-}
-
-contract BudgetTreasuryPremiumEscrowStakeLedgerMock {
-    function userAllocatedStakeOnBudget(address, address) external pure returns (uint256) {
-        return 0;
-    }
-}
-
-contract BudgetTreasuryPremiumEscrowRouterMock {
-    function slashUnderwriter(address, uint256) external pure { }
-}
-
-contract BudgetTreasuryMockController {
-    bool public shouldRevertPrune;
-    bool public returnRemovedFromParent = true;
-    bool public returnGoalSynced = true;
-    uint256 public pruneCallCount;
-    address public lastBudgetTreasury;
-
-    function setShouldRevertPrune(bool shouldRevertPrune_) external {
-        shouldRevertPrune = shouldRevertPrune_;
+            super._update(from, to, value);
+        }
     }
 
-    function setReturnGoalSynced(bool returnGoalSynced_) external {
-        returnGoalSynced = returnGoalSynced_;
+    contract BudgetTreasuryMockPremiumEscrow {
+        bool public shouldRevertClose;
+        bool public closed;
+        IBudgetTreasury.BudgetState public lastState;
+        uint64 public lastActivatedAt;
+        uint64 public lastClosedAt;
+
+        function setShouldRevertClose(bool shouldRevertClose_) external {
+            shouldRevertClose = shouldRevertClose_;
+        }
+
+        function close(IBudgetTreasury.BudgetState state_, uint64 activatedAt_, uint64 closedAt_) external {
+            if (shouldRevertClose) revert("PREMIUM_ESCROW_CLOSE_FAILED");
+            closed = true;
+            lastState = state_;
+            lastActivatedAt = activatedAt_;
+            lastClosedAt = closedAt_;
+        }
     }
 
-    function setReturnRemovedFromParent(bool returnRemovedFromParent_) external {
-        returnRemovedFromParent = returnRemovedFromParent_;
+    contract BudgetTreasuryPremiumEscrowStakeLedgerMock {
+        function userAllocatedStakeOnBudget(address, address) external pure returns (uint256) {
+            return 0;
+        }
     }
 
-    function pruneTerminalBudget(address budgetTreasury)
-        external
-        returns (bool removedFromParent, bool goalSynced)
-    {
-        pruneCallCount += 1;
-        lastBudgetTreasury = budgetTreasury;
-        if (shouldRevertPrune) revert("PRUNE_FAILED");
-        return (returnRemovedFromParent, returnGoalSynced);
+    contract BudgetTreasuryPremiumEscrowRouterMock {
+        function slashUnderwriter(address, uint256) external pure {}
     }
-}
 
-contract BudgetTreasuryComposeHarness is BudgetTreasury {
-    function composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) external pure returns (int96) {
-        return _composeTargetFlowRate(incomingRate, spenddownRate);
+    contract BudgetTreasuryMockController {
+        bool public shouldRevertPrune;
+        bool public returnRemovedFromParent = true;
+        bool public returnGoalSynced = true;
+        uint256 public pruneCallCount;
+        address public lastBudgetTreasury;
+
+        function setShouldRevertPrune(bool shouldRevertPrune_) external {
+            shouldRevertPrune = shouldRevertPrune_;
+        }
+
+        function setReturnGoalSynced(bool returnGoalSynced_) external {
+            returnGoalSynced = returnGoalSynced_;
+        }
+
+        function setReturnRemovedFromParent(bool returnRemovedFromParent_) external {
+            returnRemovedFromParent = returnRemovedFromParent_;
+        }
+
+        function pruneTerminalBudget(address budgetTreasury)
+            external
+            returns (bool removedFromParent, bool goalSynced)
+        {
+            pruneCallCount += 1;
+            lastBudgetTreasury = budgetTreasury;
+            if (shouldRevertPrune) revert("PRUNE_FAILED");
+            return (returnRemovedFromParent, returnGoalSynced);
+        }
     }
-}
+
+    contract BudgetTreasuryComposeHarness is BudgetTreasury {
+        function composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) external pure returns (int96) {
+            return _composeTargetFlowRate(incomingRate, spenddownRate);
+        }
+    }

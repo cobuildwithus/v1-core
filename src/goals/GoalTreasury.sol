@@ -6,6 +6,7 @@ import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
+import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
@@ -69,6 +70,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     uint256 public override successAssertionBond;
     bytes32 public override successOracleSpecHash;
     bytes32 public override successAssertionPolicyHash;
+    address public override spendPolicy;
 
     uint256 public override totalRaised;
     uint256 public override deferredHookSuperTokenAmount;
@@ -114,6 +116,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (config.hook == address(0)) revert ADDRESS_ZERO();
         if (config.goalRulesets == address(0)) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
+        if (config.spendPolicy != address(0) && config.spendPolicy.code.length == 0) {
+            revert NOT_A_CONTRACT(config.spendPolicy);
+        }
+        if (config.spendPolicy != address(0)) _requireValidSpendPolicy(config.spendPolicy);
         if (
             config.successAssertionLiveness == 0 ||
             config.successOracleSpecHash == bytes32(0) ||
@@ -175,6 +181,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         successAssertionBond = config.successAssertionBond;
         successOracleSpecHash = config.successOracleSpecHash;
         successAssertionPolicyHash = config.successAssertionPolicyHash;
+        spendPolicy = config.spendPolicy;
         _state = GoalState.Funding;
 
         emit GoalConfigured(
@@ -370,7 +377,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function targetFlowRate() public view override returns (int96) {
         if (_state != GoalState.Active) return 0;
 
-        return _computeClampedTargetFlowRate(treasuryBalance(), timeRemaining());
+        uint256 balance = treasuryBalance();
+        uint256 remaining = timeRemaining();
+        return _computeConfiguredTargetFlowRate(balance, remaining);
     }
 
     function lifecycleStatus() external view override returns (GoalLifecycleStatus memory status) {
@@ -410,18 +419,31 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function _syncFlowRate() internal {
         uint256 balance = treasuryBalance();
         uint256 remaining = timeRemaining();
-        int96 targetRate = _computeClampedTargetFlowRate(balance, remaining);
-        int96 appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(
-            _flow,
-            targetRate,
-            balance,
-            remaining
-        );
+        int96 targetRate = _computeConfiguredTargetFlowRate(balance, remaining);
+        int96 appliedRate;
+        if (_syncMode() == ISpendPolicy.SyncMode.LinearSpendDownFallback) {
+            appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(_flow, targetRate, balance, remaining);
+        } else {
+            appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow, targetRate);
+        }
 
         emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
     }
 
-    function _computeClampedTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
+    function _computeConfiguredTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
+        if (remaining == 0) return 0;
+
+        if (spendPolicy == address(0)) {
+            return _computeLegacyClampedTargetFlowRate(balance, remaining);
+        }
+
+        uint128 totalUnits = _flow.distributionPool().getTotalUnits();
+        if (totalUnits == 0) return 0;
+
+        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining, totalUnits));
+    }
+
+    function _computeLegacyClampedTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
         int96 targetRate = GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, balance, remaining);
 
         // Underwriting is enforced via budget-level credit-line recipient gating.
@@ -429,6 +451,55 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (_flow.distributionPool().getTotalUnits() == 0) return 0;
 
         return targetRate;
+    }
+
+    function _buildSpendContext(
+        uint256 balance,
+        uint256 remaining,
+        uint128 totalUnits
+    ) internal view returns (ISpendPolicy.SpendContext memory ctx) {
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: uint64(block.timestamp),
+            activatedAt: activatedAt,
+            deadline: deadline,
+            treasuryBalance: balance,
+            timeRemaining: remaining,
+            incomingRate: 0,
+            currentOutflowRate: _flow.targetOutflowRate(),
+            totalRecipientUnits: totalUnits
+        });
+    }
+
+    function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
+        if (spendPolicy == address(0)) return ISpendPolicy.SyncMode.LinearSpendDownFallback;
+        return ISpendPolicy(spendPolicy).syncMode();
+    }
+
+    function _requireValidSpendPolicy(address candidate) internal view {
+        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
+            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
+                revert INVALID_SPEND_POLICY(candidate);
+            }
+        } catch {
+            revert INVALID_SPEND_POLICY(candidate);
+        }
+
+        try
+            ISpendPolicy(candidate).targetFlowRate(
+                ISpendPolicy.SpendContext({
+                    nowTs: uint64(block.timestamp),
+                    activatedAt: 0,
+                    deadline: 0,
+                    treasuryBalance: 0,
+                    timeRemaining: 0,
+                    incomingRate: 0,
+                    currentOutflowRate: 0,
+                    totalRecipientUnits: 0
+                })
+            )
+        returns (int96) {} catch {
+            revert INVALID_SPEND_POLICY(candidate);
+        }
     }
 
     function _minRaiseWindowElapsedWithoutGoal(GoalState currentState) internal view returns (bool) {
