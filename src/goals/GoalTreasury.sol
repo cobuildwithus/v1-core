@@ -96,13 +96,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, GoalConfig calldata config) external initializer {
+    function initialize(GoalConfig calldata config) external initializer {
         __ReentrancyGuard_init();
-        _initialize(initialOwner, config);
+        _initialize(config);
     }
 
-    function _initialize(address initialOwner, GoalConfig memory config) internal {
-        if (initialOwner == address(0)) revert ADDRESS_ZERO();
+    function _initialize(GoalConfig memory config) private {
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
         if (config.jurorSlasher == address(0)) revert ADDRESS_ZERO();
@@ -182,7 +181,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _state = GoalState.Funding;
 
         emit GoalConfigured(
-            initialOwner,
             config.flow,
             config.stakeVault,
             config.budgetStakeLedger,

@@ -1510,7 +1510,6 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
         stack.goalTreasury
             .initialize(
-                address(this),
                 IGoalTreasury.GoalConfig({
                     flow: address(stack.goalFlow),
                     stakeVault: address(stack.vault),
@@ -1834,9 +1833,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         goalTreasuryImplementation = new GoalTreasury();
         treasury = _cloneGoalTreasuryWithPredictedAddress();
-        treasury.initialize(
-            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger))
-        );
+        treasury.initialize(_defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger)));
     }
 
     function test_initialize_wiresConfiguredSlashersOnStakeVault() public view {
@@ -1844,16 +1841,15 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(stakeVault.underwriterSlasher(), address(hook));
     }
 
-    function test_goalTreasuryCloneInitialize_emitsExpandedGoalConfiguredEvent() public {
+    function test_goalTreasuryCloneInitialize_emitsGoalConfiguredEvent() public {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.jurorSlasher = address(assertionOracle);
         (JBRuleset memory terminal,) = rulesets.latestQueuedOf(config.goalRevnetId);
 
-        vm.expectEmit(true, false, false, true, address(candidateTreasury));
+        vm.expectEmit(false, false, false, true, address(candidateTreasury));
         emit IGoalTreasury.GoalConfigured(
-            address(this),
             config.flow,
             config.stakeVault,
             config.budgetStakeLedger,
@@ -1870,14 +1866,14 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             address(stakeVault.cobuildToken())
         );
 
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
         assertEq(candidateTreasury.successResolver(), config.successResolver);
     }
 
     function test_goalTreasuryImplementation_initializeRevertsInvalidInitialization() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         goalTreasuryImplementation.initialize(
-            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger))
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger))
         );
     }
 
@@ -1885,10 +1881,10 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function test_goalRevnetSplitHookImplementation_initializeRevertsInvalidInitialization() public {
@@ -1966,9 +1962,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 IGoalTreasury.BUDGET_STAKE_LEDGER_GOAL_MISMATCH.selector, predictedTreasury, mismatchedGoalTreasury
             )
         );
-        candidateTreasury.initialize(
-            address(this), _defaultGoalConfig(address(rulesets), address(hook), address(mismatchedLedger))
-        );
+        candidateTreasury.initialize(_defaultGoalConfig(address(rulesets), address(hook), address(mismatchedLedger)));
     }
 
     function test_initialize_revertsWhenBudgetStakeLedgerHasNoCode() public {
@@ -1977,7 +1971,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         address invalidLedger = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, invalidLedger));
-        candidateTreasury.initialize(address(this), _defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
+        candidateTreasury.initialize(_defaultGoalConfig(address(rulesets), address(hook), invalidLedger));
     }
 
     function test_initialize_revertsWhenSpendPolicyHasNoCode() public {
@@ -1987,7 +1981,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.spendPolicy = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.NOT_A_CONTRACT.selector, config.spendPolicy));
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function test_initialize_revertsWhenSpendPolicyDoesNotImplementInterface() public {
@@ -1997,7 +1991,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.spendPolicy = address(new GoalTreasuryNonSpendPolicy());
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function test_initialize_revertsWhenSpendPolicyIsZero() public {
@@ -2007,7 +2001,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.spendPolicy = address(0);
 
         vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function test_initialize_revertsWhenSpendPolicyIsUninitializedClone() public {
@@ -2018,7 +2012,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.spendPolicy = address(Clones.clone(address(implementation)));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function test_sync_unitsCapSpendPolicy_usesConfiguredTargetAndCappedSyncMode() public {
@@ -2029,7 +2023,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.minRaise = 1;
         config.spendPolicy = address(spendPolicy);
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
 
         distributionPool.setTotalUnits(2);
         cfa.setDepositPerFlowRate(10);
@@ -2053,7 +2047,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.minRaise = 1;
         config.spendPolicy = address(spendPolicy);
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
 
         distributionPool.setTotalUnits(2);
         cfa.setDepositPerFlowRate(6_000_000);
@@ -2361,7 +2355,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.minRaise = 1;
         config.successResolver = address(revertingResolverConfig);
         config.spendPolicy = address(spendPolicy);
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
 
         distributionPool.setTotalUnits(40);
         superToken.mint(address(flow), 1_000);
@@ -2476,7 +2470,6 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             )
         );
         candidateTreasury.initialize(
-            address(this),
             _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
@@ -2509,7 +2502,6 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             )
         );
         candidateTreasury.initialize(
-            address(this),
             _defaultGoalConfig(address(revertingRulesets), address(invalidHook), address(budgetStakeLedger))
         );
     }
@@ -2533,7 +2525,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.successResolver = resolver;
 
-        candidateTreasury.initialize(address(this), config);
+        candidateTreasury.initialize(config);
     }
 
     function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
