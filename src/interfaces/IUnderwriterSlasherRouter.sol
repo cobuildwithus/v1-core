@@ -5,6 +5,7 @@ import { IStakeVault } from "./IStakeVault.sol";
 
 interface IUnderwriterSlasherRouter {
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error ONLY_AUTHORITY();
     error ONLY_AUTHORIZED_PREMIUM_ESCROW();
     error INVALID_PREMIUM_ESCROW(address premiumEscrow);

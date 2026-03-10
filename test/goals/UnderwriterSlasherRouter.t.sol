@@ -205,15 +205,139 @@ contract UnderwriterSlasherRouterTest is Test {
 
     function test_constructor_partialZeroConfig_doesNotBypassValidation() public {
         vm.expectRevert(IUnderwriterSlasherRouter.ADDRESS_ZERO.selector);
-        new UnderwriterSlasherRouter(
+        _deployRouter(
             IStakeVault(address(stakeVault)),
-            address(this),
             IJBDirectory(address(directory)),
-            GOAL_REVNET_ID,
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
             ISuperToken(address(goalSuperToken)),
             address(0)
+        );
+    }
+
+    function test_constructor_revertsWhenRequiredDependencyHasNoCode() public {
+        address noCodeStakeVault = address(0xBEEF01);
+        address noCodeDirectory = address(0xBEEF02);
+        address noCodeGoalToken = address(0xBEEF03);
+        address noCodeCobuildToken = address(0xBEEF04);
+        address noCodeGoalSuperToken = address(0xBEEF05);
+
+        _expectNotAContractRevert(noCodeStakeVault);
+        _deployRouter(
+            IStakeVault(noCodeStakeVault),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        _expectNotAContractRevert(noCodeDirectory);
+        _deployRouter(
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(noCodeDirectory),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        _expectNotAContractRevert(noCodeGoalToken);
+        _deployRouter(
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(noCodeGoalToken),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        _expectNotAContractRevert(noCodeCobuildToken);
+        _deployRouter(
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(noCodeCobuildToken),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        _expectNotAContractRevert(noCodeGoalSuperToken);
+        _deployRouter(
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(noCodeGoalSuperToken),
+            fundingTarget
+        );
+    }
+
+    function test_initialize_cloneRevertsWhenRequiredDependencyHasNoCode() public {
+        address noCodeStakeVault = address(0xCAFE01);
+        address noCodeDirectory = address(0xCAFE02);
+        address noCodeGoalToken = address(0xCAFE03);
+        address noCodeCobuildToken = address(0xCAFE04);
+        address noCodeGoalSuperToken = address(0xCAFE05);
+
+        UnderwriterSlasherRouter clone = _newUninitializedClone();
+        _expectNotAContractRevert(noCodeStakeVault);
+        _initializeRouter(
+            clone,
+            IStakeVault(noCodeStakeVault),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        _expectNotAContractRevert(noCodeDirectory);
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(noCodeDirectory),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        _expectNotAContractRevert(noCodeGoalToken);
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(noCodeGoalToken),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        _expectNotAContractRevert(noCodeCobuildToken);
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(noCodeCobuildToken),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        _expectNotAContractRevert(noCodeGoalSuperToken);
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(noCodeGoalSuperToken),
+            fundingTarget
         );
     }
 
@@ -673,6 +797,64 @@ contract UnderwriterSlasherRouterTest is Test {
         );
     }
 
+    function test_initialize_cloneRevertsWhenPostContractValidationFails() public {
+        MockVotesToken wrongGoalToken = new MockVotesToken("Wrong Goal", "WGOAL");
+        MockVotesToken wrongCobuildToken = new MockVotesToken("Wrong Cobuild", "WCOBUILD");
+        RouterMockConfigurableSuperToken badSuperToken = new RouterMockConfigurableSuperToken(address(cobuildToken));
+
+        UnderwriterSlasherRouter clone = _newUninitializedClone();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IUnderwriterSlasherRouter.INVALID_GOAL_TOKEN.selector, address(goalToken), address(wrongGoalToken)
+            )
+        );
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(wrongGoalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IUnderwriterSlasherRouter.INVALID_COBUILD_TOKEN.selector,
+                address(cobuildToken),
+                address(wrongCobuildToken)
+            )
+        );
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(wrongCobuildToken)),
+            ISuperToken(address(goalSuperToken)),
+            fundingTarget
+        );
+
+        clone = _newUninitializedClone();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IUnderwriterSlasherRouter.GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH.selector,
+                address(goalToken),
+                address(cobuildToken)
+            )
+        );
+        _initializeRouter(
+            clone,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            ISuperToken(address(badSuperToken)),
+            fundingTarget
+        );
+    }
+
     function test_constructor_missingGoalTerminal_conversionFailsAndRetainsCobuild() public {
         RouterMockDirectory emptyDirectory = new RouterMockDirectory();
         UnderwriterSlasherRouter routerWithMissingTerminal = new UnderwriterSlasherRouter(
@@ -731,16 +913,75 @@ contract UnderwriterSlasherRouterTest is Test {
         router.setAuthorizedPremiumEscrow(address(premiumEscrow), true);
     }
 
-    function _initializeRouter(UnderwriterSlasherRouter target) internal {
-        target.initialize(
-            IStakeVault(address(stakeVault)),
+    function _expectNotAContractRevert(address account) internal {
+        vm.expectRevert(abi.encodeWithSelector(IUnderwriterSlasherRouter.NOT_A_CONTRACT.selector, account));
+    }
+
+    function _deployRouter(
+        IStakeVault stakeVault_,
+        IJBDirectory directory_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        ISuperToken goalSuperToken_,
+        address goalFundingTarget_
+    ) internal returns (UnderwriterSlasherRouter) {
+        return new UnderwriterSlasherRouter(
+            stakeVault_,
             address(this),
-            IJBDirectory(address(directory)),
+            directory_,
             GOAL_REVNET_ID,
+            goalToken_,
+            cobuildToken_,
+            goalSuperToken_,
+            goalFundingTarget_
+        );
+    }
+
+    function _newUninitializedClone() internal returns (UnderwriterSlasherRouter) {
+        UnderwriterSlasherRouter implementation = new UnderwriterSlasherRouter(
+            IStakeVault(address(0)),
+            address(0),
+            IJBDirectory(address(0)),
+            0,
+            IERC20(address(0)),
+            IERC20(address(0)),
+            ISuperToken(address(0)),
+            address(0)
+        );
+
+        return UnderwriterSlasherRouter(Clones.clone(address(implementation)));
+    }
+
+    function _initializeRouter(UnderwriterSlasherRouter target) internal {
+        _initializeRouter(
+            target,
+            IStakeVault(address(stakeVault)),
+            IJBDirectory(address(directory)),
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
             ISuperToken(address(goalSuperToken)),
             fundingTarget
+        );
+    }
+
+    function _initializeRouter(
+        UnderwriterSlasherRouter target,
+        IStakeVault stakeVault_,
+        IJBDirectory directory_,
+        IERC20 goalToken_,
+        IERC20 cobuildToken_,
+        ISuperToken goalSuperToken_,
+        address goalFundingTarget_
+    ) internal {
+        target.initialize(
+            stakeVault_,
+            address(this),
+            directory_,
+            GOAL_REVNET_ID,
+            goalToken_,
+            cobuildToken_,
+            goalSuperToken_,
+            goalFundingTarget_
         );
     }
 }

@@ -118,28 +118,37 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         ISuperToken goalSuperToken_,
         address goalFundingTarget_
     ) internal {
-        if (address(stakeVault_) == address(0)) revert ADDRESS_ZERO();
+        address stakeVaultAddress = address(stakeVault_);
+        address directoryAddress = address(directory_);
+        address goalTokenAddress = address(goalToken_);
+        address cobuildTokenAddress = address(cobuildToken_);
+        address goalSuperTokenAddress = address(goalSuperToken_);
+
+        if (stakeVaultAddress == address(0)) revert ADDRESS_ZERO();
         if (authority_ == address(0)) revert ADDRESS_ZERO();
-        if (address(directory_) == address(0)) revert ADDRESS_ZERO();
-        if (address(goalToken_) == address(0)) revert ADDRESS_ZERO();
-        if (address(cobuildToken_) == address(0)) revert ADDRESS_ZERO();
-        if (address(goalSuperToken_) == address(0)) revert ADDRESS_ZERO();
+        if (directoryAddress == address(0)) revert ADDRESS_ZERO();
+        if (goalTokenAddress == address(0)) revert ADDRESS_ZERO();
+        if (cobuildTokenAddress == address(0)) revert ADDRESS_ZERO();
+        if (goalSuperTokenAddress == address(0)) revert ADDRESS_ZERO();
         if (goalFundingTarget_ == address(0)) revert ADDRESS_ZERO();
+        _requireContract(stakeVaultAddress);
+        _requireContract(directoryAddress);
+        _requireContract(goalTokenAddress);
+        _requireContract(cobuildTokenAddress);
+        _requireContract(goalSuperTokenAddress);
 
         address expectedGoalToken = address(stakeVault_.goalToken());
-        if (expectedGoalToken != address(goalToken_)) {
-            revert INVALID_GOAL_TOKEN(expectedGoalToken, address(goalToken_));
+        if (expectedGoalToken != goalTokenAddress) {
+            revert INVALID_GOAL_TOKEN(expectedGoalToken, goalTokenAddress);
         }
         address expectedCobuildToken = address(stakeVault_.cobuildToken());
-        if (expectedCobuildToken != address(cobuildToken_)) {
-            revert INVALID_COBUILD_TOKEN(expectedCobuildToken, address(cobuildToken_));
+        if (expectedCobuildToken != cobuildTokenAddress) {
+            revert INVALID_COBUILD_TOKEN(expectedCobuildToken, cobuildTokenAddress);
         }
 
-        if (address(goalSuperToken_).code.length != 0) {
-            address superTokenUnderlying = goalSuperToken_.getUnderlyingToken();
-            if (superTokenUnderlying != address(goalToken_)) {
-                revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(goalToken_), superTokenUnderlying);
-            }
+        address superTokenUnderlying = goalSuperToken_.getUnderlyingToken();
+        if (superTokenUnderlying != goalTokenAddress) {
+            revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(goalTokenAddress, superTokenUnderlying);
         }
 
         stakeVault = stakeVault_;
@@ -150,6 +159,10 @@ contract UnderwriterSlasherRouter is IUnderwriterSlasherRouter, Initializable, R
         cobuildToken = cobuildToken_;
         goalSuperToken = goalSuperToken_;
         goalFundingTarget = goalFundingTarget_;
+    }
+
+    function _requireContract(address account) internal view {
+        if (account.code.length == 0) revert NOT_A_CONTRACT(account);
     }
 
     function setAuthorizedPremiumEscrow(address premiumEscrow, bool authorized) external override {
