@@ -129,12 +129,12 @@ cobuild-protocol/
   - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
     seeds either an explicit route or a historical-default route on `CobuildSplitHook`, then pays the configured community revnet.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, routes reserved community tokens into
-    approved child goals, records observed volume only from explicit routed pays, derives historical default routing from
-    that explicit-only volume, falls back to a manual default route when configured, and otherwise escrows reserved tokens.
+    goal-manager-approved child goals, stores each goal's treasury sink, records observed volume only from explicit
+    routed pays, and derives all non-explicit routing from that explicit-only historical volume.
   - Wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction, including
     empty-metadata historical-default pays.
-  - Raw direct community pays can only auto-route when `defaultBeneficiary` is configured; those direct/defaulted flows
-    must not mutate the historical routing signal.
+  - Raw direct community pays use historical explicit-volume weights only and pay each child goal terminal with that
+    goal's treasury as beneficiary; those direct/defaulted flows must not mutate the historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.

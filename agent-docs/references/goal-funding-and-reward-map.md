@@ -11,7 +11,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 3. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
 4. The split hook consumes the pending route and forwards reserved community tokens into approved child goals by paying each goal's primary terminal for the community token.
 5. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
-6. If no pending route exists, the split hook first tries the historical explicit-volume route for `defaultBeneficiary`, then a configured manual default route, and otherwise escrows the reserved community tokens for later sweep.
+6. Approved goals are curated by a fixed `goalManager`, and each approved goal stores its goal treasury sink.
+7. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's treasury as beneficiary.
+8. If no usable historical route exists, the community pay reverts instead of default-routing or escrowing reserved tokens.
 
 ## Goal Funding Path
 

@@ -17,6 +17,7 @@
 - Hook ingress: `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`
 - Community payment wrapper: `src/juicebox/CobuildPaymentTerminal.sol`
 - Interfaces: `src/interfaces/IGoalTreasury.sol`, `src/interfaces/IBudgetTreasury.sol`, `src/interfaces/ISpendPolicy.sol`, `src/interfaces/IStakeVault.sol`, `src/interfaces/IBudgetStakeLedger.sol`, `src/interfaces/IPremiumEscrow.sol`, `src/interfaces/IUnderwriterSlasherRouter.sol`, `src/interfaces/ITreasuryAuthority.sol`, `src/interfaces/ICobuildSplitHook.sol`
+- Community-routing curation boundary: `CobuildSplitHook` owns approved goal + goal treasury sink metadata, while the external goal-manager role/TCR owns membership changes.
 
 ### TCR/arbitration domain
 
@@ -28,5 +29,6 @@
 
 1. Keep cross-domain dependencies explicit via interfaces.
 2. Keep funds/lifecycle coupling paths documented when they cross domains.
+3. Keep community goal-curation and treasury-sink metadata explicit; do not infer downstream treasury beneficiaries from ad hoc runtime probes.
 3. Treat storage modules as upgrade-sensitive boundaries.
 4. Keep domain tests aligned to these boundaries.

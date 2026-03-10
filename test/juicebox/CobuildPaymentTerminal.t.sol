@@ -352,7 +352,8 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     address public immutable override communityToken;
 
     address public override routeSetter;
-    address public override defaultBeneficiary;
+    address public override goalManager;
+    mapping(uint256 => address) internal _goalTreasuryOf;
     bool internal _hasPendingRoute;
     bool internal _lastUsesHistoricalDefault;
 
@@ -368,6 +369,7 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         communityRevnetId = communityRevnetId_;
         communityToken = communityToken_;
         routeSetter = msg.sender;
+        goalManager = msg.sender;
     }
 
     function supportsInterface(bytes4) external pure override returns (bool) {
@@ -386,9 +388,8 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         goals = new uint256[](0);
     }
 
-    function defaultRoute() external pure override returns (uint256[] memory goalIds, uint32[] memory weights) {
-        goalIds = new uint256[](0);
-        weights = new uint32[](0);
+    function goalTreasuryOf(uint256 goalId) external view override returns (address) {
+        return _goalTreasuryOf[goalId];
     }
 
     function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -441,24 +442,12 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         _hasPendingRoute = false;
     }
 
-    function setRouteSetter(address routeSetter_) external override {
-        routeSetter = routeSetter_;
+    function addApprovedGoal(uint256 goalId, address goalTreasury) external override {
+        _goalTreasuryOf[goalId] = goalTreasury;
     }
 
-    function setDefaultBeneficiary(address beneficiary) external override {
-        defaultBeneficiary = beneficiary;
-    }
-
-    function setApprovedGoal(uint256, bool) external override { }
-
-    function setDefaultRoute(uint256[] calldata, uint32[] calldata) external override { }
-
-    function sweepEscrowed(
-        address,
-        uint256[] calldata,
-        uint32[] calldata
-    ) external pure override returns (uint256 sweptAmount) {
-        return 0;
+    function removeApprovedGoal(uint256 goalId) external override {
+        delete _goalTreasuryOf[goalId];
     }
 
     function processSplitWith(JBSplitHookContext calldata) external payable override { }

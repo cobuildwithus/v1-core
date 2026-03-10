@@ -11,11 +11,12 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 
-/// @notice Community-level split hook that routes reserved community tokens into pre-approved child goals.
-/// @dev A trusted wrapper can seed a one-shot route before the community revnet pay executes.
+/// @notice Community-level split hook that routes reserved community tokens into goal-manager-approved child goals.
+/// @dev A fixed init-time wrapper seeds one-shot routes before the community revnet pay executes.
 /// Explicit routes are recorded as historical market signal. Historical-default routes consume that signal
-/// without reinforcing it.
+/// without reinforcing it, and raw direct pays use stored goal treasury beneficiaries.
 contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -29,22 +30,24 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error INVALID_SOURCE_TOKEN(address expectedToken, address actualToken);
     error INVALID_SPLIT_GROUP(uint256 expectedGroupId, uint256 actualGroupId);
     error INVALID_GOAL_ID();
+    error GOAL_ALREADY_APPROVED(uint256 goalId);
     error INVALID_ROUTE_LENGTHS(uint256 goalIdsLength, uint256 weightsLength);
     error INVALID_ROUTE_WEIGHT(uint256 index);
     error DUPLICATE_GOAL(uint256 goalId);
     error GOAL_NOT_APPROVED(uint256 goalId);
+    error INVALID_GOAL_TREASURY(address goalTreasury, uint256 expectedGoalId, uint256 actualGoalId);
+    error NO_GOAL_TREASURY(uint256 goalId);
     error NO_ROUTE_AVAILABLE();
-    error NO_ROUTE_SETTER();
     error PENDING_ROUTE_EXISTS();
     error NO_PENDING_ROUTE();
     error NO_GOAL_TERMINAL(uint256 goalId);
     error NATIVE_VALUE_MISMATCH(uint256 expected, uint256 actual);
     error INSUFFICIENT_HOOK_BALANCE(address token, uint256 expected, uint256 available);
 
-    event RouteSetterSet(address indexed routeSetter);
-    event DefaultBeneficiarySet(address indexed beneficiary);
-    event GoalApprovalSet(uint256 indexed goalId, bool approved);
-    event DefaultRouteSet(uint256[] goalIds, uint32[] weights);
+    event RouteSetterConfigured(address indexed routeSetter);
+    event GoalManagerConfigured(address indexed goalManager);
+    event GoalAdded(uint256 indexed goalId, address indexed goalTreasury);
+    event GoalRemoved(uint256 indexed goalId, address indexed goalTreasury);
     event PendingRouteStarted(address indexed payer, address indexed beneficiary, uint256[] goalIds, uint32[] weights);
     event PendingHistoricalRouteStarted(address indexed payer, address indexed beneficiary);
     event PendingRouteConsumed(
@@ -61,7 +64,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 goalObservedTotal,
         uint256 observedTotal
     );
-    event ReservedTokensEscrowed(address indexed token, uint256 amount);
     event GoalRouted(
         address indexed beneficiary,
         uint256 indexed goalId,
@@ -69,8 +71,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 amount,
         bool fromPendingRoute
     );
-    event EscrowSwept(address indexed beneficiary, uint256 totalAmount, uint256[] goalIds, uint32[] weights);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     struct PendingRoute {
         address payer;
@@ -94,31 +94,27 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     IJBDirectory public directory;
     uint256 public communityRevnetId;
     address public communityToken;
-    address public owner;
     address public routeSetter;
-    address public defaultBeneficiary;
+    address public goalManager;
+    mapping(uint256 => address) public override goalTreasuryOf;
     mapping(uint256 => uint256) public override observedVolumeOf;
     uint256 public override observedTotalVolume;
 
     PendingRoute private _pendingRoute;
     uint256[] private _approvedGoals;
     mapping(uint256 => uint256) private _approvedGoalIndexPlusOne;
-    uint256[] private _defaultGoalIds;
-    uint32[] private _defaultWeights;
 
     constructor() {
         _disableInitializers();
     }
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert UNAUTHORIZED();
+    modifier onlyGoalManager() {
+        if (msg.sender != goalManager) revert UNAUTHORIZED();
         _;
     }
 
     modifier onlyRouteSetter() {
-        address setter = routeSetter;
-        if (setter == address(0)) revert NO_ROUTE_SETTER();
-        if (msg.sender != setter) revert UNAUTHORIZED();
+        if (msg.sender != routeSetter) revert UNAUTHORIZED();
         _;
     }
 
@@ -126,12 +122,18 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         IJBDirectory directory_,
         uint256 communityRevnetId_,
         address communityToken_,
-        address owner_
+        address routeSetter_,
+        address goalManager_
     ) external initializer {
         __ReentrancyGuard_init();
 
         address directoryAddress = address(directory_);
-        if (directoryAddress == address(0) || communityToken_ == address(0) || owner_ == address(0)) {
+        if (
+            directoryAddress == address(0) ||
+            communityToken_ == address(0) ||
+            routeSetter_ == address(0) ||
+            goalManager_ == address(0)
+        ) {
             revert ADDRESS_ZERO();
         }
         if (directoryAddress.code.length == 0) revert NOT_A_CONTRACT(directoryAddress);
@@ -141,11 +143,11 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         directory = directory_;
         communityRevnetId = communityRevnetId_;
         communityToken = communityToken_;
-        owner = owner_;
-        routeSetter = owner_;
+        routeSetter = routeSetter_;
+        goalManager = goalManager_;
 
-        emit OwnershipTransferred(address(0), owner_);
-        emit RouteSetterSet(owner_);
+        emit RouteSetterConfigured(routeSetter_);
+        emit GoalManagerConfigured(goalManager_);
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
@@ -157,11 +159,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
     function approvedGoals() external view override returns (uint256[] memory goals) {
         goals = _approvedGoals;
-    }
-
-    function defaultRoute() external view override returns (uint256[] memory goalIds, uint32[] memory weights) {
-        goalIds = _copyUint256Array(_defaultGoalIds);
-        weights = _copyUint32Array(_defaultWeights);
     }
 
     function historicalRoute() external view override returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -184,69 +181,45 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         return _pendingRoute.active;
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ADDRESS_ZERO();
-
-        address previousOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(previousOwner, newOwner);
-
-        if (routeSetter == previousOwner) {
-            routeSetter = newOwner;
-            emit RouteSetterSet(newOwner);
-        }
-    }
-
-    function setRouteSetter(address routeSetter_) external override onlyOwner {
-        if (routeSetter_ == address(0)) revert ADDRESS_ZERO();
-        routeSetter = routeSetter_;
-        emit RouteSetterSet(routeSetter_);
-    }
-
-    function setDefaultBeneficiary(address beneficiary) external override onlyOwner {
-        defaultBeneficiary = beneficiary;
-        emit DefaultBeneficiarySet(beneficiary);
-    }
-
-    function setApprovedGoal(uint256 goalId, bool approved) external override onlyOwner {
+    function addApprovedGoal(uint256 goalId, address goalTreasury) external override onlyGoalManager {
         if (goalId == 0) revert INVALID_GOAL_ID();
+        if (goalTreasury == address(0)) revert ADDRESS_ZERO();
+        if (goalTreasury.code.length == 0) revert NOT_A_CONTRACT(goalTreasury);
+        if (_approvedGoalIndexPlusOne[goalId] != 0) revert GOAL_ALREADY_APPROVED(goalId);
 
-        uint256 indexPlusOne = _approvedGoalIndexPlusOne[goalId];
-        bool isApproved = indexPlusOne != 0;
-        if (approved == isApproved) {
-            emit GoalApprovalSet(goalId, approved);
-            return;
+        uint256 actualGoalId;
+        try IGoalTreasury(goalTreasury).goalRevnetId() returns (uint256 resolvedGoalId) {
+            actualGoalId = resolvedGoalId;
+        } catch {
+            revert INVALID_GOAL_TREASURY(goalTreasury, goalId, 0);
         }
+        if (actualGoalId != goalId) revert INVALID_GOAL_TREASURY(goalTreasury, goalId, actualGoalId);
 
-        if (approved) {
-            _approvedGoalIndexPlusOne[goalId] = _approvedGoals.length + 1;
-            _approvedGoals.push(goalId);
-        } else {
-            uint256 removeIndex = indexPlusOne - 1;
-            uint256 lastIndex = _approvedGoals.length - 1;
-            if (removeIndex != lastIndex) {
-                uint256 movedGoalId = _approvedGoals[lastIndex];
-                _approvedGoals[removeIndex] = movedGoalId;
-                _approvedGoalIndexPlusOne[movedGoalId] = removeIndex + 1;
-            }
-            _approvedGoals.pop();
-            delete _approvedGoalIndexPlusOne[goalId];
-        }
+        goalTreasuryOf[goalId] = goalTreasury;
+        _approvedGoalIndexPlusOne[goalId] = _approvedGoals.length + 1;
+        _approvedGoals.push(goalId);
 
-        emit GoalApprovalSet(goalId, approved);
+        emit GoalAdded(goalId, goalTreasury);
     }
 
-    function setDefaultRoute(uint256[] calldata goalIds, uint32[] calldata weights) external override onlyOwner {
-        if (goalIds.length == 0) {
-            delete _defaultGoalIds;
-            delete _defaultWeights;
-            emit DefaultRouteSet(new uint256[](0), new uint32[](0));
-            return;
-        }
+    function removeApprovedGoal(uint256 goalId) external override onlyGoalManager {
+        uint256 indexPlusOne = _approvedGoalIndexPlusOne[goalId];
+        if (indexPlusOne == 0) revert GOAL_NOT_APPROVED(goalId);
 
-        _validateRoute(goalIds, weights);
-        _replaceStorageRoute(_defaultGoalIds, _defaultWeights, goalIds, weights);
-        emit DefaultRouteSet(goalIds, weights);
+        address goalTreasury = goalTreasuryOf[goalId];
+        uint256 removeIndex = indexPlusOne - 1;
+        uint256 lastIndex = _approvedGoals.length - 1;
+        if (removeIndex != lastIndex) {
+            uint256 movedGoalId = _approvedGoals[lastIndex];
+            _approvedGoals[removeIndex] = movedGoalId;
+            _approvedGoalIndexPlusOne[movedGoalId] = removeIndex + 1;
+        }
+        _approvedGoals.pop();
+
+        delete _approvedGoalIndexPlusOne[goalId];
+        delete goalTreasuryOf[goalId];
+
+        emit GoalRemoved(goalId, goalTreasury);
     }
 
     function beginPendingRoute(
@@ -289,52 +262,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         _clearPendingRoute();
     }
 
-    function sweepEscrowed(
-        address beneficiary,
-        uint256[] calldata goalIds,
-        uint32[] calldata weights
-    ) external override onlyOwner nonReentrant returns (uint256 sweptAmount) {
-        if (beneficiary == address(0)) revert ADDRESS_ZERO();
-
-        sweptAmount = IERC20(communityToken).balanceOf(address(this));
-        if (sweptAmount == 0) return 0;
-
-        if (goalIds.length == 0) {
-            if (_defaultGoalIds.length == 0) revert NO_ROUTE_AVAILABLE();
-
-            uint256[] memory defaultGoalIds_ = _copyUint256Array(_defaultGoalIds);
-            uint32[] memory defaultWeights_ = _copyUint32Array(_defaultWeights);
-            _routeToGoals(
-                RouteRuntime({
-                    token: IERC20(communityToken),
-                    sourceAmount: sweptAmount,
-                    beneficiary: beneficiary,
-                    goalIds: defaultGoalIds_,
-                    weights: defaultWeights_,
-                    fromPendingRoute: false
-                })
-            );
-            emit EscrowSwept(beneficiary, sweptAmount, defaultGoalIds_, defaultWeights_);
-            return sweptAmount;
-        }
-
-        _validateRoute(goalIds, weights);
-        uint256[] memory explicitGoalIds = _copyUint256Calldata(goalIds);
-        uint32[] memory explicitWeights = _copyUint32Calldata(weights);
-        _routeToGoals(
-            RouteRuntime({
-                token: IERC20(communityToken),
-                sourceAmount: sweptAmount,
-                beneficiary: beneficiary,
-                goalIds: explicitGoalIds,
-                weights: explicitWeights,
-                fromPendingRoute: false
-            })
-        );
-        emit EscrowSwept(beneficiary, sweptAmount, explicitGoalIds, explicitWeights);
-        return sweptAmount;
-    }
-
     function processSplitWith(JBSplitHookContext calldata context) external payable override nonReentrant {
         if (context.projectId != communityRevnetId) {
             revert INVALID_PROJECT(communityRevnetId, context.projectId);
@@ -360,23 +287,8 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
             if (usesHistoricalDefault) {
                 _clearPendingRoute();
-
-                bool didRouteHistorical = _routeUsingHistoricalVolumes(token, amount, beneficiary, true);
-                if (!didRouteHistorical) {
-                    if (_defaultGoalIds.length == 0) revert NO_ROUTE_AVAILABLE();
-
-                    uint256[] memory defaultGoalIds_ = _copyUint256Array(_defaultGoalIds);
-                    uint32[] memory defaultWeights_ = _copyUint32Array(_defaultWeights);
-                    _routeToGoals(
-                        RouteRuntime({
-                            token: token,
-                            sourceAmount: amount,
-                            beneficiary: beneficiary,
-                            goalIds: defaultGoalIds_,
-                            weights: defaultWeights_,
-                            fromPendingRoute: true
-                        })
-                    );
+                if (!_routeUsingHistoricalVolumesToBeneficiary(token, amount, beneficiary, true)) {
+                    revert NO_ROUTE_AVAILABLE();
                 }
 
                 emit PendingHistoricalRouteConsumed(payer, beneficiary, amount);
@@ -403,28 +315,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             return;
         }
 
-        address fallbackBeneficiary = defaultBeneficiary;
-        if (fallbackBeneficiary != address(0)) {
-            if (_routeUsingHistoricalVolumes(token, amount, fallbackBeneficiary, false)) return;
-
-            if (_defaultGoalIds.length != 0) {
-                uint256[] memory defaultGoalIds_ = _copyUint256Array(_defaultGoalIds);
-                uint32[] memory defaultWeights_ = _copyUint32Array(_defaultWeights);
-                _routeToGoals(
-                    RouteRuntime({
-                        token: token,
-                        sourceAmount: amount,
-                        beneficiary: fallbackBeneficiary,
-                        goalIds: defaultGoalIds_,
-                        weights: defaultWeights_,
-                        fromPendingRoute: false
-                    })
-                );
-                return;
-            }
-        }
-
-        emit ReservedTokensEscrowed(context.token, amount);
+        if (!_routeUsingHistoricalVolumesToGoalTreasuries(token, amount)) revert NO_ROUTE_AVAILABLE();
     }
 
     function _routeToGoals(RouteRuntime memory route) internal {
@@ -461,44 +352,20 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         }
     }
 
-    function _routeUsingHistoricalVolumes(
+    function _routeUsingHistoricalVolumesToBeneficiary(
         IERC20 token,
         uint256 sourceAmount,
         address beneficiary,
         bool fromPendingRoute
     ) internal returns (bool didRoute) {
-        if (beneficiary == address(0) || observedTotalVolume == 0) return false;
+        if (beneficiary == address(0)) return false;
 
-        uint256 approvedLength = _approvedGoals.length;
-        if (approvedLength == 0) return false;
-
-        uint256 activeCount;
-        uint256 totalHistoricalVolume;
-        for (uint256 i = 0; i < approvedLength; i++) {
-            uint256 goalId = _approvedGoals[i];
-            uint256 volume = observedVolumeOf[goalId];
-            if (volume == 0) continue;
-            if (address(directory.primaryTerminalOf(goalId, communityToken)) == address(0)) continue;
-
-            activeCount++;
-            totalHistoricalVolume += volume;
-        }
-
-        if (activeCount == 0 || totalHistoricalVolume == 0) return false;
-
-        uint256[] memory goalIds = new uint256[](activeCount);
-        uint256[] memory volumes = new uint256[](activeCount);
-        uint256 cursor;
-        for (uint256 i = 0; i < approvedLength; i++) {
-            uint256 goalId = _approvedGoals[i];
-            uint256 volume = observedVolumeOf[goalId];
-            if (volume == 0) continue;
-            if (address(directory.primaryTerminalOf(goalId, communityToken)) == address(0)) continue;
-
-            goalIds[cursor] = goalId;
-            volumes[cursor] = volume;
-            cursor++;
-        }
+        (
+            uint256[] memory goalIds,
+            uint256[] memory volumes,
+            uint256 totalHistoricalVolume
+        ) = _loadHistoricalRouteRuntime();
+        if (goalIds.length == 0) return false;
 
         uint256 remaining = sourceAmount;
         for (uint256 i = 0; i < goalIds.length; i++) {
@@ -519,6 +386,45 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             token.forceApprove(terminalAddress, 0);
 
             emit GoalRouted(beneficiary, goalId, communityToken, amountForGoal, fromPendingRoute);
+        }
+
+        return true;
+    }
+
+    function _routeUsingHistoricalVolumesToGoalTreasuries(
+        IERC20 token,
+        uint256 sourceAmount
+    ) internal returns (bool didRoute) {
+        (
+            uint256[] memory goalIds,
+            uint256[] memory volumes,
+            uint256 totalHistoricalVolume
+        ) = _loadHistoricalRouteRuntime();
+        if (goalIds.length == 0) return false;
+
+        uint256 remaining = sourceAmount;
+        for (uint256 i = 0; i < goalIds.length; i++) {
+            uint256 amountForGoal;
+            if (i + 1 == goalIds.length) {
+                amountForGoal = remaining;
+            } else {
+                amountForGoal = (sourceAmount * volumes[i]) / totalHistoricalVolume;
+                remaining -= amountForGoal;
+            }
+            if (amountForGoal == 0) continue;
+
+            uint256 goalId = goalIds[i];
+            address beneficiary = goalTreasuryOf[goalId];
+            if (beneficiary == address(0)) revert NO_GOAL_TREASURY(goalId);
+
+            address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
+            if (terminalAddress == address(0)) revert NO_GOAL_TERMINAL(goalId);
+
+            token.forceApprove(terminalAddress, amountForGoal);
+            IJBTerminal(terminalAddress).pay(goalId, communityToken, amountForGoal, beneficiary, 0, "", bytes(""));
+            token.forceApprove(terminalAddress, 0);
+
+            emit GoalRouted(beneficiary, goalId, communityToken, amountForGoal, false);
         }
 
         return true;
@@ -552,19 +458,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             revert INVALID_ROUTE_LENGTHS(goalIds.length, weights.length);
         }
 
-        uint256 totalWeight;
         for (uint256 i = 0; i < goalIds.length; i++) {
             uint256 goalId = goalIds[i];
             if (_approvedGoalIndexPlusOne[goalId] == 0) revert GOAL_NOT_APPROVED(goalId);
             if (weights[i] == 0) revert INVALID_ROUTE_WEIGHT(i);
-            totalWeight += weights[i];
 
             for (uint256 j = i + 1; j < goalIds.length; j++) {
                 if (goalIds[j] == goalId) revert DUPLICATE_GOAL(goalId);
             }
         }
-
-        if (totalWeight == 0) revert NO_ROUTE_AVAILABLE();
     }
 
     function _sumWeights(uint32[] memory weights) internal pure returns (uint256 totalWeight) {
@@ -572,6 +474,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             totalWeight += weights[i];
         }
         if (totalWeight == 0) revert NO_ROUTE_AVAILABLE();
+    }
+
+    function _sumVolumes(uint256[] memory volumes) internal pure returns (uint256 totalVolume) {
+        for (uint256 i = 0; i < volumes.length; i++) {
+            totalVolume += volumes[i];
+        }
     }
 
     function _historicalRoute() internal view returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -599,6 +507,18 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         }
     }
 
+    function _loadHistoricalRouteRuntime()
+        internal
+        view
+        returns (uint256[] memory goalIds, uint256[] memory volumes, uint256 totalHistoricalVolume)
+    {
+        (goalIds, volumes) = _historicalRoute();
+        if (goalIds.length == 0) return (goalIds, volumes, 0);
+
+        totalHistoricalVolume = _sumVolumes(volumes);
+        if (totalHistoricalVolume == 0) return (goalIds, volumes, 0);
+    }
+
     function _replaceStorageRoute(
         uint256[] storage storageGoalIds,
         uint32[] storage storageWeights,
@@ -620,23 +540,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
     function _clearPendingRoute() internal {
         if (!_pendingRoute.active) revert NO_PENDING_ROUTE();
-        delete _pendingRoute.goalIds;
-        delete _pendingRoute.weights;
         delete _pendingRoute;
-    }
-
-    function _copyUint256Calldata(uint256[] calldata values) internal pure returns (uint256[] memory copied) {
-        copied = new uint256[](values.length);
-        for (uint256 i = 0; i < values.length; i++) {
-            copied[i] = values[i];
-        }
-    }
-
-    function _copyUint32Calldata(uint32[] calldata values) internal pure returns (uint32[] memory copied) {
-        copied = new uint32[](values.length);
-        for (uint256 i = 0; i < values.length; i++) {
-            copied[i] = values[i];
-        }
     }
 
     function _copyUint256Array(uint256[] storage values) internal view returns (uint256[] memory copied) {
