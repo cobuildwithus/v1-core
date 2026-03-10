@@ -269,6 +269,36 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentHistoricalTotalVolume(), 25e18);
     }
 
+    function test_currentHistoricalRoute_reusesRetainedVolumeWhenGoalTerminalIsRestored() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(0)));
+
+        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+
+        directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(goalTerminalTwo)));
+
+        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+
+        assertEq(historicalGoalIds.length, 2);
+        assertEq(historicalVolumes.length, 2);
+        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+
+        uint256 goalOneVolume;
+        uint256 goalTwoVolume;
+        for (uint256 i = 0; i < historicalGoalIds.length; i++) {
+            if (historicalGoalIds[i] == GOAL_ID_ONE) {
+                goalOneVolume = historicalVolumes[i];
+                continue;
+            }
+            if (historicalGoalIds[i] == GOAL_ID_TWO) {
+                goalTwoVolume = historicalVolumes[i];
+            }
+        }
+
+        assertEq(goalOneVolume, 25e18);
+        assertEq(goalTwoVolume, 75e18);
+    }
+
     function test_currentHistoricalTotalVolume_excludesUnselectableGoals_butRetainsCumulativeTelemetry() public {
         _seedObservedRoute(100e18, 1, 3, beneficiary);
 
