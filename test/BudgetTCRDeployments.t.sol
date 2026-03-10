@@ -3,66 +3,34 @@ pragma solidity ^0.8.34;
 
 import "forge-std/Test.sol";
 
-import { BudgetTCRStackDeploymentLib } from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
-import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {BudgetTCRStackDeploymentLib} from "src/tcr/library/BudgetTCRStackDeploymentLib.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
-import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract BudgetTCRStackDeploymentLibHarness {
     function deployTreasuryClone(address treasuryImplementation) external returns (address treasury) {
         treasury = Clones.clone(treasuryImplementation);
-    }
-
-    function prepareBudgetStack(
-        address treasuryAnchor,
-        address premiumEscrow,
-        IERC20 goalToken,
-        IERC20 cobuildToken,
-        IJBRulesets goalRulesets,
-        uint256 goalRevnetId,
-        uint8 paymentTokenDecimals,
-        address strategy,
-        address budgetStakeLedger,
-        address goalFlow,
-        address underwriterSlasherRouter,
-        uint32 budgetSlashPpm
-    ) external returns (BudgetTCRStackDeploymentLib.PreparationResult memory result) {
-        result = BudgetTCRStackDeploymentLib.prepareBudgetStack(
-            treasuryAnchor,
-            premiumEscrow,
-            goalToken,
-            cobuildToken,
-            goalRulesets,
-            goalRevnetId,
-            paymentTokenDecimals,
-            strategy,
-            budgetStakeLedger,
-            goalFlow,
-            underwriterSlasherRouter,
-            budgetSlashPpm
-        );
     }
 
     function deployBudgetTreasury(
@@ -99,7 +67,7 @@ contract BudgetTCRStackDeploymentLibHarness {
 }
 
 contract BudgetTCRStackDeploymentLibMockToken is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 }
 
 contract BudgetTCRStackDeploymentLibMockParentFlow {
@@ -117,6 +85,10 @@ contract BudgetTCRStackDeploymentLibMockGoalFlow {
 
     function superToken() external view returns (address) {
         return _superToken;
+    }
+
+    function getTotalReceivedByMember(address) external pure returns (uint256 totalReceived) {
+        return totalReceived;
     }
 }
 
@@ -239,7 +211,6 @@ contract BudgetTCRDiscoveryEmitterMock {
 contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     BudgetTCRStackDeploymentLibHarness internal harness;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
-    BudgetTCRStackDeploymentLibMockToken internal cobuildToken;
     BudgetTCRStackDeploymentLibMockBudgetStakeLedger internal budgetStakeLedger;
     BudgetFlowRouterStrategy internal sharedStrategy;
     BudgetTreasury internal budgetTreasuryImplementation;
@@ -257,7 +228,6 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     function setUp() public {
         harness = new BudgetTCRStackDeploymentLibHarness();
         goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
-        cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
         budgetStakeLedger = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
         BudgetFlowRouterStrategy strategyImplementation = new BudgetFlowRouterStrategy();
         sharedStrategy = BudgetFlowRouterStrategy(Clones.clone(address(strategyImplementation)));
@@ -272,79 +242,66 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     function test_prepareAndDeploy_linksTreasuryAnchor_andSharedStrategyUsesFlowRecipientRegistration() public {
         address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
         address premiumEscrow = Clones.clone(address(premiumEscrowImplementation));
-        BudgetTCRStackDeploymentLib.PreparationResult memory prepared = harness.prepareBudgetStack(
-            treasuryAnchor,
-            premiumEscrow,
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
-        );
+        address strategy = address(sharedStrategy);
 
-        assertTrue(prepared.strategy != address(0));
-        assertEq(prepared.strategy, address(sharedStrategy));
+        assertTrue(strategy != address(0));
+        assertEq(strategy, address(sharedStrategy));
 
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            prepared.strategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), strategy);
         childFlow.setFlowOperator(treasuryAnchor);
         childFlow.setSweeper(treasuryAnchor);
 
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
         address budgetTreasury =
-            _deployBudgetTreasury(budgetTCR, treasuryAnchor, prepared.premiumEscrow, address(childFlow), listing, budgetTCR);
+            _deployBudgetTreasury(budgetTCR, treasuryAnchor, premiumEscrow, address(childFlow), listing, budgetTCR);
 
         assertEq(budgetTreasury, treasuryAnchor);
         assertEq(childFlow.recipientAdmin(), budgetTCR);
         assertEq(BudgetTreasury(budgetTreasury).successAssertionLiveness(), SUCCESS_ASSERTION_LIVENESS);
         assertEq(BudgetTreasury(budgetTreasury).successAssertionBond(), SUCCESS_ASSERTION_BOND);
-        assertEq(BudgetTreasury(budgetTreasury).premiumEscrow(), prepared.premiumEscrow);
-        assertEq(PremiumEscrow(prepared.premiumEscrow).budgetTreasury(), budgetTreasury);
-        assertEq(PremiumEscrow(prepared.premiumEscrow).budgetStakeLedger(), address(budgetStakeLedger));
-        assertEq(PremiumEscrow(prepared.premiumEscrow).goalFlow(), address(goalFlow));
-        assertEq(PremiumEscrow(prepared.premiumEscrow).underwriterSlasherRouter(), address(underwriterSlasherRouter));
-        assertEq(PremiumEscrow(prepared.premiumEscrow).budgetSlashPpm(), BUDGET_SLASH_PPM);
+        assertEq(BudgetTreasury(budgetTreasury).premiumEscrow(), premiumEscrow);
+        assertEq(PremiumEscrow(premiumEscrow).budgetTreasury(), budgetTreasury);
+        assertEq(PremiumEscrow(premiumEscrow).budgetStakeLedger(), address(budgetStakeLedger));
+        assertEq(PremiumEscrow(premiumEscrow).goalFlow(), address(goalFlow));
+        assertEq(PremiumEscrow(premiumEscrow).underwriterSlasherRouter(), address(underwriterSlasherRouter));
+        assertEq(PremiumEscrow(premiumEscrow).budgetSlashPpm(), BUDGET_SLASH_PPM);
 
-        BudgetFlowRouterStrategy strategy = BudgetFlowRouterStrategy(prepared.strategy);
+        BudgetFlowRouterStrategy budgetStrategy = BudgetFlowRouterStrategy(strategy);
         address allocator = makeAddr("allocator");
         uint256 allocatorKey = uint256(uint160(allocator));
 
         // No registered child flow for strategy context yet.
-        assertEq(strategy.currentWeight(allocatorKey), 0);
-        assertEq(strategy.accountAllocationWeight(allocator), 0);
-        assertFalse(strategy.canAllocate(allocatorKey, allocator));
-        assertFalse(strategy.canAccountAllocate(allocator));
+        (address unresolvedBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus unresolvedStatus) =
+            budgetStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(unresolvedBudgetTreasury, address(0));
+        assertEq(uint8(unresolvedStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.FlowNotRegistered));
+        assertEq(budgetStrategy.currentWeight(address(childFlow), allocatorKey), 0);
+        assertEq(budgetStrategy.accountAllocationWeight(address(childFlow), allocator), 0);
+        assertFalse(budgetStrategy.canAllocate(address(childFlow), allocatorKey, allocator));
+        assertFalse(budgetStrategy.canAccountAllocate(address(childFlow), allocator));
 
-        strategy.registerFlowRecipient(address(childFlow), recipientId);
+        budgetStrategy.registerFlowRecipient(address(childFlow), recipientId);
         budgetStakeLedger.setBudget(recipientId, budgetTreasury);
         budgetStakeLedger.setAllocatedStake(allocator, budgetTreasury, 42e18);
 
-        assertEq(strategy.currentWeightForFlow(address(childFlow), allocatorKey), 42e18);
-        assertEq(strategy.accountAllocationWeightForFlow(address(childFlow), allocator), 42e18);
-        assertTrue(strategy.canAllocateForFlow(address(childFlow), allocatorKey, allocator));
-        assertTrue(strategy.canAccountAllocateForFlow(address(childFlow), allocator));
+        (address resolvedBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus resolvedStatus) =
+            budgetStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(resolvedBudgetTreasury, budgetTreasury);
+        assertEq(uint8(resolvedStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.Active));
+        assertEq(budgetStrategy.currentWeight(address(childFlow), allocatorKey), 42e18);
+        assertEq(budgetStrategy.accountAllocationWeight(address(childFlow), allocator), 42e18);
+        assertTrue(budgetStrategy.canAllocate(address(childFlow), allocatorKey, allocator));
+        assertTrue(budgetStrategy.canAccountAllocate(address(childFlow), allocator));
     }
 
     function test_sharedStrategy_registerFlowRecipient_revertsWhenCallerIsNotRegistrar() public {
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            address(sharedStrategy)
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
         address notRegistrar = makeAddr("not-registrar");
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IBudgetFlowRouterStrategy.ONLY_REGISTRAR.selector, notRegistrar, address(this)
-            )
+            abi.encodeWithSelector(IBudgetFlowRouterStrategy.ONLY_REGISTRAR.selector, notRegistrar, address(this))
         );
         vm.prank(notRegistrar);
         sharedStrategy.registerFlowRecipient(address(childFlow), recipientId);
@@ -352,11 +309,8 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
 
     function test_sharedStrategy_registerFlowRecipient_revertsWhenFlowHasDifferentStrategy() public {
         address otherStrategy = makeAddr("other-strategy");
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            otherStrategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), otherStrategy);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -370,11 +324,8 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     }
 
     function test_sharedStrategy_registerFlowRecipient_revertsWhenAlreadyRegistered() public {
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            address(sharedStrategy)
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
 
         sharedStrategy.registerFlowRecipient(address(childFlow), recipientId);
 
@@ -385,57 +336,42 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     }
 
     function test_deployBudgetTreasury_revertsWhenBudgetTreasuryIsNonContractAddress() public {
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            address(sharedStrategy)
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY.selector, address(0xCAFE))
-        );
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_TREASURY.selector, address(0xCAFE)));
         _deployBudgetTreasury(
-            budgetTCR, address(0xCAFE), address(premiumEscrowImplementation), address(childFlow), _defaultListing(), budgetTCR
+            budgetTCR,
+            address(0xCAFE),
+            address(premiumEscrowImplementation),
+            address(childFlow),
+            _defaultListing(),
+            budgetTCR
         );
     }
 
     function test_deployBudgetTreasury_revertsWhenBudgetTreasuryIsZeroAddress() public {
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            address(sharedStrategy)
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
         _deployBudgetTreasury(
-            budgetTCR, address(0), address(premiumEscrowImplementation), address(childFlow), _defaultListing(), budgetTCR
+            budgetTCR,
+            address(0),
+            address(premiumEscrowImplementation),
+            address(childFlow),
+            _defaultListing(),
+            budgetTCR
         );
     }
 
     function test_deployBudgetTreasury_revertsWhenBudgetTreasuryHasInvalidConfiguration() public {
         BudgetTCRStackDeploymentLibPermissiveFallbackTreasury invalidTreasury =
             new BudgetTCRStackDeploymentLibPermissiveFallbackTreasury();
+        address premiumEscrow = Clones.clone(address(premiumEscrowImplementation));
 
-        BudgetTCRStackDeploymentLib.PreparationResult memory prepared = harness.prepareBudgetStack(
-            address(invalidTreasury),
-            address(premiumEscrowImplementation),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
-        );
-
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            prepared.strategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -443,51 +379,34 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
             )
         );
         _deployBudgetTreasury(
-            budgetTCR,
-            address(invalidTreasury),
-            prepared.premiumEscrow,
-            address(childFlow),
-            _defaultListing(),
-            budgetTCR
+            budgetTCR, address(invalidTreasury), premiumEscrow, address(childFlow), _defaultListing(), budgetTCR
         );
     }
 
     function test_deployBudgetTreasury_revertsWhenTreasuryCloneAlreadyInitialized() public {
         address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
         address premiumEscrow = Clones.clone(address(premiumEscrowImplementation));
-        BudgetTCRStackDeploymentLib.PreparationResult memory prepared = harness.prepareBudgetStack(
-            treasuryAnchor,
-            premiumEscrow,
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
-        );
 
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            budgetTCR,
-            address(goalToken),
-            prepared.strategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
         childFlow.setFlowOperator(treasuryAnchor);
         childFlow.setSweeper(treasuryAnchor);
         IBudgetTCR.BudgetListing memory listing = _defaultListing();
-        _deployBudgetTreasury(budgetTCR, treasuryAnchor, prepared.premiumEscrow, address(childFlow), listing, budgetTCR);
+        _deployBudgetTreasury(budgetTCR, treasuryAnchor, premiumEscrow, address(childFlow), listing, budgetTCR);
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        _deployBudgetTreasury(budgetTCR, treasuryAnchor, prepared.premiumEscrow, address(childFlow), listing, budgetTCR);
+        _deployBudgetTreasury(budgetTCR, treasuryAnchor, premiumEscrow, address(childFlow), listing, budgetTCR);
     }
 
     function test_deployBudgetTreasury_revertsOnZeroCriticalAddresses() public {
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
         _deployBudgetTreasury(
-            address(0), makeAddr("treasury"), address(premiumEscrowImplementation), makeAddr("flow"), _defaultListing(), budgetTCR
+            address(0),
+            makeAddr("treasury"),
+            address(premiumEscrowImplementation),
+            makeAddr("flow"),
+            _defaultListing(),
+            budgetTCR
         );
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
@@ -497,7 +416,12 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
         _deployBudgetTreasury(
-            budgetTCR, makeAddr("treasury"), address(premiumEscrowImplementation), address(0), _defaultListing(), budgetTCR
+            budgetTCR,
+            makeAddr("treasury"),
+            address(premiumEscrowImplementation),
+            address(0),
+            _defaultListing(),
+            budgetTCR
         );
 
         vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
@@ -508,60 +432,6 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
             makeAddr("flow"),
             _defaultListing(),
             address(0)
-        );
-    }
-
-    function test_prepareBudgetStack_revertsOnZeroCriticalAddresses() public {
-        vm.expectRevert(BudgetTCRStackDeploymentLib.ADDRESS_ZERO.selector);
-        harness.prepareBudgetStack(
-            address(0),
-            address(premiumEscrowImplementation),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
-        );
-
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_PREMIUM_ESCROW.selector, address(0xCAFE))
-        );
-        harness.prepareBudgetStack(
-            makeAddr("predicted"),
-            address(0xCAFE),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(sharedStrategy),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
-        );
-
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRStackDeploymentLib.INVALID_STRATEGY.selector, address(0))
-        );
-        harness.prepareBudgetStack(
-            makeAddr("predicted"),
-            address(premiumEscrowImplementation),
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(0),
-            address(budgetStakeLedger),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            BUDGET_SLASH_PPM
         );
     }
 
@@ -603,8 +473,7 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleSpecHash: keccak256("oracle-spec"),
-            assertionPolicyHash: keccak256("oracle-policy")
+            oracleSpecHash: keccak256("oracle-spec"), assertionPolicyHash: keccak256("oracle-policy")
         });
     }
 }
@@ -612,7 +481,6 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
 contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     BudgetTCRDeployer internal deployer;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
-    BudgetTCRStackDeploymentLibMockToken internal cobuildToken;
     BudgetTCRStackDeploymentLibMockBudgetStakeLedger internal budgetStakeLedgerA;
     BudgetTCRStackDeploymentLibMockBudgetStakeLedger internal budgetStakeLedgerB;
     PremiumEscrow internal premiumEscrowImplementation;
@@ -626,7 +494,6 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         deployer.initialize(address(this), address(premiumEscrowImplementation), address(0));
 
         goalToken = new BudgetTCRStackDeploymentLibMockToken("Goal", "GOAL");
-        cobuildToken = new BudgetTCRStackDeploymentLibMockToken("Cobuild", "COB");
         budgetStakeLedgerA = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
         budgetStakeLedgerB = new BudgetTCRStackDeploymentLibMockBudgetStakeLedger();
         goalFlow = new BudgetTCRStackDeploymentLibMockGoalFlow(address(goalToken));
@@ -760,12 +627,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         address roundFactory = makeAddr("round-factory");
 
         vm.prank(budgetTcr);
-        deployerWithEmitter.emitBudgetAllocationMechanismDeployed(
-            itemID,
-            mechanism,
-            mechanismArbitrator,
-            roundFactory
-        );
+        deployerWithEmitter.emitBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
 
         assertEq(discoveryEmitter.lastMechanismItemId(), itemID);
         assertEq(discoveryEmitter.lastMechanism(), mechanism);
@@ -789,22 +651,11 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_registerChildFlowRecipient_registersRecipientAndRejectsDuplicateFlow() public {
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            address(this),
-            address(goalToken),
-            prepared.strategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(address(this), address(goalToken), prepared.strategy);
 
         bytes32 recipientId = bytes32(uint256(77));
         deployer.registerChildFlowRecipient(recipientId, address(childFlow));
@@ -822,23 +673,12 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_registerChildFlowRecipient_revertsWhenChildFlowUsesDifferentStrategy() public {
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         address otherStrategy = makeAddr("other-strategy");
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
-            address(this),
-            address(goalToken),
-            otherStrategy
-        );
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(address(this), address(goalToken), otherStrategy);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -853,15 +693,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_registerChildFlowRecipient_revertsWhenChildFlowHasZeroStrategies() public {
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         BudgetTCRStackDeploymentLibNoStrategyChildFlow childFlow = new BudgetTCRStackDeploymentLibNoStrategyChildFlow();
@@ -879,15 +711,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_prepareBudgetStack_reusesSharedStrategyAndRejectsLedgerMismatch() public {
         IBudgetTCRStackDeployer.PreparationResult memory firstPreparation = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         assertTrue(firstPreparation.budgetTreasury != address(0));
@@ -895,15 +719,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(budgetStakeLedgerA));
 
         IBudgetTCRStackDeployer.PreparationResult memory secondPreparation = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         assertEq(secondPreparation.strategy, firstPreparation.strategy);
@@ -916,30 +732,12 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
                 address(budgetStakeLedgerB)
             )
         );
-        deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerB),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
-        );
+        deployer.prepareBudgetStack(address(budgetStakeLedgerB), address(goalFlow), address(underwriterSlasherRouter));
     }
 
     function test_prepareBudgetStack_initializesClonedStrategyAndLocksStrategyInitializer() public {
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(budgetStakeLedgerA),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
+            address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         BudgetFlowRouterStrategy strategy = BudgetFlowRouterStrategy(prepared.strategy);
@@ -952,18 +750,24 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     }
 
     function test_prepareBudgetStack_revertsWhenBudgetStakeLedgerIsZeroWithoutMutatingSharedState() public {
-        vm.expectRevert();
-        deployer.prepareBudgetStack(
-            IERC20(address(goalToken)),
-            IERC20(address(cobuildToken)),
-            IJBRulesets(address(0x1234)),
-            1,
-            18,
-            address(0),
-            address(goalFlow),
-            address(underwriterSlasherRouter),
-            50_000
-        );
+        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
+        deployer.prepareBudgetStack(address(0), address(goalFlow), address(underwriterSlasherRouter));
+
+        assertEq(deployer.sharedBudgetFlowStrategy(), address(0));
+        assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(0));
+    }
+
+    function test_prepareBudgetStack_revertsWhenGoalFlowIsZeroWithoutMutatingSharedState() public {
+        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
+        deployer.prepareBudgetStack(address(budgetStakeLedgerA), address(0), address(underwriterSlasherRouter));
+
+        assertEq(deployer.sharedBudgetFlowStrategy(), address(0));
+        assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(0));
+    }
+
+    function test_prepareBudgetStack_revertsWhenUnderwriterSlasherRouterIsZeroWithoutMutatingSharedState() public {
+        vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
+        deployer.prepareBudgetStack(address(budgetStakeLedgerA), address(goalFlow), address(0));
 
         assertEq(deployer.sharedBudgetFlowStrategy(), address(0));
         assertEq(deployer.sharedBudgetFlowStrategyLedger(), address(0));
@@ -971,8 +775,16 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationIsZero() public {
         address budgetTreasuryImplementation = address(new BudgetTreasury());
-        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
-        address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
+        address allocationMechanismTcrImplementation =
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
 
         vm.expectRevert(IBudgetTCRStackDeployer.ADDRESS_ZERO.selector);
@@ -988,8 +800,16 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
     function test_constructor_revertsWhenBudgetFlowRouterStrategyImplementationHasNoCode() public {
         address budgetTreasuryImplementation = address(new BudgetTreasury());
-        address roundFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
-        address allocationMechanismTcrImplementation = address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
+        address allocationMechanismTcrImplementation =
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow())));
         address allocationMechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
         address noCode = makeAddr("no-code");
 

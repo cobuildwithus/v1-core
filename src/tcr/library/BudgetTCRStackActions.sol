@@ -58,15 +58,9 @@ library BudgetTCRStackActions {
         IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(budgetStore.stackDeployer());
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            budgetStore.goalToken(),
-            budgetStore.cobuildToken(),
-            budgetStore.goalRulesets(),
-            budgetStore.goalRevnetId(),
-            budgetStore.paymentTokenDecimals(),
             budgetStakeLedger,
             address(goalFlow),
-            budgetStore.underwriterSlasherRouter(),
-            budgetStore.budgetSlashPpm()
+            budgetStore.underwriterSlasherRouter()
         );
 
         address budgetTreasury = prepared.budgetTreasury;

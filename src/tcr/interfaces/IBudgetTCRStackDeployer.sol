@@ -2,8 +2,6 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTCR } from "./IBudgetTCR.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 interface IBudgetTCRStackDeployer {
     struct PreparationResult {
@@ -16,15 +14,9 @@ interface IBudgetTCRStackDeployer {
     error ONLY_BUDGET_TCR();
 
     function prepareBudgetStack(
-        IERC20 goalToken,
-        IERC20 cobuildToken,
-        IJBRulesets goalRulesets,
-        uint256 goalRevnetId,
-        uint8 paymentTokenDecimals,
         address budgetStakeLedger,
         address goalFlow,
-        address underwriterSlasherRouter,
-        uint32 budgetSlashPpm
+        address underwriterSlasherRouter
     ) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(

@@ -6,8 +6,6 @@ import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import { IBudgetTCRFactoryDiscoveryEmitter } from "./interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
@@ -80,16 +78,14 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function prepareBudgetStack(
-        IERC20 goalToken,
-        IERC20 cobuildToken,
-        IJBRulesets goalRulesets,
-        uint256 goalRevnetId,
-        uint8 paymentTokenDecimals,
         address budgetStakeLedger,
         address goalFlow,
-        address underwriterSlasherRouter,
-        uint32 budgetSlashPpm
+        address underwriterSlasherRouter
     ) external onlyBudgetTCR returns (PreparationResult memory result) {
+        if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
+        if (goalFlow == address(0)) revert ADDRESS_ZERO();
+        if (underwriterSlasherRouter == address(0)) revert ADDRESS_ZERO();
+
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) {
             strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
@@ -104,25 +100,10 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
 
         address treasuryAnchor = Clones.clone(budgetTreasuryImplementation);
         address premiumEscrow = Clones.clone(premiumEscrowImplementation);
-        BudgetTCRStackDeploymentLib.PreparationResult memory prepared = BudgetTCRStackDeploymentLib.prepareBudgetStack(
-            treasuryAnchor,
-            premiumEscrow,
-            goalToken,
-            cobuildToken,
-            goalRulesets,
-            goalRevnetId,
-            paymentTokenDecimals,
-            strategy,
-            budgetStakeLedger,
-            goalFlow,
-            underwriterSlasherRouter,
-            budgetSlashPpm
-        );
-
         result = PreparationResult({
-            strategy: prepared.strategy,
+            strategy: strategy,
             budgetTreasury: treasuryAnchor,
-            premiumEscrow: prepared.premiumEscrow
+            premiumEscrow: premiumEscrow
         });
     }
 
