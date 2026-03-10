@@ -4,13 +4,14 @@ pragma solidity ^0.8.34;
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 
 import {
+    ConcreteGeneralizedTCRSubmissionDepositsBase,
     GasGriefSubmissionDepositStrategy,
-    GeneralizedTCRSubmissionDepositsBase,
     MockGeneralizedTCRHookMutatesManager
 } from "test/GeneralizedTCRSubmissionDeposits.t.sol";
 import {MockFeeOnTransferVotesToken} from "test/mocks/MockFeeOnTransferVotesToken.sol";
@@ -18,12 +19,12 @@ import {MockGeneralizedTCR} from "test/mocks/MockGeneralizedTCR.sol";
 import {MockSubmissionDepositStrategy} from "test/mocks/MockSubmissionDepositStrategy.sol";
 import {MockVotesArbitrator} from "test/mocks/MockVotesArbitrator.sol";
 
-contract GeneralizedTCRSubmissionDepositsHardeningTest is GeneralizedTCRSubmissionDepositsBase {
+contract GeneralizedTCRSubmissionDepositsHardeningTest is ConcreteGeneralizedTCRSubmissionDepositsBase {
     function test_executeRequest_with_gas_grief_strategy_reverts_fail_closed() public {
         GasGriefSubmissionDepositStrategy strategy = new GasGriefSubmissionDepositStrategy(token);
-        (MockGeneralizedTCR tcr,) = _deployTCRWithStrategy(strategy);
+        (CommunityGoalRegistry tcr,) = _deployConcreteTCRWithStrategy(strategy);
 
-        bytes32 itemID = _addItem(tcr, requester, abi.encodePacked("item"));
+        bytes32 itemID = _addItem(tcr, requester, _defaultCommunityGoalItem());
         _warpRoll(block.timestamp + challengePeriodDuration + 1);
 
         vm.expectRevert();
@@ -41,7 +42,9 @@ contract GeneralizedTCRSubmissionDepositsHardeningTest is GeneralizedTCRSubmissi
         address arbProxyAddr = vm.computeCreateAddress(address(this), nonce);
         address tcrProxyAddr = vm.computeCreateAddress(address(this), nonce + 1);
 
-        bytes memory arbInit = _defaultArbitratorInitData(owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost);
+        bytes memory arbInit = _defaultArbitratorInitData(
+            owner, address(token), tcrProxyAddr, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
         ERC20VotesArbitrator arb = ERC20VotesArbitrator(_deployProxy(address(arbImpl), arbInit));
         assertEq(address(arb), arbProxyAddr);
 
@@ -63,9 +66,8 @@ contract GeneralizedTCRSubmissionDepositsHardeningTest is GeneralizedTCRSubmissi
                 strategy
             )
         );
-        MockGeneralizedTCRHookMutatesManager tcr = MockGeneralizedTCRHookMutatesManager(
-            _deployProxy(address(tcrImpl), tcrInit)
-        );
+        MockGeneralizedTCRHookMutatesManager tcr =
+            MockGeneralizedTCRHookMutatesManager(_deployProxy(address(tcrImpl), tcrInit));
         assertEq(address(tcr), tcrProxyAddr);
 
         bytes32 itemID = _addItem(tcr, requester, abi.encodePacked("item"));
