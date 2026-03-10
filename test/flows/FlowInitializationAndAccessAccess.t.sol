@@ -15,7 +15,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
         flow.addRecipient(id, other, recipientMetadata);
 
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
         flow.addFlowRecipient(
             bytes32(uint256(2)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
@@ -64,7 +64,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
     }
 
     function test_initCaller_notRecipientAdmin_cannotCall_recipientAdminOnly_functions() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address distinctManager = address(0xBEEF);
         CustomFlow ownerSeparatedFlow = _deployFlowWith(
             owner,
@@ -130,7 +130,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
     }
 
     function test_roleSeparatedInit_flowRateOps_requireFlowOperatorOrParent() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address parentFlow = makeAddr("parentFlow");
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
@@ -158,7 +158,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
     }
 
     function test_removedFlowRateMutationSelectors_notExposed_evenForOperatorOrParent() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address parentFlow = makeAddr("parentFlow");
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
@@ -186,7 +186,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
     }
 
     function test_sweep_requiresConfiguredSweeper_evenWhenParentIsSet() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address parentFlow = makeAddr("parentFlow");
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
@@ -200,7 +200,7 @@ contract FlowInitializationAndAccessAccessTest is FlowInitializationAndAccessBas
     }
 
     function test_sweep_onlyConfiguredSweeper_canTransferBalance() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address operator = makeAddr("operator");
         address sweeper = makeAddr("sweeper");
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(

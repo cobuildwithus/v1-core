@@ -637,16 +637,14 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
         address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
         address allocationMechanismArbitrator = address(AllocationMechanismTCR(allocationMechanism).arbitrator());
-        IAllocationStrategy[] memory childStrategies = IFlow(childFlow).strategies();
-
-        assertEq(childStrategies.length, 1);
+        IAllocationStrategy childStrategy = IFlow(childFlow).strategy();
 
         IBudgetStackTopologyReader.BudgetStackTopology memory expectedTopology =
             IBudgetStackTopologyReader.BudgetStackTopology({
                 childFlow: childFlow,
                 budgetTreasury: budgetTreasury,
                 premiumEscrow: premiumEscrow,
-                strategy: address(childStrategies[0]),
+                strategy: address(childStrategy),
                 allocationMechanism: allocationMechanism,
                 allocationMechanismArbitrator: allocationMechanismArbitrator
             });
@@ -692,8 +690,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         address premiumEscrow = IBudgetTreasury(budgetTreasury).premiumEscrow();
         address allocationMechanism = MockBudgetChildFlow(childFlow).recipientAdmin();
         address allocationMechanismArbitrator = address(AllocationMechanismTCR(allocationMechanism).arbitrator());
-        IAllocationStrategy[] memory childStrategies = IFlow(childFlow).strategies();
-        address childStrategy = address(childStrategies[0]);
+        address childStrategy = address(IFlow(childFlow).strategy());
 
         _queueRemovalRequest(itemID);
         budgetTcr.executeRequest(itemID);
@@ -891,12 +888,10 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         (address childFlowA,) = goalFlow.recipients(itemA);
         (address childFlowB,) = goalFlow.recipients(itemB);
 
-        IAllocationStrategy[] memory strategiesA = IFlow(childFlowA).strategies();
-        IAllocationStrategy[] memory strategiesB = IFlow(childFlowB).strategies();
-        assertEq(strategiesA.length, 1);
-        assertEq(strategiesB.length, 1);
-        assertEq(address(strategiesA[0]), address(strategiesB[0]));
-        assertEq(address(strategiesA[0]), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
+        IAllocationStrategy strategyA = IFlow(childFlowA).strategy();
+        IAllocationStrategy strategyB = IFlow(childFlowB).strategy();
+        assertEq(address(strategyA), address(strategyB));
+        assertEq(address(strategyA), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
     }
 
     function test_activateRegisteredBudget_deploysDistinctMechanismAndArbitratorPerBudget() public {
@@ -2510,8 +2505,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         CustomFlow goalFlowImplementation = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImplementation), "");
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         FlowTypes.RecipientMetadata memory flowMetadata = FlowTypes.RecipientMetadata({
             title: "Goal Flow",

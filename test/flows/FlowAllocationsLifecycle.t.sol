@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
-import {IFlow} from "src/interfaces/IFlow.sol";
+import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -18,13 +18,12 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
     function test_syncAllocation_removedFlowRecipientInCommit_skipsChildFlowSyncLoop() public {
         bytes32 childId = bytes32(uint256(5001));
-        IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
-        childStrategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy childStrategy = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
             childId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
-            childStrategies
+            childStrategy
         );
 
         bytes32[] memory ids = new bytes32[](1);
@@ -42,7 +41,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         strategy.setWeight(key, reducedWeight);
 
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         assertEq(flow.getChildFlows().length, 0);
         assertEq(flow.distributionPool().getUnits(childAddr), 0);
@@ -202,7 +201,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         strategy.setWeight(key, reducedWeight);
 
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         assertEq(flow.distributionPool().getUnits(r1), 0);
         assertEq(flow.distributionPool().getUnits(r2), _units(reducedWeight, scaled[1]));
@@ -220,7 +219,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
             address(strategy), abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key), uint64(1)
         );
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         assertEq(_allocWeightPlusOne(key), reducedWeight + 1);
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
@@ -231,13 +230,12 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         bytes32 childId = bytes32(uint256(7001));
         bytes32 recipientId = bytes32(uint256(7002));
 
-        IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
-        childStrategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy childStrategy = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
             childId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
-            childStrategies
+            childStrategy
         );
 
         _addRecipient(recipientId, address(0xBEEF7));
@@ -264,7 +262,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.targetOutflowRate(), parentTargetBefore);
@@ -280,18 +278,17 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         bytes32 childBId = bytes32(uint256(7102));
         bytes32 recipientId = bytes32(uint256(7103));
 
-        IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
-        childStrategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy childStrategy = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAAddr) = flow.addFlowRecipient(
             childAId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
-            childStrategies
+            childStrategy
         );
         vm.prank(manager);
         (, address childBAddr) = flow.addFlowRecipient(
             childBId, recipientMetadata, manager, manager, manager, managerRewardPool, 0,
-            childStrategies
+            childStrategy
         );
 
         _addRecipient(recipientId, address(0xBEEF8));
@@ -322,7 +319,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         strategy.setWeight(key, 2_000e15);
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         int96 desiredA2 = flow.getMemberFlowRate(childAAddr);
         int96 desiredB2 = flow.getMemberFlowRate(childBAddr);
@@ -334,7 +331,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         strategy.setWeight(key, 500e15);
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         int96 desiredA3 = flow.getMemberFlowRate(childAAddr);
         int96 desiredB3 = flow.getMemberFlowRate(childBAddr);
@@ -395,7 +392,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         vm.expectRevert(CustomFlow.STALE_CLEAR_NO_COMMITMENT.selector);
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
     }
 
     function test_clearStaleAllocation_noCommit_withStoredSnapshot_revertsStaleClearNoCommitment() public {
@@ -407,16 +404,15 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         vm.expectRevert(CustomFlow.STALE_CLEAR_NO_COMMITMENT.selector);
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), key);
+        flow.clearStaleAllocation(key);
     }
 
-    function test_syncAllocation_revertsWhenStrategyNotDefault() public {
+    function test_syncAllocation_usesConfiguredDefaultStrategy() public {
         uint256 key = 92;
         (bytes32[] memory ids, uint32[] memory scaled, address recipient) = _setupSingleRecipientAllocation(key);
 
-        vm.expectRevert(abi.encodeWithSelector(IFlow.ONLY_DEFAULT_STRATEGY_ALLOWED.selector, address(0xBEEF)));
         vm.prank(other);
-        flow.syncAllocation(address(0xBEEF), key);
+        flow.syncAllocation(key);
 
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
         assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
@@ -446,20 +442,43 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         strategy.setWeight(key, 0);
 
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), key);
+        flow.clearStaleAllocation(key);
 
         assertEq(flow.distributionPool().getUnits(r1), 0);
         assertEq(flow.distributionPool().getUnits(r2), uint128(0));
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
     }
 
-    function test_clearStaleAllocation_revertsWhenStrategyNotDefault() public {
+    function test_clearStaleAllocation_usesConfiguredDefaultStrategy() public {
         uint256 key = 93;
         (bytes32[] memory ids, uint32[] memory scaled, address recipient) = _setupSingleRecipientAllocation(key);
+        strategy.setWeight(key, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IFlow.ONLY_DEFAULT_STRATEGY_ALLOWED.selector, address(0xBEEF)));
         vm.prank(other);
-        flow.clearStaleAllocation(address(0xBEEF), key);
+        flow.clearStaleAllocation(key);
+
+        assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
+        assertEq(flow.distributionPool().getUnits(recipient), 0);
+    }
+
+    function test_removedLegacyStrategyMaintenanceSelectors_notExposed_andCannotMutateState() public {
+        uint256 key = 97;
+        (bytes32[] memory ids, uint32[] memory scaled, address recipient) = _setupSingleRecipientAllocation(key);
+
+        _assertCallFails(address(flow), abi.encodeWithSignature("syncAllocation(address,uint256)", address(strategy), key));
+        _assertCallFails(
+            address(flow), abi.encodeWithSignature("clearStaleAllocation(address,uint256)", address(strategy), key)
+        );
+        _assertCallFails(
+            address(flow),
+            abi.encodeWithSignature(
+                "previewChildSyncRequirements(address,uint256,bytes32[],uint32[])",
+                address(strategy),
+                key,
+                ids,
+                scaled
+            )
+        );
 
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
         assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
@@ -478,7 +497,7 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
 
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
         assertEq(_allocWeightPlusOne(key), 0);
@@ -497,14 +516,14 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), key);
+        flow.clearStaleAllocation(key);
 
         assertEq(flow.getAllocationCommitment(address(strategy), key), keccak256(abi.encode(ids, scaled)));
         assertEq(_allocWeightPlusOne(key), 0);
         assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
     }
 
-    function test_previewChildSyncRequirements_revertsWhenStrategyNotDefault() public {
+    function test_previewChildSyncRequirements_usesConfiguredDefaultStrategy() public {
         bytes32 id = bytes32(uint256(1));
         _addRecipient(id, address(0x111));
 
@@ -513,8 +532,8 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         uint32[] memory scaled = new uint32[](1);
         scaled[0] = 1_000_000;
 
-        vm.expectRevert(abi.encodeWithSelector(IFlow.ONLY_DEFAULT_STRATEGY_ALLOWED.selector, address(0xBEEF)));
-        flow.previewChildSyncRequirements(address(0xBEEF), 0, ids, scaled);
+        ICustomFlow.ChildSyncRequirement[] memory reqs = flow.previewChildSyncRequirements(0, ids, scaled);
+        assertEq(reqs.length, 0);
     }
 
     function _setupSingleRecipientAllocation(uint256 key)

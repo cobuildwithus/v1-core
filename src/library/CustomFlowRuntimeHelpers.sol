@@ -10,10 +10,8 @@ library CustomFlowRuntimeHelpers {
     function defaultStrategyOrRevert(
         FlowTypes.AllocationState storage alloc
     ) external view returns (IAllocationStrategy strategy) {
-        IAllocationStrategy[] storage strategies = alloc.strategies;
-        uint256 strategyCount = strategies.length;
-        if (strategyCount != 1) revert IFlow.FLOW_REQUIRES_SINGLE_STRATEGY(strategyCount);
-        strategy = strategies[0];
+        strategy = alloc.strategy;
+        if (address(strategy) == address(0)) revert IFlow.ADDRESS_ZERO();
     }
 
     function copyBytes32Calldata(bytes32[] calldata source) external pure returns (bytes32[] memory copied) {

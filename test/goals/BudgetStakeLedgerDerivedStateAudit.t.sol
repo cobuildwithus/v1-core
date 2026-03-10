@@ -202,9 +202,8 @@ contract BudgetStakeLedgerDerivedStateBudgetFlow {
         _strategy = strategy_;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
-        strategies_ = new IAllocationStrategy[](1);
-        strategies_[0] = IAllocationStrategy(_strategy);
+    function strategy() external view returns (IAllocationStrategy) {
+        return IAllocationStrategy(_strategy);
     }
 }
 

@@ -54,9 +54,6 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
 
         TeamFlow teamFlow = TeamFlow(teamFlowImplementation.clone());
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(teamFlow));
-
         teamFlow.initialize(
             TeamFlow.InitConfig({
                 mechanismId: mechanismId,
@@ -67,7 +64,7 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
                 maxTotalRate: cfg.maxTotalRate,
                 metadata: cfg.flowMetadata
             }),
-            strategies
+            IAllocationStrategy(address(teamFlow))
         );
 
         out = IAllocationMechanismFactory.DeployedMechanism({

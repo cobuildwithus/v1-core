@@ -78,8 +78,8 @@ interface FlowTypes {
     }
 
     struct AllocationState {
-        // The allocation strategies
-        IAllocationStrategy[] strategies;
+        // The single allocation strategy configured for this flow.
+        IAllocationStrategy strategy;
         /**
          * @notice Commitment of the last allocation for (strategy, allocationKey).
          * @dev commit = keccak256(abi.encode(canonical(recipientIds[], allocationsPpm[])))

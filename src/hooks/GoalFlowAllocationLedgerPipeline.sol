@@ -158,12 +158,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
             revert CHILD_SYNC_DEBT_REPAIR_FAILED(account, budgetTreasury, abi.encode(skipReason));
         }
 
-        try
-            ICustomFlow(action.target.childFlow).syncAllocation(
-                action.target.childStrategy,
-                action.target.allocationKey
-            )
-        {
+        try ICustomFlow(action.target.childFlow).syncAllocation(action.target.allocationKey) {
             _clearChildSyncDebt(account, budgetTreasury, action.target.childFlow, _CHILD_SYNC_DEBT_REASON_REPAIRED);
             return true;
         } catch (bytes memory reason) {
@@ -236,14 +231,15 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         uint256 allocationKey,
         uint256 committedWeight
     ) private returns (address account, uint256 resolvedWeight, bool shouldCheckpoint) {
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
+        GoalFlowLedgerMode.ValidationCache storage cache = _validationCacheByFlow[flow];
+        IAllocationStrategy configuredStrategy;
+        if (cache.validatedLedger != ledger) {
+            configuredStrategy = IFlow(flow).strategy();
+        }
 
         account = _accountForAllocationKey(strategy, allocationKey);
         (resolvedWeight, shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextFromCommittedWeight(
-            strategies,
+            configuredStrategy,
             cache,
             ledger,
             committedWeight,
@@ -333,14 +329,15 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         address ledger = allocationLedger;
         if (ledger == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
 
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
+        GoalFlowLedgerMode.ValidationCache storage cache = _validationCacheByFlow[flow];
+        IAllocationStrategy configuredStrategy;
+        if (cache.validatedLedger != ledger) {
+            configuredStrategy = IFlow(flow).strategy();
+        }
 
         address account = _accountForAllocationKey(strategy, allocationKey);
         (uint256 resolvedWeight, bool shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextView(
-            strategies,
+            configuredStrategy,
             cache,
             ledger,
             account,
@@ -366,22 +363,12 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         address ledger = allocationLedger;
         if (ledger == address(0)) return;
 
-        (
-            GoalFlowLedgerMode.ValidationCache storage cache,
-            IAllocationStrategy[] memory strategies
-        ) = _cacheWithStrategies(flow, ledger);
-        GoalFlowLedgerMode.validateForInitializeOrRevertView(strategies, cache, ledger, flow);
-    }
-
-    function _cacheWithStrategies(
-        address flow,
-        address ledger
-    ) private view returns (GoalFlowLedgerMode.ValidationCache storage cache, IAllocationStrategy[] memory strategies) {
-        cache = _validationCacheByFlow[flow];
-        strategies = new IAllocationStrategy[](0);
+        GoalFlowLedgerMode.ValidationCache storage cache = _validationCacheByFlow[flow];
+        IAllocationStrategy configuredStrategy;
         if (cache.validatedLedger != ledger) {
-            strategies = IFlow(flow).strategies();
+            configuredStrategy = IFlow(flow).strategy();
         }
+        GoalFlowLedgerMode.validateForInitializeOrRevertView(configuredStrategy, cache, ledger, flow);
     }
 
     function _accountForAllocationKey(address strategy, uint256 allocationKey) private view returns (address account) {

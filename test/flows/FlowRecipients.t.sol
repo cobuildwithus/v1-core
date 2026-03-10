@@ -36,20 +36,20 @@ contract FlowRecipientsTest is FlowTestBase {
         return false;
     }
 
-    function _addDefaultChildFlowRecipient(bytes32 recipientId, IAllocationStrategy[] memory strategies)
+    function _addDefaultChildFlowRecipient(bytes32 recipientId, IAllocationStrategy strategy_)
         internal
         returns (bytes32, address)
     {
-        return _addDefaultChildFlowRecipientOn(flow, recipientId, strategies);
+        return _addDefaultChildFlowRecipientOn(flow, recipientId, strategy_);
     }
 
     function _addDefaultChildFlowRecipientOn(
         CustomFlow targetFlow,
         bytes32 recipientId,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal returns (bytes32, address) {
         return targetFlow.addFlowRecipient(
-            recipientId, recipientMetadata, manager, manager, manager, managerRewardPool, 0, strategies
+            recipientId, recipientMetadata, manager, manager, manager, managerRewardPool, 0, strategy_
         );
     }
 
@@ -157,8 +157,8 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_removedAddFlowRecipientWithParams_selector_notExposed_andCannotMutateState() public {
         bytes32 recipientId = bytes32(uint256(44));
-        address[] memory strategies = new address[](1);
-        strategies[0] = address(strategy);
+        address[] memory legacyStrategyArray = new address[](1);
+        legacyStrategyArray[0] = address(strategy);
 
         bytes memory legacyCallData = abi.encodeWithSignature(
             "addFlowRecipientWithParams(bytes32,(string,string,string,string,string),address,address,address,address,uint32,address[])",
@@ -169,7 +169,7 @@ contract FlowRecipientsTest is FlowTestBase {
             manager,
             managerRewardPool,
             uint32(250_000),
-            strategies
+            legacyStrategyArray
         );
 
         vm.prank(manager);
@@ -263,8 +263,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_happyPath() public {
         bytes32 rid = bytes32(uint256(11));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = _addDefaultChildFlowRecipient(rid, strategies);
@@ -295,8 +294,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_zeroManagerRewardPool_keepsParentRate_andInitializesChildAtZeroRate() public {
         bytes32 rid = bytes32(uint256(213));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) =
@@ -312,8 +310,7 @@ contract FlowRecipientsTest is FlowTestBase {
     function test_addFlowRecipient_nonZeroManagerRewardPoolFlowRatePpm_forwardsToChild() public {
         bytes32 rid = bytes32(uint256(214));
         uint32 childRewardPpm = 250_000;
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
@@ -328,8 +325,7 @@ contract FlowRecipientsTest is FlowTestBase {
     function test_addFlowRecipient_nonZeroManagerRewardPoolFlowRatePpm_appliesToChildRewardStream() public {
         bytes32 rid = bytes32(uint256(215));
         uint32 childRewardPpm = 250_000;
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = flow.addFlowRecipient(
@@ -350,8 +346,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_emitsRecipientCreatedBeforeFlowRecipientCreated() public {
         bytes32 rid = bytes32(uint256(211));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.recordLogs();
         vm.prank(manager);
@@ -408,8 +403,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_emitsChildFlowDeployed_withExpectedPayload() public {
         bytes32 rid = bytes32(uint256(212));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         address childRecipientAdmin = makeAddr("childRecipientAdminPayload");
         address childFlowOperator = makeAddr("childFlowOperatorPayload");
@@ -460,8 +454,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_forwardsDistinctChildAuthoritiesAndEnforcesAccess() public {
         bytes32 rid = bytes32(uint256(111));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         address childRecipientAdmin = makeAddr("childRecipientAdmin");
         address childFlowOperator = makeAddr("childFlowOperator");
@@ -514,8 +507,7 @@ contract FlowRecipientsTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_withParentPipeline_childPipelineRemainsUnset() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         GoalFlowAllocationLedgerPipeline pipeline = new GoalFlowAllocationLedgerPipeline(address(0));
         CustomFlow parentWithPipeline =
@@ -534,8 +526,7 @@ contract FlowRecipientsTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_revertsForNestedChildren() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = _addDefaultChildFlowRecipient(bytes32(uint256(13)), strategies);
@@ -548,8 +539,7 @@ contract FlowRecipientsTest is FlowTestBase {
 
     function test_addFlowRecipient_deploysEip1167Clone() public {
         bytes32 rid = bytes32(uint256(12));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = _addDefaultChildFlowRecipient(rid, strategies);
@@ -562,8 +552,7 @@ contract FlowRecipientsTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_revertsWhenFlowImplementationHasNoCode() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
         address flowImplWithoutCode = makeAddr("flowImplWithoutCode");
         address flowProxy = address(new ERC1967Proxy(address(flowImplementation), ""));
 
@@ -590,8 +579,7 @@ contract FlowRecipientsTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_revertCases() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(other);
         vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
@@ -639,17 +627,10 @@ contract FlowRecipientsTest is FlowTestBase {
             bytes32(uint256(37)), recipientMetadata, manager, manager, manager, managerRewardPool, 1_000_001, strategies
         );
 
-        IAllocationStrategy[] memory emptyStrategies = new IAllocationStrategy[](0);
+        IAllocationStrategy zeroStrategy = IAllocationStrategy(address(0));
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 0));
-        _addDefaultChildFlowRecipient(bytes32(uint256(31)), emptyStrategies);
-
-        IAllocationStrategy[] memory twoStrategies = new IAllocationStrategy[](2);
-        twoStrategies[0] = IAllocationStrategy(address(strategy));
-        twoStrategies[1] = IAllocationStrategy(address(0xBEEF));
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 2));
-        _addDefaultChildFlowRecipient(bytes32(uint256(32)), twoStrategies);
+        vm.expectRevert(IFlow.ADDRESS_ZERO.selector);
+        _addDefaultChildFlowRecipient(bytes32(uint256(31)), zeroStrategy);
 
         vm.prank(manager);
         _addDefaultChildFlowRecipient(bytes32(uint256(4)), strategies);
@@ -660,8 +641,7 @@ contract FlowRecipientsTest is FlowTestBase {
     }
 
     function test_removeRecipient_childFlow_clearsTracking() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, address childAddr) = _addDefaultChildFlowRecipient(bytes32(uint256(1)), strategies);
@@ -768,18 +748,17 @@ contract FlowRecipientsHarnessOnlyTest is FlowTestBase {
         return true;
     }
 
-    function _addDefaultChildFlowRecipient(bytes32 recipientId, IAllocationStrategy[] memory strategies)
+    function _addDefaultChildFlowRecipient(bytes32 recipientId, IAllocationStrategy strategy_)
         internal
         returns (bytes32, address)
     {
         return flow.addFlowRecipient(
-            recipientId, recipientMetadata, manager, manager, manager, managerRewardPool, 0, strategies
+            recipientId, recipientMetadata, manager, manager, manager, managerRewardPool, 0, strategy_
         );
     }
 
     function test_addFlowRecipient_succeedsPastLegacyMaxChildFlowCount() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         uint256 legacyCap = 170;
         bytes memory childCode = address(new MockChildFlow()).code;
@@ -798,8 +777,7 @@ contract FlowRecipientsHarnessOnlyTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_succeedsAtLegacyMaxMinusOneAndReachesLegacyMax() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         uint256 legacyCap = 170;
         bytes memory childCode = address(new MockChildFlow()).code;

@@ -90,12 +90,12 @@ library GoalFlowLedgerMode {
     }
 
     function validateOrRevert(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         address expectedFlow
     ) internal returns (address goalTreasury, address stakeVault) {
-        LedgerValidationResult memory result = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        LedgerValidationResult memory result = _validatedLedger(strategy, cache, ledger, expectedFlow);
         goalTreasury = result.goalTreasury;
         stakeVault = result.stakeVault;
         if (result.cacheHit) return (goalTreasury, stakeVault);
@@ -106,17 +106,17 @@ library GoalFlowLedgerMode {
     }
 
     function validateOrRevertView(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         address expectedFlow
     ) internal view returns (address goalTreasury, address stakeVault) {
-        LedgerValidationResult memory result = _validatedLedger(strategies, cache, ledger, expectedFlow);
+        LedgerValidationResult memory result = _validatedLedger(strategy, cache, ledger, expectedFlow);
         return (result.goalTreasury, result.stakeVault);
     }
 
     function validateForInitializeOrRevertView(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         address expectedFlow
@@ -132,7 +132,7 @@ library GoalFlowLedgerMode {
         }
 
         stakeVault = result.stakeVault;
-        _verifyBudgetStakeLedgerStrategy(strategies, stakeVault);
+        _verifyBudgetStakeLedgerStrategy(strategy, stakeVault);
     }
 
     function detectBudgetDeltasCalldata(
@@ -160,7 +160,7 @@ library GoalFlowLedgerMode {
     }
 
     function prepareCheckpointContextView(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         address account,
@@ -168,7 +168,7 @@ library GoalFlowLedgerMode {
     ) internal view returns (uint256 newWeight, bool shouldCheckpoint) {
         if (ledger == address(0)) return (0, false);
 
-        (address treasury, address stakeVault) = validateOrRevertView(strategies, cache, ledger, expectedFlow);
+        (address treasury, address stakeVault) = validateOrRevertView(strategy, cache, ledger, expectedFlow);
         if (!_shouldCheckpointWithValidatedContext(ledger, treasury, stakeVault)) return (0, false);
 
         try IStakeVault(stakeVault).weightOf(account) returns (uint256 weight_) {
@@ -181,7 +181,7 @@ library GoalFlowLedgerMode {
     }
 
     function prepareCheckpointContextFromCommittedWeight(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         uint256 committedWeight,
@@ -189,7 +189,7 @@ library GoalFlowLedgerMode {
     ) internal returns (uint256 resolvedWeight, bool shouldCheckpoint) {
         if (ledger == address(0)) return (0, false);
 
-        (address treasury, address stakeVault) = validateOrRevert(strategies, cache, ledger, expectedFlow);
+        (address treasury, address stakeVault) = validateOrRevert(strategy, cache, ledger, expectedFlow);
         if (!_shouldCheckpointWithValidatedContext(ledger, treasury, stakeVault)) return (0, false);
 
         resolvedWeight = committedWeight;
@@ -250,7 +250,6 @@ library GoalFlowLedgerMode {
                     execution.attempted = true;
                     try
                         ICustomFlow(action.target.childFlow).syncAllocation{ gas: childSyncStipend }(
-                            action.target.childStrategy,
                             action.target.allocationKey
                         )
                     {
@@ -321,7 +320,7 @@ library GoalFlowLedgerMode {
     }
 
     function _validatedLedger(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         ValidationCache storage cache,
         address ledger,
         address expectedFlow
@@ -333,7 +332,7 @@ library GoalFlowLedgerMode {
             return result;
         }
 
-        (result.goalTreasury, result.stakeVault) = _validateLedgerWiringAndStrategy(strategies, ledger, expectedFlow);
+        (result.goalTreasury, result.stakeVault) = _validateLedgerWiringAndStrategy(strategy, ledger, expectedFlow);
     }
 
     function _shouldCheckpointWithValidatedContext(
@@ -451,7 +450,7 @@ library GoalFlowLedgerMode {
 
         address childStrategy = topology.strategy;
         if (childStrategy.code.length == 0) return (target, false);
-        if (!_childFlowUsesExpectedSingleStrategy(childFlow, childStrategy)) return (target, false);
+        if (!_childFlowUsesExpectedStrategy(childFlow, childStrategy)) return (target, false);
 
         uint256 allocationKey;
         try IAllocationStrategy(childStrategy).allocationKey(account, bytes("")) returns (uint256 allocationKey_) {
@@ -510,29 +509,28 @@ library GoalFlowLedgerMode {
         ok = topology.budgetTreasury == budgetTreasury;
     }
 
-    function _childFlowUsesExpectedSingleStrategy(
+    function _childFlowUsesExpectedStrategy(
         address childFlow,
         address expectedStrategy
     ) private view returns (bool matches) {
-        IAllocationStrategy[] memory childStrategies;
-        try IFlow(childFlow).strategies() returns (IAllocationStrategy[] memory strategies_) {
-            childStrategies = strategies_;
+        address configuredStrategy;
+        try IFlow(childFlow).strategy() returns (IAllocationStrategy strategy_) {
+            configuredStrategy = address(strategy_);
         } catch {
             return false;
         }
-        if (childStrategies.length != 1) return false;
-        return address(childStrategies[0]) == expectedStrategy;
+        return configuredStrategy == expectedStrategy;
     }
 
     function _validateLedgerWiringAndStrategy(
-        IAllocationStrategy[] memory strategies,
+        IAllocationStrategy strategy,
         address ledger,
         address expectedFlow
     ) private view returns (address goalTreasury, address stakeVault) {
         GoalTreasuryWiring memory wiring = _readGoalTreasuryWiring(ledger);
         goalTreasury = wiring.goalTreasury;
         stakeVault = _requireRuntimeStakeVault(wiring, expectedFlow);
-        _verifyBudgetStakeLedgerStrategy(strategies, stakeVault);
+        _verifyBudgetStakeLedgerStrategy(strategy, stakeVault);
     }
 
     function _readGoalTreasuryWiring(address ledgerAddress) private view returns (GoalTreasuryWiring memory wiring) {
@@ -601,36 +599,34 @@ library GoalFlowLedgerMode {
         }
     }
 
-    function _verifyBudgetStakeLedgerStrategy(
-        IAllocationStrategy[] memory strategies,
-        address expectedStakeVault
-    ) private view {
-        uint256 strategyCount = strategies.length;
-        if (strategyCount != 1) revert IFlow.ALLOCATION_LEDGER_REQUIRES_SINGLE_STRATEGY(strategyCount);
+    function _verifyBudgetStakeLedgerStrategy(IAllocationStrategy strategy, address expectedStakeVault) private view {
+        address strategyAddress = address(strategy);
+        if (strategyAddress == address(0) || strategyAddress.code.length == 0) {
+            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategyAddress, expectedStakeVault, address(0));
+        }
 
-        address strategy = address(strategies[0]);
-        IGoalLedgerStrategy strategyReader = IGoalLedgerStrategy(strategy);
+        IGoalLedgerStrategy strategyReader = IGoalLedgerStrategy(strategyAddress);
         address configuredStakeVault;
         try strategyReader.stakeVault() returns (address stakeVault_) {
             configuredStakeVault = stakeVault_;
         } catch {
-            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategy, expectedStakeVault, address(0));
+            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategyAddress, expectedStakeVault, address(0));
         }
 
         if (configuredStakeVault != expectedStakeVault) {
-            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategy, expectedStakeVault, configuredStakeVault);
+            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategyAddress, expectedStakeVault, configuredStakeVault);
         }
 
         try strategyReader.accountForAllocationKey(1) returns (address account_) {
-            if (account_ == address(0)) revert INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER(strategy);
+            if (account_ == address(0)) revert INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER(strategyAddress);
         } catch {
-            revert INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER(strategy);
+            revert INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER(strategyAddress);
         }
 
         try strategyReader.allocationKey(address(1), bytes("")) returns (uint256) {
             // no-op: successful probe confirms empty aux is accepted
         } catch {
-            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategy, expectedStakeVault, configuredStakeVault);
+            revert INVALID_ALLOCATION_LEDGER_STRATEGY(strategyAddress, expectedStakeVault, configuredStakeVault);
         }
     }
 }

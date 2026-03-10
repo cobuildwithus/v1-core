@@ -214,7 +214,7 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.distributionPool().getUnits(recipient), _units(DEFAULT_WEIGHT, scaled[0]));
@@ -263,7 +263,7 @@ contract FlowAllocationsMathEdgeTest is FlowAllocationsBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), key);
+        flow.clearStaleAllocation(key);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.distributionPool().getUnits(recipient), 0);

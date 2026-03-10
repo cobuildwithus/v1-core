@@ -57,8 +57,7 @@ contract FlowRatesTest is FlowTestBase {
     {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
         IFlow.FlowParams memory params = IFlow.FlowParams({managerRewardPoolFlowRatePpm: rewardPpm});
 
         vm.prank(owner);
@@ -333,8 +332,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_withoutAllocations_keepsDistributionZero() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
@@ -355,8 +353,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_forwardsExplicitRolesToChildInitialization() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         address childRecipientAdmin = makeAddr("childRecipientAdmin");
         address childFlowOperator = makeAddr("childFlowOperator");
@@ -395,8 +392,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_withZeroCachedTarget_skipsRefreshAttempt() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         _mockDistributionRefreshFailure(flow, 0, bytes("refresh-should-not-run"));
 
@@ -415,8 +411,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_nonBootstrapTransition_skipsRefreshAttempt() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
@@ -548,8 +543,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_doesNotAttemptOutflowRefresh() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(owner);
         flow.setTargetOutflowRate(1_000);
@@ -575,8 +569,7 @@ contract FlowRatesTest is FlowTestBase {
     }
 
     function test_addFlowRecipient_zeroBootstrap_skipsMemberUnitWrites() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.mockCallRevert(
             address(flow.distributionPool()),
@@ -701,7 +694,7 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.syncAllocation(address(strategy), allocatorKey);
+        flow.syncAllocation(allocatorKey);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertGt(flow.getMemberUnits(recipient), 0);
@@ -731,7 +724,7 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.syncAllocation(address(strategy), allocatorKey);
+        flow.syncAllocation(allocatorKey);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertGt(flow.getMemberUnits(recipient), 0);
@@ -761,7 +754,7 @@ contract FlowRatesTest is FlowTestBase {
 
         vm.recordLogs();
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), allocatorKey);
+        flow.clearStaleAllocation(allocatorKey);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(flow.getMemberUnits(recipient), 0);

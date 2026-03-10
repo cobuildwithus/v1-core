@@ -66,7 +66,43 @@ contract GoalFactoryCoreStackDeployTest is Test {
 
     function test_initializeCoreStack_forwardsGoalSpendPolicyIntoGoalTreasuryConfig() public {
         address goalSpendPolicy = address(0xBEEF);
-        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = GoalFactoryCoreStackDeploy.CoreStackRequest({
+        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(goalSpendPolicy);
+
+        GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+
+        assertEq(goalTreasury.lastSpendPolicy(), goalSpendPolicy);
+    }
+
+    function test_initializeCoreStack_initializesSplitHookWithDirectoryGoalTreasuryAndRevnetId() public {
+        uint256 goalRevnetId = 77;
+        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(address(0xBEEF));
+        request.goalRevnetId = goalRevnetId;
+
+        GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+
+        assertEq(splitHook.initializeCallCount(), 1);
+        assertEq(splitHook.lastDirectory(), address(directory));
+        assertEq(splitHook.lastGoalTreasury(), address(goalTreasury));
+        assertEq(splitHook.lastFlow(), address(goalFlow));
+        assertEq(splitHook.lastSuperToken(), goalFlow.lastSuperToken());
+        assertEq(splitHook.lastGoalRevnetId(), goalRevnetId);
+    }
+
+    function test_initializeCoreStack_forwardsClonedStakeVaultAsGoalFlowStrategy() public {
+        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(address(0xBEEF));
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory out = GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+
+        assertTrue(address(out.stakeVault) != address(0));
+        assertEq(goalFlow.lastStrategy(), address(out.stakeVault));
+    }
+
+    function _baseRequest(address goalSpendPolicy)
+        internal
+        view
+        returns (GoalFactoryCoreStackDeploy.CoreStackRequest memory request)
+    {
+        request = GoalFactoryCoreStackDeploy.CoreStackRequest({
             goalTreasury: GoalTreasury(address(goalTreasury)),
             splitHook: GoalRevnetSplitHook(payable(address(splitHook))),
             goalFlow: CustomFlow(payable(address(goalFlow))),
@@ -103,10 +139,6 @@ contract GoalFactoryCoreStackDeployTest is Test {
             successAssertionPolicyHash: keccak256("policy"),
             goalSpendPolicy: goalSpendPolicy
         });
-
-        GoalFactoryCoreStackDeploy.initializeCoreStack(request);
-
-        assertEq(goalTreasury.lastSpendPolicy(), goalSpendPolicy);
     }
 }
 
@@ -120,22 +152,45 @@ contract MockGoalToken is ERC20 {
 
 contract MockGoalFactoryGoalTreasury {
     address public lastSpendPolicy;
+    address public lastFlow;
+    ISuperToken public lastSuperToken;
 
     function initialize(IGoalTreasury.GoalConfig calldata config) external {
         lastSpendPolicy = config.spendPolicy;
+        lastFlow = config.flow;
+        lastSuperToken = ISuperToken(MockGoalFactoryFlow(config.flow).lastSuperToken());
+    }
+
+    function flow() external view returns (address) {
+        return lastFlow;
+    }
+
+    function superToken() external view returns (ISuperToken) {
+        return lastSuperToken;
     }
 }
 
 contract MockGoalFactorySplitHook {
+    uint256 public initializeCallCount;
+    address public lastDirectory;
     address public lastGoalTreasury;
+    address public lastFlow;
+    address public lastSuperToken;
+    uint256 public lastGoalRevnetId;
 
-    function initialize(IJBDirectory, IGoalTreasury goalTreasury_, IFlow, uint256) external {
+    function initialize(IJBDirectory directory_, IGoalTreasury goalTreasury_, uint256 goalRevnetId_) external {
+        initializeCallCount += 1;
+        lastDirectory = address(directory_);
         lastGoalTreasury = address(goalTreasury_);
+        lastFlow = goalTreasury_.flow();
+        lastSuperToken = address(goalTreasury_.superToken());
+        lastGoalRevnetId = goalRevnetId_;
     }
 }
 
 contract MockGoalFactoryFlow {
     address public lastSuperToken;
+    address public lastStrategy;
 
     function initialize(
         address superToken_,
@@ -148,9 +203,10 @@ contract MockGoalFactoryFlow {
         address,
         IFlow.FlowParams memory,
         FlowTypes.RecipientMetadata memory,
-        IAllocationStrategy[] calldata
+        IAllocationStrategy strategy_
     ) external {
         lastSuperToken = superToken_;
+        lastStrategy = address(strategy_);
     }
 }
 

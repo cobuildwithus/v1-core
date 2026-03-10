@@ -110,9 +110,6 @@ library GoalFactoryCoreStackDeploy {
         );
         out.goalFlowAllocationLedgerPipeline = address(allocationPipeline);
         allocationPipeline.initialize(address(out.budgetStakeLedger));
-        IAllocationStrategy[] memory allocationStrategies = new IAllocationStrategy[](1);
-        allocationStrategies[0] = IAllocationStrategy(address(out.stakeVault));
-
         FlowTypes.RecipientMetadata memory metadata = FlowTypes.RecipientMetadata({
             title: request.flowTitle,
             description: request.flowDescription,
@@ -132,7 +129,7 @@ library GoalFactoryCoreStackDeploy {
             address(0),
             IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
             metadata,
-            allocationStrategies
+            IAllocationStrategy(address(out.stakeVault))
         );
 
         JurorSlasherRouter jurorSlasherRouter = JurorSlasherRouter(Clones.clone(request.jurorSlasherRouterImpl));
@@ -175,7 +172,7 @@ library GoalFactoryCoreStackDeploy {
         });
 
         out.goalTreasury.initialize(goalCfg);
-        out.splitHook.initialize(request.directory, out.goalTreasury, out.goalFlow, request.goalRevnetId);
+        out.splitHook.initialize(request.directory, out.goalTreasury, request.goalRevnetId);
     }
 
     function _createGoalSuperToken(

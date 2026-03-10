@@ -25,7 +25,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
         assertEq(flow.parent(), address(0));
         assertEq(flow.managerRewardPool(), managerRewardPool);
         assertEq(flow.flowImplementation(), address(flowImplementation));
-        assertEq(flow.strategies().length, 1);
+        assertEq(address(flow.strategy()), address(strategy));
         assertEq(FlowProtocolConstants.PPM_SCALE, 1_000_000);
         assertEq(flow.managerRewardPoolFlowRatePpm(), flowParams.managerRewardPoolFlowRatePpm);
         assertEq(address(flow.superToken()), address(superToken));
@@ -39,7 +39,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
     }
 
     function test_initialize_emitsFlowInitialized_withRoleAndStrategySurface() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
 
         vm.recordLogs();
         CustomFlow deployed = _deployFlowWith(
@@ -85,7 +85,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
     }
 
     function test_initialize_emitsMetadataSet() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
 
         vm.recordLogs();
         CustomFlow deployed = _deployFlowWith(
@@ -105,7 +105,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
     }
 
     function test_initialize_revertsOnZeroAddressesAndInvalidMetadata() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
 
         _expectInitRevert(
             abi.encodeWithSelector(IFlow.ADDRESS_ZERO.selector),
@@ -215,38 +215,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
             _oneStrategy()
         );
 
-        IAllocationStrategy[] memory emptyStrategies = new IAllocationStrategy[](0);
-        _expectInitRevert(
-            abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 0),
-            address(superToken),
-            address(flowImplementation),
-            manager,
-            managerRewardPool,
-            address(0),
-            flowParams,
-            flowMetadata,
-            emptyStrategies
-        );
-
-        MockAllocationStrategy strategy2 = new MockAllocationStrategy();
-        IAllocationStrategy[] memory dupStrategies = new IAllocationStrategy[](2);
-        dupStrategies[0] = IAllocationStrategy(address(strategy2));
-        dupStrategies[1] = IAllocationStrategy(address(strategy2));
-
-        _expectInitRevert(
-            abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 2),
-            address(superToken),
-            address(flowImplementation),
-            manager,
-            managerRewardPool,
-            address(0),
-            flowParams,
-            flowMetadata,
-            dupStrategies
-        );
-
-        IAllocationStrategy[] memory zeroStrategies = new IAllocationStrategy[](1);
-        zeroStrategies[0] = IAllocationStrategy(address(0));
+        IAllocationStrategy zeroStrategies = IAllocationStrategy(address(0));
         _expectInitRevert(
             abi.encodeWithSelector(IFlow.ADDRESS_ZERO.selector),
             address(superToken),
@@ -297,7 +266,7 @@ contract FlowInitializationAndAccessInitTest is FlowInitializationAndAccessBase 
     function test_initialize_allowsZeroManagerRewardPool() public {
         IFlow.FlowParams memory params = flowParams;
         params.managerRewardPoolFlowRatePpm = 0;
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         CustomFlow deployed = _deployFlowWith(
             owner,
             address(superToken),

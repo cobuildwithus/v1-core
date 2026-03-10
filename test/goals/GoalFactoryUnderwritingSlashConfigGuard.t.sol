@@ -5,7 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
+import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
@@ -26,6 +28,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     GoalFactory internal factory;
     address internal configuredCobuildTerminal;
     address internal configuredJbMultiTerminal;
+    address internal configuredGoalDeploymentRegistry;
     address internal configuredGoalTreasuryImpl;
     address internal configuredGoalSpendPolicy;
     address internal configuredFlowImpl;
@@ -60,6 +63,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredPremiumEscrowImpl = address(new DummyContract());
         configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
+        configuredGoalDeploymentRegistry = address(new GoalDeploymentRegistry(address(this), address(0)));
         configuredGoalTreasuryImpl = address(new DummyContract());
         configuredGoalSpendPolicy = address(new DummyContract());
         configuredFlowImpl = address(new DummyContract());
@@ -98,6 +102,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -135,6 +140,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             address(0),
@@ -173,6 +179,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             noCodeCobuildTerminal,
@@ -210,6 +217,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -248,6 +256,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -365,6 +374,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -402,6 +412,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -440,6 +451,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -478,6 +490,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -514,6 +527,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -550,6 +564,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -587,6 +602,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -623,6 +639,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -660,6 +677,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -697,6 +715,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -732,6 +751,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -768,6 +788,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -803,6 +824,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -839,6 +861,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -874,6 +897,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -910,6 +934,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             1,
             configuredCobuildTerminal,
@@ -1092,6 +1117,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             tagline: "tagline",
             url: "https://example.com"
         });
+        p.budgetTCR.budgetSpendPolicy = configuredGoalSpendPolicy;
         p.goalSpendPolicy = configuredGoalSpendPolicy;
     }
 
@@ -1110,10 +1136,11 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         internal
         returns (GoalFactory)
     {
-        return new GoalFactory(
+        GoalFactory goalFactory = new GoalFactory(
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             cobuildToken,
             cobuildRevnetId,
             cobuildTerminal,
@@ -1133,6 +1160,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
+        GoalDeploymentRegistry(configuredGoalDeploymentRegistry).setRegistrar(address(goalFactory), true);
+        return goalFactory;
     }
 
     function _newFactory(
@@ -1145,10 +1174,11 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address allocationMechanismAdmin
     ) internal returns (GoalFactory) {
         MockToken cobuildToken = _newCobuildTokenForRevnet();
-        return new GoalFactory(
+        GoalFactory goalFactory = new GoalFactory(
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
             BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            IGoalDeploymentRegistry(configuredGoalDeploymentRegistry),
             address(cobuildToken),
             COBUILD_REVNET_ID,
             configuredCobuildTerminal,
@@ -1168,6 +1198,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             allocationMechanismAdmin,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
+        GoalDeploymentRegistry(configuredGoalDeploymentRegistry).setRegistrar(address(goalFactory), true);
+        return goalFactory;
     }
 }
 

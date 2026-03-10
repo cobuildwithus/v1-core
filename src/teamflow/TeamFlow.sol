@@ -70,12 +70,13 @@ contract TeamFlow is Flow {
         _;
     }
 
-    function initialize(InitConfig calldata config, IAllocationStrategy[] calldata strategies) external initializer {
+    function initialize(InitConfig calldata config, IAllocationStrategy configuredStrategy) external initializer {
         if (config.manager == address(0)) revert ADDRESS_ZERO();
         if (config.superToken.code.length == 0) revert NOT_A_CONTRACT(config.superToken);
         if (config.flowImplementation.code.length == 0) revert NOT_A_CONTRACT(config.flowImplementation);
-        if (strategies.length != 1) revert FLOW_REQUIRES_SINGLE_STRATEGY(strategies.length);
-        if (address(strategies[0]) != address(this)) revert TEAMFLOW_REQUIRES_SELF_STRATEGY(address(strategies[0]));
+        if (address(configuredStrategy) != address(this)) {
+            revert TEAMFLOW_REQUIRES_SELF_STRATEGY(address(configuredStrategy));
+        }
 
         mechanismId = config.mechanismId;
         manager = config.manager;
@@ -95,7 +96,7 @@ contract TeamFlow is Flow {
             }),
             address(this),
             address(this),
-            strategies
+            configuredStrategy
         );
 
         emit TeamFlowInitialized(
@@ -159,7 +160,7 @@ contract TeamFlow is Flow {
 
         emit RecipientRemoved(recipientAddress, removedRecipientId);
 
-        FlowPools.removeFromPools(_cfgStorage(), recipientAddress);
+        FlowPools.updateDistributionMemberUnits(_cfgStorage(), recipientAddress, 0);
 
         _removeActiveMember(activeIndexPlusOne);
         delete seat.activeIndexPlusOne;
@@ -279,7 +280,7 @@ contract TeamFlow is Flow {
         address,
         address,
         uint32,
-        IAllocationStrategy[] calldata
+        IAllocationStrategy
     ) internal pure override returns (address) {
         revert NESTED_FLOW_RECIPIENTS_DISABLED();
     }

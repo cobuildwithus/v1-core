@@ -3,7 +3,7 @@
 ## Allocation Path
 
 1. `CustomFlow.allocate` validates allocation vectors.
-2. Flow initialization enforces exactly one configured strategy; default allocation resolves that strategy from storage.
+2. Flow initialization configures exactly one strategy; default allocation resolves that strategy from storage and exposes it via `strategy()`.
 3. Primary allocation entrypoint derives key with `allocationKey(caller, "")`, verifies `canAllocate`, decodes previous
    snapshot state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
 4. Allocation commitment hashes are canonical over recipient ids + scaled allocation vectors (weight excluded from commit hash).
@@ -17,7 +17,7 @@
    sync failures are emitted as failed attempts.
 10. `GoalFlowAllocationLedgerPipeline` records per-account/per-budget child-sync debt on allocation-edit commits when
    child sync is skipped due to gas budget (`"GAS_BUDGET"`) or when an attempted child sync call fails.
-11. Maintenance sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are debt-clear-only:
+11. Maintenance sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are default-strategy debt-clear-only:
     successful child sync clears debt, while skip/failure outcomes do not open new debt.
 12. Parent allocation composition maintenance is fail-closed while debt exists for the allocating account
     (`ACCOUNT_HAS_CHILD_SYNC_DEBT`), and debt is cleared permissionlessly via `repairChildSyncDebt(account, budgetTreasury)`.
@@ -36,7 +36,7 @@
     strategy compatibility, including account-based empty-aux probing via `allocationKey(account, "")`.
 20. Child-sync target discovery is registry-backed and fail-closed:
     - `GoalFlowLedgerMode` resolves `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
-    - the stored target is accepted only when the live child flow still exposes exactly one strategy matching registry state.
+    - the stored target is accepted only when the live child flow's configured `strategy()` still matches registry state.
 21. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
     `GoalFlowLedgerMode` as the validation capability surface.
 

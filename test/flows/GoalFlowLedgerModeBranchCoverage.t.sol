@@ -30,9 +30,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         strategy.setStakeVault(address(stakeVault));
         strategy.setKey(uint256(uint160(ACCOUNT)));
 
-        address[] memory strategies = new address[](1);
-        strategies[0] = address(strategy);
-        harness.setStrategies(strategies);
+        harness.setStrategy(address(strategy));
     }
 
     function test_validateForInitializeView_returnsCachedResultWhenLedgerMatches() public {
@@ -327,9 +325,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_buildChildSyncActions_marksTargetUnavailableWhenTopologyLookupReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
             new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
@@ -342,9 +338,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_buildChildSyncActions_marksTargetUnavailableWhenTopologyInactive() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
             new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
@@ -355,9 +349,9 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
 
-    function test_buildChildSyncActions_marksTargetUnavailableWhenStrategiesCallReverts() public {
+    function test_buildChildSyncActions_marksTargetUnavailableWhenStrategyCallReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        childFlow.setRevertStrategies(true);
+        childFlow.setRevertStrategy(true);
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
             new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
 
@@ -365,14 +359,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertEq(actions[0].skipReason, bytes32("TARGET_UNAVAILABLE"));
     }
 
-    function test_buildChildSyncActions_marksTargetUnavailableWhenStrategyCountIsNotOne() public {
+    function test_buildChildSyncActions_marksTargetUnavailableWhenStrategyIsNotConfigured() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        GoalFlowLedgerModeCoverageStrategy strategy2 = new GoalFlowLedgerModeCoverageStrategy();
-        address[] memory childStrategies = new address[](2);
-        childStrategies[0] = address(strategy);
-        childStrategies[1] = address(strategy2);
-        childFlow.setStrategies(childStrategies);
-
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
             new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(strategy));
         GoalFlowLedgerMode.ChildSyncAction[] memory actions = harness.buildChildSyncActions(ACCOUNT, _singleBudget(address(budget)));
@@ -382,9 +370,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
     function test_buildChildSyncActions_marksTargetUnavailableWhenStoredStrategyMismatchesChildFlow() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
         GoalFlowLedgerModeCoverageStrategy mismatchedStrategy = new GoalFlowLedgerModeCoverageStrategy();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
             new GoalFlowLedgerModeCoverageBudgetTreasury(address(childFlow), address(mismatchedStrategy));
@@ -395,9 +381,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_buildChildSyncActions_marksTargetUnavailableWhenAccountResolverReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         strategy.setRevertAccountResolver(true);
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -408,9 +392,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_buildChildSyncActions_marksTargetUnavailableWhenResolvedAccountMismatches() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         strategy.setResolvedAccountOverride(address(0xDEAD));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -421,9 +403,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_buildChildSyncActions_marksTargetUnavailableWhenCommitReadReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         childFlow.setRevertCommitment(true);
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -434,9 +414,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_requiredChildSyncRequirements_skipsZeroCommitTargets() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         childFlow.setCommitment(bytes32(0));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -448,9 +426,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_requiredChildSyncRequirements_returnsRequirementWhenCommitPresent() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         bytes32 commit = keccak256("commit");
         childFlow.setCommitment(commit);
 
@@ -469,9 +445,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_executeChildSyncBestEffort_marksAttemptedAndSuccess() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         childFlow.setCommitment(keccak256("commit"));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -487,9 +461,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_executeChildSyncBestEffort_marksAttemptedAndFailureWhenSyncReverts() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         childFlow.setCommitment(keccak256("commit"));
         childFlow.setRevertSync(true);
 
@@ -506,9 +478,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_executeChildSyncBestEffort_skipsWhenGasBudgetIsTooLow() public {
         GoalFlowLedgerModeCoverageChildFlow childFlow = new GoalFlowLedgerModeCoverageChildFlow();
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        childFlow.setStrategies(childStrategies);
+        childFlow.setStrategy(address(strategy));
         childFlow.setCommitment(keccak256("commit"));
 
         GoalFlowLedgerModeCoverageBudgetTreasury budget =
@@ -789,24 +759,17 @@ contract GoalFlowLedgerModeCoverageBudgetTreasury {
 }
 
 contract GoalFlowLedgerModeCoverageChildFlow {
-    IAllocationStrategy[] private _strategies;
+    IAllocationStrategy private _strategy;
     bool private _revertStrategies;
     bool private _revertCommitment;
     bool private _revertSync;
     bytes32 private _commitment;
 
-    function setStrategies(address[] memory strategies_) external {
-        delete _strategies;
-        uint256 count = strategies_.length;
-        for (uint256 i = 0; i < count; ) {
-            _strategies.push(IAllocationStrategy(strategies_[i]));
-            unchecked {
-                ++i;
-            }
-        }
+    function setStrategy(address strategy_) external {
+        _strategy = IAllocationStrategy(strategy_);
     }
 
-    function setRevertStrategies(bool shouldRevert) external {
+    function setRevertStrategy(bool shouldRevert) external {
         _revertStrategies = shouldRevert;
     }
 
@@ -822,9 +785,9 @@ contract GoalFlowLedgerModeCoverageChildFlow {
         _revertSync = shouldRevert;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
-        if (_revertStrategies) revert("strategies");
-        return _strategies;
+    function strategy() external view returns (IAllocationStrategy) {
+        if (_revertStrategies) revert("strategy");
+        return _strategy;
     }
 
     function getAllocationCommitment(address, uint256) external view returns (bytes32) {
@@ -832,7 +795,7 @@ contract GoalFlowLedgerModeCoverageChildFlow {
         return _commitment;
     }
 
-    function syncAllocation(address, uint256) external view {
+    function syncAllocation(uint256) external view {
         if (_revertSync) revert("sync");
     }
 }

@@ -31,7 +31,7 @@ contract CustomFlow is ICustomFlow, Flow {
         address _parent,
         FlowParams memory _flowParams,
         RecipientMetadata memory _metadata,
-        IAllocationStrategy[] calldata _strategies
+        IAllocationStrategy _strategy
     ) external initializer {
         IFlow.FlowInitConfig memory initConfig = IFlow.FlowInitConfig({
             superToken: _superToken,
@@ -43,7 +43,7 @@ contract CustomFlow is ICustomFlow, Flow {
             flowParams: _flowParams,
             metadata: _metadata
         });
-        __Flow_initWithRoles(initConfig, _flowOperator, _sweeper, _strategies);
+        __Flow_initWithRoles(initConfig, _flowOperator, _sweeper, _strategy);
         if (_allocationPipeline != address(0)) {
             IAllocationPipeline(_allocationPipeline).validateForFlow(address(this));
         }
@@ -60,19 +60,24 @@ contract CustomFlow is ICustomFlow, Flow {
         );
     }
 
-    function syncAllocation(address strategy, uint256 allocationKey) external nonReentrant {
-        _requireDefaultStrategy(strategy);
-        _loadAndSyncStoredAllocation(strategy, allocationKey, false);
+    function syncAllocation(uint256 allocationKey) external nonReentrant {
+        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
+        _loadAndSyncStoredAllocation(address(configuredStrategy), allocationKey, false);
     }
 
     function syncAllocationForAccount(address account) external nonReentrant {
-        IAllocationStrategy defaultStrategy = _defaultStrategyOrRevert();
-        uint256 allocationKey = defaultStrategy.allocationKey(account, bytes(""));
-        _loadAndSyncStoredAllocation(address(defaultStrategy), allocationKey, false);
+        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
+        uint256 allocationKey = configuredStrategy.allocationKey(account, bytes(""));
+        _loadAndSyncStoredAllocation(address(configuredStrategy), allocationKey, false);
     }
 
-    function _loadAndSyncStoredAllocation(address strategy, uint256 allocationKey, bool requireZeroWeight) internal {
-        if (_allocStorage().allocCommit[strategy][allocationKey] == bytes32(0)) revert STALE_CLEAR_NO_COMMITMENT();
+    function _loadAndSyncStoredAllocation(
+        address strategyAddress,
+        uint256 allocationKey,
+        bool requireZeroWeight
+    ) internal {
+        if (_allocStorage().allocCommit[strategyAddress][allocationKey] == bytes32(0))
+            revert STALE_CLEAR_NO_COMMITMENT();
         (
             bytes32[] memory prevRecipientIds,
             uint32[] memory prevAllocationPpm,
@@ -80,11 +85,11 @@ contract CustomFlow is ICustomFlow, Flow {
         ) = CustomFlowPreviousState.loadAndResolvePreviousState(
                 _recipientsStorage(),
                 _allocStorage(),
-                strategy,
+                strategyAddress,
                 allocationKey
             );
         _syncStoredAllocationWithPrevState(
-            strategy,
+            strategyAddress,
             allocationKey,
             prevWeight,
             prevRecipientIds,
@@ -95,7 +100,7 @@ contract CustomFlow is ICustomFlow, Flow {
 
     // slither-disable-next-line reentrancy-no-eth
     function _allocateAndSync(
-        IAllocationStrategy strategy,
+        IAllocationStrategy allocationStrategy,
         bytes32[] memory recipientIds,
         uint32[] memory allocationsPpm
     ) internal {
@@ -106,7 +111,7 @@ contract CustomFlow is ICustomFlow, Flow {
             _recipientsStorage(),
             _allocStorage(),
             _pipelineStorage(),
-            strategy,
+            allocationStrategy,
             msg.sender,
             FlowAllocations.AllocationVector({ recipientIds: recipientIds, allocationsPpm: allocationsPpm })
         );
@@ -114,24 +119,23 @@ contract CustomFlow is ICustomFlow, Flow {
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);
     }
 
-    function clearStaleAllocation(address strategy, uint256 allocationKey) external nonReentrant {
-        _requireDefaultStrategy(strategy);
-        _loadAndSyncStoredAllocation(strategy, allocationKey, true);
+    function clearStaleAllocation(uint256 allocationKey) external nonReentrant {
+        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
+        _loadAndSyncStoredAllocation(address(configuredStrategy), allocationKey, true);
     }
 
     function previewChildSyncRequirements(
-        address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
     ) external view returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
-        _requireDefaultStrategy(strategy);
+        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
         return
             CustomFlowPreview.previewChildSyncRequirements(
                 _recipientsStorage(),
                 _allocStorage(),
                 _pipelineStorage(),
-                strategy,
+                address(configuredStrategy),
                 allocationKey,
                 newRecipientIds,
                 newAllocationPpm
@@ -140,14 +144,14 @@ contract CustomFlow is ICustomFlow, Flow {
 
     // slither-disable-next-line reentrancy-no-eth
     function _syncStoredAllocationWithPrevState(
-        address strategy,
+        address strategyAddress,
         uint256 allocationKey,
         uint256 prevWeight,
         bytes32[] memory prevRecipientIds,
         uint32[] memory prevAllocationPpm,
         bool requireZeroWeight
     ) internal {
-        uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
+        uint256 currentWeight = IAllocationStrategy(strategyAddress).currentWeight(allocationKey);
         if (requireZeroWeight) {
             if (currentWeight != 0) revert STALE_CLEAR_WEIGHT_NOT_ZERO(currentWeight);
         } else if (currentWeight == prevWeight) {
@@ -162,7 +166,7 @@ contract CustomFlow is ICustomFlow, Flow {
             _allocStorage(),
             _pipelineStorage(),
             FlowAllocations.MaintenanceApplyRequest({
-                strategy: strategy,
+                strategy: strategyAddress,
                 allocationKey: allocationKey,
                 storedAllocation: FlowAllocations.PreviousAllocationData({
                     allocation: FlowAllocations.AllocationVector({
@@ -178,14 +182,8 @@ contract CustomFlow is ICustomFlow, Flow {
         _bestEffortRefreshOutflowAfterUnitsCrossing(_cfgStorage(), totalUnitsBefore);
     }
 
-    function _defaultStrategyOrRevert() internal view returns (IAllocationStrategy strategy) {
-        strategy = CustomFlowRuntimeHelpers.defaultStrategyOrRevert(_allocStorage());
-    }
-
-    function _requireDefaultStrategy(address strategy) internal view {
-        if (strategy != address(_defaultStrategyOrRevert())) {
-            revert IFlow.ONLY_DEFAULT_STRATEGY_ALLOWED(strategy);
-        }
+    function _defaultStrategyOrRevert() internal view returns (IAllocationStrategy configuredStrategy) {
+        configuredStrategy = CustomFlowRuntimeHelpers.defaultStrategyOrRevert(_allocStorage());
     }
 
     /**
@@ -198,7 +196,7 @@ contract CustomFlow is ICustomFlow, Flow {
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
      * @param managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
-     * @param strategies The allocation strategies to use.
+     * @param configuredStrategy The allocation strategy to use.
      * @return recipient address The address of the newly created Flow contract
      */
     function _deployFlowRecipient(
@@ -209,7 +207,7 @@ contract CustomFlow is ICustomFlow, Flow {
         address sweeper,
         address managerRewardPool,
         uint32 managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
+        IAllocationStrategy configuredStrategy
     ) internal override returns (address recipient) {
         recipient = CustomFlowLibrary.deployFlowRecipient(
             _cfgStorage(),
@@ -220,7 +218,7 @@ contract CustomFlow is ICustomFlow, Flow {
             sweeper,
             managerRewardPool,
             managerRewardPoolFlowRatePpm,
-            strategies
+            configuredStrategy
         );
     }
 }

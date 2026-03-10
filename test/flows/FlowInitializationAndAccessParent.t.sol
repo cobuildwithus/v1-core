@@ -7,7 +7,7 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 
 contract FlowInitializationAndAccessParentTest is FlowInitializationAndAccessBase {
     function test_parent_canCall_ownerOrParentSetters() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address parentAddr = address(0xABCD);
         CustomFlow child = _deployFlowWith(
             owner,

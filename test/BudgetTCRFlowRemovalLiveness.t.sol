@@ -137,8 +137,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         goalFlowImpl = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImpl), "");
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         FlowTypes.RecipientMetadata memory flowMetadata = FlowTypes.RecipientMetadata({
             title: "Goal Flow",
@@ -215,7 +214,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         uint256 reducedWeight = INITIAL_WEIGHT / 4;
         strategy.setWeight(allocationKey, reducedWeight);
         vm.prank(keeper);
-        goalFlow.syncAllocation(address(strategy), allocationKey);
+        goalFlow.syncAllocation(allocationKey);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), _units(reducedWeight, HALF_SCALED));
@@ -323,7 +322,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
 
         strategy.setWeight(allocationKey, 0);
         vm.prank(keeper);
-        goalFlow.clearStaleAllocation(address(strategy), allocationKey);
+        goalFlow.clearStaleAllocation(allocationKey);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), 0);

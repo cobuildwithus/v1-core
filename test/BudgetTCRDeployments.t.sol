@@ -156,9 +156,8 @@ contract BudgetTCRStackDeploymentLibMockChildFlow {
         sweeper = newSweeper;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory s) {
-        s = new IAllocationStrategy[](1);
-        s[0] = IAllocationStrategy(_strategy);
+    function strategy() external view returns (IAllocationStrategy) {
+        return IAllocationStrategy(_strategy);
     }
 }
 
@@ -193,8 +192,8 @@ contract BudgetTCRStackDeploymentLibPermissiveFallbackTreasury {
 }
 
 contract BudgetTCRStackDeploymentLibNoStrategyChildFlow {
-    function strategies() external pure returns (IAllocationStrategy[] memory s) {
-        s = new IAllocationStrategy[](0);
+    function strategy() external pure returns (IAllocationStrategy) {
+        return IAllocationStrategy(address(0));
     }
 }
 
@@ -853,7 +852,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     }
 
     function test_registerChildFlowRecipient_revertsWhenChildFlowHasZeroStrategies() public {
-        deployer.prepareBudgetStack(
+        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             IERC20(address(goalToken)),
             IERC20(address(cobuildToken)),
             IJBRulesets(address(0x1234)),
@@ -869,7 +868,10 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBudgetFlowRouterStrategy.INVALID_FLOW_STRATEGY_COUNT.selector, address(childFlow), 0
+                IBudgetFlowRouterStrategy.INVALID_FLOW_STRATEGY.selector,
+                address(childFlow),
+                prepared.strategy,
+                address(0)
             )
         );
         deployer.registerChildFlowRecipient(bytes32(uint256(100)), address(childFlow));

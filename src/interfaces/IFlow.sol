@@ -130,9 +130,6 @@ interface IFlow is IFlowEvents, IManagedFlow {
     /// @dev Reverts if allocation math will overflow
     error OVERFLOW();
 
-    /// @dev Reverts when flow initialization is attempted without exactly one strategy.
-    error FLOW_REQUIRES_SINGLE_STRATEGY(uint256 strategyCount);
-
     /// @dev Reverts if address 0 is passed but not allowed
     error ADDRESS_ZERO();
 
@@ -150,9 +147,6 @@ interface IFlow is IFlowEvents, IManagedFlow {
 
     /// @dev Reverts if msg.sender is not able to allocate with the strategy
     error NOT_ABLE_TO_ALLOCATE();
-
-    /// @dev Reverts when a call requires the flow's single default strategy but receives a different strategy.
-    error ONLY_DEFAULT_STRATEGY_ALLOWED(address strategy);
 
     /// @dev Array lengths of recipients & allocationsPpm don't match (`recipientsLength` != `allocationsLength`)
     /// @param recipientsLength Length of recipients array
@@ -197,9 +191,6 @@ interface IFlow is IFlowEvents, IManagedFlow {
 
     /// @dev Reverts if a configured allocation pipeline is not a deployed contract.
     error INVALID_ALLOCATION_PIPELINE(address allocationPipeline);
-
-    /// @dev Reverts when enabling allocation-ledger checkpointing with anything other than exactly one strategy.
-    error ALLOCATION_LEDGER_REQUIRES_SINGLE_STRATEGY(uint256 strategyCount);
 
     ///                                                          ///
     ///                         STRUCTS                          ///
@@ -303,11 +294,14 @@ interface IFlow is IFlowEvents, IManagedFlow {
 
     /**
      * @notice Reads the current allocation commitment for a strategy/allocationKey pair.
-     * @param strategy The allocation strategy address.
+     * @param strategyAddress The allocation strategy address.
      * @param allocationKey The allocation key for the strategy.
      * @return commit Hash of canonical previous recipient ids + allocation ppm payload.
      */
-    function getAllocationCommitment(address strategy, uint256 allocationKey) external view returns (bytes32 commit);
+    function getAllocationCommitment(
+        address strategyAddress,
+        uint256 allocationKey
+    ) external view returns (bytes32 commit);
 }
 
 interface ICustomFlow is IFlow {
@@ -340,7 +334,7 @@ interface ICustomFlow is IFlow {
      * @param parent The address of the parent flow contract (optional)
      * @param flowParams The parameters for the flow contract
      * @param metadata The metadata for the flow contract
-     * @param strategies The allocation strategies to use.
+     * @param strategy The allocation strategy to use.
      */
     function initialize(
         address superToken,
@@ -353,7 +347,7 @@ interface ICustomFlow is IFlow {
         address parent,
         FlowParams memory flowParams,
         FlowTypes.RecipientMetadata memory metadata,
-        IAllocationStrategy[] calldata strategies
+        IAllocationStrategy strategy
     ) external;
 
     /**
@@ -366,10 +360,9 @@ interface ICustomFlow is IFlow {
 
     /**
      * @notice Permissionlessly resynchronizes an existing allocation commitment from stored previous-state snapshot.
-     * @param strategy The allocation strategy address.
      * @param allocationKey The allocation key.
      */
-    function syncAllocation(address strategy, uint256 allocationKey) external;
+    function syncAllocation(uint256 allocationKey) external;
 
     /**
      * @notice Permissionlessly resynchronizes the default-strategy allocation derived for an account.
@@ -380,23 +373,20 @@ interface ICustomFlow is IFlow {
 
     /**
      * @notice Permissionlessly clears stale units using stored previous-state snapshot.
-     * @param strategy The allocation strategy address.
      * @param allocationKey The allocation key.
      */
-    function clearStaleAllocation(address strategy, uint256 allocationKey) external;
+    function clearStaleAllocation(uint256 allocationKey) external;
 
     /**
      * @notice Previews required child-sync targets for a parent allocation update.
      * @dev Returns only budgets that both changed allocation amount and currently have a child commitment
      *      (`expectedCommit != 0`) under the same target-resolution semantics as parent auto-sync.
-     * @param strategy Parent allocation strategy.
      * @param allocationKey Parent allocation key.
      * @param newRecipientIds New recipient ids for the parent allocation update.
      * @param newAllocationPpm New recipient allocations in 1e6-scale for the parent allocation update.
      * @return reqs Required child-sync targets.
      */
     function previewChildSyncRequirements(
-        address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm

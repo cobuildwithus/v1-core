@@ -27,8 +27,7 @@ contract FlowManagerRewardDistributionPoolTest is FlowTestBase {
     function test_initialize_withoutManagerRewardPool_hasNoManagerRewardDistributionPool() public {
         flowParams.managerRewardPoolFlowRatePpm = 0;
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         CustomFlow deployed =
             _deployFlowWithConfig(owner, manager, address(0), address(0), address(0), strategies);

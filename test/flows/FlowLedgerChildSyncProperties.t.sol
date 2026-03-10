@@ -56,10 +56,9 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         strategy.setCanAllocate(parentKey, allocator, true);
 
         allocationPipeline = new GoalFlowAllocationLedgerPipeline(address(ledger));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy configuredStrategy = IAllocationStrategy(address(strategy));
         flow = _deployFlowWithConfig(
-            owner, manager, managerRewardPool, address(allocationPipeline), address(0), strategies
+            owner, manager, managerRewardPool, address(allocationPipeline), address(0), configuredStrategy
         );
         assertEq(address(flow), predictedFlow);
 
@@ -704,7 +703,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         _setWeights(reducedStake);
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
         ICustomFlow.ChildSyncRequirement[] memory reqs =
-            flow.previewChildSyncRequirements(address(strategy), parentKey, recipientIds, scaled);
+            flow.previewChildSyncRequirements(parentKey, recipientIds, scaled);
         assertEq(reqs.length, 0);
 
         uint256 checkpointsBefore = ledger.checkpointCallCount();
@@ -741,7 +740,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         bytes[][] memory allocationData = _parentAllocationData();
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
         ICustomFlow.ChildSyncRequirement[] memory reqs =
-            flow.previewChildSyncRequirements(address(strategy), parentKey, recipientIds, scaled);
+            flow.previewChildSyncRequirements(parentKey, recipientIds, scaled);
         assertEq(reqs.length, 0);
 
         uint256 checkpointsBefore = ledger.checkpointCallCount();
@@ -792,8 +791,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         strategy.setCanAccountAllocate(allocator, true);
 
         GoalFlowAllocationLedgerPipeline realPipeline = new GoalFlowAllocationLedgerPipeline(address(realLedger));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
         address realFlow = address(
             _deployFlowWithConfig(
                 owner, address(budgetRegistryManager), managerRewardPool, address(realPipeline), address(0), strategies
@@ -938,8 +936,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         benchmarkStrategy.setCanAllocate(benchmarkKey, allocator, true);
         benchmarkStrategy.setCanAccountAllocate(allocator, true);
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(benchmarkStrategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(benchmarkStrategy));
 
         ICustomFlow benchmarkFlow = ICustomFlow(
             address(_deployFlowWithConfig(owner, manager, managerRewardPool, benchmarkPipeline, address(0), strategies))
@@ -1356,7 +1353,7 @@ contract FlowLedgerPropChildStrategy is IAllocationStrategy {
 }
 
 contract FlowLedgerPropChildFlow {
-    IAllocationStrategy[] internal _strategies;
+    IAllocationStrategy internal _strategy;
 
     error SYNC_REVERT();
 
@@ -1367,8 +1364,7 @@ contract FlowLedgerPropChildFlow {
     uint256 public lastAllocationKey;
 
     constructor(address strategy_) {
-        _strategies = new IAllocationStrategy[](1);
-        _strategies[0] = IAllocationStrategy(strategy_);
+        _strategy = IAllocationStrategy(strategy_);
     }
 
     function setCommit(bytes32 commit_) external {
@@ -1379,18 +1375,18 @@ contract FlowLedgerPropChildFlow {
         _revertSync = shouldRevert;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory) {
-        return _strategies;
+    function strategy() external view returns (IAllocationStrategy) {
+        return _strategy;
     }
 
     function getAllocationCommitment(address, uint256) external view returns (bytes32) {
         return _commit;
     }
 
-    function syncAllocation(address strategy, uint256 allocationKey) external {
+    function syncAllocation(uint256 allocationKey) external {
         if (_revertSync) revert SYNC_REVERT();
         syncCallCount += 1;
-        lastStrategy = strategy;
+        lastStrategy = address(_strategy);
         lastAllocationKey = allocationKey;
     }
 }
@@ -1404,9 +1400,8 @@ contract FlowLedgerPropBudgetFlowRegistrable {
         _strategy = strategy_;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
-        strategies_ = new IAllocationStrategy[](1);
-        strategies_[0] = IAllocationStrategy(_strategy);
+    function strategy() external view returns (IAllocationStrategy) {
+        return IAllocationStrategy(_strategy);
     }
 }
 

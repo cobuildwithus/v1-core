@@ -17,7 +17,7 @@ library CustomFlowLibrary {
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
      * @param managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
-     * @param strategies The allocation strategies to use.
+     * @param strategy The allocation strategy to use.
      * @return address The address of the newly created Flow contract
      */
     function deployFlowRecipient(
@@ -29,17 +29,16 @@ library CustomFlowLibrary {
         address sweeper,
         address managerRewardPool,
         uint32 managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
+        IAllocationStrategy strategy
     ) internal returns (address) {
         address flowImplementation = cfg.flowImplementation;
         if (flowImplementation.code.length == 0) revert IFlow.NOT_A_CONTRACT(flowImplementation);
 
         address recipient = Clones.clone(flowImplementation);
-        address strategy = strategies.length == 0 ? address(0) : address(strategies[0]);
         emit IFlowEvents.ChildFlowDeployed(
             recipientId,
             recipient,
-            strategy,
+            address(strategy),
             recipientAdmin,
             flowOperator,
             sweeper,
@@ -57,7 +56,7 @@ library CustomFlowLibrary {
             parent: address(this),
             flowParams: IFlow.FlowParams({ managerRewardPoolFlowRatePpm: managerRewardPoolFlowRatePpm }),
             metadata: metadata,
-            strategies: strategies
+            strategy: strategy
         });
 
         return recipient;

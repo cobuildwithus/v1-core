@@ -8,8 +8,7 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 
 contract FlowUpgradesTest is FlowTestBase {
     function _addChild(bytes32 id) internal returns (address childAddr) {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(strategy));
 
         vm.prank(manager);
         (, childAddr) =

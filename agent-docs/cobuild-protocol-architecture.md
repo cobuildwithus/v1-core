@@ -79,7 +79,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` with best-effort per-target semantics and explicit observability events.
 - `BudgetTCR` is the canonical budget-stack topology registry for that child-sync path:
   - target resolution discovers `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
-  - runtime child sync still fail-closes unless the live child flow exposes exactly one strategy matching stored topology.
+  - runtime child sync still fail-closes unless the live child flow's configured `strategy()` matches stored topology.
 - Gas-budget skips and failed child sync attempts open per-account child-sync debt in the pipeline.
 - While child-sync debt exists, checkpoint-requiring allocations for that account fail closed until repaired or cleared.
 - Child-sync debt repair is permissionless per budget via `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
@@ -327,7 +327,7 @@ Community root routing
   - unresolved targets emit `ChildAllocationSyncSkipped(..., "TARGET_UNAVAILABLE")`,
   - failed child sync calls emit `ChildAllocationSyncAttempted(..., success=false)`,
   - allocation-edit commits open debt with `ChildSyncDebtOpened` on gas-budget skips (`"GAS_BUDGET"`) and failed child sync attempts,
-  - maintenance-sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are clear-only:
+  - maintenance-sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are default-strategy clear-only:
     successful sync attempts clear existing debt while skip/failure outcomes do not open debt,
   - successful child sync and permissionless per-budget repair clear debt with `ChildSyncDebtCleared`.
 - Goal-ledger compatible strategy capability is explicitly represented by

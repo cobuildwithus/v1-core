@@ -25,7 +25,7 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
         assertEq(flow.flowImplementation(), originalFlowImpl);
         assertEq(flow.managerRewardPoolFlowRatePpm(), originalRewardPpm);
 
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         vm.prank(manager);
         flow.addFlowRecipient(
             bytes32(uint256(3001)), recipientMetadata, manager, manager, manager, managerRewardPool, 0,
@@ -36,7 +36,7 @@ contract FlowInitializationAndAccessSettersTest is FlowInitializationAndAccessBa
     function test_roleSeparatedInit_setsAuthorities_andRemovedChildSyncModeSelectorNotExposed() public {
         address operator = address(0x222);
         address sweeper = address(0x333);
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         CustomFlow roleSeparatedFlow = _deployFlowWithConfigAndRoles(
             owner, manager, operator, sweeper, managerRewardPool, address(0), address(0), strategies
         );

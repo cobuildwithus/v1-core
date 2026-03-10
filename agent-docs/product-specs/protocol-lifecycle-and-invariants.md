@@ -18,6 +18,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `sweeper` governs held SuperToken sweep.
 - Child flow creation via `addFlowRecipient(...)` requires explicit child-role inputs (`recipientAdmin`, `flowOperator`, `sweeper`) at creation time.
 - Child flow creation via `addFlowRecipient(...)` also fixes child manager-reward routing (`managerRewardPool` + `managerRewardPoolFlowRatePpm`) at creation time.
+- Flow init and child-flow creation both take a single configured `IAllocationStrategy`; the runtime strategy is exposed via `strategy()`.
 - Allocation updates must pass previous-state snapshot/commit validation and strategy allocation checks.
 - Allocation-ledger-driven child sync and treasury-driven flow-rate synchronization are part of runtime safety.
 - Goal allocation child sync is best-effort per target, but account-level child-sync debt fail-closes checkpoint-requiring
@@ -26,7 +27,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Budget child-sync target discovery is registry-backed:
   - `budgetTreasury.authority()` must point at the owning `BudgetTCR`,
   - `GoalFlowLedgerMode` resolves canonical `childFlow` + child strategy from that registry and still fail-closes when
-    the live child flow does not expose exactly one strategy matching stored topology.
+    the live child flow's configured `strategy()` does not match stored topology.
 
 ### Goal/Budget lifecycle
 

@@ -310,8 +310,8 @@ contract BudgetTCRWiringGoalFlow {
         return _managerRewardPoolFlowRatePpm;
     }
 
-    function strategies() external pure returns (IAllocationStrategy[] memory s) {
-        s = new IAllocationStrategy[](0);
+    function strategy() external pure returns (IAllocationStrategy) {
+        return IAllocationStrategy(address(0));
     }
 
     function parent() external pure returns (address) {
@@ -357,10 +357,9 @@ contract BudgetTCRWiringGoalFlow {
         address sweeper,
         address childManagerRewardPool,
         uint32 childManagerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata childStrategies
+        IAllocationStrategy childStrategy
     ) external returns (bytes32 recipientId, address recipientAddress) {
         if (msg.sender != _recipientAdmin) revert NOT_RECIPIENT_ADMIN();
-        address strategy = childStrategies.length == 0 ? address(0) : address(childStrategies[0]);
 
         BudgetTCRWiringChildFlow child = new BudgetTCRWiringChildFlow(
             _superToken,
@@ -369,7 +368,7 @@ contract BudgetTCRWiringGoalFlow {
             sweeper,
             address(this),
             childManagerRewardPool,
-            strategy,
+            address(childStrategy),
             childManagerRewardPoolFlowRatePpm,
             _childManagerRewardDistributionPool
         );
@@ -462,9 +461,7 @@ contract BudgetTCRWiringChildFlow {
         return ISuperfluidPool(_managerRewardDistributionPool);
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory s) {
-        if (_strategy == address(0)) return new IAllocationStrategy[](0);
-        s = new IAllocationStrategy[](1);
-        s[0] = IAllocationStrategy(_strategy);
+    function strategy() external view returns (IAllocationStrategy) {
+        return IAllocationStrategy(_strategy);
     }
 }

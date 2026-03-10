@@ -536,7 +536,7 @@ contract FactoryDeployMockSuperToken {
 }
 
 contract FactoryDeployMockSplitHook {
-    function initialize(IJBDirectory, IGoalTreasury, IFlow, uint256) external {}
+    function initialize(IJBDirectory, IGoalTreasury, uint256) external {}
 }
 
 contract FactoryDeployMockFlow {
@@ -558,7 +558,7 @@ contract FactoryDeployMockFlow {
         address,
         IFlow.FlowParams memory,
         FlowTypes.RecipientMetadata memory,
-        IAllocationStrategy[] calldata
+        IAllocationStrategy
     ) external {
         superToken = ISuperToken(superToken_);
         recipientAdmin = recipientAdmin_;

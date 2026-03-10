@@ -17,18 +17,11 @@ contract GoalFlowLedgerModeHarness {
         uint32[] newAllocationPpm;
     }
 
-    IAllocationStrategy[] internal _strategies;
+    IAllocationStrategy internal _strategy;
     GoalFlowLedgerMode.ValidationCache internal _cache;
 
-    function setStrategies(address[] calldata strategies) external {
-        delete _strategies;
-        uint256 count = strategies.length;
-        for (uint256 i = 0; i < count; ) {
-            _strategies.push(IAllocationStrategy(strategies[i]));
-            unchecked {
-                ++i;
-            }
-        }
+    function setStrategy(address strategy_) external {
+        _strategy = IAllocationStrategy(strategy_);
         delete _cache;
     }
 
@@ -36,21 +29,21 @@ contract GoalFlowLedgerModeHarness {
         address ledger,
         address expectedFlow
     ) external returns (address goalTreasury, address stakeVault) {
-        return GoalFlowLedgerMode.validateOrRevert(_strategiesMemory(), _cache, ledger, expectedFlow);
+        return GoalFlowLedgerMode.validateOrRevert(_strategy, _cache, ledger, expectedFlow);
     }
 
     function validateView(
         address ledger,
         address expectedFlow
     ) external view returns (address goalTreasury, address stakeVault) {
-        return GoalFlowLedgerMode.validateOrRevertView(_strategiesMemory(), _cache, ledger, expectedFlow);
+        return GoalFlowLedgerMode.validateOrRevertView(_strategy, _cache, ledger, expectedFlow);
     }
 
     function validateForInitializeView(
         address ledger,
         address expectedFlow
     ) external view returns (address goalTreasury, address stakeVault) {
-        return GoalFlowLedgerMode.validateForInitializeOrRevertView(_strategiesMemory(), _cache, ledger, expectedFlow);
+        return GoalFlowLedgerMode.validateForInitializeOrRevertView(_strategy, _cache, ledger, expectedFlow);
     }
 
     function detectCalldata(DetectParams calldata params) external view returns (address[] memory budgetTreasuries) {
@@ -72,7 +65,7 @@ contract GoalFlowLedgerModeHarness {
         address account,
         address expectedFlow
     ) external view returns (uint256 newWeight, bool shouldCheckpoint) {
-        return GoalFlowLedgerMode.prepareCheckpointContextView(_strategiesMemory(), _cache, ledger, account, expectedFlow);
+        return GoalFlowLedgerMode.prepareCheckpointContextView(_strategy, _cache, ledger, account, expectedFlow);
     }
 
     function prepareCheckpointContextFromCommittedWeight(
@@ -82,7 +75,7 @@ contract GoalFlowLedgerModeHarness {
     ) external returns (uint256 resolvedWeight, bool shouldCheckpoint) {
         return
             GoalFlowLedgerMode.prepareCheckpointContextFromCommittedWeight(
-                _strategiesMemory(),
+                _strategy,
                 _cache,
                 ledger,
                 committedWeight,
@@ -108,16 +101,5 @@ contract GoalFlowLedgerModeHarness {
         GoalFlowLedgerMode.ChildSyncAction[] memory actions
     ) external returns (GoalFlowLedgerMode.ChildSyncExecution[] memory executions) {
         return GoalFlowLedgerMode.executeChildSyncBestEffort(actions);
-    }
-
-    function _strategiesMemory() private view returns (IAllocationStrategy[] memory strategies) {
-        uint256 count = _strategies.length;
-        strategies = new IAllocationStrategy[](count);
-        for (uint256 i = 0; i < count; ) {
-            strategies[i] = _strategies[i];
-            unchecked {
-                ++i;
-            }
-        }
     }
 }

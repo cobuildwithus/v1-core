@@ -22,7 +22,7 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address parent_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
@@ -38,7 +38,7 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             parent_,
             params,
             metadata,
-            strategies
+            strategy_
         );
     }
 
@@ -51,7 +51,7 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address parent_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal {
         _expectInitRevertWithRoles(
             revertData,
@@ -64,7 +64,7 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             parent_,
             params,
             metadata,
-            strategies
+            strategy_
         );
     }
 
@@ -77,7 +77,7 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
         address parent_,
         IFlow.FlowParams memory params,
         FlowTypes.RecipientMetadata memory metadata,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal returns (CustomFlow deployed) {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
@@ -93,14 +93,13 @@ abstract contract FlowInitializationAndAccessBase is FlowTestBase {
             parent_,
             params,
             metadata,
-            strategies
+            strategy_
         );
         deployed = CustomFlow(proxy);
     }
 
-    function _oneStrategy() internal view returns (IAllocationStrategy[] memory arr) {
-        arr = new IAllocationStrategy[](1);
-        arr[0] = IAllocationStrategy(address(strategy));
+    function _oneStrategy() internal view returns (IAllocationStrategy strategy_) {
+        strategy_ = IAllocationStrategy(address(strategy));
     }
 }
 

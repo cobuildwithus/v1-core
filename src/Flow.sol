@@ -21,13 +21,13 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param initConfig The flow initialization config.
      * @param flowOperator_ Flow-rate operations authority.
      * @param sweeper_ Sweep authority.
-     * @param _strategies Allocation strategies.
+     * @param strategy_ Allocation strategy.
      */
     function __Flow_initWithRoles(
         IFlow.FlowInitConfig memory initConfig,
         address flowOperator_,
         address sweeper_,
-        IAllocationStrategy[] calldata _strategies
+        IAllocationStrategy strategy_
     ) internal onlyInitializing {
         Config storage cfg = _cfgStorage();
         FlowInitialization.checkAndSetInitializationParams(
@@ -35,7 +35,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             _allocStorage(),
             _pipelineStorage(),
             initConfig,
-            _strategies
+            strategy_
         );
         if (flowOperator_ == address(0) || sweeper_ == address(0)) revert ADDRESS_ZERO();
         cfg.flowOperator = flowOperator_;
@@ -54,7 +54,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             initConfig.parent,
             address(cfg.distributionPool),
             cfg.managerRewardPoolFlowRatePpm,
-            _strategies[0]
+            strategy_
         );
         emit MetadataSet(initConfig.metadata);
     }
@@ -119,7 +119,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param _sweeper The sweep authority for the new contract
      * @param _managerRewardPool The address of the manager reward pool for the new contract
      * @param _managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
-     * @param _strategies The allocation strategies to use.
+     * @param _strategy The allocation strategy to use.
      * @return bytes32 The recipientId of the newly created Flow contract
      * @return address The address of the newly created Flow contract
      * @dev Only callable by the recipient admin of the contract
@@ -134,7 +134,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _sweeper,
         address _managerRewardPool,
         uint32 _managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata _strategies
+        IAllocationStrategy _strategy
     ) external onlyRecipientAdmin nonReentrant returns (bytes32, address) {
         Config storage cfg = _cfgStorage();
         RecipientsState storage recipientsState = _recipientsStorage();
@@ -150,7 +150,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
             _sweeper,
             _managerRewardPool,
             _managerRewardPoolFlowRatePpm,
-            _strategies
+            _strategy
         );
 
         FlowRecipients.addFlowRecipient(recipientsState, _recipientId, recipient, _metadata, address(this));
@@ -180,7 +180,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @param _sweeper The sweep authority for the new contract
      * @param _managerRewardPool The address of the manager reward pool for the new contract
      * @param _managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
-     * @param _strategies The allocation strategies to use.
+     * @param _strategy The allocation strategy to use.
      * @return address The address of the newly created Flow contract
      */
     function _deployFlowRecipient(
@@ -191,7 +191,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         address _sweeper,
         address _managerRewardPool,
         uint32 _managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata _strategies
+        IAllocationStrategy _strategy
     ) internal virtual returns (address);
 
     /**
@@ -212,7 +212,7 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
         // Pool unit updates are telemetry and should not be used as delete signals.
         emit RecipientRemoved(recipientAddress, recipientId);
 
-        FlowPools.removeFromPools(_cfgStorage(), recipientAddress);
+        FlowPools.updateDistributionMemberUnits(_cfgStorage(), recipientAddress, 0);
         _bestEffortRefreshOutflowFromCachedTarget(targetOutflowRate());
     }
 
@@ -473,8 +473,8 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
      * @dev commit = keccak256(abi.encode(canonical(recipientIds, percentAllocations)))
      * Canonicalized by recipientId asc.
      */
-    function getAllocationCommitment(address strategy, uint256 allocationKey) external view returns (bytes32) {
-        return _allocStorage().allocCommit[strategy][allocationKey];
+    function getAllocationCommitment(address strategyAddress, uint256 allocationKey) external view returns (bytes32) {
+        return _allocStorage().allocCommit[strategyAddress][allocationKey];
     }
 
     /**
@@ -630,10 +630,9 @@ abstract contract Flow is IFlow, ReentrancyGuardUpgradeable, FlowStorageV1 {
     }
 
     /**
-     * @notice Retrieves the allocation strategies
-     * @return IAllocationStrategy[] The allocation strategies
+     * @notice Retrieves the allocation strategy.
      */
-    function strategies() external view returns (IAllocationStrategy[] memory) {
-        return _allocStorage().strategies;
+    function strategy() external view returns (IAllocationStrategy) {
+        return _allocStorage().strategy;
     }
 }

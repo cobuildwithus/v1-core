@@ -13,7 +13,6 @@ interface IBudgetFlowRouterStrategy is IAllocationStrategy, IAllocationKeyAccoun
     error ONLY_REGISTRAR(address caller, address registrar);
     error FLOW_ALREADY_REGISTERED(address flow);
     error INVALID_FLOW(address flow);
-    error INVALID_FLOW_STRATEGY_COUNT(address flow, uint256 strategyCount);
     error INVALID_FLOW_STRATEGY(address flow, address expectedStrategy, address configuredStrategy);
 
     event FlowRecipientRegistered(address indexed flow, bytes32 indexed recipientId);

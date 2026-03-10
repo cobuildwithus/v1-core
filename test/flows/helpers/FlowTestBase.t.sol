@@ -86,9 +86,6 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
         flowImplementation = _useHarnessFlowImplementation() ? CustomFlow(address(new TestableCustomFlow())) : new CustomFlow();
         address flowProxy = address(new ERC1967Proxy(address(flowImplementation), ""));
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(strategy));
-
         vm.prank(owner);
         ICustomFlow(flowProxy).initialize(
             address(superToken),
@@ -101,7 +98,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             address(0),
             flowParams,
             flowMetadata,
-            strategies
+            IAllocationStrategy(address(strategy))
         );
 
         flow = CustomFlow(flowProxy);
@@ -134,7 +131,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
         address managerRewardPool_,
         address allocationPipeline_,
         address parent_,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal returns (CustomFlow deployed) {
         address flowProxy = address(new ERC1967Proxy(address(flowImplementation), ""));
         vm.prank(initCaller);
@@ -149,7 +146,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             parent_,
             flowParams,
             flowMetadata,
-            strategies
+            strategy_
         );
         deployed = CustomFlow(flowProxy);
     }
@@ -162,7 +159,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
         address managerRewardPool_,
         address allocationPipeline_,
         address parent_,
-        IAllocationStrategy[] memory strategies
+        IAllocationStrategy strategy_
     ) internal returns (CustomFlow deployed) {
         address flowProxy = address(new ERC1967Proxy(address(flowImplementation), ""));
         vm.prank(initCaller);
@@ -177,7 +174,7 @@ abstract contract FlowTestBase is Test, PrevStateCacheHelper {
             parent_,
             flowParams,
             flowMetadata,
-            strategies
+            strategy_
         );
         deployed = CustomFlow(flowProxy);
     }

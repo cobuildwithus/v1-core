@@ -30,7 +30,7 @@ interface IManagedFlow {
      * @param sweeper The sweep authority for the new contract
      * @param managerRewardPool The address of the manager reward pool for the new contract
      * @param managerRewardPoolFlowRatePpm The manager reward flow-rate share for the new contract in ppm
-     * @param strategies The strategies for the new contract
+     * @param strategy The strategy for the new contract
      * @return recipientId The ID of the recipient
      * @return recipientAddress The address of the newly created flow contract
      */
@@ -42,7 +42,7 @@ interface IManagedFlow {
         address sweeper,
         address managerRewardPool,
         uint32 managerRewardPoolFlowRatePpm,
-        IAllocationStrategy[] calldata strategies
+        IAllocationStrategy strategy
     ) external returns (bytes32 recipientId, address recipientAddress);
 
     /**
@@ -104,10 +104,9 @@ interface IManagedFlow {
     function parent() external view returns (address);
 
     /**
-     * @notice Returns the flow strategies
-     * @return The flow strategies
+     * @notice Returns the flow's single configured allocation strategy.
      */
-    function strategies() external view returns (IAllocationStrategy[] memory);
+    function strategy() external view returns (IAllocationStrategy);
 
     /**
      * @notice Returns the flow manager reward pool flow rate in ppm scale

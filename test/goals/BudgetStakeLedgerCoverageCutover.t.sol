@@ -38,9 +38,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
         strategy = new BudgetStakeLedgerCoverageStrategy();
         budgetFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(goalFlow));
-        address[] memory childStrategies = new address[](1);
-        childStrategies[0] = address(strategy);
-        budgetFlow.setStrategies(childStrategies);
+        budgetFlow.setStrategy(address(strategy));
         budget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
 
         _configureTopology(RECIPIENT, address(budget), address(budgetFlow), address(strategy), true);
@@ -450,13 +448,9 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
-    function test_registerBudget_revertsWhenChildFlowDoesNotExposeSingleStrategy() public {
+    function test_registerBudget_revertsWhenChildFlowStrategyIsNotConfigured() public {
         BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
-        BudgetStakeLedgerCoverageStrategy otherStrategy = new BudgetStakeLedgerCoverageStrategy();
-        address[] memory childStrategies = new address[](2);
-        childStrategies[0] = address(strategy);
-        childStrategies[1] = address(otherStrategy);
-        budgetFlow.setStrategies(childStrategies);
+        budgetFlow.setStrategy(address(0));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         vm.expectRevert(
@@ -885,25 +879,18 @@ contract BudgetStakeLedgerCoverageGoalFlow {
 
 contract BudgetStakeLedgerCoverageBudgetFlow {
     address public parent;
-    address[] private _strategyAddresses;
+    address private _strategy;
 
     constructor(address parent_) {
         parent = parent_;
     }
 
-    function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
-        uint256 count = _strategyAddresses.length;
-        strategies_ = new IAllocationStrategy[](count);
-        for (uint256 i = 0; i < count; ) {
-            strategies_[i] = IAllocationStrategy(_strategyAddresses[i]);
-            unchecked {
-                ++i;
-            }
-        }
+    function strategy() external view returns (IAllocationStrategy) {
+        return IAllocationStrategy(_strategy);
     }
 
-    function setStrategies(address[] memory strategyAddresses_) external {
-        _strategyAddresses = strategyAddresses_;
+    function setStrategy(address strategy_) external {
+        _strategy = strategy_;
     }
 }
 

@@ -243,10 +243,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         _itemIdByChildFlow[topology.childFlow] = itemId;
     }
 
-    function _deployLinearSpendPolicy(bool includeIncomingRate, uint256 maxTargetFlowRate, ISpendPolicy.SyncMode syncMode)
-        internal
-        returns (LinearSpendPolicy policy)
-    {
+    function _deployLinearSpendPolicy(
+        bool includeIncomingRate,
+        uint256 maxTargetFlowRate,
+        ISpendPolicy.SyncMode syncMode
+    ) internal returns (LinearSpendPolicy policy) {
         LinearSpendPolicy implementation = new LinearSpendPolicy();
         policy = LinearSpendPolicy(Clones.clone(address(implementation)));
         policy.initialize(includeIncomingRate, maxTargetFlowRate, syncMode);
@@ -1893,7 +1894,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         splitHookImplementation.initialize(
-            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
+            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), GOAL_REVNET_ID
         );
     }
 
@@ -1902,9 +1903,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         GoalRevnetSplitHook splitHookClone =
             GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
 
-        splitHookClone.initialize(
-            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
-        );
+        splitHookClone.initialize(IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), GOAL_REVNET_ID);
 
         assertEq(address(splitHookClone.directory()), address(directory));
         assertEq(address(splitHookClone.goalTreasury()), address(treasury));
@@ -1919,14 +1918,10 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         GoalRevnetSplitHook splitHookClone =
             GoalRevnetSplitHook(payable(Clones.clone(address(splitHookImplementation))));
 
-        splitHookClone.initialize(
-            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
-        );
+        splitHookClone.initialize(IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), GOAL_REVNET_ID);
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        splitHookClone.initialize(
-            IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), IFlow(address(flow)), GOAL_REVNET_ID
-        );
+        splitHookClone.initialize(IJBDirectory(address(directory)), IGoalTreasury(address(treasury)), GOAL_REVNET_ID);
     }
 
     function test_sync_clampsOutflowUntilCoverageIncreases() public {
@@ -2533,10 +2528,11 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
     }
 
-    function _deployLinearSpendPolicy(bool includeIncomingRate, uint256 maxTargetFlowRate, ISpendPolicy.SyncMode syncMode)
-        internal
-        returns (LinearSpendPolicy policy)
-    {
+    function _deployLinearSpendPolicy(
+        bool includeIncomingRate,
+        uint256 maxTargetFlowRate,
+        ISpendPolicy.SyncMode syncMode
+    ) internal returns (LinearSpendPolicy policy) {
         LinearSpendPolicy implementation = new LinearSpendPolicy();
         policy = LinearSpendPolicy(Clones.clone(address(implementation)));
         policy.initialize(includeIncomingRate, maxTargetFlowRate, syncMode);
@@ -2654,14 +2650,14 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
     }
 
     contract UnderwritingTopologyAwareMockFlow is SharedMockFlow {
-        IAllocationStrategy[] internal _strategies;
+        IAllocationStrategy internal _strategy;
 
         constructor(ISuperToken superToken_, IAllocationStrategy strategy_) SharedMockFlow(superToken_) {
-            _strategies.push(strategy_);
+            _strategy = strategy_;
         }
 
-        function strategies() external view returns (IAllocationStrategy[] memory strategies_) {
-            strategies_ = _strategies;
+        function strategy() external view returns (IAllocationStrategy) {
+            return _strategy;
         }
     }
 

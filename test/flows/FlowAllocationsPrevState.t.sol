@@ -209,7 +209,7 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
     }
 
     function test_syncAllocation_existingCommit_doesNotRewriteSnapshotWhenCommitUnchanged() public {
@@ -235,7 +235,7 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
 
         vm.record();
         vm.prank(other);
-        flow.syncAllocation(address(strategy), key);
+        flow.syncAllocation(key);
         (, bytes32[] memory writes) = vm.accesses(address(flow));
 
         assertEq(vm.load(address(flow), snapshotSlot), snapshotWordBefore);
@@ -320,7 +320,7 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
 
         vm.expectRevert(IFlow.INVALID_PREV_ALLOCATION.selector);
         vm.prank(other);
-        flow.clearStaleAllocation(address(strategy), key);
+        flow.clearStaleAllocation(key);
     }
 
     function test_allocate_existingCommit_withoutCachedWeight_reverts() public {

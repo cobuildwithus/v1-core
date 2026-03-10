@@ -209,9 +209,8 @@ cobuild-protocol/
 
 3. Allocation determinism
 - Allocation inputs and witness/commit semantics must remain deterministic and auditable.
-- Flow initialization requires exactly one configured allocation strategy.
-- Primary allocation updates use the default-strategy entrypoint (`allocate(bytes prevWitness, ...)`) with
-  `allocationKey(msg.sender, "")`.
+- Flow initialization configures exactly one allocation strategy, exposed at runtime via `strategy()`.
+- Primary allocation updates use the default-strategy entrypoint (`allocate(...)`) with `allocationKey(msg.sender, "")`.
 - Previous committed allocation weight for `(strategy, allocationKey)` is sourced on-chain (`allocWeightPlusOne`).
 - Allocation commitments are canonical over recipient ids + allocation scaled only (weight is tracked separately in cache/events).
 - Budget stake-ledger checkpoint merges require sorted/unique recipient-id arrays and fail closed on malformed order.
@@ -223,7 +222,7 @@ cobuild-protocol/
   - activation records per-item `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism,
     and mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
   - child-sync target resolution discovers topology via `budgetTreasury.authority() -> BudgetTCR` and then still
-    fail-closes unless the live child flow exposes exactly one strategy matching stored topology.
+    fail-closes unless the live child flow's configured `strategy()` matches stored topology.
 - Pipeline instances with `allocationLedger == 0` are explicit no-op mode and do not checkpoint.
 - Goal-flow ledger checkpointing and child-sync enforcement/execution are executed through the configured
   post-commit pipeline (`src/hooks/GoalFlowAllocationLedgerPipeline.sol`) after successful allocation commits.
@@ -256,7 +255,7 @@ cobuild-protocol/
     `managerRewardPool`, and `allocationPipeline` are set during initialization.
   - Runtime setter entrypoints for those fields are intentionally removed from the flow surface.
 - Child-sync and treasury-sync recovery are permissionless and observable:
-  - parent allocation maintenance uses `syncAllocation`/`clearStaleAllocation` with pipeline-driven child sync attempts.
+  - parent allocation maintenance uses default-strategy `syncAllocation`/`clearStaleAllocation` with pipeline-driven child sync attempts.
   - account-level child-sync debt repair is permissionless via
     `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
   - budget treasury maintenance uses `BudgetTCR.syncBudgetTreasuries` best-effort batch sync.

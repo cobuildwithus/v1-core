@@ -126,16 +126,11 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
     }
 
     function _flowStrategy(address flow) internal view returns (address configuredStrategy) {
-        IAllocationStrategy[] memory strategies;
-        try IManagedFlow(flow).strategies() returns (IAllocationStrategy[] memory configuredStrategies) {
-            strategies = configuredStrategies;
+        try IManagedFlow(flow).strategy() returns (IAllocationStrategy configuredStrategy_) {
+            configuredStrategy = address(configuredStrategy_);
         } catch {
             revert INVALID_FLOW(flow);
         }
-
-        uint256 strategyCount = strategies.length;
-        if (strategyCount != 1) revert INVALID_FLOW_STRATEGY_COUNT(flow, strategyCount);
-        configuredStrategy = address(strategies[0]);
     }
 
     function _effectiveTreasuryAndClosedForFlow(

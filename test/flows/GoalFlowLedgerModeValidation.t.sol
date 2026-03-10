@@ -25,9 +25,7 @@ contract GoalFlowLedgerModeValidationTest is Test {
 
         strategy.setStakeVault(address(stakeVault));
 
-        address[] memory strategies = new address[](1);
-        strategies[0] = address(strategy);
-        harness.setStrategies(strategies);
+        harness.setStrategy(address(strategy));
 
         treasury = new GoalFlowLedgerModeValidationGoalTreasury(EXPECTED_FLOW, address(stakeVault));
         ledger = new GoalFlowLedgerModeValidationLedger(address(treasury));
@@ -65,16 +63,17 @@ contract GoalFlowLedgerModeValidationTest is Test {
         harness.validateView(address(wrongFlowLedger), EXPECTED_FLOW);
     }
 
-    function test_validateOrRevertView_revertsWhenMultipleStrategiesConfigured() public {
-        MockAllocationStrategy secondStrategy = new MockAllocationStrategy();
-        secondStrategy.setStakeVault(address(stakeVault));
+    function test_validateOrRevertView_revertsWhenStrategyIsNotConfigured() public {
+        harness.setStrategy(address(0));
 
-        address[] memory strategies = new address[](2);
-        strategies[0] = address(strategy);
-        strategies[1] = address(secondStrategy);
-        harness.setStrategies(strategies);
-
-        vm.expectRevert(abi.encodeWithSelector(IFlow.ALLOCATION_LEDGER_REQUIRES_SINGLE_STRATEGY.selector, 2));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(0),
+                address(stakeVault),
+                address(0)
+            )
+        );
         harness.validateView(address(ledger), EXPECTED_FLOW);
     }
 
@@ -96,9 +95,7 @@ contract GoalFlowLedgerModeValidationTest is Test {
         GoalFlowLedgerModeValidationNoStakeVaultStrategy noStakeVaultStrategy =
             new GoalFlowLedgerModeValidationNoStakeVaultStrategy();
 
-        address[] memory strategies = new address[](1);
-        strategies[0] = address(noStakeVaultStrategy);
-        harness.setStrategies(strategies);
+        harness.setStrategy(address(noStakeVaultStrategy));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -115,9 +112,7 @@ contract GoalFlowLedgerModeValidationTest is Test {
         harness.validate(address(ledger), EXPECTED_FLOW);
         strategy.setStakeVault(address(0x1234));
 
-        address[] memory strategies = new address[](1);
-        strategies[0] = address(strategy);
-        harness.setStrategies(strategies);
+        harness.setStrategy(address(strategy));
 
         vm.expectRevert(
             abi.encodeWithSelector(

@@ -84,7 +84,7 @@ contract TeamFlowFactoryTest is Test {
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
 
         TeamFlow teamFlow = TeamFlow(deployed.mechanism);
-        IAllocationStrategy[] memory strategies = teamFlow.strategies();
+        IAllocationStrategy configuredStrategy = teamFlow.strategy();
 
         assertEq(deployed.mechanism, deployed.payoutRecipient);
         assertEq(deployed.auxiliary, address(0));
@@ -100,8 +100,7 @@ contract TeamFlowFactoryTest is Test {
         assertEq(teamFlow.parent(), address(0));
         assertEq(teamFlow.managerRewardPool(), address(0));
         assertEq(teamFlow.allocationPipeline(), address(0));
-        assertEq(strategies.length, 1);
-        assertEq(address(strategies[0]), address(teamFlow));
+        assertEq(address(configuredStrategy), address(teamFlow));
     }
 
     function test_deployForBudget_revertsWhenBudgetTreasuryHasNoCode() public {
@@ -135,21 +134,20 @@ contract TeamFlowFactoryTest is Test {
     function test_teamFlow_initialize_revertsWhenStrategyConfigIsInvalid() public {
         TeamFlow teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
         TeamFlow.InitConfig memory initConfig = _teamFlowInitConfig(100, 150);
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 0));
-        teamFlow.initialize(initConfig, strategies);
+        vm.expectRevert(
+            abi.encodeWithSelector(TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(0))
+        );
+        teamFlow.initialize(initConfig, IAllocationStrategy(address(0)));
 
         teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
-        strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(budgetFlowStrategy));
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(budgetFlowStrategy)
             )
         );
-        teamFlow.initialize(initConfig, strategies);
+        teamFlow.initialize(initConfig, IAllocationStrategy(address(budgetFlowStrategy)));
     }
 
     function test_teamFlow_onlyManagerCanMutateSeatsAndRateConfig() public {
@@ -198,8 +196,7 @@ contract TeamFlowFactoryTest is Test {
         vm.expectRevert(abi.encodeWithSelector(TeamFlow.MEMBER_NOT_ACTIVE.selector, alice));
         teamFlow.removeMember(alice);
 
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(teamFlow));
+        IAllocationStrategy strategies = IAllocationStrategy(address(teamFlow));
 
         vm.prank(address(teamFlow));
         vm.expectRevert(IFlow.NESTED_FLOW_RECIPIENTS_DISABLED.selector);
@@ -315,8 +312,7 @@ contract TeamFlowFactoryTest is Test {
 
     function _deployBudgetFlow() internal returns (CustomFlow flow) {
         address clone = Clones.clone(address(customFlowImplementation));
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
-        strategies[0] = IAllocationStrategy(address(budgetFlowStrategy));
+        IAllocationStrategy strategies = IAllocationStrategy(address(budgetFlowStrategy));
 
         ICustomFlow(clone).initialize(
             address(superToken),

@@ -19,7 +19,7 @@ abstract contract FlowAllocationsBase is FlowTestBase {
         return uint128(u);
     }
 
-    function _deployFlowWithStrategies(IAllocationStrategy[] memory strategies)
+    function _deployFlowWithStrategies(IAllocationStrategy strategy_)
         internal
         returns (CustomFlow deployed)
     {
@@ -38,7 +38,7 @@ abstract contract FlowAllocationsBase is FlowTestBase {
             address(0),
             flowParams,
             flowMetadata,
-            strategies
+            strategy_
         );
 
         deployed = CustomFlow(proxy);

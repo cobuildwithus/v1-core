@@ -90,15 +90,11 @@ contract FlowAllocationsStateTest is FlowAllocationsBase {
         assertEq(flow.getAllocationCommitment(address(strategy), keyB), commit);
     }
 
-    function test_initialize_revertsWhenMultipleStrategiesConfigured() public {
-        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](2);
-        strategies[0] = IAllocationStrategy(address(strategy));
-        strategies[1] = IAllocationStrategy(address(0xBEEF));
-
+    function test_initialize_revertsWhenStrategyIsZero() public {
         CustomFlow impl = new CustomFlow();
         address proxy = address(new ERC1967Proxy(address(impl), ""));
 
-        vm.expectRevert(abi.encodeWithSelector(IFlow.FLOW_REQUIRES_SINGLE_STRATEGY.selector, 2));
+        vm.expectRevert(IFlow.ADDRESS_ZERO.selector);
         vm.prank(owner);
         ICustomFlow(proxy).initialize(
             address(superToken),
@@ -111,7 +107,7 @@ contract FlowAllocationsStateTest is FlowAllocationsBase {
             address(0),
             flowParams,
             flowMetadata,
-            strategies
+            IAllocationStrategy(address(0))
         );
     }
 

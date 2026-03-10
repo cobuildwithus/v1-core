@@ -19,14 +19,14 @@ library FlowInitialization {
      * @param alloc The allocation storage of the Flow contract
      * @param pipeline The pipeline storage of the Flow contract
      * @param initConfig The flow initialization config
-     * @param _strategies The allocation strategies to use.
+     * @param strategy_ The allocation strategy to use.
      */
     function checkAndSetInitializationParams(
         FlowTypes.Config storage cfg,
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipeline,
         IFlow.FlowInitConfig memory initConfig,
-        IAllocationStrategy[] calldata _strategies
+        IAllocationStrategy strategy_
     ) public {
         if (initConfig.flowImplementation == address(0)) revert IFlow.ADDRESS_ZERO();
         if (initConfig.recipientAdmin == address(0)) revert IFlow.ADDRESS_ZERO();
@@ -38,16 +38,14 @@ library FlowInitialization {
         if (initConfig.managerRewardPool == address(0) && initConfig.flowParams.managerRewardPoolFlowRatePpm > 0) {
             revert IFlow.ADDRESS_ZERO();
         }
-        uint256 strategyCount = _strategies.length;
-        if (strategyCount != 1) revert IFlow.FLOW_REQUIRES_SINGLE_STRATEGY(strategyCount);
-        if (address(_strategies[0]) == address(0)) revert IFlow.ADDRESS_ZERO();
+        if (address(strategy_) == address(0)) revert IFlow.ADDRESS_ZERO();
         // Set the flow configuration
         cfg.managerRewardPoolFlowRatePpm = initConfig.flowParams.managerRewardPoolFlowRatePpm;
         cfg.flowImplementation = initConfig.flowImplementation;
         cfg.recipientAdmin = initConfig.recipientAdmin;
         cfg.parent = initConfig.parent;
         cfg.managerRewardPool = initConfig.managerRewardPool;
-        alloc.strategies = _strategies;
+        alloc.strategy = strategy_;
 
         PoolConfig memory poolConfig = PoolConfig({
             transferabilityForUnitsOwner: false,

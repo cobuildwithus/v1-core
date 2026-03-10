@@ -24,7 +24,7 @@ contract FlowInitializationAndAccessConnectTest is FlowInitializationAndAccessBa
         flow.connectPool(distribution);
         assertTrue(token.isMemberConnected(address(distribution), address(flow)));
 
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address parentAddr = address(0x1234);
         CustomFlow child = _deployFlowWith(
             owner,
@@ -55,7 +55,7 @@ contract FlowInitializationAndAccessConnectTest is FlowInitializationAndAccessBa
     }
 
     function test_connectPool_roleSeparated_onlyRecipientAdminOrParent() public {
-        IAllocationStrategy[] memory strategies = _oneStrategy();
+        IAllocationStrategy strategies = _oneStrategy();
         address recipientAdmin = makeAddr("recipientAdmin");
         address flowOperator = makeAddr("flowOperator");
         address sweeper = makeAddr("sweeper");
