@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { UnderwritingCoverageCapIntegrationTest } from "test/goals/UnderwritingIntegration.t.sol";
+import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {UnderwritingCoverageCapIntegrationTest} from "test/goals/UnderwritingIntegration.t.sol";
 
 contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapIntegrationTest {
     function test_initializeRevertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
@@ -16,12 +16,10 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                config.budgetPremiumPpm,
-                config.budgetSlashPpm
+                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector, config.budgetPremiumPpm, config.budgetSlashPpm
             )
         );
-        clone.initialize(address(this), config);
+        clone.initialize(config);
     }
 
     function test_initializeAllowsSlashEnabledWhenPremiumIsNonZero() public {
@@ -32,7 +30,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
-        clone.initialize(address(this), config);
+        clone.initialize(config);
 
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
@@ -48,12 +46,10 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                config.budgetPremiumPpm,
-                config.budgetSlashPpm
+                IGoalTreasury.INVALID_UNDERWRITING_SLASH_CONFIG.selector, config.budgetPremiumPpm, config.budgetSlashPpm
             )
         );
-        clone.initialize(address(this), config);
+        clone.initialize(config);
     }
 
     function test_cloneInitializeAllowsSlashEnabledWhenPremiumIsNonZero() public {
@@ -64,7 +60,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
-        clone.initialize(address(this), config);
+        clone.initialize(config);
 
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));
@@ -78,7 +74,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
-        clone.initialize(address(this), config);
+        clone.initialize(config);
 
         assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
         assertEq(uint256(clone.budgetSlashPpm()), uint256(config.budgetSlashPpm));

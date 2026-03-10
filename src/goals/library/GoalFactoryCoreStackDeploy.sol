@@ -174,7 +174,7 @@ library GoalFactoryCoreStackDeploy {
             spendPolicy: request.goalSpendPolicy
         });
 
-        out.goalTreasury.initialize(request.budgetTcrFactory, goalCfg);
+        out.goalTreasury.initialize(goalCfg);
         out.splitHook.initialize(request.directory, out.goalTreasury, out.goalFlow, request.goalRevnetId);
     }
 

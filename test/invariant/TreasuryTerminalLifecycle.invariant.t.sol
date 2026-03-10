@@ -471,7 +471,6 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalFlow.setSweeper(predictedGoalTreasury);
         goalTreasury = GoalTreasury(Clones.clone(address(goalTreasuryImplementation)));
         goalTreasury.initialize(
-            address(this),
             IGoalTreasury.GoalConfig({
                 flow: address(goalFlow),
                 stakeVault: address(goalStakeVault),

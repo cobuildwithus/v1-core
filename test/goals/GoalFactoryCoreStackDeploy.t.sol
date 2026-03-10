@@ -119,11 +119,9 @@ contract MockGoalToken is ERC20 {
 }
 
 contract MockGoalFactoryGoalTreasury {
-    address public lastOwner;
     address public lastSpendPolicy;
 
-    function initialize(address initialOwner, IGoalTreasury.GoalConfig calldata config) external {
-        lastOwner = initialOwner;
+    function initialize(IGoalTreasury.GoalConfig calldata config) external {
         lastSpendPolicy = config.spendPolicy;
     }
 }

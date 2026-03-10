@@ -94,7 +94,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     error INSUFFICIENT_TREASURY_BALANCE(address token, uint256 needed, uint256 have);
 
     event GoalConfigured(
-        address indexed owner,
         address flow,
         address stakeVault,
         address budgetStakeLedger,
