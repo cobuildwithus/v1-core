@@ -37,6 +37,8 @@
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/UnderwriterSlasherRouter.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
+- `src/hooks/CobuildSplitHook.sol`
+- `src/juicebox/CobuildPaymentTerminal.sol`
 - `src/tcr/GeneralizedTCR.sol`
 - `src/tcr/ERC20VotesArbitrator.sol`
 

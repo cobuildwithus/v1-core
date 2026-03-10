@@ -2,6 +2,14 @@
 
 Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is removed from runtime code. This map describes the current premium-escrow + underwriter slashing model.
 
+## Community root routing path
+
+1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
+2. The wrapper optionally sets a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal.
+3. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
+4. The split hook consumes the pending route and forwards reserved community tokens into approved child goals by paying each goal's primary terminal for the community token.
+5. If no pending route exists, the split hook either uses a configured default route/default beneficiary or escrows the reserved community tokens for later sweep.
+
 ## Goal Funding Path
 
 1. Revnet reserved-token splits enter through `GoalRevnetSplitHook.processSplitWith`.

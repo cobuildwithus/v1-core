@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-03-06
+Last updated: 2026-03-10
 
 ## Purpose
 
@@ -35,6 +35,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Underwriting premium/slash modules: `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
+- Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`
 
 ### Curation and arbitration domain
 
@@ -86,6 +87,20 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - continues when individual treasury `sync()` calls fail.
 - Flow rate mutators are role-gated:
   - `setTargetOutflowRate` and `refreshTargetOutflowRate`: flow-operator/parent.
+
+Community root routing
+- Community payments can arrive through `CobuildPaymentTerminal`.
+- The wrapper accepts native ETH or COBUILD:
+  - native ETH is first paid into the COBUILD revnet to acquire COBUILD,
+  - direct COBUILD pays are forwarded without the intermediate conversion step.
+- The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)` and seeds a
+  one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal.
+- During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
+- `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into approved child goals by
+  paying each goal's primary terminal for the community token.
+- If no pending route exists, the hook either:
+  - uses a configured default route plus default beneficiary, or
+  - escrows the reserved community tokens for later owner-directed sweep.
 
 3. Goal treasury funding and resolution
 - Revnet ingress arrives through `GoalRevnetSplitHook.processSplitWith`.
@@ -150,6 +165,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - Success-settlement path while treasury state is `Succeeded` and minting remains open (burn path).
   - Closed nonterminal path defers split funds on treasury.
   - Terminal closed path applies treasury terminal settlement policy.
+- `CobuildSplitHook` is controller-gated and wrapper-seeded:
+  - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route,
+  - default routing requires both a `defaultRoute` and `defaultBeneficiary`,
+  - missing explicit/default route data fails closed to escrow rather than guessing downstream funding destinations.
 
 4. Budget treasury lifecycle
 - Budget treasury uses live treasury balance (`superToken.balanceOf(flow)`) for activation/expiry checks.

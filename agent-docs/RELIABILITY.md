@@ -27,6 +27,8 @@
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/UnderwriterSlasherRouter.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
+- `src/hooks/CobuildSplitHook.sol`
+- `src/juicebox/CobuildPaymentTerminal.sol`
 
 ### TCR + arbitrator
 
@@ -51,6 +53,10 @@
 5. Child-sync and premium-checkpoint downstream failures
 - Parent allocation commits remain live when downstream child-sync calls fail; failures stay observable and permissionlessly repairable.
 - Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
+
+6. Community wrapper/split-hook route handoff mismatch
+- Explicit routed community pays must fail closed when the pending route is not consumed in the same transaction.
+- Direct community pays with no explicit/default route should escrow reserved tokens instead of inferring a downstream route.
 
 ## Verification Matrix
 

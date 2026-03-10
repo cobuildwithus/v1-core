@@ -63,6 +63,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
+- Community root routing is wrapper-seeded and split-driven:
+  - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
+    seeds a one-shot route on `CobuildSplitHook`, and then pays the configured community revnet.
+  - Explicit routed community pays must fail closed if the pending route is not consumed by the reserved-token split in
+    the same transaction.
+  - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
+    only into approved child goals, and otherwise uses a configured default route/default beneficiary or leaves the
+    reserved balance escrowed for later sweep.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,

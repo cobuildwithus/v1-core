@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-06
+Last updated: 2026-03-10
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -48,6 +48,7 @@ cobuild-protocol/
 - Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
+- Community reserved-token routing layer: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`.
 
 ### TCR and arbitration system
 
@@ -117,6 +118,13 @@ cobuild-protocol/
   - If treasury state is `Succeeded` and minting is still open, reserved inflow is processed by the success-settlement burn path.
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
+- Community reserved-token routing is wrapper-seeded and split-driven:
+  - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
+    sets a one-shot pending route on `CobuildSplitHook`, then pays the configured community revnet.
+  - `CobuildSplitHook` is controller-gated for the configured community revnet, routes reserved community tokens into
+    approved child goals, falls back to a default route/default beneficiary when configured, and otherwise escrows
+    reserved tokens for later owner-directed sweep.
+  - Explicit wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.
@@ -267,6 +275,7 @@ Medium-severity Slither findings are suppressed only at specific call-sites, not
 
 - `locked-ether`:
   - `src/hooks/GoalRevnetSplitHook.sol` (payable split hook entrypoint)
+  - `src/hooks/CobuildSplitHook.sol` (payable split hook entrypoint)
   - Assumption: hook rejects native value (`msg.value` must be zero) and only processes configured ERC20/super token flows; it is not used as an ETH custody contract.
 
 - `reentrancy-no-eth`:
