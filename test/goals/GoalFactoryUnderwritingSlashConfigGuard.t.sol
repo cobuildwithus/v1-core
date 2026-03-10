@@ -27,6 +27,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredCobuildTerminal;
     address internal configuredJbMultiTerminal;
     address internal configuredGoalTreasuryImpl;
+    address internal configuredGoalSpendPolicy;
     address internal configuredFlowImpl;
     address internal configuredSplitHookImpl;
     address internal configuredDefaultSubmissionDepositStrategy;
@@ -49,7 +50,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revnetController = new MockController(address(revnetTokens), address(new DummyContract()));
         revDeployer = new MockRevDeployer(address(revnetDirectory), address(revnetController));
         address cobuildNativeTerminal = address(new DummyContract());
-        revnetDirectory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativeTerminal));
+        revnetDirectory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(cobuildNativeTerminal)
+        );
 
         configuredStakeVaultImpl = address(new DummyContract());
         configuredBudgetStakeLedgerImpl = address(new DummyContract());
@@ -58,6 +61,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
         configuredGoalTreasuryImpl = address(new DummyContract());
+        configuredGoalSpendPolicy = address(new DummyContract());
         configuredFlowImpl = address(new DummyContract());
         configuredSplitHookImpl = address(new DummyContract());
         configuredDefaultSubmissionDepositStrategy = address(new DummyContract());
@@ -273,7 +277,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                GoalFactory.INVALID_COBUILD_TERMINAL_DIRECTORY.selector, address(revnetDirectory), address(wrongDirectory)
+                GoalFactory.INVALID_COBUILD_TERMINAL_DIRECTORY.selector,
+                address(revnetDirectory),
+                address(wrongDirectory)
             )
         );
         _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, address(mismatchedTerminal));
@@ -338,9 +344,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         );
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                GoalFactory.INVALID_COBUILD_NATIVE_TERMINAL.selector, configuredCobuildTerminal
-            )
+            abi.encodeWithSelector(GoalFactory.INVALID_COBUILD_NATIVE_TERMINAL.selector, configuredCobuildTerminal)
         );
         _newFactoryForCobuildConfig(address(cobuildToken), COBUILD_REVNET_ID, configuredCobuildTerminal);
     }
@@ -978,6 +982,22 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_revertsWhenGoalSpendPolicyIsZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.goalSpendPolicy = address(0);
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenGoalSpendPolicyHasNoCode() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.goalSpendPolicy = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.goalSpendPolicy));
+        factory.deployGoal(p);
+    }
+
     function test_deployGoal_allowsSlashEnabledWhenPremiumIsNonZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
         p.underwriting.budgetPremiumPpm = 100_000;
@@ -1047,7 +1067,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
-    function _baseDeployParams() internal pure returns (GoalFactory.DeployParams memory p) {
+    function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
             ticker: "GOAL",
@@ -1072,6 +1092,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             tagline: "tagline",
             url: "https://example.com"
         });
+        p.goalSpendPolicy = configuredGoalSpendPolicy;
     }
 
     function _newCobuildTokenForRevnet() internal returns (MockToken cobuildToken) {
@@ -1080,15 +1101,15 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revnetDirectory.setPrimaryTerminal(
             COBUILD_REVNET_ID, address(cobuildToken), IJBTerminal(address(new DummyMultiTerminal()))
         );
-        configuredCobuildTerminal =
-            address(new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(cobuildToken), COBUILD_REVNET_ID));
+        configuredCobuildTerminal = address(
+            new CobuildTerminal(IJBDirectory(address(revnetDirectory)), address(cobuildToken), COBUILD_REVNET_ID)
+        );
     }
 
-    function _newFactoryForCobuildConfig(
-        address cobuildToken,
-        uint256 cobuildRevnetId,
-        address cobuildTerminal
-    ) internal returns (GoalFactory) {
+    function _newFactoryForCobuildConfig(address cobuildToken, uint256 cobuildRevnetId, address cobuildTerminal)
+        internal
+        returns (GoalFactory)
+    {
         return new GoalFactory(
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
@@ -1220,17 +1241,15 @@ contract MockRevDeployer {
         IREVDeployer.REVSuckerDeploymentConfig calldata
     ) external returns (uint256 revnetId) {
         address splitHook = address(0);
-        if (
-            configuration.stageConfigurations.length != 0 &&
-            configuration.stageConfigurations[0].splits.length != 0
-        ) {
+        if (configuration.stageConfigurations.length != 0 && configuration.stageConfigurations[0].splits.length != 0) {
             splitHook = configuration.stageConfigurations[0].splits[0].beneficiary;
         }
 
         uint24 observedFee;
         uint32 observedTwapWindow;
         if (buybackHookConfiguration.poolConfigurations.length != 0) {
-            IREVDeployer.REVBuybackPoolConfig calldata poolConfiguration = buybackHookConfiguration.poolConfigurations[0];
+            IREVDeployer.REVBuybackPoolConfig calldata poolConfiguration =
+                buybackHookConfiguration.poolConfigurations[0];
             observedFee = poolConfiguration.fee;
             observedTwapWindow = poolConfiguration.twapWindow;
         }

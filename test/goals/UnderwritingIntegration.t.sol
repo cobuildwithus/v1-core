@@ -93,6 +93,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
     UnderwritingMockGoalFlow internal goalFlow;
     UnderwritingMockGoalTreasuryResolutionReporter internal goalTreasury;
     UnderwritingBudgetTopologyStrategy internal topologyStrategy;
+    address internal defaultGoalSpendPolicy;
 
     mapping(bytes32 itemId => BudgetStackTopology topology) private _topologyByItemId;
     mapping(bytes32 itemId => bool active) private _activeByItemId;
@@ -172,6 +173,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
             GOAL_FUNDING_TARGET
         );
         stakeVault.setUnderwriterSlasher(address(router));
+        defaultGoalSpendPolicy = address(_deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback));
 
         budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
         budgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
@@ -239,6 +241,15 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         _activeByItemId[itemId] = active;
         _itemIdByBudgetTreasury[topology.budgetTreasury] = itemId;
         _itemIdByChildFlow[topology.childFlow] = itemId;
+    }
+
+    function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
+        internal
+        returns (LinearSpendPolicy policy)
+    {
+        LinearSpendPolicy implementation = new LinearSpendPolicy();
+        policy = LinearSpendPolicy(Clones.clone(address(implementation)));
+        policy.initialize(includeIncomingRate, syncMode);
     }
 
     function test_underwriterCoverage_premiumAccruesAndClaims() public {
@@ -1518,7 +1529,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     successAssertionBond: 10e18,
                     successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
                     successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy"),
-                    spendPolicy: address(0)
+                    spendPolicy: defaultGoalSpendPolicy
                 })
             );
 
@@ -1778,6 +1789,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     GoalTreasury internal goalTreasuryImplementation;
     GoalTreasury internal treasury;
+    address internal defaultGoalSpendPolicy;
 
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
@@ -1809,6 +1821,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             address(0xA11CE),
             keccak256("goal-test-domain")
         );
+        LinearSpendPolicy goalSpendPolicy =
+            _deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        defaultGoalSpendPolicy = address(goalSpendPolicy);
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 30 days), 1e18);
@@ -1980,6 +1995,27 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.spendPolicy = address(new GoalTreasuryNonSpendPolicy());
+
+        vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
+        candidateTreasury.initialize(address(this), config);
+    }
+
+    function test_initialize_revertsWhenSpendPolicyIsZero() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.spendPolicy = address(0);
+
+        vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
+        candidateTreasury.initialize(address(this), config);
+    }
+
+    function test_initialize_revertsWhenSpendPolicyIsUninitializedClone() public {
+        GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.spendPolicy = address(Clones.clone(address(implementation)));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
         candidateTreasury.initialize(address(this), config);
@@ -2562,7 +2598,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             successAssertionBond: 10e18,
             successOracleSpecHash: keccak256("goal-oracle-spec"),
             successAssertionPolicyHash: keccak256("goal-assertion-policy"),
-            spendPolicy: address(0)
+            spendPolicy: defaultGoalSpendPolicy
         });
     }
 }

@@ -20,7 +20,6 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/in
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
-import { GoalSpendPatterns } from "./library/GoalSpendPatterns.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
@@ -33,7 +32,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
-    GoalSpendPatterns.SpendPattern private constant GOAL_SPEND_PATTERN = GoalSpendPatterns.SpendPattern.Linear;
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
     string private constant SUCCESS_SETTLEMENT_BURN_MEMO = "GOAL_SUCCESS_SETTLEMENT_BURN";
     string private constant SUCCESS_RESIDUAL_BURN_MEMO = "GOAL_SUCCESS_RESIDUAL_BURN";
@@ -116,10 +114,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (config.hook == address(0)) revert ADDRESS_ZERO();
         if (config.goalRulesets == address(0)) revert ADDRESS_ZERO();
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
-        if (config.spendPolicy != address(0) && config.spendPolicy.code.length == 0) {
-            revert NOT_A_CONTRACT(config.spendPolicy);
-        }
-        if (config.spendPolicy != address(0)) _requireValidSpendPolicy(config.spendPolicy);
+        if (config.spendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (config.spendPolicy.code.length == 0) revert NOT_A_CONTRACT(config.spendPolicy);
+        _requireValidSpendPolicy(config.spendPolicy);
         if (
             config.successAssertionLiveness == 0 ||
             config.successOracleSpecHash == bytes32(0) ||
@@ -433,24 +430,10 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function _computeConfiguredTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
         if (remaining == 0) return 0;
 
-        if (spendPolicy == address(0)) {
-            return _computeLegacyClampedTargetFlowRate(balance, remaining);
-        }
-
         uint128 totalUnits = _flow.distributionPool().getTotalUnits();
         if (totalUnits == 0) return 0;
 
         return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining, totalUnits));
-    }
-
-    function _computeLegacyClampedTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
-        int96 targetRate = GoalSpendPatterns.targetFlowRate(GOAL_SPEND_PATTERN, balance, remaining);
-
-        // Underwriting is enforced via budget-level credit-line recipient gating.
-        // Avoid streaming into an empty distribution pool (all recipients disabled or no recipients).
-        if (_flow.distributionPool().getTotalUnits() == 0) return 0;
-
-        return targetRate;
     }
 
     function _buildSpendContext(
@@ -471,7 +454,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
-        if (spendPolicy == address(0)) return ISpendPolicy.SyncMode.LinearSpendDownFallback;
         return ISpendPolicy(spendPolicy).syncMode();
     }
 
@@ -484,22 +466,23 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             revert INVALID_SPEND_POLICY(candidate);
         }
 
-        try
-            ISpendPolicy(candidate).targetFlowRate(
-                ISpendPolicy.SpendContext({
-                    nowTs: uint64(block.timestamp),
-                    activatedAt: 0,
-                    deadline: 0,
-                    treasuryBalance: 0,
-                    timeRemaining: 0,
-                    incomingRate: 0,
-                    currentOutflowRate: 0,
-                    totalRecipientUnits: 0
-                })
-            )
-        returns (int96) {} catch {
+        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
             revert INVALID_SPEND_POLICY(candidate);
         }
+    }
+
+    function _spendPolicyValidationContext() internal view returns (ISpendPolicy.SpendContext memory ctx) {
+        uint64 nowTs = uint64(block.timestamp);
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: nowTs,
+            activatedAt: nowTs,
+            deadline: nowTs + 1,
+            treasuryBalance: 1,
+            timeRemaining: 1,
+            incomingRate: 0,
+            currentOutflowRate: 0,
+            totalRecipientUnits: 1
+        });
     }
 
     function _minRaiseWindowElapsedWithoutGoal(GoalState currentState) internal view returns (bool) {

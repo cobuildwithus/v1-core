@@ -5,12 +5,14 @@ import "forge-std/console2.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 
 contract DeployGoalFromFactory is DeployScript {
     address internal goalFactoryAddressOut;
     address internal goalOwnerOut;
+    address internal goalSpendPolicyOut;
     address internal successResolverOut;
     address internal budgetSuccessResolverOut;
 
@@ -65,8 +67,12 @@ contract DeployGoalFromFactory is DeployScript {
             revert BUDGET_SLASH_PPM_INVALID(budgetSlashPpmRaw);
         }
         uint32 budgetSlashPpm = uint32(budgetSlashPpmRaw);
+        address goalSpendPolicy = vm.envOr("GOAL_SPEND_POLICY", BURN);
 
         address budgetSuccessResolver = vm.envOr("BUDGET_SUCCESS_RESOLVER", successResolver);
+        if (goalSpendPolicy == BURN) revert GOAL_SPEND_POLICY_REQUIRED();
+        if (goalSpendPolicy.code.length == 0) revert GOAL_SPEND_POLICY_NOT_CONTRACT(goalSpendPolicy);
+        _requireValidGoalSpendPolicy(goalSpendPolicy);
         if (successResolver == BURN) revert SUCCESS_RESOLVER_REQUIRED();
         if (successResolver.code.length == 0) revert SUCCESS_RESOLVER_NOT_CONTRACT(successResolver);
         if (budgetSuccessResolver == BURN) revert BUDGET_SUCCESS_RESOLVER_REQUIRED();
@@ -128,8 +134,7 @@ contract DeployGoalFromFactory is DeployScript {
                 title: flowTitle, description: flowDesc, image: flowImage, tagline: flowTagline, url: flowUrl
             }),
             underwriting: GoalFactory.UnderwritingParams({
-                budgetPremiumPpm: budgetPremiumPpm,
-                budgetSlashPpm: budgetSlashPpm
+                budgetPremiumPpm: budgetPremiumPpm, budgetSlashPpm: budgetSlashPpm
             }),
             budgetTCR: GoalFactory.BudgetTCRParams({
                 allocationMechanismAdmin: goalOwner,
@@ -147,12 +152,14 @@ contract DeployGoalFromFactory is DeployScript {
                 oracleBounds: oracleBounds,
                 budgetSuccessResolver: budgetSuccessResolver,
                 arbitratorParams: arbParams
-            })
+            }),
+            goalSpendPolicy: goalSpendPolicy
         });
 
         GoalFactory.DeployedGoalStack memory out = factory.deployGoal(params);
 
         goalOwnerOut = goalOwner;
+        goalSpendPolicyOut = goalSpendPolicy;
         successResolverOut = successResolver;
         budgetSuccessResolverOut = budgetSuccessResolver;
 
@@ -169,6 +176,7 @@ contract DeployGoalFromFactory is DeployScript {
         arbitratorOut = out.arbitrator;
 
         console2.log("Goal deployed by:", deployerAddress);
+        console2.log("goalSpendPolicy:", goalSpendPolicyOut);
         console2.log("successResolver:", successResolverOut);
         console2.log("budgetSuccessResolver:", budgetSuccessResolverOut);
         console2.log("goalRevnetId:", goalRevnetIdOut);
@@ -191,6 +199,7 @@ contract DeployGoalFromFactory is DeployScript {
     function writeDeploymentDetails(string memory filePath) internal override {
         _writeAddressLine(filePath, "GOAL_FACTORY", goalFactoryAddressOut);
         _writeAddressLine(filePath, "GOAL_OWNER", goalOwnerOut);
+        _writeAddressLine(filePath, "GOAL_SPEND_POLICY", goalSpendPolicyOut);
         _writeAddressLine(filePath, "SUCCESS_RESOLVER", successResolverOut);
         _writeAddressLine(filePath, "BUDGET_SUCCESS_RESOLVER", budgetSuccessResolverOut);
 
@@ -207,6 +216,38 @@ contract DeployGoalFromFactory is DeployScript {
         _writeAddressLine(filePath, "arbitrator", arbitratorOut);
     }
 
+    function _requireValidGoalSpendPolicy(address spendPolicy) internal view {
+        try ISpendPolicy(spendPolicy).syncMode() returns (ISpendPolicy.SyncMode mode) {
+            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
+                revert GOAL_SPEND_POLICY_INVALID(spendPolicy);
+            }
+        } catch {
+            revert GOAL_SPEND_POLICY_INVALID(spendPolicy);
+        }
+
+        try ISpendPolicy(spendPolicy).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {}
+        catch {
+            revert GOAL_SPEND_POLICY_INVALID(spendPolicy);
+        }
+    }
+
+    function _spendPolicyValidationContext() internal view returns (ISpendPolicy.SpendContext memory ctx) {
+        uint64 nowTs = uint64(block.timestamp);
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: nowTs,
+            activatedAt: nowTs,
+            deadline: nowTs + 1,
+            treasuryBalance: 1,
+            timeRemaining: 1,
+            incomingRate: 0,
+            currentOutflowRate: 0,
+            totalRecipientUnits: 1
+        });
+    }
+
+    error GOAL_SPEND_POLICY_REQUIRED();
+    error GOAL_SPEND_POLICY_NOT_CONTRACT(address spendPolicy);
+    error GOAL_SPEND_POLICY_INVALID(address spendPolicy);
     error SUCCESS_RESOLVER_REQUIRED();
     error SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();

@@ -13,8 +13,10 @@ contract UnitsCapSpendPolicy is ISpendPolicy, Initializable {
     uint256 public reserveFloor;
     uint64 public minRunwaySeconds;
     bool public includeIncomingRate;
+    bool private _policyInitialized;
 
     error INVALID_MIN_RUNWAY_SECONDS();
+    error POLICY_NOT_INITIALIZED();
 
     constructor() {
         _disableInitializers();
@@ -34,9 +36,11 @@ contract UnitsCapSpendPolicy is ISpendPolicy, Initializable {
         reserveFloor = reserveFloor_;
         minRunwaySeconds = minRunwaySeconds_;
         includeIncomingRate = includeIncomingRate_;
+        _policyInitialized = true;
     }
 
     function targetFlowRate(SpendContext calldata ctx) external view override returns (int96) {
+        _requireInitialized();
         if (ctx.totalRecipientUnits == 0) return 0;
 
         uint256 desired = uint256(ratePerUnitPerSecond) * uint256(ctx.totalRecipientUnits);
@@ -49,8 +53,13 @@ contract UnitsCapSpendPolicy is ISpendPolicy, Initializable {
         return _toInt96Capped(desired);
     }
 
-    function syncMode() external pure override returns (SyncMode) {
+    function syncMode() external view override returns (SyncMode) {
+        _requireInitialized();
         return SyncMode.Capped;
+    }
+
+    function _requireInitialized() private view {
+        if (!_policyInitialized) revert POLICY_NOT_INITIALIZED();
     }
 
     function _sustainableRate(SpendContext calldata ctx) private view returns (uint256 sustainable) {

@@ -61,6 +61,7 @@ library GoalFactoryCoreStackDeploy {
         uint256 successAssertionBond;
         bytes32 successOracleSpecHash;
         bytes32 successAssertionPolicyHash;
+        address goalSpendPolicy;
     }
 
     struct CoreStackResult {
@@ -170,7 +171,7 @@ library GoalFactoryCoreStackDeploy {
             successAssertionBond: request.successAssertionBond,
             successOracleSpecHash: request.successOracleSpecHash,
             successAssertionPolicyHash: request.successAssertionPolicyHash,
-            spendPolicy: address(0)
+            spendPolicy: request.goalSpendPolicy
         });
 
         out.goalTreasury.initialize(request.budgetTcrFactory, goalCfg);

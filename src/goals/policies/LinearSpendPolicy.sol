@@ -10,6 +10,9 @@ contract LinearSpendPolicy is ISpendPolicy, Initializable {
 
     bool public includeIncomingRate;
     SyncMode private _syncMode;
+    bool private _policyInitialized;
+
+    error POLICY_NOT_INITIALIZED();
 
     constructor() {
         _disableInitializers();
@@ -18,9 +21,11 @@ contract LinearSpendPolicy is ISpendPolicy, Initializable {
     function initialize(bool includeIncomingRate_, SyncMode syncMode_) external initializer {
         includeIncomingRate = includeIncomingRate_;
         _syncMode = syncMode_;
+        _policyInitialized = true;
     }
 
     function targetFlowRate(SpendContext calldata ctx) external view override returns (int96) {
+        _requireInitialized();
         if (ctx.totalRecipientUnits == 0 || ctx.timeRemaining == 0) return 0;
 
         uint256 spendDown = ctx.treasuryBalance / ctx.timeRemaining;
@@ -34,7 +39,12 @@ contract LinearSpendPolicy is ISpendPolicy, Initializable {
     }
 
     function syncMode() external view override returns (SyncMode) {
+        _requireInitialized();
         return _syncMode;
+    }
+
+    function _requireInitialized() private view {
+        if (!_policyInitialized) revert POLICY_NOT_INITIALIZED();
     }
 
     function _capAddUint96(uint256 a, uint256 b) private pure returns (uint256) {

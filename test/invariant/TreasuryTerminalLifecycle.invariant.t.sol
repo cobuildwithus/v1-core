@@ -8,8 +8,10 @@ import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBRulesetApprovalHook} from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
 import {IJBToken} from "@bananapus/core-v5/interfaces/IJBToken.sol";
@@ -458,6 +460,9 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalTokens.setProjectIdOf(address(goalUnderlying), PROJECT_ID);
 
         GoalTreasury goalTreasuryImplementation = new GoalTreasury();
+        LinearSpendPolicy goalSpendPolicyImplementation = new LinearSpendPolicy();
+        LinearSpendPolicy goalSpendPolicy = LinearSpendPolicy(Clones.clone(address(goalSpendPolicyImplementation)));
+        goalSpendPolicy.initialize(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         goalStakeVault.setGoalTreasury(predictedGoalTreasury);
@@ -485,7 +490,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("goal-oracle-spec"),
                 successAssertionPolicyHash: keccak256("goal-assertion-policy"),
-                spendPolicy: address(0)
+                spendPolicy: address(goalSpendPolicy)
             })
         );
         goalHook.setTreasury(goalTreasury);

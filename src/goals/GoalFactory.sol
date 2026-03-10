@@ -124,6 +124,7 @@ contract GoalFactory {
         FlowMetadataParams flowMetadata;
         UnderwritingParams underwriting;
         BudgetTCRParams budgetTCR;
+        address goalSpendPolicy;
     }
 
     struct DeployedGoalStack {
@@ -301,6 +302,8 @@ contract GoalFactory {
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
+        if (p.goalSpendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (p.goalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.goalSpendPolicy);
 
         if (
             p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
@@ -438,7 +441,8 @@ contract GoalFactory {
                     successAssertionLiveness: p.success.successAssertionLiveness,
                     successAssertionBond: p.success.successAssertionBond,
                     successOracleSpecHash: p.success.successOracleSpecHash,
-                    successAssertionPolicyHash: p.success.successAssertionPolicyHash
+                    successAssertionPolicyHash: p.success.successAssertionPolicyHash,
+                    goalSpendPolicy: p.goalSpendPolicy
                 })
             );
     }

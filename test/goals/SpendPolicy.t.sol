@@ -49,6 +49,20 @@ contract SpendPolicyTest is Test {
         assertEq(uint256(policy.syncMode()), uint256(ISpendPolicy.SyncMode.LinearSpendDownFallback));
     }
 
+    function test_linearSpendPolicy_revertsBeforeInitialization_forImplementationAndClone() public {
+        vm.expectRevert(LinearSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        linearImplementation.syncMode();
+        vm.expectRevert(LinearSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        linearImplementation.targetFlowRate(_context(100, 10, 1, 0));
+
+        LinearSpendPolicy clone = LinearSpendPolicy(Clones.clone(address(linearImplementation)));
+
+        vm.expectRevert(LinearSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        clone.syncMode();
+        vm.expectRevert(LinearSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        clone.targetFlowRate(_context(100, 10, 1, 0));
+    }
+
     function test_linearSpendPolicy_initialize_rejectsMalformedSyncModeCallData() public {
         LinearSpendPolicy policy = LinearSpendPolicy(Clones.clone(address(linearImplementation)));
 
@@ -95,6 +109,20 @@ contract SpendPolicyTest is Test {
         UnitsCapSpendPolicy policy = _deployUnitsCapSpendPolicy(10, 100, 0, 10, false);
 
         assertEq(uint256(policy.syncMode()), uint256(ISpendPolicy.SyncMode.Capped));
+    }
+
+    function test_unitsCapSpendPolicy_revertsBeforeInitialization_forImplementationAndClone() public {
+        vm.expectRevert(UnitsCapSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        unitsCapImplementation.syncMode();
+        vm.expectRevert(UnitsCapSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        unitsCapImplementation.targetFlowRate(_context(100, 10, 1, 0));
+
+        UnitsCapSpendPolicy clone = UnitsCapSpendPolicy(Clones.clone(address(unitsCapImplementation)));
+
+        vm.expectRevert(UnitsCapSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        clone.syncMode();
+        vm.expectRevert(UnitsCapSpendPolicy.POLICY_NOT_INITIALIZED.selector);
+        clone.targetFlowRate(_context(100, 10, 1, 0));
     }
 
     function test_unitsCapSpendPolicy_initialize_revertsOnZeroMinRunwaySeconds() public {
