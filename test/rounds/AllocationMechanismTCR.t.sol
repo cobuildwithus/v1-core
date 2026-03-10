@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
-import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
+import {IMechanismLifecycleHooks} from "src/tcr/interfaces/IMechanismLifecycleHooks.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {IManagedFlow} from "src/interfaces/IManagedFlow.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
 
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
     RoundTestSuperToken,
     RoundTestSuperfluidGDA,
@@ -31,11 +34,14 @@ import {
     RoundTestArbitrator
 } from "test/rounds/helpers/RoundTestMocks.sol";
 
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ISuperToken, ISuperfluidPool } from
-    "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    ISuperToken,
+    ISuperfluidPool
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
     DeployedMechanism internal nextDeployedMechanism;
@@ -62,11 +68,10 @@ contract MockAllocationMechanismFactory is IAllocationMechanismFactory {
         nextDeployedMechanism = next;
     }
 
-    function deployForBudget(
-        bytes32 mechanismId,
-        address budgetTreasury,
-        bytes calldata mechanismConfig
-    ) external returns (DeployedMechanism memory out) {
+    function deployForBudget(bytes32 mechanismId, address budgetTreasury, bytes calldata mechanismConfig)
+        external
+        returns (DeployedMechanism memory out)
+    {
         RoundFactory.AllocationMechanismConfig memory cfg =
             abi.decode(mechanismConfig, (RoundFactory.AllocationMechanismConfig));
         createCalls += 1;
@@ -102,11 +107,10 @@ contract MockOpaqueMechanismFactory is IAllocationMechanismFactory {
         nextDeployedMechanism = next;
     }
 
-    function deployForBudget(
-        bytes32 mechanismId,
-        address budgetTreasury,
-        bytes calldata mechanismConfig
-    ) external returns (DeployedMechanism memory out) {
+    function deployForBudget(bytes32 mechanismId, address budgetTreasury, bytes calldata mechanismConfig)
+        external
+        returns (DeployedMechanism memory out)
+    {
         deployCalls += 1;
         lastMechanismId = mechanismId;
         lastBudgetTreasury = budgetTreasury;
@@ -115,7 +119,86 @@ contract MockOpaqueMechanismFactory is IAllocationMechanismFactory {
     }
 }
 
+contract MockLifecycleMechanism is IMechanismLifecycleHooks {
+    error FUNDING_RELEASED_HOOK_FAILED();
+    error MECHANISM_REMOVED_HOOK_FAILED();
+
+    uint256 public fundingReleasedCalls;
+    uint256 public mechanismRemovedCalls;
+    uint256 public lastReleasedAmount;
+    address public lastCaller;
+    bool public revertOnFundingReleased;
+    bool public revertOnMechanismRemoved;
+
+    function setRevertFlags(bool fundingReleased_, bool mechanismRemoved_) external {
+        revertOnFundingReleased = fundingReleased_;
+        revertOnMechanismRemoved = mechanismRemoved_;
+    }
+
+    function onFundingReleased(uint256 released) external {
+        if (revertOnFundingReleased) revert FUNDING_RELEASED_HOOK_FAILED();
+        fundingReleasedCalls += 1;
+        lastReleasedAmount = released;
+        lastCaller = msg.sender;
+    }
+
+    function onMechanismRemoved() external {
+        if (revertOnMechanismRemoved) revert MECHANISM_REMOVED_HOOK_FAILED();
+        mechanismRemovedCalls += 1;
+        lastCaller = msg.sender;
+    }
+}
+
+contract MockSweepablePayoutRecipient {
+    error ONLY_SWEEPER();
+    error SWEEP_FAILED();
+
+    IERC20 public immutable superToken;
+    address public sweeper;
+    bool public revertOnSweep;
+    uint256 public sweepCalls;
+    address public lastSweepRecipient;
+    uint256 public lastSweepAmount;
+
+    constructor(IERC20 superToken_, address sweeper_) {
+        superToken = superToken_;
+        sweeper = sweeper_;
+    }
+
+    function setSweeper(address sweeper_) external {
+        sweeper = sweeper_;
+    }
+
+    function setRevertOnSweep(bool revertOnSweep_) external {
+        revertOnSweep = revertOnSweep_;
+    }
+
+    function sweepSuperToken(address to, uint256 amount) external returns (uint256 swept) {
+        if (msg.sender != sweeper) revert ONLY_SWEEPER();
+        if (revertOnSweep) revert SWEEP_FAILED();
+
+        uint256 available = superToken.balanceOf(address(this));
+        if (available == 0) return 0;
+
+        swept = amount > available ? available : amount;
+        if (swept == 0) return 0;
+
+        require(superToken.transfer(to, swept), "TRANSFER_FAILED");
+
+        sweepCalls += 1;
+        lastSweepRecipient = to;
+        lastSweepAmount = swept;
+    }
+}
+
 contract AllocationMechanismTCRTest is Test {
+    event MechanismMaintenanceCallFailed(
+        bytes32 indexed itemID, address indexed callTarget, bytes4 indexed selector, bytes reason
+    );
+    event MechanismPayoutSwept(
+        bytes32 indexed itemID, address indexed payoutRecipient, address indexed recipient, uint256 amount
+    );
+
     MockVotesToken internal underlying;
     RoundTestSuperToken internal superToken;
 
@@ -141,6 +224,8 @@ contract AllocationMechanismTCRTest is Test {
     address internal alice = address(0xA11CE);
     address internal constant ALT_DISTRIBUTION_POOL = address(0xD158);
     bytes4 internal constant CALL_AGREEMENT_SELECTOR = bytes4(keccak256("callAgreement(address,bytes,bytes)"));
+    bytes32 internal constant MECHANISM_MAINTENANCE_CALL_FAILED_TOPIC =
+        keccak256("MechanismMaintenanceCallFailed(bytes32,address,bytes4,bytes)");
 
     uint256 internal constant ARBITRATION_COST = 1e14;
 
@@ -182,7 +267,12 @@ contract AllocationMechanismTCRTest is Test {
         budgetFlow.setDistributionPool(address(budgetDistributionPool));
         budgetTreasury = new RoundTestBudgetTreasury(address(budgetFlow));
 
-        roundFactory = new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()));
+        roundFactory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new PrizePoolSubmissionDepositStrategy()),
+            address(new ERC20VotesArbitrator())
+        );
 
         mechanismDepositStrategy = new EscrowSubmissionDepositStrategy(underlying);
         AllocationMechanismTCR mechanismImplementation =
@@ -191,14 +281,8 @@ contract AllocationMechanismTCRTest is Test {
 
         budgetFlow.setRecipientAdmin(address(mechanism));
 
-        mechanismArbitrator = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        mechanismArbitrator =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(mechanismArbitrator);
 
@@ -214,21 +298,22 @@ contract AllocationMechanismTCRTest is Test {
         factories[0] = factory;
     }
 
-    function _factoryArray(
-        address factoryA,
-        address factoryB,
-        address factoryC
-    ) internal pure returns (address[] memory factories) {
+    function _factoryArray(address factoryA, address factoryB, address factoryC)
+        internal
+        pure
+        returns (address[] memory factories)
+    {
         factories = new address[](3);
         factories[0] = factoryA;
         factories[1] = factoryB;
         factories[2] = factoryC;
     }
 
-    function _validListing(
-        uint64 roundStartAt,
-        uint64 roundEndAt
-    ) internal view returns (AllocationMechanismTCR.MechanismListing memory listing) {
+    function _validListing(uint64 roundStartAt, uint64 roundEndAt)
+        internal
+        view
+        returns (AllocationMechanismTCR.MechanismListing memory listing)
+    {
         uint64 duration = roundEndAt > roundStartAt ? roundEndAt - roundStartAt : 0;
         listing = AllocationMechanismTCR.MechanismListing({
             metadata: FlowTypes.RecipientMetadata({
@@ -243,7 +328,8 @@ contract AllocationMechanismTCRTest is Test {
             minBudgetFunding: 0,
             maxBudgetFunding: 0,
             deploymentConfig: _mechanismDeploymentConfig(
-                address(roundFactory), _encodedRoundMechanismConfig(roundStartAt, roundEndAt, _defaultRoundFactoryConfig())
+                address(roundFactory),
+                _encodedRoundMechanismConfig(roundStartAt, roundEndAt, _defaultRoundFactoryConfig())
             )
         });
     }
@@ -258,9 +344,18 @@ contract AllocationMechanismTCRTest is Test {
         listing.fundingDeadline = uint64(block.timestamp + 7 days);
     }
 
+    function _validOpaqueListing(address mechanismFactory, bytes memory mechanismConfig)
+        internal
+        view
+        returns (AllocationMechanismTCR.MechanismListing memory listing)
+    {
+        listing = _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
+        listing.deploymentConfig = _mechanismDeploymentConfig(mechanismFactory, mechanismConfig);
+    }
+
     function _defaultRoundFactoryConfig() internal view returns (RoundFactory.AllocationMechanismConfig memory cfg) {
         cfg = RoundFactory.AllocationMechanismConfig({
-            timing: RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            timing: RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator: roundOperator,
             tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: "",
@@ -273,10 +368,7 @@ contract AllocationMechanismTCRTest is Test {
                 challengePeriodDuration: 1 days
             }),
             arbConfig: RoundFactory.ArbitratorConfig({
-                votingPeriod: 1,
-                votingDelay: 1,
-                revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST
+                votingPeriod: 1, votingDelay: 1, revealPeriod: 1, arbitrationCost: ARBITRATION_COST
             })
         });
     }
@@ -286,27 +378,25 @@ contract AllocationMechanismTCRTest is Test {
         uint64 endAt,
         RoundFactory.AllocationMechanismConfig memory cfg
     ) internal pure returns (bytes memory encoded) {
-        cfg.timing = RoundFactory.RoundTiming({ startAt: startAt, endAt: endAt });
+        cfg.timing = RoundFactory.RoundTiming({startAt: startAt, endAt: endAt});
         encoded = abi.encode(cfg);
     }
 
-    function _mechanismDeploymentConfig(
-        address mechanismFactory,
-        bytes memory mechanismConfig
-    )
+    function _mechanismDeploymentConfig(address mechanismFactory, bytes memory mechanismConfig)
         internal
         pure
         returns (AllocationMechanismTCR.MechanismDeploymentConfig memory cfg)
     {
         cfg = AllocationMechanismTCR.MechanismDeploymentConfig({
-            mechanismFactory: mechanismFactory,
-            mechanismConfig: mechanismConfig
+            mechanismFactory: mechanismFactory, mechanismConfig: mechanismConfig
         });
     }
 
-    function _mechanismInitConfig(
-        RoundTestArbitrator arbitrator_
-    ) internal view returns (AllocationMechanismTCR.InitConfig memory cfg) {
+    function _mechanismInitConfig(RoundTestArbitrator arbitrator_)
+        internal
+        view
+        returns (AllocationMechanismTCR.InitConfig memory cfg)
+    {
         cfg = AllocationMechanismTCR.InitConfig({
             tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
                 arbitrator: arbitrator_,
@@ -331,9 +421,10 @@ contract AllocationMechanismTCRTest is Test {
         vm.warp(vm.getBlockTimestamp() + 1 days + 1);
     }
 
-    function _registerAndActivate(
-        AllocationMechanismTCR.MechanismListing memory listing
-    ) internal returns (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) {
+    function _registerAndActivate(AllocationMechanismTCR.MechanismListing memory listing)
+        internal
+        returns (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment)
+    {
         vm.prank(alice);
         itemId = mechanism.addItem(abi.encode(listing));
 
@@ -353,14 +444,8 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR mechanismImplementation =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        RoundTestArbitrator arbitrator2 =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism2), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
 
@@ -372,14 +457,8 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR mechanismImplementation =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        RoundTestArbitrator arbitrator2 =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism2), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
         address[] memory factories = new address[](0);
@@ -392,14 +471,8 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR mechanismImplementation =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        RoundTestArbitrator arbitrator2 =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism2), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
         budgetFlow.setRecipientAdmin(address(mechanism2));
@@ -412,14 +485,8 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR mechanismImplementation =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
         AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        RoundTestArbitrator arbitrator2 =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism2), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
         mechanismTcrCfg.factoryManager = address(0);
@@ -443,14 +510,8 @@ contract AllocationMechanismTCRTest is Test {
             address(new PrizePoolSubmissionDepositStrategy()),
             address(new ERC20VotesArbitrator())
         );
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
+        RoundTestArbitrator arbitrator2 =
+            new RoundTestArbitrator(IVotes(address(underlying)), address(mechanism2), 1, 1, 1, ARBITRATION_COST);
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
         budgetFlow.setRecipientAdmin(address(mechanism2));
@@ -474,20 +535,19 @@ contract AllocationMechanismTCRTest is Test {
         address superToken_ = address(MechanismFundingEscrow(implementation).superToken());
         address distributionPool_ = address(MechanismFundingEscrow(implementation).distributionPool());
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        MechanismFundingEscrow(implementation).initialize(
-            ISuperToken(superToken_),
-            ISuperfluidPool(distributionPool_),
-            address(mechanism),
-            address(budgetFlow),
-            alice
-        );
+        MechanismFundingEscrow(implementation)
+            .initialize(
+                ISuperToken(superToken_),
+                ISuperfluidPool(distributionPool_),
+                address(mechanism),
+                address(budgetFlow),
+                alice
+            );
     }
 
     function test_verifyItemData_rejectsBadMetadata() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp),
-            uint64(block.timestamp + 1)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp), uint64(block.timestamp + 1));
         listing.metadata.title = "";
 
         vm.prank(alice);
@@ -538,10 +598,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_registerQueuesActivation() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -557,10 +615,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_removeBeforeActivationDoesNotQueueRemoval() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -585,7 +641,14 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_setMechanismFactoryAllowed_onlyFactoryManager() public {
-        address altFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
+        address altFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
 
         vm.prank(alice);
         vm.expectRevert(AllocationMechanismTCR.ONLY_FACTORY_MANAGER.selector);
@@ -611,11 +674,16 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_verifyItemData_rejectsUnallowlistedFactory() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2)
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
+        listing.deploymentConfig.mechanismFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
         );
-        listing.deploymentConfig.mechanismFactory = address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator())));
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
@@ -623,10 +691,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_verifyItemData_rejectsInvalidMechanismDeploymentConfigFields() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2));
         listing.deploymentConfig.mechanismFactory = address(0);
 
         vm.prank(alice);
@@ -636,21 +702,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_routesDeploymentThroughFactoryInListing() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xAAA1),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xAAA3),
-            auxiliary: address(0xAAA4)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xAAA1),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xAAA3),
+                auxiliary: address(0xAAA4)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -675,7 +740,7 @@ contract AllocationMechanismTCRTest is Test {
     function test_activateMechanism_revertsWhenActiveRecipientCapReached() public {
         uint256 maxRecipients = mechanism.MAX_ACTIVE_MECHANISM_RECIPIENTS();
 
-        for (uint256 i = 0; i < maxRecipients; ) {
+        for (uint256 i = 0; i < maxRecipients;) {
             uint64 startAt = uint64(block.timestamp + 1 days);
             uint64 endAt = startAt + 30 days;
             AllocationMechanismTCR.MechanismListing memory listing = _validListing(startAt, endAt);
@@ -704,8 +769,7 @@ contract AllocationMechanismTCRTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                AllocationMechanismTCR.ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED.selector,
-                maxRecipients
+                AllocationMechanismTCR.ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED.selector, maxRecipients
             )
         );
         mechanism.activateMechanism(overCapItemId);
@@ -715,7 +779,7 @@ contract AllocationMechanismTCRTest is Test {
         uint256 maxRecipients = mechanism.MAX_ACTIVE_MECHANISM_RECIPIENTS();
         bytes32[] memory itemIds = new bytes32[](maxRecipients);
 
-        for (uint256 i = 0; i < maxRecipients; ) {
+        for (uint256 i = 0; i < maxRecipients;) {
             AllocationMechanismTCR.MechanismListing memory listing =
                 _validListing(uint64(block.timestamp + 1 days), uint64(block.timestamp + 40 days));
             listing.metadata.title = string.concat("Round ", vm.toString(i));
@@ -756,10 +820,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_durationStop_decrementsActiveRecipientCount() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1 days),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1 days), uint64(block.timestamp + 2 days));
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         _mockEscrowTotalReceived(deployment.fundingEscrow, 25e18);
 
@@ -773,12 +835,13 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_forwardsImmutableListingDeploymentConfig() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xFA01),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xFA03),
-            auxiliary: address(0xFA04)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xFA01),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xFA03),
+                auxiliary: address(0xFA04)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
@@ -788,7 +851,7 @@ contract AllocationMechanismTCRTest is Test {
         uint64 roundEndAt = uint64(block.timestamp + 40 days);
         AllocationMechanismTCR.MechanismListing memory listing = _validListing(roundStartAt, roundEndAt);
         RoundFactory.AllocationMechanismConfig memory cfg = RoundFactory.AllocationMechanismConfig({
-            timing: RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            timing: RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator: address(0x2222),
             tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: hex"deadbeef",
@@ -801,10 +864,7 @@ contract AllocationMechanismTCRTest is Test {
                 challengePeriodDuration: 3 days
             }),
             arbConfig: RoundFactory.ArbitratorConfig({
-                votingPeriod: 10,
-                votingDelay: 11,
-                revealPeriod: 12,
-                arbitrationCost: ARBITRATION_COST + 42
+                votingPeriod: 10, votingDelay: 11, revealPeriod: 12, arbitrationCost: ARBITRATION_COST + 42
             })
         });
         listing.deploymentConfig = _mechanismDeploymentConfig(
@@ -843,21 +903,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_forwardsOpaqueMechanismConfigBytesUnchanged() public {
         MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xCE01),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xCE03),
-            auxiliary: address(0xCE04)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xCE01),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xCE03),
+                auxiliary: address(0xCE04)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 3),
-            uint64(block.timestamp + 31 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 3), uint64(block.timestamp + 31 days));
         bytes memory opaqueConfig = abi.encodePacked(bytes2(0xCAFE), bytes32(uint256(0xBEEF)), "opaque-config-v1");
         listing.deploymentConfig = _mechanismDeploymentConfig(address(mockFactory), opaqueConfig);
 
@@ -882,21 +941,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenFactoryReturnsZeroMechanismAddress() public {
         MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xDE01),
-            mechanism: address(0),
-            arbitrator: address(0xDE03),
-            auxiliary: address(0xDE04)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xDE01),
+                mechanism: address(0),
+                arbitrator: address(0xDE03),
+                auxiliary: address(0xDE04)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 10 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 10 days));
         listing.deploymentConfig = _mechanismDeploymentConfig(address(mockFactory), hex"010203");
 
         vm.prank(alice);
@@ -918,21 +976,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenFactoryReturnsZeroPayoutRecipient() public {
         MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xDF03),
-            auxiliary: address(0xDF04)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xDF03),
+                auxiliary: address(0xDF04)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 10 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 10 days));
         listing.deploymentConfig = _mechanismDeploymentConfig(address(mockFactory), hex"010203");
 
         vm.prank(alice);
@@ -954,21 +1011,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenFactoryReturnsEOAMechanismAddress() public {
         MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xE001),
-            mechanism: alice,
-            arbitrator: address(0xE003),
-            auxiliary: address(0xE004)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xE001),
+                mechanism: alice,
+                arbitrator: address(0xE003),
+                auxiliary: address(0xE004)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 10 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 10 days));
         listing.deploymentConfig = _mechanismDeploymentConfig(address(mockFactory), hex"102030");
 
         vm.prank(alice);
@@ -990,21 +1046,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_revertsWhenFactoryReturnsRegistryAsPayoutRecipient() public {
         MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(mechanism),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xE103),
-            auxiliary: address(0xE104)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(mechanism),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xE103),
+                auxiliary: address(0xE104)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 10 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 10 days));
         listing.deploymentConfig = _mechanismDeploymentConfig(address(mockFactory), hex"405060");
 
         vm.prank(alice);
@@ -1025,10 +1080,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_activateMechanism_revertsWhenRoundFactoryMechanismConfigMalformed() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 20 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 20 days));
         // Opaque mechanism payload is only validated by the selected factory at activation time.
         listing.deploymentConfig = _mechanismDeploymentConfig(address(roundFactory), hex"1234");
 
@@ -1054,10 +1107,8 @@ contract AllocationMechanismTCRTest is Test {
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1067,7 +1118,9 @@ contract AllocationMechanismTCRTest is Test {
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), false);
 
-        vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.FACTORY_NOT_ALLOWED.selector, address(mockFactory)));
+        vm.expectRevert(
+            abi.encodeWithSelector(AllocationMechanismTCR.FACTORY_NOT_ALLOWED.selector, address(mockFactory))
+        );
         mechanism.activateMechanism(itemId);
 
         assertEq(mockFactory.createCalls(), 0);
@@ -1080,21 +1133,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_usesFactoryFromListingAtActivationTime() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xAB01),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xAB03),
-            auxiliary: address(0xAB04)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xAB01),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xAB03),
+                auxiliary: address(0xAB04)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1112,22 +1164,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_allowsActivationAfterPriorAbsoluteRoundWindow() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xAB11),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xAB13),
-            auxiliary: address(0xAB14)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xAB11),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xAB13),
+                auxiliary: address(0xAB14)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
         uint64 roundStartAt = uint64(block.timestamp + 1);
         uint64 roundEndAt = uint64(block.timestamp + 2 days);
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            roundStartAt,
-            roundEndAt
-        );
+        AllocationMechanismTCR.MechanismListing memory listing = _validListing(roundStartAt, roundEndAt);
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
 
         vm.prank(alice);
@@ -1150,10 +1200,8 @@ contract AllocationMechanismTCRTest is Test {
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 3 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 3 days));
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
         listing.minBudgetFunding = 100e18;
         listing.fundingDeadline = uint64(block.timestamp + 2 days);
@@ -1180,21 +1228,20 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_activateMechanism_allowsActivationAtFundingDeadlineBoundary() public {
         MockAllocationMechanismFactory mockFactory = new MockAllocationMechanismFactory();
-        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment = IAllocationMechanismFactory.DeployedMechanism({
-            payoutRecipient: address(0xAB21),
-            mechanism: address(roundFactory),
-            arbitrator: address(0xAB23),
-            auxiliary: address(0xAB24)
-        });
+        IAllocationMechanismFactory.DeployedMechanism memory fakeDeployment =
+            IAllocationMechanismFactory.DeployedMechanism({
+                payoutRecipient: address(0xAB21),
+                mechanism: address(roundFactory),
+                arbitrator: address(0xAB23),
+                auxiliary: address(0xAB24)
+            });
         mockFactory.setNextDeployedMechanism(fakeDeployment);
 
         vm.prank(factoryManager);
         mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
 
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 3 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 3 days));
         listing.deploymentConfig.mechanismFactory = address(mockFactory);
         listing.minBudgetFunding = 100e18;
         listing.fundingDeadline = uint64(block.timestamp + 2 days);
@@ -1215,10 +1262,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_activateAndFinalizeRemoval_endToEnd() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1260,10 +1305,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_activateMechanism_escrowClone_reinitializeReverts() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         (, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
 
         MechanismFundingEscrow escrow = MechanismFundingEscrow(deployment.fundingEscrow);
@@ -1288,10 +1331,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_escrowReleaseRefund_onlyController() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         MechanismFundingEscrow escrow = MechanismFundingEscrow(deployment.fundingEscrow);
 
@@ -1314,10 +1355,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_activateMechanism_revertsWhenBudgetFlowDistributionPoolIsZero() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1331,10 +1370,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_activateMechanism_revertsWhenEscrowPoolConnectFails() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1355,10 +1392,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_addItem_revertsWhileRemovalFinalizationPending() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         vm.prank(alice);
         bytes32 itemId = mechanism.addItem(abi.encode(listing));
@@ -1387,7 +1422,9 @@ contract AllocationMechanismTCRTest is Test {
         _mockEscrowTotalReceived(deployment.fundingEscrow, 99e18);
 
         vm.expectRevert(
-            abi.encodeWithSelector(AllocationMechanismTCR.MECHANISM_BELOW_MIN_FUNDING.selector, listing.minBudgetFunding, 99e18)
+            abi.encodeWithSelector(
+                AllocationMechanismTCR.MECHANISM_BELOW_MIN_FUNDING.selector, listing.minBudgetFunding, 99e18
+            )
         );
         mechanism.releaseMechanismFunds(itemId, 0);
     }
@@ -1412,7 +1449,9 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(deployment.payoutRecipient), 0);
     }
 
-    function test_releaseMechanismFunds_refundsWhenPoolBelowMinAfterFundingDeadlineEvenIfEscrowBalanceMeetsMin() public {
+    function test_releaseMechanismFunds_refundsWhenPoolBelowMinAfterFundingDeadlineEvenIfEscrowBalanceMeetsMin()
+        public
+    {
         AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1479,10 +1518,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_revertsWhenEscrowTransferReturnsFalse() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 4e18;
@@ -1505,10 +1542,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_releaseMechanismFunds_callsSyncAndRefundsWhenExpiredUnderfunded() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 3 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 3 days));
         listing.minBudgetFunding = 100e18;
         listing.fundingDeadline = uint64(block.timestamp + 2 days);
 
@@ -1563,6 +1598,96 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(deployment.payoutRecipient), escrowed);
     }
 
+    function test_releaseMechanismFunds_callsLifecycleHookWhenImplemented() public {
+        MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
+        MockLifecycleMechanism hookedMechanism = new MockLifecycleMechanism();
+        MockSweepablePayoutRecipient payoutRecipient =
+            new MockSweepablePayoutRecipient(IERC20(address(superToken)), address(0xBEEF));
+        mockFactory.setNextDeployedMechanism(
+            IAllocationMechanismFactory.DeployedMechanism({
+                mechanism: address(hookedMechanism),
+                payoutRecipient: address(payoutRecipient),
+                arbitrator: address(0),
+                auxiliary: address(0)
+            })
+        );
+
+        vm.prank(factoryManager);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.MechanismListing memory listing = _validOpaqueListing(address(mockFactory), hex"0102");
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+
+        uint256 escrowed = 5e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+
+        uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
+
+        assertEq(released, escrowed);
+        assertEq(hookedMechanism.fundingReleasedCalls(), 1);
+        assertEq(hookedMechanism.lastReleasedAmount(), escrowed);
+        assertEq(hookedMechanism.lastCaller(), address(mechanism));
+        assertEq(superToken.balanceOf(address(payoutRecipient)), escrowed);
+    }
+
+    function test_releaseMechanismFunds_ignoresMissingLifecycleHookWithoutFailureEvent() public {
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+
+        uint256 escrowed = 2e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+
+        vm.recordLogs();
+        mechanism.releaseMechanismFunds(itemId, 0);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            assertTrue(entries[i].topics[0] != MECHANISM_MAINTENANCE_CALL_FAILED_TOPIC);
+        }
+    }
+
+    function test_releaseMechanismFunds_emitsFailureEventWhenLifecycleHookReverts() public {
+        MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
+        MockLifecycleMechanism hookedMechanism = new MockLifecycleMechanism();
+        hookedMechanism.setRevertFlags(true, false);
+        MockSweepablePayoutRecipient payoutRecipient =
+            new MockSweepablePayoutRecipient(IERC20(address(superToken)), address(0xBEEF));
+        mockFactory.setNextDeployedMechanism(
+            IAllocationMechanismFactory.DeployedMechanism({
+                mechanism: address(hookedMechanism),
+                payoutRecipient: address(payoutRecipient),
+                arbitrator: address(0),
+                auxiliary: address(0)
+            })
+        );
+
+        vm.prank(factoryManager);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.MechanismListing memory listing = _validOpaqueListing(address(mockFactory), hex"CAFE");
+        (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
+
+        uint256 escrowed = 4e18;
+        superToken.mint(deployment.fundingEscrow, escrowed);
+        _mockEscrowTotalReceived(deployment.fundingEscrow, 0);
+
+        vm.expectEmit(true, true, true, true, address(mechanism));
+        emit MechanismMaintenanceCallFailed(
+            itemId,
+            address(hookedMechanism),
+            IMechanismLifecycleHooks.onFundingReleased.selector,
+            abi.encodeWithSelector(MockLifecycleMechanism.FUNDING_RELEASED_HOOK_FAILED.selector)
+        );
+
+        uint256 released = mechanism.releaseMechanismFunds(itemId, 0);
+        assertEq(released, escrowed);
+        assertEq(superToken.balanceOf(address(payoutRecipient)), escrowed);
+        assertEq(hookedMechanism.fundingReleasedCalls(), 0);
+    }
+
     function test_releaseMechanismFunds_afterFundingTicks_balanceIncreases_andReleasesNonZero() public {
         AllocationMechanismTCR.MechanismListing memory listing = _validListingWithDefaultMinFundingPolicy();
 
@@ -1605,7 +1730,9 @@ contract AllocationMechanismTCRTest is Test {
         address escrowPool = address(MechanismFundingEscrow(deployment.fundingEscrow).distributionPool());
         assertEq(escrowPool, address(budgetDistributionPool));
 
-        vm.mockCall(address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(ALT_DISTRIBUTION_POOL));
+        vm.mockCall(
+            address(budgetFlow), abi.encodeWithSignature("distributionPool()"), abi.encode(ALT_DISTRIBUTION_POOL)
+        );
         vm.mockCallRevert(
             ALT_DISTRIBUTION_POOL,
             abi.encodeWithSignature("getTotalAmountReceivedByMember(address)", deployment.fundingEscrow),
@@ -1631,10 +1758,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_refundsEscrowWhenExpiredUnderfundedEvenAfterDurationElapsed() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2 days));
         listing.minBudgetFunding = 100e18;
         listing.fundingDeadline = uint64(block.timestamp + 2 days);
 
@@ -1660,10 +1785,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_stopsAtCapWithoutRefundingEscrow() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.maxBudgetFunding = 250e18;
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1686,10 +1809,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_doesNotStopAtCapWhenEscrowBalanceHitsCapButPoolBelowCap() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.maxBudgetFunding = 250e18;
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1707,10 +1828,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_doesNotStopAtExactDurationBoundary() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2 days));
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         _mockEscrowTotalReceived(deployment.fundingEscrow, 25e18);
@@ -1724,10 +1843,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_stopsOnDurationElapsed_reasonEnded() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2 days));
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 2e18;
@@ -1737,9 +1854,7 @@ contract AllocationMechanismTCRTest is Test {
         vm.warp(uint256(deployment.activatedAt) + uint256(listing.duration) + 1);
         vm.expectEmit(true, true, false, true, address(mechanism));
         emit AllocationMechanismTCR.MechanismFundingStopped(
-            itemId,
-            AllocationMechanismTCR.FundingStopReason.Ended,
-            25e18
+            itemId, AllocationMechanismTCR.FundingStopReason.Ended, 25e18
         );
         mechanism.syncMechanismFunding(itemId);
 
@@ -1751,10 +1866,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_doesNotStopWhenDurationUnset() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2 days));
         listing.duration = 0;
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1769,10 +1882,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_syncMechanismFunding_refundsAfterDurationStopWhenDeadlinePassesLater() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 2 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 2 days));
         listing.minBudgetFunding = 100e18;
         listing.fundingDeadline = uint64(block.timestamp + 4 days);
 
@@ -1797,10 +1908,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_finalizeRemovedMechanism_refundsEscrowAfterFundingAlreadyStopped() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.maxBudgetFunding = 250e18;
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
@@ -1826,10 +1935,8 @@ contract AllocationMechanismTCRTest is Test {
     }
 
     function test_finalizeRemovedMechanism_recoversEscrowAfterReleaseTransferFailure() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
-        );
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);
         uint256 escrowed = 6e18;
@@ -1863,11 +1970,141 @@ contract AllocationMechanismTCRTest is Test {
         assertEq(superToken.balanceOf(deployment.payoutRecipient), 0);
     }
 
-    function test_syncMechanismFunding_noopWhileRemovalFinalizationQueued() public {
-        AllocationMechanismTCR.MechanismListing memory listing = _validListing(
-            uint64(block.timestamp + 1),
-            uint64(block.timestamp + 30 days)
+    function test_finalizeRemovedMechanism_callsLifecycleHookAndSweepsPayoutBackToBudgetTreasury() public {
+        MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
+        MockLifecycleMechanism hookedMechanism = new MockLifecycleMechanism();
+        MockSweepablePayoutRecipient payoutRecipient =
+            new MockSweepablePayoutRecipient(IERC20(address(superToken)), address(mechanism));
+        mockFactory.setNextDeployedMechanism(
+            IAllocationMechanismFactory.DeployedMechanism({
+                mechanism: address(hookedMechanism),
+                payoutRecipient: address(payoutRecipient),
+                arbitrator: address(0),
+                auxiliary: address(0)
+            })
         );
+
+        vm.prank(factoryManager);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.MechanismListing memory listing = _validOpaqueListing(address(mockFactory), hex"BEEF");
+        (bytes32 itemId,) = _registerAndActivate(listing);
+
+        uint256 releasedBalance = 7e18;
+        superToken.mint(address(payoutRecipient), releasedBalance);
+
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.expectEmit(true, true, true, true, address(mechanism));
+        emit MechanismPayoutSwept(itemId, address(payoutRecipient), address(budgetTreasury), releasedBalance);
+
+        mechanism.finalizeRemovedMechanism(itemId);
+
+        assertEq(hookedMechanism.mechanismRemovedCalls(), 1);
+        assertEq(hookedMechanism.lastCaller(), address(mechanism));
+        assertEq(payoutRecipient.sweepCalls(), 1);
+        assertEq(payoutRecipient.lastSweepRecipient(), address(budgetTreasury));
+        assertEq(payoutRecipient.lastSweepAmount(), releasedBalance);
+        assertEq(superToken.balanceOf(address(payoutRecipient)), 0);
+        assertEq(superToken.balanceOf(address(budgetTreasury)), releasedBalance);
+    }
+
+    function test_finalizeRemovedMechanism_emitsFailureEventWhenRemovalHookRevertsButStillSweeps() public {
+        MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
+        MockLifecycleMechanism hookedMechanism = new MockLifecycleMechanism();
+        hookedMechanism.setRevertFlags(false, true);
+        MockSweepablePayoutRecipient payoutRecipient =
+            new MockSweepablePayoutRecipient(IERC20(address(superToken)), address(mechanism));
+        mockFactory.setNextDeployedMechanism(
+            IAllocationMechanismFactory.DeployedMechanism({
+                mechanism: address(hookedMechanism),
+                payoutRecipient: address(payoutRecipient),
+                arbitrator: address(0),
+                auxiliary: address(0)
+            })
+        );
+
+        vm.prank(factoryManager);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.MechanismListing memory listing = _validOpaqueListing(address(mockFactory), hex"FEED");
+        (bytes32 itemId,) = _registerAndActivate(listing);
+
+        uint256 releasedBalance = 3e18;
+        superToken.mint(address(payoutRecipient), releasedBalance);
+
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.expectEmit(true, true, true, true, address(mechanism));
+        emit MechanismMaintenanceCallFailed(
+            itemId,
+            address(hookedMechanism),
+            IMechanismLifecycleHooks.onMechanismRemoved.selector,
+            abi.encodeWithSelector(MockLifecycleMechanism.MECHANISM_REMOVED_HOOK_FAILED.selector)
+        );
+
+        mechanism.finalizeRemovedMechanism(itemId);
+
+        assertEq(hookedMechanism.mechanismRemovedCalls(), 0);
+        assertEq(payoutRecipient.sweepCalls(), 1);
+        assertEq(superToken.balanceOf(address(payoutRecipient)), 0);
+        assertEq(superToken.balanceOf(address(budgetTreasury)), releasedBalance);
+    }
+
+    function test_finalizeRemovedMechanism_emitsFailureEventWhenPayoutSweepReverts() public {
+        MockOpaqueMechanismFactory mockFactory = new MockOpaqueMechanismFactory();
+        MockLifecycleMechanism hookedMechanism = new MockLifecycleMechanism();
+        MockSweepablePayoutRecipient payoutRecipient =
+            new MockSweepablePayoutRecipient(IERC20(address(superToken)), address(mechanism));
+        payoutRecipient.setRevertOnSweep(true);
+        mockFactory.setNextDeployedMechanism(
+            IAllocationMechanismFactory.DeployedMechanism({
+                mechanism: address(hookedMechanism),
+                payoutRecipient: address(payoutRecipient),
+                arbitrator: address(0),
+                auxiliary: address(0)
+            })
+        );
+
+        vm.prank(factoryManager);
+        mechanism.setMechanismFactoryAllowed(address(mockFactory), true);
+
+        AllocationMechanismTCR.MechanismListing memory listing = _validOpaqueListing(address(mockFactory), hex"ABCD");
+        (bytes32 itemId,) = _registerAndActivate(listing);
+
+        uint256 releasedBalance = 9e18;
+        superToken.mint(address(payoutRecipient), releasedBalance);
+
+        vm.prank(alice);
+        mechanism.removeItem(itemId, "");
+        _warpPastChallengePeriod();
+        mechanism.executeRequest(itemId);
+
+        vm.expectEmit(true, true, true, true, address(mechanism));
+        emit MechanismMaintenanceCallFailed(
+            itemId,
+            address(payoutRecipient),
+            IManagedFlow.sweepSuperToken.selector,
+            abi.encodeWithSelector(MockSweepablePayoutRecipient.SWEEP_FAILED.selector)
+        );
+
+        mechanism.finalizeRemovedMechanism(itemId);
+
+        assertEq(hookedMechanism.mechanismRemovedCalls(), 1);
+        assertEq(payoutRecipient.sweepCalls(), 0);
+        assertEq(superToken.balanceOf(address(payoutRecipient)), releasedBalance);
+        assertEq(superToken.balanceOf(address(budgetTreasury)), 0);
+    }
+
+    function test_syncMechanismFunding_noopWhileRemovalFinalizationQueued() public {
+        AllocationMechanismTCR.MechanismListing memory listing =
+            _validListing(uint64(block.timestamp + 1), uint64(block.timestamp + 30 days));
         listing.maxBudgetFunding = 250e18;
 
         (bytes32 itemId, AllocationMechanismTCR.MechanismDeployment memory deployment) = _registerAndActivate(listing);

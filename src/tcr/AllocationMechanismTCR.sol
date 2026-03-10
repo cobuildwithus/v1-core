@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { IAllocationMechanismFactory } from "./interfaces/IAllocationMechanismFactory.sol";
+import { IMechanismLifecycleHooks } from "./interfaces/IMechanismLifecycleHooks.sol";
 
 import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
 
@@ -128,6 +129,18 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     event MechanismFundingStopped(bytes32 indexed itemID, FundingStopReason indexed reason, uint256 totalReceived);
     event MechanismFundingRefunded(bytes32 indexed itemID, uint256 amount);
     event MechanismFundingReleased(bytes32 indexed itemID, uint256 amount);
+    event MechanismPayoutSwept(
+        bytes32 indexed itemID,
+        address indexed payoutRecipient,
+        address indexed recipient,
+        uint256 amount
+    );
+    event MechanismMaintenanceCallFailed(
+        bytes32 indexed itemID,
+        address indexed callTarget,
+        bytes4 indexed selector,
+        bytes reason
+    );
 
     // ---------------------------
     // Storage
@@ -264,6 +277,8 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         removalQueued[itemID] = false;
 
         _refundEscrow(itemID, dep.fundingEscrow);
+        _notifyMechanismRemoved(itemID, dep.mechanism);
+        _bestEffortSweepPayoutRecipient(itemID, dep.payoutRecipient);
 
         emit MechanismRemoved(itemID);
     }
@@ -306,7 +321,10 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
         uint256 toRelease = amount == 0 ? type(uint256).max : amount;
         released = MechanismFundingEscrow(dep.fundingEscrow).release(toRelease);
-        if (released != 0) emit MechanismFundingReleased(itemID, released);
+        if (released != 0) {
+            emit MechanismFundingReleased(itemID, released);
+            _notifyFundingReleased(itemID, dep.mechanism, released);
+        }
     }
 
     // ---------------------------
@@ -489,6 +507,54 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     function _refundEscrow(bytes32 itemID, address fundingEscrow) internal {
         uint256 refunded = MechanismFundingEscrow(fundingEscrow).refund(type(uint256).max);
         if (refunded != 0) emit MechanismFundingRefunded(itemID, refunded);
+    }
+
+    function _notifyFundingReleased(bytes32 itemID, address mechanism, uint256 released) internal {
+        (bool success, bytes memory revertData) = mechanism.call(
+            abi.encodeCall(IMechanismLifecycleHooks.onFundingReleased, (released))
+        );
+        if (!success && revertData.length != 0) {
+            emit MechanismMaintenanceCallFailed(
+                itemID,
+                mechanism,
+                IMechanismLifecycleHooks.onFundingReleased.selector,
+                revertData
+            );
+        }
+    }
+
+    function _notifyMechanismRemoved(bytes32 itemID, address mechanism) internal {
+        (bool success, bytes memory revertData) = mechanism.call(
+            abi.encodeCall(IMechanismLifecycleHooks.onMechanismRemoved, ())
+        );
+        if (!success && revertData.length != 0) {
+            emit MechanismMaintenanceCallFailed(
+                itemID,
+                mechanism,
+                IMechanismLifecycleHooks.onMechanismRemoved.selector,
+                revertData
+            );
+        }
+    }
+
+    function _bestEffortSweepPayoutRecipient(bytes32 itemID, address payoutRecipient) internal {
+        if (payoutRecipient == address(0) || payoutRecipient == budgetTreasury || payoutRecipient.code.length == 0) {
+            return;
+        }
+
+        (bool sweeperCallSucceeded, bytes memory sweeperCallData) = payoutRecipient.staticcall(
+            abi.encodeWithSelector(IManagedFlow.sweeper.selector)
+        );
+        if (!sweeperCallSucceeded || sweeperCallData.length < 32) return;
+
+        address payoutSweeper = abi.decode(sweeperCallData, (address));
+        if (payoutSweeper != address(this)) return;
+
+        try IManagedFlow(payoutRecipient).sweepSuperToken(budgetTreasury, type(uint256).max) returns (uint256 swept) {
+            if (swept != 0) emit MechanismPayoutSwept(itemID, payoutRecipient, budgetTreasury, swept);
+        } catch (bytes memory reason) {
+            emit MechanismMaintenanceCallFailed(itemID, payoutRecipient, IManagedFlow.sweepSuperToken.selector, reason);
+        }
     }
 
     function _syncMechanismFunding(bytes32 itemID) internal {
