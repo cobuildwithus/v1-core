@@ -23,9 +23,11 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function observedVolumeOf(uint256 goalId) external view returns (uint256);
 
-    function observedTotalVolume() external view returns (uint256);
+    function cumulativeObservedVolume() external view returns (uint256);
 
-    function approvedGoals() external view returns (uint256[] memory);
+    function currentHistoricalTotalVolume() external view returns (uint256);
+
+    function selectableGoalIds() external view returns (uint256[] memory goalIds);
 
     function historicalRoute() external view returns (uint256[] memory goalIds, uint256[] memory volumes);
 

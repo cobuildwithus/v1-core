@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {Test} from "forge-std/Test.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
-import { CommunityGoalRegistry } from "src/tcr/CommunityGoalRegistry.sol";
-import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
-import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
+import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
-import { RoundTestArbitrator } from "test/rounds/helpers/RoundTestMocks.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
+import {RoundTestArbitrator} from "test/rounds/helpers/RoundTestMocks.sol";
 
 contract CommunityGoalRegistryTest is Test {
     uint256 internal constant COMMUNITY_REVNET_ID = 77;
@@ -30,25 +31,29 @@ contract CommunityGoalRegistryTest is Test {
     address internal bob = makeAddr("bob");
 
     MockVotesToken internal token;
+    MockVotesToken internal otherToken;
     EscrowSubmissionDepositStrategy internal depositStrategy;
     RoundTestArbitrator internal arbitrator;
     CommunityGoalRegistryMockDirectory internal directory;
     CommunityGoalRegistryMockTerminal internal terminal;
+    GoalDeploymentRegistry internal goalDeploymentRegistry;
     CommunityGoalRegistry internal registry;
 
     CommunityGoalRegistryMockGoalTreasury internal goalTreasuryOne;
-    CommunityGoalRegistryMockGoalTreasury internal goalTreasuryOneV2;
     CommunityGoalRegistryMockGoalTreasury internal goalTreasuryTwo;
 
     function setUp() public {
         token = new MockVotesToken("Goal Registry Votes", "GRV");
+        otherToken = new MockVotesToken("Other Goal Registry Votes", "OGRV");
         depositStrategy = new EscrowSubmissionDepositStrategy(IERC20(address(token)));
         directory = new CommunityGoalRegistryMockDirectory();
         terminal = new CommunityGoalRegistryMockTerminal();
+        goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
         goalTreasuryOne = new CommunityGoalRegistryMockGoalTreasury(GOAL_ID_ONE);
-        goalTreasuryOneV2 = new CommunityGoalRegistryMockGoalTreasury(GOAL_ID_ONE);
         goalTreasuryTwo = new CommunityGoalRegistryMockGoalTreasury(GOAL_ID_TWO);
+        goalDeploymentRegistry.registerGoal(GOAL_ID_ONE, address(goalTreasuryOne));
+        goalDeploymentRegistry.registerGoal(GOAL_ID_TWO, address(goalTreasuryTwo));
 
         directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(address(terminal)));
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(token), IJBTerminal(address(terminal)));
@@ -62,6 +67,7 @@ contract CommunityGoalRegistryTest is Test {
             CommunityGoalRegistry.InitConfig({
                 tcrConfig: _registryConfig(arbitrator, SUBMISSION_DEPOSIT),
                 directory: IJBDirectory(address(directory)),
+                goalDeploymentRegistry: goalDeploymentRegistry,
                 communityRevnetId: COMMUNITY_REVNET_ID,
                 communityToken: address(token),
                 owner: owner
@@ -77,17 +83,83 @@ contract CommunityGoalRegistryTest is Test {
         token.approve(address(registry), type(uint256).max);
     }
 
-    function test_pinSystemGoal_marksGoalSelectable_andStoresTreasury() public {
+    function test_initialize_revertsWhenVotingTokenDiffersFromCommunityToken() public {
+        CommunityGoalRegistry implementation = new CommunityGoalRegistry();
+        CommunityGoalRegistry mismatchedRegistry = CommunityGoalRegistry(Clones.clone(address(implementation)));
+        RoundTestArbitrator mismatchedArbitrator = new RoundTestArbitrator(
+            IVotes(address(otherToken)), address(mismatchedRegistry), 1, 1, 1, ARBITRATION_COST
+        );
+        EscrowSubmissionDepositStrategy otherDepositStrategy =
+            new EscrowSubmissionDepositStrategy(IERC20(address(otherToken)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CommunityGoalRegistry.VOTING_TOKEN_MISMATCH.selector, address(token), address(otherToken)
+            )
+        );
+        mismatchedRegistry.initialize(
+            CommunityGoalRegistry.InitConfig({
+                tcrConfig: _registryConfig(
+                    mismatchedArbitrator, SUBMISSION_DEPOSIT, IVotes(address(otherToken)), otherDepositStrategy
+                ),
+                directory: IJBDirectory(address(directory)),
+                goalDeploymentRegistry: goalDeploymentRegistry,
+                communityRevnetId: COMMUNITY_REVNET_ID,
+                communityToken: address(token),
+                owner: owner
+            })
+        );
+    }
+
+    function test_initialize_revertsWhenCommunityTokenHasNoCode_beforeVotingTokenMismatchCheck() public {
+        address noCodeToken = makeAddr("no-code-token");
+        CommunityGoalRegistry implementation = new CommunityGoalRegistry();
+        CommunityGoalRegistry freshRegistry = CommunityGoalRegistry(Clones.clone(address(implementation)));
+        RoundTestArbitrator freshArbitrator =
+            new RoundTestArbitrator(IVotes(address(token)), address(freshRegistry), 1, 1, 1, ARBITRATION_COST);
+
+        vm.expectRevert(abi.encodeWithSelector(CommunityGoalRegistry.NOT_A_CONTRACT.selector, noCodeToken));
+        freshRegistry.initialize(
+            CommunityGoalRegistry.InitConfig({
+                tcrConfig: _registryConfig(freshArbitrator, SUBMISSION_DEPOSIT),
+                directory: IJBDirectory(address(directory)),
+                goalDeploymentRegistry: goalDeploymentRegistry,
+                communityRevnetId: COMMUNITY_REVNET_ID,
+                communityToken: noCodeToken,
+                owner: owner
+            })
+        );
+    }
+
+    function test_initialize_revertsWhenArbitratorTokenDiffersEvenIfVotingTokenMatchesCommunityToken() public {
+        CommunityGoalRegistry implementation = new CommunityGoalRegistry();
+        CommunityGoalRegistry freshRegistry = CommunityGoalRegistry(Clones.clone(address(implementation)));
+        RoundTestArbitrator mismatchedArbitrator =
+            new RoundTestArbitrator(IVotes(address(otherToken)), address(freshRegistry), 1, 1, 1, ARBITRATION_COST);
+
+        vm.expectRevert(IGeneralizedTCR.ARBITRATOR_TOKEN_MISMATCH.selector);
+        freshRegistry.initialize(
+            CommunityGoalRegistry.InitConfig({
+                tcrConfig: _registryConfig(mismatchedArbitrator, SUBMISSION_DEPOSIT),
+                directory: IJBDirectory(address(directory)),
+                goalDeploymentRegistry: goalDeploymentRegistry,
+                communityRevnetId: COMMUNITY_REVNET_ID,
+                communityToken: address(token),
+                owner: owner
+            })
+        );
+    }
+
+    function test_pinSystemGoal_marksGoalSelectable() public {
         vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, address(goalTreasuryOne), "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
 
         assertTrue(registry.isListed(GOAL_ID_ONE));
         assertTrue(registry.isSelectable(GOAL_ID_ONE));
-        assertEq(registry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
+        assertEq(address(registry.goalDeploymentRegistry()), address(goalDeploymentRegistry));
 
         ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
         assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
-        assertEq(listing.goalTreasury, address(goalTreasuryOne));
         assertEq(listing.metadataURI, "ipfs://system-goal");
         assertTrue(listing.isSystem);
         assertFalse(listing.paused);
@@ -96,7 +168,7 @@ contract CommunityGoalRegistryTest is Test {
 
     function test_setGoalPaused_togglesSystemGoalSelectability() public {
         vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, address(goalTreasuryOne), "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
 
         vm.prank(owner);
         registry.setGoalPaused(GOAL_ID_ONE, true);
@@ -108,18 +180,18 @@ contract CommunityGoalRegistryTest is Test {
     }
 
     function test_pinSystemGoal_revertsWhenGoalAlreadyHasPendingTcrRequest() public {
-        bytes memory item = _goalItem(GOAL_ID_ONE, address(goalTreasuryOne), "ipfs://goal-one");
+        bytes memory item = _goalItem(GOAL_ID_ONE, "ipfs://goal-one");
 
         vm.prank(alice);
         registry.addItem(item);
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_ALREADY_LISTED.selector, GOAL_ID_ONE));
-        registry.pinSystemGoal(GOAL_ID_ONE, address(goalTreasuryOneV2), "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
     }
 
     function test_addItem_registersGoalWithCanonicalItemId() public {
-        bytes memory item = _goalItem(GOAL_ID_ONE, address(goalTreasuryOne), "ipfs://goal-one");
+        bytes memory item = _goalItem(GOAL_ID_ONE, "ipfs://goal-one");
 
         vm.prank(alice);
         bytes32 itemId = registry.addItem(item);
@@ -135,17 +207,16 @@ contract CommunityGoalRegistryTest is Test {
 
         assertTrue(registry.isListed(GOAL_ID_ONE));
         assertTrue(registry.isSelectable(GOAL_ID_ONE));
-        assertEq(registry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
 
         ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
         assertEq(listing.itemId, itemId);
-        assertEq(listing.goalTreasury, address(goalTreasuryOne));
         assertEq(listing.metadataURI, "ipfs://goal-one");
         assertFalse(listing.isSystem);
     }
 
-    function test_removeAndRelistGoal_updatesListingPayload() public {
-        _registerGoal(alice, GOAL_ID_ONE, address(goalTreasuryOne), "ipfs://goal-one");
+    function test_removeAndRelistGoal_updatesOnlyMetadata_notCanonicalTreasury() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
 
         vm.prank(alice);
         registry.removeItem(bytes32(GOAL_ID_ONE), "");
@@ -155,19 +226,27 @@ contract CommunityGoalRegistryTest is Test {
 
         assertFalse(registry.isListed(GOAL_ID_ONE));
         assertFalse(registry.isSelectable(GOAL_ID_ONE));
-        assertEq(registry.goalTreasuryOf(GOAL_ID_ONE), address(0));
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
+        ICommunityGoalRegistry.GoalListingView memory removedListing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(removedListing.itemId, bytes32(0));
+        assertEq(bytes(removedListing.metadataURI).length, 0);
+        assertFalse(removedListing.isSystem);
+        assertFalse(removedListing.paused);
+        assertFalse(removedListing.selectable);
 
-        _registerGoal(bob, GOAL_ID_ONE, address(goalTreasuryOneV2), "ipfs://goal-one-v2");
+        _registerGoal(bob, GOAL_ID_ONE, "ipfs://goal-one-v2");
 
         ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
         assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
-        assertEq(listing.goalTreasury, address(goalTreasuryOneV2));
         assertEq(listing.metadataURI, "ipfs://goal-one-v2");
         assertTrue(listing.selectable);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
     }
 
-    function test_addItem_revertsWhenGoalTreasuryGoalIdMismatch() public {
-        bytes memory badItem = _goalItem(GOAL_ID_ONE, address(goalTreasuryTwo), "ipfs://bad-goal");
+    function test_addItem_revertsWhenGoalIsNotRegisteredInDeploymentRegistry() public {
+        uint256 unregisteredGoalId = 999;
+        directory.setPrimaryTerminal(unregisteredGoalId, address(token), IJBTerminal(address(terminal)));
+        bytes memory badItem = _goalItem(unregisteredGoalId, "ipfs://bad-goal");
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
@@ -175,43 +254,39 @@ contract CommunityGoalRegistryTest is Test {
     }
 
     function test_addItem_revertsWhenGoalHasNoPrimaryTerminal() public {
-        bytes memory missingTerminalItem = _goalItem(999, address(goalTreasuryOne), "ipfs://missing-terminal");
+        uint256 goalIdWithoutTerminal = 303;
+        CommunityGoalRegistryMockGoalTreasury goalTreasury =
+            new CommunityGoalRegistryMockGoalTreasury(goalIdWithoutTerminal);
+        goalDeploymentRegistry.registerGoal(goalIdWithoutTerminal, address(goalTreasury));
+        bytes memory missingTerminalItem = _goalItem(goalIdWithoutTerminal, "ipfs://missing-terminal");
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         registry.addItem(missingTerminalItem);
     }
 
-    function _registerGoal(address submitter, uint256 goalId, address goalTreasury, string memory metadataUri) internal {
+    function _registerGoal(address submitter, uint256 goalId, string memory metadataUri) internal {
         vm.prank(submitter);
-        registry.addItem(_goalItem(goalId, goalTreasury, metadataUri));
+        registry.addItem(_goalItem(goalId, metadataUri));
 
         vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
         registry.executeRequest(bytes32(goalId));
     }
 
-    function _goalItem(
-        uint256 goalId,
-        address goalTreasury,
-        string memory metadataUri
-    ) internal pure returns (bytes memory item) {
-        item = abi.encode(
-            ICommunityGoalRegistry.GoalItemData({
-                goalId: goalId,
-                goalTreasury: goalTreasury,
-                metadataURI: metadataUri
-            })
-        );
+    function _goalItem(uint256 goalId, string memory metadataUri) internal pure returns (bytes memory item) {
+        item = abi.encode(ICommunityGoalRegistry.GoalItemData({goalId: goalId, metadataURI: metadataUri}));
     }
 
     function _registryConfig(
         RoundTestArbitrator arbitrator_,
-        uint256 submissionBaseDeposit
+        uint256 submissionBaseDeposit,
+        IVotes votingToken_,
+        EscrowSubmissionDepositStrategy submissionDepositStrategy_
     ) internal view returns (IGeneralizedTCRConfig.RegistryConfig memory cfg) {
         cfg = IGeneralizedTCRConfig.RegistryConfig({
             arbitrator: arbitrator_,
-            votingToken: IVotes(address(token)),
-            submissionDepositStrategy: depositStrategy,
+            votingToken: votingToken_,
+            submissionDepositStrategy: submissionDepositStrategy_,
             registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: "",
                 registrationMetaEvidence: "reg",
@@ -223,6 +298,14 @@ contract CommunityGoalRegistryTest is Test {
                 challengePeriodDuration: CHALLENGE_PERIOD
             })
         });
+    }
+
+    function _registryConfig(RoundTestArbitrator arbitrator_, uint256 submissionBaseDeposit)
+        internal
+        view
+        returns (IGeneralizedTCRConfig.RegistryConfig memory cfg)
+    {
+        return _registryConfig(arbitrator_, submissionBaseDeposit, IVotes(address(token)), depositStrategy);
     }
 }
 
@@ -238,7 +321,7 @@ contract CommunityGoalRegistryMockDirectory {
     }
 }
 
-contract CommunityGoalRegistryMockTerminal { }
+contract CommunityGoalRegistryMockTerminal {}
 
 contract CommunityGoalRegistryMockGoalTreasury {
     uint256 public immutable goalRevnetId;

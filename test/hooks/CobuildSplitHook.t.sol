@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Test} from "forge-std/Test.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-import { CobuildSplitHook } from "src/hooks/CobuildSplitHook.sol";
-import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {CobuildSplitHook} from "src/hooks/CobuildSplitHook.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
-import { IJBSplitHook } from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
-import { JBSplit } from "@bananapus/core-v5/structs/JBSplit.sol";
-import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
+import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
+import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 
 contract CobuildSplitHookTest is Test {
     uint256 internal constant COMMUNITY_REVNET_ID = 77;
@@ -21,7 +23,7 @@ contract CobuildSplitHookTest is Test {
     uint256 internal constant GOAL_ID_TWO = 202;
 
     address internal controller = makeAddr("controller");
-    address internal routeSetter = makeAddr("route-setter");
+    address internal routeSetter;
     address internal beneficiary = makeAddr("beneficiary");
     address internal historicalBeneficiary = makeAddr("historical-beneficiary");
 
@@ -31,18 +33,27 @@ contract CobuildSplitHookTest is Test {
     CobuildSplitHookMockGoalTerminal internal goalTerminalTwo;
     CobuildSplitHookMockGoalTreasury internal goalTreasuryOne;
     CobuildSplitHookMockGoalTreasury internal goalTreasuryTwo;
+    GoalDeploymentRegistry internal goalDeploymentRegistry;
     CobuildSplitHookMockGoalRegistry internal goalRegistry;
     CobuildSplitHook internal hook;
 
     function setUp() public {
+        routeSetter = address(new CobuildSplitHookRouteSetterStub());
         communityToken = new CobuildSplitHookMockToken("Community", "COMM");
         directory = new CobuildSplitHookMockDirectory();
         goalTerminalOne = new CobuildSplitHookMockGoalTerminal(communityToken);
         goalTerminalTwo = new CobuildSplitHookMockGoalTerminal(communityToken);
         goalTreasuryOne = new CobuildSplitHookMockGoalTreasury(GOAL_ID_ONE);
         goalTreasuryTwo = new CobuildSplitHookMockGoalTreasury(GOAL_ID_TWO);
-        goalRegistry =
-            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(communityToken));
+        goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
+        goalDeploymentRegistry.registerGoal(GOAL_ID_ONE, address(goalTreasuryOne));
+        goalDeploymentRegistry.registerGoal(GOAL_ID_TWO, address(goalTreasuryTwo));
+        goalRegistry = new CobuildSplitHookMockGoalRegistry(
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken)
+        );
 
         hook = _deployHook(goalRegistry);
 
@@ -50,13 +61,32 @@ contract CobuildSplitHookTest is Test {
         directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(goalTerminalOne)));
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(goalTerminalTwo)));
 
-        goalRegistry.setGoal(GOAL_ID_ONE, address(goalTreasuryOne), true);
-        goalRegistry.setGoal(GOAL_ID_TWO, address(goalTreasuryTwo), true);
+        goalRegistry.setGoalSelectable(GOAL_ID_ONE, true);
+        goalRegistry.setGoalSelectable(GOAL_ID_TWO, true);
+    }
+
+    function test_initialize_revertsWhenRouteSetterIsNotContract() public {
+        address eoaRouteSetter = makeAddr("route-setter-eoa");
+        CobuildSplitHook implementation = new CobuildSplitHook();
+        CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NOT_A_CONTRACT.selector, eoaRouteSetter));
+        deployedHook.initialize(
+            IJBDirectory(address(directory)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            eoaRouteSetter,
+            ICommunityGoalRegistry(address(goalRegistry))
+        );
     }
 
     function test_initialize_revertsWhenGoalRegistryCommunityMismatch() public {
-        CobuildSplitHookMockGoalRegistry mismatchedRegistry =
-            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID + 1, address(communityToken));
+        CobuildSplitHookMockGoalRegistry mismatchedRegistry = new CobuildSplitHookMockGoalRegistry(
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COMMUNITY_REVNET_ID + 1,
+            address(communityToken)
+        );
 
         CobuildSplitHook implementation = new CobuildSplitHook();
         CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
@@ -77,8 +107,12 @@ contract CobuildSplitHookTest is Test {
 
     function test_initialize_revertsWhenGoalRegistryTokenMismatch() public {
         CobuildSplitHookMockToken wrongToken = new CobuildSplitHookMockToken("Wrong", "WRONG");
-        CobuildSplitHookMockGoalRegistry mismatchedRegistry =
-            new CobuildSplitHookMockGoalRegistry(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(wrongToken));
+        CobuildSplitHookMockGoalRegistry mismatchedRegistry = new CobuildSplitHookMockGoalRegistry(
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COMMUNITY_REVNET_ID,
+            address(wrongToken)
+        );
 
         CobuildSplitHook implementation = new CobuildSplitHook();
         CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
@@ -100,7 +134,10 @@ contract CobuildSplitHookTest is Test {
     function test_initialize_revertsWhenGoalRegistryDirectoryMismatch() public {
         CobuildSplitHookMockDirectory mismatchedDirectory = new CobuildSplitHookMockDirectory();
         CobuildSplitHookMockGoalRegistry mismatchedRegistry = new CobuildSplitHookMockGoalRegistry(
-            IJBDirectory(address(mismatchedDirectory)), COMMUNITY_REVNET_ID, address(communityToken)
+            IJBDirectory(address(mismatchedDirectory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken)
         );
 
         CobuildSplitHook implementation = new CobuildSplitHook();
@@ -108,9 +145,7 @@ contract CobuildSplitHookTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CobuildSplitHook.INVALID_DIRECTORY.selector,
-                address(directory),
-                address(mismatchedDirectory)
+                CobuildSplitHook.INVALID_DIRECTORY.selector, address(directory), address(mismatchedDirectory)
             )
         );
         deployedHook.initialize(
@@ -139,7 +174,8 @@ contract CobuildSplitHookTest is Test {
         assertEq(communityToken.balanceOf(address(hook)), 0);
         assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
         assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
-        assertEq(hook.observedTotalVolume(), 100e18);
+        assertEq(hook.cumulativeObservedVolume(), 100e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
     function test_processSplitWith_usesHistoricalRouteForPendingHistoricalRoute() public {
@@ -159,10 +195,11 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
         assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 40e18);
         assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 60e18);
-        assertEq(hook.observedTotalVolume(), 100e18);
+        assertEq(hook.cumulativeObservedVolume(), 100e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_usesGoalTreasuriesForDirectPayHistoricalRoute() public {
+    function test_processSplitWith_usesCanonicalGoalTreasuriesForDirectPayHistoricalRoute() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 
         communityToken.mint(address(hook), 50e18);
@@ -174,7 +211,8 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 90e18);
         assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
         assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
-        assertEq(hook.observedTotalVolume(), 100e18);
+        assertEq(hook.cumulativeObservedVolume(), 100e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
     function test_processSplitWith_revertsWithoutHistoryForPendingHistoricalRoute() public {
@@ -215,6 +253,7 @@ contract CobuildSplitHookTest is Test {
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
         assertEq(historicalVolumes.length, 1);
         assertEq(historicalVolumes[0], 25e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
     }
 
     function test_historicalRoute_omitsGoalsWithoutPrimaryTerminal() public {
@@ -227,11 +266,49 @@ contract CobuildSplitHookTest is Test {
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
         assertEq(historicalVolumes.length, 1);
         assertEq(historicalVolumes[0], 25e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+    }
+
+    function test_currentHistoricalTotalVolume_excludesUnselectableGoals_butRetainsCumulativeTelemetry() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+
+        goalRegistry.removeGoal(GOAL_ID_TWO);
+
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.cumulativeObservedVolume(), 100e18);
+        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+    }
+
+    function test_currentHistoricalRoute_reusesRetainedVolumeWhenGoalBecomesSelectableAgain() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+
+        goalRegistry.removeGoal(GOAL_ID_TWO);
+        goalRegistry.setGoalSelectable(GOAL_ID_TWO, true);
+
+        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+
+        assertEq(historicalGoalIds.length, 2);
+        assertEq(historicalVolumes.length, 2);
+        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+
+        uint256 goalOneVolume;
+        uint256 goalTwoVolume;
+        for (uint256 i = 0; i < historicalGoalIds.length; i++) {
+            if (historicalGoalIds[i] == GOAL_ID_ONE) {
+                goalOneVolume = historicalVolumes[i];
+                continue;
+            }
+            if (historicalGoalIds[i] == GOAL_ID_TWO) {
+                goalTwoVolume = historicalVolumes[i];
+            }
+        }
+
+        assertEq(goalOneVolume, 25e18);
+        assertEq(goalTwoVolume, 75e18);
     }
 
     function test_processSplitWith_revertsWhenSelectedGoalHasNoPrimaryTerminal() public {
-        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(0)));
-
         uint256[] memory goalIds = new uint256[](1);
         goalIds[0] = GOAL_ID_ONE;
 
@@ -240,6 +317,8 @@ contract CobuildSplitHookTest is Test {
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(0)));
 
         communityToken.mint(address(hook), 10e18);
 
@@ -273,28 +352,51 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(10e18));
     }
 
-    function test_processSplitWith_revertsWhenRegistryGoalTreasuryIsMissing() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
-        goalRegistry.setGoal(GOAL_ID_ONE, address(0), true);
+    function test_processSplitWith_revertsWhenCanonicalGoalTreasuryIsMissing() public {
+        uint256 missingGoalId = 303;
+        CobuildSplitHookMockGoalTerminal goalTerminalThree = new CobuildSplitHookMockGoalTerminal(communityToken);
+        directory.setPrimaryTerminal(missingGoalId, address(communityToken), IJBTerminal(address(goalTerminalThree)));
+        goalRegistry.setGoalSelectable(missingGoalId, true);
+
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = missingGoalId;
+
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+
+        communityToken.mint(address(hook), 100e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(100e18));
 
         communityToken.mint(address(hook), 40e18);
 
         vm.prank(controller);
-        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NO_GOAL_TREASURY.selector, GOAL_ID_ONE));
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NO_GOAL_TREASURY.selector, missingGoalId));
         hook.processSplitWith(_context(40e18));
     }
 
-    function test_approvedGoals_proxiesRegistrySelectableGoals() public view {
-        uint256[] memory approvedGoalIds = hook.approvedGoals();
+    function test_selectableGoalIds_followRegistrySelectabilityIncludingTerminalPresence() public {
+        uint256[] memory goalIds = hook.selectableGoalIds();
 
-        assertEq(approvedGoalIds.length, 2);
-        assertEq(approvedGoalIds[0], GOAL_ID_ONE);
-        assertEq(approvedGoalIds[1], GOAL_ID_TWO);
+        assertEq(goalIds.length, 2);
+        assertEq(goalIds[0], GOAL_ID_ONE);
+        assertEq(goalIds[1], GOAL_ID_TWO);
+
+        directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(0)));
+
+        uint256[] memory filteredGoalIds = hook.selectableGoalIds();
+        assertEq(filteredGoalIds.length, 1);
+        assertEq(filteredGoalIds[0], GOAL_ID_ONE);
     }
 
-    function _deployHook(
-        CobuildSplitHookMockGoalRegistry goalRegistry_
-    ) internal returns (CobuildSplitHook deployedHook) {
+    function _deployHook(CobuildSplitHookMockGoalRegistry goalRegistry_)
+        internal
+        returns (CobuildSplitHook deployedHook)
+    {
         CobuildSplitHook implementation = new CobuildSplitHook();
         deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
         deployedHook.initialize(
@@ -306,7 +408,9 @@ contract CobuildSplitHookTest is Test {
         );
     }
 
-    function _seedObservedRoute(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_) internal {
+    function _seedObservedRoute(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_)
+        internal
+    {
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary_, beneficiary_, _goalIds(), _weights(firstWeight, secondWeight));
 
@@ -411,22 +515,27 @@ contract CobuildSplitHookMockGoalTreasury {
 
 contract CobuildSplitHookMockGoalRegistry {
     IJBDirectory public directory;
+    IGoalDeploymentRegistry public goalDeploymentRegistry;
     uint256 public communityRevnetId;
     address public communityToken;
 
     uint256[] internal _selectableGoalIds;
     mapping(uint256 goalId => bool selectable) internal _isSelectable;
-    mapping(uint256 goalId => address goalTreasury) internal _goalTreasuryOf;
 
-    constructor(IJBDirectory directory_, uint256 communityRevnetId_, address communityToken_) {
+    constructor(
+        IJBDirectory directory_,
+        IGoalDeploymentRegistry goalDeploymentRegistry_,
+        uint256 communityRevnetId_,
+        address communityToken_
+    ) {
         directory = directory_;
+        goalDeploymentRegistry = goalDeploymentRegistry_;
         communityRevnetId = communityRevnetId_;
         communityToken = communityToken_;
     }
 
-    function setGoal(uint256 goalId, address goalTreasury, bool selectable) external {
+    function setGoalSelectable(uint256 goalId, bool selectable) external {
         bool wasSelectable = _isSelectable[goalId];
-        _goalTreasuryOf[goalId] = goalTreasury;
         _isSelectable[goalId] = selectable;
 
         if (!wasSelectable && selectable) {
@@ -444,15 +553,28 @@ contract CobuildSplitHookMockGoalRegistry {
     }
 
     function selectableGoalIds() external view returns (uint256[] memory goalIds) {
-        goalIds = _selectableGoalIds;
+        uint256 length = _selectableGoalIds.length;
+        uint256 count;
+        for (uint256 i = 0; i < length; i++) {
+            if (_isSelectableGoal(_selectableGoalIds[i])) count++;
+        }
+
+        goalIds = new uint256[](count);
+        uint256 cursor;
+        for (uint256 i = 0; i < length; i++) {
+            uint256 goalId = _selectableGoalIds[i];
+            if (!_isSelectableGoal(goalId)) continue;
+            goalIds[cursor] = goalId;
+            cursor++;
+        }
     }
 
     function isSelectable(uint256 goalId) external view returns (bool) {
-        return _isSelectable[goalId];
+        return _isSelectableGoal(goalId);
     }
 
-    function goalTreasuryOf(uint256 goalId) external view returns (address) {
-        return _goalTreasuryOf[goalId];
+    function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
+        return _isSelectable[goalId] && address(directory.primaryTerminalOf(goalId, communityToken)) != address(0);
     }
 
     function _removeGoal(uint256 goalId) internal {
@@ -469,9 +591,11 @@ contract CobuildSplitHookMockGoalRegistry {
 }
 
 contract CobuildSplitHookMockToken is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
     function mint(address account, uint256 amount) external {
         _mint(account, amount);
     }
 }
+
+contract CobuildSplitHookRouteSetterStub {}

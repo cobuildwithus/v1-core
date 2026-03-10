@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import { CobuildPaymentTerminal } from "src/juicebox/CobuildPaymentTerminal.sol";
-import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import {CobuildPaymentTerminal} from "src/juicebox/CobuildPaymentTerminal.sol";
+import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
-import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingContext.sol";
-import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
-import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 contract CobuildPaymentTerminalTest is Test {
     uint256 internal constant COBUILD_REVNET_ID = 138;
@@ -32,7 +32,9 @@ contract CobuildPaymentTerminalTest is Test {
         destinationTerminal = new CobuildPaymentTerminalMockCommunityTerminal(cobuildToken, splitHook);
 
         directory.setPrimaryTerminal(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sourceTerminal)));
-        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, address(cobuildToken), IJBTerminal(address(destinationTerminal)));
+        directory.setPrimaryTerminal(
+            COMMUNITY_REVNET_ID, address(cobuildToken), IJBTerminal(address(destinationTerminal))
+        );
 
         paymentTerminal = new CobuildPaymentTerminal(
             IJBDirectory(address(directory)),
@@ -41,6 +43,7 @@ contract CobuildPaymentTerminalTest is Test {
             COBUILD_REVNET_ID,
             COMMUNITY_REVNET_ID
         );
+        splitHook.setRouteSetter(address(paymentTerminal));
     }
 
     function test_payWithEth_setsPendingExplicitRoute_andForwardsToCommunityTerminal() public {
@@ -54,7 +57,7 @@ contract CobuildPaymentTerminalTest is Test {
         weights[0] = 1;
         weights[1] = 2;
 
-        uint256 beneficiaryTokenCount = paymentTerminal.pay{ value: 2 ether }(
+        uint256 beneficiaryTokenCount = paymentTerminal.pay{value: 2 ether}(
             COMMUNITY_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             2 ether,
@@ -118,13 +121,7 @@ contract CobuildPaymentTerminalTest is Test {
         cobuildToken.approve(address(paymentTerminal), 5 ether);
 
         uint256 beneficiaryTokenCount = paymentTerminal.pay(
-            COMMUNITY_REVNET_ID,
-            address(cobuildToken),
-            5 ether,
-            address(this),
-            0,
-            "community-pay",
-            bytes("")
+            COMMUNITY_REVNET_ID, address(cobuildToken), 5 ether, address(this), 0, "community-pay", bytes("")
         );
 
         assertEq(beneficiaryTokenCount, 5 ether);
@@ -143,13 +140,7 @@ contract CobuildPaymentTerminalTest is Test {
 
         vm.expectRevert(CobuildPaymentTerminal.ROUTE_NOT_CONSUMED.selector);
         paymentTerminal.pay(
-            COMMUNITY_REVNET_ID,
-            address(cobuildToken),
-            5 ether,
-            address(this),
-            0,
-            "community-pay",
-            bytes("")
+            COMMUNITY_REVNET_ID, address(cobuildToken), 5 ether, address(this), 0, "community-pay", bytes("")
         );
     }
 
@@ -160,13 +151,7 @@ contract CobuildPaymentTerminalTest is Test {
         cobuildToken.approve(address(paymentTerminal), 5 ether);
 
         uint256 beneficiaryTokenCount = paymentTerminal.pay(
-            COMMUNITY_REVNET_ID,
-            address(cobuildToken),
-            5 ether,
-            address(this),
-            0,
-            "community-pay",
-            bytes("")
+            COMMUNITY_REVNET_ID, address(cobuildToken), 5 ether, address(this), 0, "community-pay", bytes("")
         );
 
         assertEq(beneficiaryTokenCount, 0);
@@ -176,44 +161,75 @@ contract CobuildPaymentTerminalTest is Test {
     }
 
     function test_pay_revertsWhenProjectIdDoesNotMatchCommunityRevnet() public {
-        vm.expectRevert(abi.encodeWithSelector(CobuildPaymentTerminal.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID, 999));
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildPaymentTerminal.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID, 999)
+        );
         paymentTerminal.pay(999, JBConstants.NATIVE_TOKEN, 1 ether, address(this), 0, "memo", bytes(""));
     }
 
-    function test_constructor_revertsWhenCommunityRevnetIdDoesNotMatchHook() public {
+    function test_pay_revertsWhenSplitHookCommunityRevnetIdDoesNotMatchTerminal() public {
         CobuildPaymentTerminalMockSplitHook mismatchedHook =
             new CobuildPaymentTerminalMockSplitHook(COMMUNITY_REVNET_ID + 1, address(cobuildToken));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CobuildPaymentTerminal.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID + 1, COMMUNITY_REVNET_ID
-            )
-        );
-        new CobuildPaymentTerminal(
+        CobuildPaymentTerminal mismatchedTerminal = new CobuildPaymentTerminal(
             IJBDirectory(address(directory)),
             ICobuildSplitHook(address(mismatchedHook)),
             address(cobuildToken),
             COBUILD_REVNET_ID,
             COMMUNITY_REVNET_ID
         );
+        mismatchedHook.setRouteSetter(address(mismatchedTerminal));
+        cobuildToken.mint(address(this), 1 ether);
+        cobuildToken.approve(address(mismatchedTerminal), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildPaymentTerminal.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID, COMMUNITY_REVNET_ID + 1
+            )
+        );
+        mismatchedTerminal.pay(
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
+        );
     }
 
-    function test_constructor_revertsWhenCommunityTokenDoesNotMatchHook() public {
+    function test_pay_revertsWhenSplitHookCommunityTokenDoesNotMatchTerminal() public {
         CobuildPaymentTerminalMockToken wrongToken = new CobuildPaymentTerminalMockToken("Wrong", "WRONG");
         CobuildPaymentTerminalMockSplitHook mismatchedHook =
             new CobuildPaymentTerminalMockSplitHook(COMMUNITY_REVNET_ID, address(wrongToken));
+        CobuildPaymentTerminal mismatchedTerminal = new CobuildPaymentTerminal(
+            IJBDirectory(address(directory)),
+            ICobuildSplitHook(address(mismatchedHook)),
+            address(cobuildToken),
+            COBUILD_REVNET_ID,
+            COMMUNITY_REVNET_ID
+        );
+        mismatchedHook.setRouteSetter(address(mismatchedTerminal));
+        cobuildToken.mint(address(this), 1 ether);
+        cobuildToken.approve(address(mismatchedTerminal), 1 ether);
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 CobuildPaymentTerminal.INVALID_COMMUNITY_TOKEN.selector, address(cobuildToken), address(wrongToken)
             )
         );
-        new CobuildPaymentTerminal(
-            IJBDirectory(address(directory)),
-            ICobuildSplitHook(address(mismatchedHook)),
-            address(cobuildToken),
-            COBUILD_REVNET_ID,
-            COMMUNITY_REVNET_ID
+        mismatchedTerminal.pay(
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
+        );
+    }
+
+    function test_pay_revertsWhenSplitHookRouteSetterDoesNotMatchTerminal() public {
+        address wrongRouteSetter = makeAddr("wrong-route-setter");
+        splitHook.setRouteSetter(wrongRouteSetter);
+
+        cobuildToken.mint(address(this), 1 ether);
+        cobuildToken.approve(address(paymentTerminal), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildPaymentTerminal.INVALID_ROUTE_SETTER.selector, address(paymentTerminal), wrongRouteSetter
+            )
+        );
+        paymentTerminal.pay(
+            COMMUNITY_REVNET_ID, address(cobuildToken), 1 ether, address(this), 0, "community-pay", bytes("")
         );
     }
 }
@@ -231,7 +247,7 @@ contract CobuildPaymentTerminalMockDirectory {
 }
 
 contract CobuildPaymentTerminalMockToken is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) { }
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
     function mint(address account, uint256 amount) external {
         _mint(account, amount);
@@ -379,12 +395,16 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         return 0;
     }
 
-    function observedTotalVolume() external pure override returns (uint256) {
+    function cumulativeObservedVolume() external pure override returns (uint256) {
         return 0;
     }
 
-    function approvedGoals() external pure override returns (uint256[] memory goals) {
-        goals = new uint256[](0);
+    function currentHistoricalTotalVolume() external pure override returns (uint256) {
+        return 0;
+    }
+
+    function selectableGoalIds() external pure override returns (uint256[] memory goalIds) {
+        goalIds = new uint256[](0);
     }
 
     function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -437,7 +457,11 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         _hasPendingRoute = false;
     }
 
-    function processSplitWith(JBSplitHookContext calldata) external payable override { }
+    function setRouteSetter(address routeSetter_) external {
+        routeSetter = routeSetter_;
+    }
+
+    function processSplitWith(JBSplitHookContext calldata) external payable override {}
 
     function consumePendingRoute() external {
         _hasPendingRoute = false;

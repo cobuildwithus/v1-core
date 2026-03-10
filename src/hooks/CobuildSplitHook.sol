@@ -11,6 +11,7 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Community-level split hook that routes reserved community tokens into registry-curated child goals.
@@ -57,7 +58,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 indexed goalId,
         uint256 amount,
         uint256 goalObservedTotal,
-        uint256 observedTotal
+        uint256 cumulativeObservedTotal
     );
     event GoalRouted(
         address indexed beneficiary,
@@ -91,8 +92,10 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     address public communityToken;
     address public routeSetter;
     ICommunityGoalRegistry private _goalRegistry;
+    IGoalDeploymentRegistry private _goalDeploymentRegistry;
+    // Explicit-route volume is cumulative telemetry. Selectability only gates live historical-route inclusion.
     mapping(uint256 => uint256) public override observedVolumeOf;
-    uint256 public override observedTotalVolume;
+    uint256 public override cumulativeObservedVolume;
 
     PendingRoute private _pendingRoute;
 
@@ -126,6 +129,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         ) revert ADDRESS_ZERO();
         if (directoryAddress.code.length == 0) revert NOT_A_CONTRACT(directoryAddress);
         if (communityTokenAddress.code.length == 0) revert NOT_A_CONTRACT(communityTokenAddress);
+        if (routeSetterAddress.code.length == 0) revert NOT_A_CONTRACT(routeSetterAddress);
         if (goalRegistryAddress.code.length == 0) revert NOT_A_CONTRACT(goalRegistryAddress);
         if (communityRevnetId_ == 0) revert INVALID_COMMUNITY_REVNET_ID();
         uint256 goalRegistryRevnetId = goalRegistry_.communityRevnetId();
@@ -140,12 +144,17 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         if (goalRegistryDirectory != directoryAddress) {
             revert INVALID_DIRECTORY(directoryAddress, goalRegistryDirectory);
         }
+        IGoalDeploymentRegistry goalDeploymentRegistry_ = goalRegistry_.goalDeploymentRegistry();
+        address goalDeploymentRegistryAddress = address(goalDeploymentRegistry_);
+        if (goalDeploymentRegistryAddress == address(0)) revert ADDRESS_ZERO();
+        if (goalDeploymentRegistryAddress.code.length == 0) revert NOT_A_CONTRACT(goalDeploymentRegistryAddress);
 
         directory = directory_;
         communityRevnetId = communityRevnetId_;
         communityToken = communityTokenAddress;
         routeSetter = routeSetterAddress;
         _goalRegistry = goalRegistry_;
+        _goalDeploymentRegistry = goalDeploymentRegistry_;
 
         emit RouteSetterConfigured(routeSetterAddress);
         emit GoalRegistryConfigured(goalRegistryAddress);
@@ -162,8 +171,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         return address(_goalRegistry);
     }
 
-    function approvedGoals() external view override returns (uint256[] memory goals) {
-        goals = _goalRegistry.selectableGoalIds();
+    function selectableGoalIds() external view override returns (uint256[] memory goalIds) {
+        goalIds = _goalRegistry.selectableGoalIds();
+    }
+
+    function currentHistoricalTotalVolume() external view override returns (uint256 totalHistoricalVolume) {
+        (, , totalHistoricalVolume) = _loadHistoricalRouteRuntime();
     }
 
     function historicalRoute() external view override returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -357,7 +370,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
-            address beneficiary = _goalRegistry.goalTreasuryOf(goalId);
+            address beneficiary = _goalDeploymentRegistry.goalTreasuryOf(goalId);
             if (beneficiary == address(0)) revert NO_GOAL_TREASURY(goalId);
 
             _payGoal(token, goalId, amountForGoal, beneficiary, false);
@@ -386,6 +399,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     function _recordObservedRoute(uint256[] memory goalIds, uint32[] memory weights, uint256 sourceAmount) internal {
         uint256 totalWeight = _sumWeights(weights);
         uint256 remaining = sourceAmount;
+        uint256 updatedCumulativeObservedVolume = cumulativeObservedVolume;
 
         for (uint256 i = 0; i < goalIds.length; i++) {
             uint256 amountForGoal;
@@ -400,10 +414,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             uint256 goalId = goalIds[i];
             uint256 newGoalObservedTotal = observedVolumeOf[goalId] + amountForGoal;
             observedVolumeOf[goalId] = newGoalObservedTotal;
-            observedTotalVolume += amountForGoal;
+            updatedCumulativeObservedVolume += amountForGoal;
 
-            emit HistoricalVolumeRecorded(goalId, amountForGoal, newGoalObservedTotal, observedTotalVolume);
+            emit HistoricalVolumeRecorded(goalId, amountForGoal, newGoalObservedTotal, updatedCumulativeObservedVolume);
         }
+
+        cumulativeObservedVolume = updatedCumulativeObservedVolume;
     }
 
     function _validateRoute(uint256[] calldata goalIds, uint32[] calldata weights) internal view {
@@ -436,13 +452,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     }
 
     function _historicalRoute() internal view returns (uint256[] memory goalIds, uint256[] memory volumes) {
-        uint256[] memory selectableGoalIds = _goalRegistry.selectableGoalIds();
-        uint256 selectableLength = selectableGoalIds.length;
+        uint256[] memory selectableIds = _goalRegistry.selectableGoalIds();
+        uint256 selectableLength = selectableIds.length;
         uint256 count;
         for (uint256 i = 0; i < selectableLength; i++) {
-            uint256 goalId = selectableGoalIds[i];
+            uint256 goalId = selectableIds[i];
             if (observedVolumeOf[goalId] == 0) continue;
-            if (address(directory.primaryTerminalOf(goalId, communityToken)) == address(0)) continue;
             count++;
         }
 
@@ -450,10 +465,9 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         volumes = new uint256[](count);
         uint256 cursor;
         for (uint256 i = 0; i < selectableLength; i++) {
-            uint256 goalId = selectableGoalIds[i];
+            uint256 goalId = selectableIds[i];
             uint256 volume = observedVolumeOf[goalId];
             if (volume == 0) continue;
-            if (address(directory.primaryTerminalOf(goalId, communityToken)) == address(0)) continue;
 
             goalIds[cursor] = goalId;
             volumes[cursor] = volume;

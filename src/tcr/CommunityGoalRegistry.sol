@@ -4,30 +4,30 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { ICommunityGoalRegistry } from "./interfaces/ICommunityGoalRegistry.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 
 contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     struct InitConfig {
         IGeneralizedTCRConfig.RegistryConfig tcrConfig;
         IJBDirectory directory;
+        IGoalDeploymentRegistry goalDeploymentRegistry;
         uint256 communityRevnetId;
         address communityToken;
         address owner;
     }
 
     struct GoalListing {
-        bytes32 itemId;
-        address goalTreasury;
         string metadataURI;
-        bool exists;
         bool isSystem;
         bool paused;
     }
 
     error NOT_A_CONTRACT(address account);
+    error VOTING_TOKEN_MISMATCH(address expectedToken, address actualToken);
 
     IJBDirectory public directory;
+    IGoalDeploymentRegistry public goalDeploymentRegistry;
     uint256 public override communityRevnetId;
     address public override communityToken;
     address public override owner;
@@ -47,19 +47,25 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
     function initialize(InitConfig calldata initConfig) external initializer {
         address directoryAddress = address(initConfig.directory);
+        address goalDeploymentRegistryAddress = address(initConfig.goalDeploymentRegistry);
         address communityToken_ = initConfig.communityToken;
         address owner_ = initConfig.owner;
 
         if (
             directoryAddress == address(0) ||
+            goalDeploymentRegistryAddress == address(0) ||
             initConfig.communityRevnetId == 0 ||
             communityToken_ == address(0) ||
             owner_ == address(0)
         ) revert ADDRESS_ZERO();
         if (directoryAddress.code.length == 0) revert NOT_A_CONTRACT(directoryAddress);
+        if (goalDeploymentRegistryAddress.code.length == 0) revert NOT_A_CONTRACT(goalDeploymentRegistryAddress);
         if (communityToken_.code.length == 0) revert NOT_A_CONTRACT(communityToken_);
+        address votingToken_ = address(initConfig.tcrConfig.votingToken);
+        if (votingToken_ != communityToken_) revert VOTING_TOKEN_MISMATCH(communityToken_, votingToken_);
 
         directory = initConfig.directory;
+        goalDeploymentRegistry = initConfig.goalDeploymentRegistry;
         communityRevnetId = initConfig.communityRevnetId;
         communityToken = communityToken_;
         owner = owner_;
@@ -101,10 +107,10 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
     function listingOf(uint256 goalId) external view override returns (GoalListingView memory listing) {
         GoalListing storage stored = _goalListings[goalId];
+        bool listed = _isListedGoal(goalId);
         listing = GoalListingView({
             goalId: goalId,
-            itemId: stored.itemId,
-            goalTreasury: stored.goalTreasury,
+            itemId: listed ? _goalItemId(goalId) : bytes32(0),
             metadataURI: stored.metadataURI,
             isSystem: stored.isSystem,
             paused: stored.paused,
@@ -112,41 +118,33 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         });
     }
 
-    function goalTreasuryOf(uint256 goalId) external view override returns (address goalTreasury) {
-        goalTreasury = _goalListings[goalId].goalTreasury;
-    }
-
     function isListed(uint256 goalId) public view override returns (bool) {
-        return _goalListings[goalId].exists;
+        return _isListedGoal(goalId);
     }
 
     function isSelectable(uint256 goalId) external view override returns (bool) {
         return _isSelectableGoal(goalId);
     }
 
-    function pinSystemGoal(
-        uint256 goalId,
-        address goalTreasury,
-        string calldata metadataURI
-    ) external override onlyOwner {
-        _assertGoalCanExist(goalId, goalTreasury);
+    function pinSystemGoal(uint256 goalId, string calldata metadataURI) external override onlyOwner {
+        _assertGoalCanExist(goalId);
 
         GoalListing storage listing = _goalListings[goalId];
-        bool exists = listing.exists;
-        if (exists && !listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
+        bool listed = _isListedGoal(goalId);
+        if (listed && !listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
 
         bytes32 itemId = _goalItemId(goalId);
-        if (!exists && items[itemId].status != Status.Absent) revert GOAL_ALREADY_LISTED(goalId);
-        if (!exists) _addListedGoal(goalId);
+        if (!listed && items[itemId].status != Status.Absent) revert GOAL_ALREADY_LISTED(goalId);
+        if (!listed) _addListedGoal(goalId);
 
-        _setListing(listing, itemId, goalTreasury, metadataURI, true);
+        _setListing(listing, metadataURI, true);
 
-        emit GoalPinned(goalId, goalTreasury, metadataURI);
+        emit GoalPinned(goalId, metadataURI);
     }
 
     function unpinSystemGoal(uint256 goalId) external override onlyOwner {
         GoalListing storage listing = _goalListings[goalId];
-        if (!listing.exists) revert GOAL_NOT_LISTED(goalId);
+        if (!_isListedGoal(goalId)) revert GOAL_NOT_LISTED(goalId);
         if (!listing.isSystem) revert GOAL_NOT_SYSTEM(goalId);
 
         _removeListedGoal(goalId);
@@ -157,7 +155,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
     function setGoalPaused(uint256 goalId, bool paused) external override onlyOwner {
         GoalListing storage listing = _goalListings[goalId];
-        if (!listing.exists) revert GOAL_NOT_LISTED(goalId);
+        if (!_isListedGoal(goalId)) revert GOAL_NOT_LISTED(goalId);
 
         listing.paused = paused;
         emit GoalPaused(goalId, paused);
@@ -178,38 +176,38 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
         if (data.goalId == 0) return false;
         if (data.goalId == communityRevnetId) return false;
+        if (!_isRegisteredGoal(data.goalId)) return false;
         if (!_goalHasPrimaryTerminal(data.goalId)) return false;
-        if (!_isValidGoalTreasury(data.goalId, data.goalTreasury)) return false;
         return true;
     }
 
     function _assertCanAddItem(bytes32 itemID, bytes calldata item) internal view override {
         uint256 goalId = uint256(itemID);
-        GoalListing storage listing = _goalListings[goalId];
-        if (listing.exists) revert GOAL_ALREADY_LISTED(goalId);
+        if (_isListedGoal(goalId)) revert GOAL_ALREADY_LISTED(goalId);
 
         GoalItemData memory data = abi.decode(item, (GoalItemData));
         if (data.goalId != goalId) revert INVALID_ITEM_DATA();
 
-        _assertGoalCanExist(goalId, data.goalTreasury);
+        _assertGoalCanExist(goalId);
     }
 
     function _onItemRegistered(bytes32 itemID, bytes memory item) internal override {
         GoalItemData memory data = abi.decode(item, (GoalItemData));
         uint256 goalId = data.goalId;
         GoalListing storage listing = _goalListings[goalId];
-        if (listing.exists && listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
-        if (!listing.exists) _addListedGoal(goalId);
+        bool listed = _isListedGoal(goalId);
+        if (listed && listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
+        if (!listed) _addListedGoal(goalId);
 
-        _setListing(listing, itemID, data.goalTreasury, data.metadataURI, false);
+        _setListing(listing, data.metadataURI, false);
 
-        emit GoalListed(itemID, goalId, data.goalTreasury, data.metadataURI);
+        emit GoalListed(itemID, goalId, data.metadataURI);
     }
 
     function _onItemRemoved(bytes32 itemID) internal override {
         uint256 goalId = uint256(itemID);
         GoalListing storage listing = _goalListings[goalId];
-        if (!listing.exists || listing.isSystem) return;
+        if (!_isListedGoal(goalId) || listing.isSystem) return;
 
         _removeListedGoal(goalId);
         delete _goalListings[goalId];
@@ -221,47 +219,31 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         data = abi.decode(item, (GoalItemData));
     }
 
-    function _assertGoalCanExist(uint256 goalId, address goalTreasury) internal view {
+    function _assertGoalCanExist(uint256 goalId) internal view {
         if (goalId == 0) revert INVALID_GOAL_ID();
         if (goalId == communityRevnetId) revert GOAL_CANNOT_ROUTE_TO_SELF(goalId);
+        if (!_isRegisteredGoal(goalId)) revert GOAL_NOT_DEPLOYED(goalId);
         if (!_goalHasPrimaryTerminal(goalId)) revert GOAL_TERMINAL_NOT_CONFIGURED(goalId);
-        _assertValidGoalTreasury(goalId, goalTreasury);
     }
 
     function _goalHasPrimaryTerminal(uint256 goalId) internal view returns (bool) {
         return address(directory.primaryTerminalOf(goalId, communityToken)) != address(0);
     }
 
-    function _isValidGoalTreasury(uint256 goalId, address goalTreasury) internal view returns (bool) {
-        if (goalTreasury == address(0)) return false;
-        if (goalTreasury.code.length == 0) return false;
-
-        try IGoalTreasury(goalTreasury).goalRevnetId() returns (uint256 actualGoalId) {
-            return actualGoalId == goalId;
-        } catch {
-            return false;
-        }
-    }
-
-    function _assertValidGoalTreasury(uint256 goalId, address goalTreasury) internal view {
-        if (goalTreasury == address(0)) revert ADDRESS_ZERO();
-        if (goalTreasury.code.length == 0) revert NOT_A_CONTRACT(goalTreasury);
-
-        uint256 actualGoalId;
-        try IGoalTreasury(goalTreasury).goalRevnetId() returns (uint256 resolvedGoalId) {
-            actualGoalId = resolvedGoalId;
-        } catch {
-            revert INVALID_GOAL_TREASURY(goalTreasury, goalId, 0);
-        }
-        if (actualGoalId != goalId) revert INVALID_GOAL_TREASURY(goalTreasury, goalId, actualGoalId);
+    function _isRegisteredGoal(uint256 goalId) internal view returns (bool) {
+        return goalDeploymentRegistry.isRegisteredGoal(goalId);
     }
 
     function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
         GoalListing storage listing = _goalListings[goalId];
-        if (!listing.exists || listing.paused) return false;
-        if (listing.goalTreasury == address(0)) return false;
+        if (!_isListedGoal(goalId) || listing.paused) return false;
         if (goalId == communityRevnetId) return false;
+        if (!_isRegisteredGoal(goalId)) return false;
         return _goalHasPrimaryTerminal(goalId);
+    }
+
+    function _isListedGoal(uint256 goalId) internal view returns (bool) {
+        return _listedGoalIndexPlusOne[goalId] != 0;
     }
 
     function _addListedGoal(uint256 goalId) internal {
@@ -291,17 +273,8 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         return bytes32(uint256(goalId));
     }
 
-    function _setListing(
-        GoalListing storage listing,
-        bytes32 itemId,
-        address goalTreasury,
-        string memory metadataURI,
-        bool isSystem
-    ) internal {
-        listing.itemId = itemId;
-        listing.goalTreasury = goalTreasury;
+    function _setListing(GoalListing storage listing, string memory metadataURI, bool isSystem) internal {
         listing.metadataURI = metadataURI;
-        listing.exists = true;
         listing.isSystem = isSystem;
         listing.paused = false;
     }
