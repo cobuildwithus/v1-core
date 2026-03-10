@@ -25,6 +25,8 @@ contract CommunityGoalRegistryTest is Test {
     uint256 internal constant ARBITRATION_COST = 1e14;
     uint256 internal constant CHALLENGE_PERIOD = 7 days;
     uint256 internal constant SUBMISSION_DEPOSIT = 1e18;
+    uint32 internal constant SYSTEM_FLOOR_ONE = 120_000;
+    uint32 internal constant SYSTEM_FLOOR_TWO = 30_000;
 
     address internal owner = makeAddr("owner");
     address internal alice = makeAddr("alice");
@@ -152,23 +154,31 @@ contract CommunityGoalRegistryTest is Test {
 
     function test_pinSystemGoal_marksGoalSelectable() public {
         vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
 
         assertTrue(registry.isListed(GOAL_ID_ONE));
         assertTrue(registry.isSelectable(GOAL_ID_ONE));
         assertEq(address(registry.goalDeploymentRegistry()), address(goalDeploymentRegistry));
+        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_ONE);
 
         ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
         assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
         assertEq(listing.metadataURI, "ipfs://system-goal");
         assertTrue(listing.isSystem);
+        assertEq(listing.floorPpm, SYSTEM_FLOOR_ONE);
         assertFalse(listing.paused);
         assertTrue(listing.selectable);
+
+        (uint256[] memory goalIds, uint32[] memory floorPpms) = registry.systemRoute();
+        assertEq(goalIds.length, 1);
+        assertEq(goalIds[0], GOAL_ID_ONE);
+        assertEq(floorPpms.length, 1);
+        assertEq(floorPpms[0], SYSTEM_FLOOR_ONE);
     }
 
     function test_setGoalPaused_togglesSystemGoalSelectability() public {
         vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
 
         vm.prank(owner);
         registry.setGoalPaused(GOAL_ID_ONE, true);
@@ -199,7 +209,7 @@ contract CommunityGoalRegistryTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_TERMINAL_NOT_CONFIGURED.selector, GOAL_ID_ONE)
         );
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
     }
 
     function test_pinSystemGoal_revertsWhenGoalAlreadyHasPendingTcrRequest() public {
@@ -210,7 +220,60 @@ contract CommunityGoalRegistryTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_ALREADY_LISTED.selector, GOAL_ID_ONE));
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
+    }
+
+    function test_pinSystemGoal_revertsWhenFloorIsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.INVALID_SYSTEM_FLOOR_PPM.selector, uint32(0)));
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", 0);
+    }
+
+    function test_pinSystemGoal_revertsWhenTotalSystemFloorPpmExceedsScale() public {
+        vm.prank(owner);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", 900_000);
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICommunityGoalRegistry.TOTAL_SYSTEM_FLOOR_PPM_EXCEEDS_MAX.selector, uint256(1_100_000)
+            )
+        );
+        registry.pinSystemGoal(GOAL_ID_TWO, "ipfs://system-goal-two", 200_000);
+    }
+
+    function test_pinSystemGoal_updatesTotalSystemFloorPpmWhenRepinned() public {
+        vm.prank(owner);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
+
+        vm.prank(owner);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal-v2", SYSTEM_FLOOR_TWO);
+
+        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
+        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.metadataURI, "ipfs://system-goal-v2");
+        assertEq(listing.floorPpm, SYSTEM_FLOOR_TWO);
+    }
+
+    function test_unpinSystemGoal_removesFloorFromTotalsAndSystemRoute() public {
+        vm.startPrank(owner);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
+        registry.pinSystemGoal(GOAL_ID_TWO, "ipfs://system-goal-two", SYSTEM_FLOOR_TWO);
+        registry.unpinSystemGoal(GOAL_ID_ONE);
+        vm.stopPrank();
+
+        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
+        assertFalse(registry.isListed(GOAL_ID_ONE));
+
+        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.floorPpm, 0);
+        assertFalse(listing.isSystem);
+
+        (uint256[] memory goalIds, uint32[] memory floorPpms) = registry.systemRoute();
+        assertEq(goalIds.length, 1);
+        assertEq(goalIds[0], GOAL_ID_TWO);
+        assertEq(floorPpms.length, 1);
+        assertEq(floorPpms[0], SYSTEM_FLOOR_TWO);
     }
 
     function test_addItem_registersGoalWithCanonicalItemId() public {
@@ -236,6 +299,7 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(listing.itemId, itemId);
         assertEq(listing.metadataURI, "ipfs://goal-one");
         assertFalse(listing.isSystem);
+        assertEq(listing.floorPpm, 0);
     }
 
     function test_removeAndRelistGoal_updatesOnlyMetadata_notCanonicalTreasury() public {
@@ -254,6 +318,7 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(removedListing.itemId, bytes32(0));
         assertEq(bytes(removedListing.metadataURI).length, 0);
         assertFalse(removedListing.isSystem);
+        assertEq(removedListing.floorPpm, 0);
         assertFalse(removedListing.paused);
         assertFalse(removedListing.selectable);
 
@@ -263,6 +328,7 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
         assertEq(listing.metadataURI, "ipfs://goal-one-v2");
         assertTrue(listing.selectable);
+        assertEq(listing.floorPpm, 0);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
     }
 

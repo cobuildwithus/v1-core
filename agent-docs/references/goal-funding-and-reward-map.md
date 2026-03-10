@@ -13,22 +13,33 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
      delta can use the selected route when an explicit route exists.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
-   - owner-backed system goals can be pinned/unpinned directly,
-   - each listed goal carries metadata plus paused/selectable state only.
+   - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
+   - total configured system-goal floor is capped at `1_000_000` ppm,
+   - each listed goal carries metadata plus paused/selectable state, and system goals additionally expose `floorPpm`.
 4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
 5. If the wrapper-created community pay minted reserved tokens, the wrapper immediately calls the community controller's
    `sendReservedTokensToSplitsOf(...)` in the same transaction.
-6. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which consumes the pending route and
-   forwards only the current pay's newly created reserved-token delta into registry-selectable child goals by paying
-   each goal's primary terminal for the community token.
-7. If the wrapper-created pay minted no reserved tokens, the wrapper clears the unused pending route instead of leaving
+6. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which first peels off the configured
+   system-goal floor slice and routes it into canonical goal-treasury beneficiaries.
+7. If the callback carried a wrapper-seeded pending route, only the discretionary remainder from the current pay's
+   newly created reserved-token delta is forwarded into the selected child goals by paying each goal's primary
+   terminal for the community token.
+8. If the callback had no pending route, only the discretionary remainder is deferred into hook-managed backlog.
+9. If a configured system goal is paused or otherwise not currently selectable, its floor share is rolled back into
+   that discretionary remainder instead of bricking routing.
+10. Only discretionary explicit routed payments record observed per-goal volume; system-floor routing and backlog
+    flushes do not reinforce the historical signal.
+11. Historical backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked
+   discretionary backlog in bounded chunks.
+12. Historical backlog routing is derived only from selectable non-system goals with observed discretionary explicit
+   volume and always pays goal-treasury beneficiaries.
+13. If the wrapper-created pay minted no reserved tokens, the wrapper clears the unused pending route instead of leaving
    stale routing state behind.
-8. If older backlog was included in that controller flush, `CobuildSplitHook` parks it as hook-managed historical backlog
-   for later permissionless retry instead of routing it through the current payer's selection.
-9. Permissionless backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked backlog in bounded chunks.
-10. Only explicit routed payments record observed per-goal volume; backlog flushes follow that signal without reinforcing it.
-11. If no pending route exists, the split hook defers the full controller callback amount into hook-managed backlog instead of routing it inline.
-12. If no usable historical route exists, the split hook defers that backlog on-hook for later permissionless historical flush instead of blocking wrapper-routed mints.
+14. If older backlog was included in that controller flush, `CobuildSplitHook` applies system-floor routing to that
+   snapshotted backlog first and parks only the discretionary remainder for later permissionless retry instead of
+   routing it through the current payer's selection.
+15. If no usable historical route exists, the split hook keeps that discretionary backlog on-hook for later
+   permissionless historical flush instead of blocking wrapper-routed mints.
 
 ## Goal Funding Path
 

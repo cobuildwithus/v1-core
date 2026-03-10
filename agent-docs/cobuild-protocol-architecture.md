@@ -118,8 +118,9 @@ Community root routing
 - `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
-  - owner-backed system goals can be pinned/unpinned directly,
-  - every listed goal carries metadata plus paused/selectable status only.
+  - owner-backed system goals can be pinned/unpinned directly with a configured `floorPpm`,
+  - total configured system-goal floor is capped at `1_000_000` ppm,
+  - every listed goal carries metadata plus paused/selectable status, and system goals additionally expose `floorPpm`.
 - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
   - `GoalFactory` registers each deployed goal treasury exactly once,
   - future owner-authorized goal-factory versions can register into the same registry,
@@ -128,18 +129,20 @@ Community root routing
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
 - During wrapper-routed community pays, reserved-token split delivery is forced synchronously by the wrapper through the
   community controller's `sendReservedTokensToSplitsOf(...)` call.
-- `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
+- `CobuildSplitHook` first applies configured system-goal floor routing on each controller callback and pays those
+  slices into canonical goal-treasury beneficiaries.
+- Any remaining discretionary amount from a wrapper-routed pending route is forwarded into registry-selectable child
   goals by paying each goal's primary terminal for the community token, but only for the current pay's newly created
   reserved-token delta.
-- Older controller backlog encountered during a wrapper-routed pay is moved into hook-managed historical backlog and is
-  distributed later through permissionless historical routing.
+- Older controller backlog encountered during a wrapper-routed pay is floor-routed first, then only the discretionary
+  remainder is moved into hook-managed historical backlog for later permissionless routing.
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
-- Only explicit routed payments record observed per-goal volume.
-- Historical backlog routing is derived from registry-selectable goals with non-zero observed explicit volume and is
+- Only discretionary explicit routed payments record observed per-goal volume.
+- Historical backlog routing is derived only from selectable non-system goals with non-zero observed explicit volume and is
   only executed through the paginated permissionless backlog-flush path.
 - If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
-  routing it inline through the current transaction.
+  routing it inline through the current transaction, after first funding any currently selectable system-goal floor slices.
 - If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
   retry instead of blocking wrapper-routed mints.
 

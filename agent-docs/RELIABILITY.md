@@ -68,12 +68,17 @@
   delta.
 - If a wrapper-routed pay creates no reserved tokens, the wrapper should clear the unused pending route instead of
   leaving stale routing state behind.
-- Only explicit routed community pays should update historical routing volume; backlog flushes must not make the
-  historical signal self-reinforcing.
+- Community routing must apply configured system-goal floor slices before any explicit/discretionary or backlog logic,
+  and those floor slices must use goal-treasury beneficiaries.
+- Only discretionary explicit routed community pays should update historical routing volume; system-floor routing and
+  backlog flushes must not make the historical signal self-reinforcing.
 - Hook-managed historical backlog should be flushed through the paginated permissionless path instead of piggybacking
   older backlog through unrelated direct community pays.
-- Direct community pays with no usable historical route should defer backlog for later permissionless historical retry
-  instead of inferring a downstream route.
+- Historical backlog must remain discretionary-only; direct community pays should route any currently selectable
+  system-goal floor slices immediately and defer only the discretionary remainder for later permissionless historical
+  retry instead of inferring a downstream route.
+- If a configured system goal is paused or otherwise not selectable, its floor share should fall back into the
+  discretionary remainder rather than blocking the community callback.
 - Permissionless backlog flushes should use each registry-listed goal's treasury as the downstream beneficiary sink.
 
 ## Verification Matrix

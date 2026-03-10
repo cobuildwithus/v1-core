@@ -17,11 +17,14 @@ interface ICommunityGoalRegistry is IGeneralizedTCR {
         bytes32 itemId;
         string metadataURI;
         bool isSystem;
+        uint32 floorPpm;
         bool paused;
         bool selectable;
     }
 
     error INVALID_GOAL_ID();
+    error INVALID_SYSTEM_FLOOR_PPM(uint32 floorPpm);
+    error TOTAL_SYSTEM_FLOOR_PPM_EXCEEDS_MAX(uint256 attemptedTotalSystemFloorPpm);
     error GOAL_ALREADY_LISTED(uint256 goalId);
     error GOAL_NOT_LISTED(uint256 goalId);
     error GOAL_NOT_SYSTEM(uint256 goalId);
@@ -45,11 +48,14 @@ interface ICommunityGoalRegistry is IGeneralizedTCR {
 
     function listedGoalIds() external view returns (uint256[] memory goalIds);
     function selectableGoalIds() external view returns (uint256[] memory goalIds);
+    function systemRoute() external view returns (uint256[] memory goalIds, uint32[] memory floorPpms);
     function listingOf(uint256 goalId) external view returns (GoalListingView memory listing);
+    function totalSystemFloorPpm() external view returns (uint32);
     function isListed(uint256 goalId) external view returns (bool);
     function isSelectable(uint256 goalId) external view returns (bool);
+    function isSystemGoal(uint256 goalId) external view returns (bool);
 
-    function pinSystemGoal(uint256 goalId, string calldata metadataURI) external;
+    function pinSystemGoal(uint256 goalId, string calldata metadataURI, uint32 floorPpm) external;
     function unpinSystemGoal(uint256 goalId) external;
     function setGoalPaused(uint256 goalId, bool paused) external;
     function transferOwnership(address newOwner) external;

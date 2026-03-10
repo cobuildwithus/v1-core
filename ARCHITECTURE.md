@@ -149,17 +149,19 @@ cobuild-protocol/
     when that pay created reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
-    - owner-backed system goals can be pinned/unpinned directly,
-    - each listing carries metadata plus paused/selectable state only.
+    - owner-backed system goals can be pinned/unpinned directly and carry per-goal `floorPpm` metadata,
+    - configured system-goal floor total is capped at `1_000_000` ppm,
+    - each listing carries metadata plus paused/selectable state, and system listings additionally expose `floorPpm`.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
     - `GoalFactory` registers each deployed goal treasury exactly once,
     - owner-authorized future goal-factory versions can register into the same registry over time,
     - treasury identity is immutable per goal id once registered.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
-    explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
-    registry-selected child goals only for explicit wrapper-selected routes, records observed volume only from
-    explicit routed pays, and routes historical backlog only through the paginated permissionless backlog-flush path.
+    explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, peels off configured system-goal floor
+    slices first and routes them to canonical goal-treasury beneficiaries, then applies explicit/discretionary routing
+    only to the remaining amount, records observed volume only from discretionary explicit routed pays, and routes
+    discretionary backlog only through the paginated permissionless backlog-flush path.
   - Wrapper-routed community pays snapshot any preexisting controller backlog before the wrapper pay so a user-selected
     route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
@@ -169,6 +171,8 @@ cobuild-protocol/
     pending state must be consumed in that same transaction.
   - If an explicit wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of
     leaving stale routing state behind.
+  - If a configured system goal is paused or otherwise not currently selectable, its floor share falls back into the
+    discretionary remainder instead of bricking community routing.
   - Empty-metadata wrapper pays do not seed any pending route. Any reserved tokens created by that pay are flushed into
     hook-managed backlog for later permissionless historical routing.
   - Raw direct community pays and all controller callbacks without a pending explicit route defer the full amount into

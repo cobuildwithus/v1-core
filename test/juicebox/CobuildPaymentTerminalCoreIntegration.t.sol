@@ -23,6 +23,7 @@ import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {CobuildPaymentTerminal} from "src/juicebox/CobuildPaymentTerminal.sol";
 import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
+import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 
@@ -39,6 +40,8 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     uint256 internal constant ARBITRATION_COST = 1e14;
     uint256 internal constant CHALLENGE_PERIOD = 7 days;
     uint256 internal constant SUBMISSION_DEPOSIT = 1e18;
+    uint32 internal constant SYSTEM_FLOOR_ONE = 200_000;
+    uint32 internal constant SYSTEM_FLOOR_TWO = 100_000;
 
     address internal multisig = makeAddr("multisig");
     address internal routeBeneficiary = makeAddr("route-beneficiary");
@@ -51,6 +54,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     struct WrapperFixture {
         uint256 communityRevnetId;
         MockVotesToken communityToken;
+        CommunityGoalRegistry registry;
         AsyncCommunityTerminal communityTerminal;
         CobuildPaymentTerminal wrapper;
         CobuildSplitHook hook;
@@ -65,6 +69,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     struct ManualFixture {
         uint256 communityRevnetId;
         MockVotesToken communityToken;
+        CommunityGoalRegistry registry;
         AsyncCommunityTerminal communityTerminal;
         CobuildSplitHook hook;
         address routeSetter;
@@ -382,6 +387,15 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     }
 
     function _deployWrapperFixture(uint16 reservedPercent) internal returns (WrapperFixture memory fixture) {
+        return _deployWrapperFixture(reservedPercent, false, 0, 0);
+    }
+
+    function _deployWrapperFixture(
+        uint16 reservedPercent,
+        bool pinAsSystem,
+        uint32 floorPpmOne,
+        uint32 floorPpmTwo
+    ) internal returns (WrapperFixture memory fixture) {
         GoalDeploymentRegistry goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
         (fixture.communityRevnetId, fixture.communityToken) =
@@ -394,14 +408,18 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
-        CommunityGoalRegistry registry =
+        fixture.registry =
             _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
 
         (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) =
             _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Wrapper Goal One");
         (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) =
             _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Wrapper Goal Two");
-        _pinGoals(registry, fixture.goalIdOne, fixture.goalIdTwo);
+        if (pinAsSystem) {
+            _pinSystemGoals(fixture.registry, fixture.goalIdOne, fixture.goalIdTwo, floorPpmOne, floorPpmTwo);
+        } else {
+            _listGoals(fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo);
+        }
 
         fixture.hook = _deployHookClone();
         fixture.wrapper = new CobuildPaymentTerminal(
@@ -416,7 +434,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
             fixture.communityRevnetId,
             address(fixture.communityToken),
             address(fixture.wrapper),
-            registry
+            fixture.registry
         );
 
         vm.prank(multisig);
@@ -424,6 +442,15 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     }
 
     function _deployManualFixture(uint16 reservedPercent) internal returns (ManualFixture memory fixture) {
+        return _deployManualFixture(reservedPercent, false, 0, 0);
+    }
+
+    function _deployManualFixture(
+        uint16 reservedPercent,
+        bool pinAsSystem,
+        uint32 floorPpmOne,
+        uint32 floorPpmTwo
+    ) internal returns (ManualFixture memory fixture) {
         GoalDeploymentRegistry goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
         (fixture.communityRevnetId, fixture.communityToken) =
@@ -436,14 +463,18 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
-        CommunityGoalRegistry registry =
+        fixture.registry =
             _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
 
         (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) =
             _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Manual Goal One");
         (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) =
             _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Manual Goal Two");
-        _pinGoals(registry, fixture.goalIdOne, fixture.goalIdTwo);
+        if (pinAsSystem) {
+            _pinSystemGoals(fixture.registry, fixture.goalIdOne, fixture.goalIdTwo, floorPpmOne, floorPpmTwo);
+        } else {
+            _listGoals(fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo);
+        }
 
         fixture.routeSetter = address(new RouteSetterStub());
         fixture.hook = _deployHookClone();
@@ -452,7 +483,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
             fixture.communityRevnetId,
             address(fixture.communityToken),
             fixture.routeSetter,
-            registry
+            fixture.registry
         );
 
         vm.prank(multisig);
@@ -496,11 +527,37 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         directory.setPrimaryTerminalOf(goalId, communityToken, IJBTerminal(address(terminal)));
     }
 
-    function _pinGoals(CommunityGoalRegistry registry, uint256 goalIdOne, uint256 goalIdTwo) internal {
+    function _pinSystemGoals(
+        CommunityGoalRegistry registry,
+        uint256 goalIdOne,
+        uint256 goalIdTwo,
+        uint32 floorPpmOne,
+        uint32 floorPpmTwo
+    ) internal {
         vm.startPrank(multisig);
-        registry.pinSystemGoal(goalIdOne, "ipfs://goal-one");
-        registry.pinSystemGoal(goalIdTwo, "ipfs://goal-two");
+        registry.pinSystemGoal(goalIdOne, "ipfs://goal-one", floorPpmOne);
+        registry.pinSystemGoal(goalIdTwo, "ipfs://goal-two", floorPpmTwo);
         vm.stopPrank();
+    }
+
+    function _listGoals(
+        CommunityGoalRegistry registry,
+        uint256 communityRevnetId,
+        MockVotesToken communityToken,
+        uint256 goalIdOne,
+        uint256 goalIdTwo
+    ) internal {
+        _mintCommunityTokens(communityRevnetId, communityToken, multisig, 2 * (SUBMISSION_DEPOSIT + ARBITRATION_COST));
+
+        vm.startPrank(multisig);
+        communityToken.approve(address(registry), type(uint256).max);
+        bytes32 itemIdOne = registry.addItem(_goalItem(goalIdOne, "ipfs://goal-one"));
+        bytes32 itemIdTwo = registry.addItem(_goalItem(goalIdTwo, "ipfs://goal-two"));
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        registry.executeRequest(itemIdOne);
+        registry.executeRequest(itemIdTwo);
     }
 
     function _seedManualObservedRoute(uint256 amount) internal {
@@ -595,6 +652,10 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         hook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
     }
 
+    function _goalItem(uint256 goalId, string memory metadataURI) internal pure returns (bytes memory item) {
+        item = abi.encode(ICommunityGoalRegistry.GoalItemData({goalId: goalId, metadataURI: metadataURI}));
+    }
+
     function _registryConfig(
         RoundTestArbitrator arbitrator,
         IVotes communityToken,
@@ -627,6 +688,47 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         weights = new uint32[](2);
         weights[0] = first;
         weights[1] = second;
+    }
+
+    function test_wrapperExplicitRoute_withSystemFloors_routesTreasuryFloorBeforeDonorRemainder() public {
+        WrapperFixture memory systemFixture =
+            _deployWrapperFixture(FULL_RESERVED_PERCENT, true, SYSTEM_FLOOR_ONE, SYSTEM_FLOOR_TWO);
+
+        uint256[] memory goalIds = _goalIds(systemFixture.goalIdOne, systemFixture.goalIdTwo);
+        uint32[] memory weights = _weights(1, 3);
+        uint256 beneficiaryTokenCount = _payWrapper(
+            systemFixture, payer, DIRECT_PAY_AMOUNT, payer, "pick-system-goals", abi.encode(goalIds, weights)
+        );
+
+        assertEq(beneficiaryTokenCount, 0);
+        assertEq(systemFixture.goalTerminalOne.totalReceived(), 15e18);
+        assertEq(systemFixture.goalTerminalTwo.totalReceived(), 25e18);
+        assertEq(systemFixture.goalTerminalOne.receivedByBeneficiary(address(systemFixture.goalTreasuryOne)), 8e18);
+        assertEq(systemFixture.goalTerminalTwo.receivedByBeneficiary(address(systemFixture.goalTreasuryTwo)), 4e18);
+        assertEq(systemFixture.goalTerminalOne.receivedByBeneficiary(payer), 7e18);
+        assertEq(systemFixture.goalTerminalTwo.receivedByBeneficiary(payer), 21e18);
+        assertEq(systemFixture.hook.observedVolumeOf(systemFixture.goalIdOne), 0);
+        assertEq(systemFixture.hook.observedVolumeOf(systemFixture.goalIdTwo), 0);
+        assertEq(systemFixture.hook.cumulativeObservedVolume(), 0);
+        assertEq(systemFixture.hook.currentHistoricalTotalVolume(), 0);
+    }
+
+    function test_directCommunityPay_withSystemFloors_routesFloorImmediately_andDefersOnlyDiscretionaryRemainder() public {
+        ManualFixture memory systemFixture =
+            _deployManualFixture(FULL_RESERVED_PERCENT, true, SYSTEM_FLOOR_ONE, SYSTEM_FLOOR_TWO);
+
+        _payCommunityDirect(
+            systemFixture.communityTerminal, systemFixture.communityRevnetId, systemFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+        );
+        controller.sendReservedTokensToSplitsOf(systemFixture.communityRevnetId);
+
+        assertEq(systemFixture.goalTerminalOne.totalReceived(), 8e18);
+        assertEq(systemFixture.goalTerminalTwo.totalReceived(), 4e18);
+        assertEq(systemFixture.goalTerminalOne.receivedByBeneficiary(address(systemFixture.goalTreasuryOne)), 8e18);
+        assertEq(systemFixture.goalTerminalTwo.receivedByBeneficiary(address(systemFixture.goalTreasuryTwo)), 4e18);
+        assertEq(systemFixture.hook.historicalBacklogAmount(), 28e18);
+        assertEq(systemFixture.hook.cumulativeObservedVolume(), 0);
+        assertEq(systemFixture.hook.currentHistoricalTotalVolume(), 0);
     }
 }
 
@@ -885,6 +987,7 @@ contract GoalRecordingTerminal is IJBTerminal {
     uint256 public lastProjectId;
     address public lastBeneficiary;
     bytes public lastMetadata;
+    mapping(address beneficiary => uint256 amount) public receivedByBeneficiary;
 
     constructor(address acceptedToken_) {
         acceptedToken = acceptedToken_;
@@ -953,6 +1056,7 @@ contract GoalRecordingTerminal is IJBTerminal {
         lastProjectId = projectId;
         lastBeneficiary = beneficiary;
         lastMetadata = metadata;
+        receivedByBeneficiary[beneficiary] += amount;
     }
 }
 

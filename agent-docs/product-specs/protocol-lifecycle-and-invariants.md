@@ -78,14 +78,18 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
-    - owner-backed system goals can be pinned/unpinned directly,
-    - each listed goal carries metadata plus paused/selectable state only.
+    - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
+    - total configured system-goal floor is capped at `1_000_000` ppm,
+    - each listed goal carries metadata plus paused/selectable state, and system goals additionally expose `floorPpm`.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
   - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
-  - Explicit routed community pays are the only community flows that record historical routing volume.
+  - `CobuildSplitHook` applies configured system-goal floor routing first on every controller callback and routes those
+    slices to canonical goal-treasury beneficiaries.
+  - Explicit routed community pays only route the discretionary remainder after that floor-first pass.
+  - Only discretionary explicit routed community pays record historical routing volume.
   - Wrapper-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
     pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
     historical flushing so a new user route cannot capture earlier backlog.
@@ -96,12 +100,15 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     pending-route consumption for that newly created delta.
   - If a wrapper-routed pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving
     stale routing state behind.
-  - Hook-managed historical backlog is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
+  - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
-    only into registry-selectable child goals for explicit wrapper-selected routes, derives backlog flush routing from
-    registry-selectable goals with observed explicit routed volume, uses each goal's deployment-registry-provided
-    treasury sink for backlog flush beneficiaries, and otherwise defers historical backlog on-hook for later
-    permissionless retry when no usable historical route exists.
+    routes system-floor slices into currently selectable system goals using deployment-registry-provided treasury sinks,
+    only routes discretionary explicit selections into registry-selectable child goals for wrapper-selected routes,
+    derives backlog flush routing from selectable non-system goals with observed discretionary explicit volume, uses
+    each goal's deployment-registry-provided treasury sink for backlog flush beneficiaries, and otherwise defers
+    discretionary historical backlog on-hook for later permissionless retry when no usable historical route exists.
+  - If a configured system goal is paused or otherwise not selectable, its floor share falls back into the
+    discretionary remainder instead of reverting the community callback.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,
