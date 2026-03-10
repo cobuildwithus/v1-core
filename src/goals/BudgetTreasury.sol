@@ -42,7 +42,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     bytes32 public override successAssertionPolicyHash;
     address public override spendPolicy;
 
-    uint64 public override deadline;
     uint64 public override activatedAt;
     uint64 public override resolvedAt;
     bool public override successResolutionDisabled;
@@ -141,7 +140,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             }
             if (treasuryBalance() >= activationThreshold) {
                 _activateAndSync();
-                if (block.timestamp >= deadline) {
+                if (block.timestamp >= deadline()) {
                     if (_tryFinalizePostDeadline()) return;
                 }
             } else if (derivedState.fundingWindowEnded) {
@@ -192,7 +191,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             if (TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0)) {
                 revert SUCCESS_ASSERTION_PENDING();
             }
-            if (block.timestamp < deadline) revert DEADLINE_NOT_REACHED();
+            if (block.timestamp < deadline()) revert DEADLINE_NOT_REACHED();
         }
 
         _finalize(BudgetState.Failed);
@@ -227,7 +226,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (_state != BudgetState.Active) revert INVALID_STATE();
         if (successResolutionDisabled) revert SUCCESS_RESOLUTION_DISABLED();
         if (!_isFundingWindowEnded()) revert FUNDING_WINDOW_NOT_ENDED();
-        if (block.timestamp >= deadline) {
+        if (block.timestamp >= deadline()) {
             if (!_reassertGrace.consumeIfActive()) revert BUDGET_DEADLINE_PASSED();
         }
 
@@ -272,14 +271,20 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return controller;
     }
 
+    function deadline() public view override returns (uint64) {
+        if (activatedAt == 0) return 0;
+        return _derivedDeadline();
+    }
+
     function treasuryBalance() public view override returns (uint256) {
         return _treasuryBalance();
     }
 
     function timeRemaining() public view override returns (uint256) {
+        uint64 deadline_ = deadline();
         // slither-disable-next-line incorrect-equality
-        if (deadline == 0 || block.timestamp >= deadline) return 0;
-        return deadline - block.timestamp;
+        if (deadline_ == 0 || block.timestamp >= deadline_) return 0;
+        return deadline_ - block.timestamp;
     }
 
     function targetFlowRate() public view override returns (int96) {
@@ -294,23 +299,25 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function lifecycleStatus() external view override returns (BudgetLifecycleStatus memory status) {
+        BudgetDerivedState memory derivedState = _deriveBudgetDerivedState();
         uint256 treasuryBalance_ = treasuryBalance();
-        bool deadlineSet = deadline != 0;
+        uint64 deadline_ = deadline();
+        bool deadlineSet = deadline_ != 0;
         status = BudgetLifecycleStatus({
-            currentState: _state,
-            isResolved: _isTerminalState(_state),
-            canAcceptFunding: canAcceptFunding(),
+            currentState: derivedState.state,
+            isResolved: derivedState.isTerminal,
+            canAcceptFunding: _canAcceptFunding(derivedState),
             isSuccessResolutionDisabled: successResolutionDisabled,
-            isFundingWindowEnded: _isFundingWindowEnded(),
+            isFundingWindowEnded: derivedState.fundingWindowEnded,
             hasDeadline: deadlineSet,
-            isDeadlinePassed: deadlineSet && block.timestamp >= deadline,
+            isDeadlinePassed: derivedState.deadlinePassed,
             hasPendingSuccessAssertion: TreasurySuccessAssertions.pendingId(_successAssertions) != bytes32(0),
             treasuryBalance: treasuryBalance_,
             activationThreshold: activationThreshold,
             runwayCap: runwayCap,
             fundingDeadline: fundingDeadline,
             executionDuration: executionDuration,
-            deadline: deadline,
+            deadline: deadline_,
             activatedAt: activatedAt,
             timeRemaining: timeRemaining(),
             targetFlowRate: targetFlowRate()
@@ -330,7 +337,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         ctx = ISpendPolicy.SpendContext({
             nowTs: uint64(block.timestamp),
             activatedAt: activatedAt,
-            deadline: deadline,
+            deadline: deadline(),
             treasuryBalance: balance,
             timeRemaining: remaining,
             incomingRate: _incomingFlowRate(),
@@ -342,30 +349,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return ISpendPolicy(spendPolicy).syncMode();
     }
 
-    function _requireValidSpendPolicy(address candidate) internal view {
-        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                revert INVALID_SPEND_POLICY(candidate);
-            }
-        } catch {
-            revert INVALID_SPEND_POLICY(candidate);
-        }
-
-        try
-            ISpendPolicy(candidate).targetFlowRate(
-                ISpendPolicy.SpendContext({
-                    nowTs: uint64(block.timestamp),
-                    activatedAt: uint64(block.timestamp),
-                    deadline: uint64(block.timestamp) + 1,
-                    treasuryBalance: 1,
-                    timeRemaining: 1,
-                    incomingRate: 0,
-                    currentOutflowRate: 0
-                })
-            )
-        returns (int96) {} catch {
-            revert INVALID_SPEND_POLICY(candidate);
-        }
+    function _revertInvalidSpendPolicy(address candidate) internal pure override {
+        revert INVALID_SPEND_POLICY(candidate);
     }
 
     function _activateAndSync() internal {
@@ -375,9 +360,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             revert ACTIVATION_THRESHOLD_NOT_REACHED(balance, activationThreshold);
         }
 
-        uint256 computedDeadline = uint256(fundingDeadline) + uint256(executionDuration);
-        if (computedDeadline > type(uint64).max) revert INVALID_DEADLINES();
-        deadline = SafeCast.toUint64(computedDeadline);
+        _derivedDeadline();
         activatedAt = uint64(block.timestamp);
 
         _setState(BudgetState.Active);
@@ -482,7 +465,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         derivedState.state = currentState;
         derivedState.isTerminal = _isTerminalState(currentState);
         derivedState.fundingWindowEnded = _isFundingWindowEnded();
-        derivedState.deadlinePassed = deadline != 0 && block.timestamp >= deadline;
+        uint64 deadline_ = deadline();
+        derivedState.deadlinePassed = deadline_ != 0 && block.timestamp >= deadline_;
     }
 
     function _canAcceptFunding(BudgetDerivedState memory derivedState) internal view returns (bool) {
@@ -532,7 +516,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function _tryActivateReassertGrace(bytes32 clearedAssertionId) internal {
         if (_reassertGrace.used) return;
         if (_state != BudgetState.Active || successResolutionDisabled) return;
-        if (deadline == 0 || block.timestamp < deadline) return;
+        uint64 deadline_ = deadline();
+        if (deadline_ == 0 || block.timestamp < deadline_) return;
 
         (bool activated, uint64 graceDeadline) = _reassertGrace.activateOnce(REASSERT_GRACE_DURATION);
         if (!activated) return;
@@ -576,6 +561,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function _requireNonZeroController(address account) private pure returns (address) {
         if (account == address(0)) revert ADDRESS_ZERO();
         return account;
+    }
+
+    function _derivedDeadline() internal view returns (uint64) {
+        return SafeCast.toUint64(uint256(fundingDeadline) + uint256(executionDuration));
     }
 
     modifier onlyController() {

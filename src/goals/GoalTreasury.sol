@@ -256,7 +256,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (derivedState.state == GoalState.Funding) {
             if (derivedState.minRaiseWindowElapsedWithoutGoal || derivedState.deadlinePassed) {
                 _finalize(GoalState.Expired);
-            } else if (_raisedForLifecycle() >= minRaise) {
+            } else if (treasuryBalance() >= minRaise) {
                 _activateAndSync();
             }
             return;
@@ -401,7 +401,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function _activateAndSync() internal {
         if (_state != GoalState.Funding) revert INVALID_STATE();
         if (block.timestamp >= deadline) revert GOAL_DEADLINE_PASSED();
-        uint256 raised = _raisedForLifecycle();
+        uint256 raised = treasuryBalance();
         if (raised < minRaise) revert MIN_RAISE_NOT_REACHED(raised, minRaise);
 
         // Record the activation timestamp for downstream stake-weight schedules.
@@ -453,36 +453,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         return ISpendPolicy(spendPolicy).syncMode();
     }
 
-    function _requireValidSpendPolicy(address candidate) internal view {
-        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                revert INVALID_SPEND_POLICY(candidate);
-            }
-        } catch {
-            revert INVALID_SPEND_POLICY(candidate);
-        }
-
-        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
-            revert INVALID_SPEND_POLICY(candidate);
-        }
-    }
-
-    function _spendPolicyValidationContext() internal view returns (ISpendPolicy.SpendContext memory ctx) {
-        uint64 nowTs = uint64(block.timestamp);
-        ctx = ISpendPolicy.SpendContext({
-            nowTs: nowTs,
-            activatedAt: nowTs,
-            deadline: nowTs + 1,
-            treasuryBalance: 1,
-            timeRemaining: 1,
-            incomingRate: 0,
-            currentOutflowRate: 0
-        });
+    function _revertInvalidSpendPolicy(address candidate) internal pure override {
+        revert INVALID_SPEND_POLICY(candidate);
     }
 
     function _minRaiseWindowElapsedWithoutGoal(GoalState currentState) internal view returns (bool) {
-        return
-            currentState == GoalState.Funding && block.timestamp > minRaiseDeadline && _raisedForLifecycle() < minRaise;
+        return currentState == GoalState.Funding && block.timestamp > minRaiseDeadline && treasuryBalance() < minRaise;
     }
 
     function _deriveGoalDerivedState() internal view returns (GoalDerivedState memory derivedState) {
@@ -503,10 +479,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     function _canAcceptHookFunding(GoalDerivedState memory derivedState) internal pure returns (bool) {
         return
             !derivedState.isTerminal && !derivedState.minRaiseWindowElapsedWithoutGoal && !derivedState.deadlinePassed;
-    }
-
-    function _raisedForLifecycle() internal view returns (uint256) {
-        return treasuryBalance();
     }
 
     function _flowContract() internal view override returns (IFlow) {
