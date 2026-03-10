@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {Test} from "forge-std/Test.sol";
+import { Test } from "forge-std/Test.sol";
 
-import {FlowSuperfluidFrameworkDeployer} from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
-import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
+import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
+import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
 
-import {TeamFlow} from "src/teamflow/TeamFlow.sol";
-import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
-import {CustomFlow} from "src/flows/CustomFlow.sol";
-import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
-import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
-import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
-import {FlowTypes} from "src/storage/FlowStorage.sol";
+import { TeamFlow } from "src/teamflow/TeamFlow.sol";
+import { TeamFlowFactory } from "src/teamflow/TeamFlowFactory.sol";
+import { CustomFlow } from "src/flows/CustomFlow.sol";
+import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
+import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
+import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { FlowTypes } from "src/storage/FlowStorage.sol";
 
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import {ERC1820RegistryCompiled} from
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ERC1820RegistryCompiled } from
     "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
-import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
-import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
+import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 
 contract TeamFlowBudgetTreasuryMock {
     address public flow;
@@ -29,9 +29,18 @@ contract TeamFlowBudgetTreasuryMock {
     }
 }
 
+contract TeamFlowManagedFlowMock {
+    address public superToken;
+
+    constructor(address superToken_) {
+        superToken = superToken_;
+    }
+}
+
 contract TeamFlowFactoryTest is Test {
     bytes32 internal constant MECHANISM_ID = keccak256("teamflow-mechanism");
-    uint256 internal constant INITIAL_CHILD_BALANCE = 1_000_000e18;
+    uint128 internal constant DEFAULT_MEMBER_UNITS = 20;
+    uint256 internal constant INITIAL_TEAM_BALANCE = 1_000_000e18;
 
     FlowSuperfluidFrameworkDeployer internal sfDeployer;
     TestToken internal underlyingToken;
@@ -46,6 +55,7 @@ contract TeamFlowFactoryTest is Test {
     address internal manager = makeAddr("manager");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
+    address internal carol = makeAddr("carol");
     address internal outsider = makeAddr("outsider");
 
     function setUp() public {
@@ -63,33 +73,33 @@ contract TeamFlowFactoryTest is Test {
         budgetFlowStrategy = new MockAllocationStrategy();
         budgetFlow = _deployBudgetFlow();
 
-        factory = new TeamFlowFactory(address(new TeamFlow()), address(customFlowImplementation));
+        factory = new TeamFlowFactory(address(new TeamFlow()));
         budgetTreasury = new TeamFlowBudgetTreasuryMock(address(budgetFlow));
 
         _mintAndUpgrade(address(this), 5_000_000e18);
     }
 
-    function test_deployForBudget_initializesTeamFlowAndChildFlowAuthorities() public {
+    function test_deployForBudget_initializesTeamFlowAsPayoutFlow() public {
         IAllocationMechanismFactory.DeployedMechanism memory deployed =
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
 
         TeamFlow teamFlow = TeamFlow(deployed.mechanism);
-        CustomFlow childFlow = CustomFlow(deployed.payoutRecipient);
-        IAllocationStrategy[] memory strategies = childFlow.strategies();
+        IAllocationStrategy[] memory strategies = teamFlow.strategies();
 
-        assertEq(deployed.auxiliary, deployed.payoutRecipient);
+        assertEq(deployed.mechanism, deployed.payoutRecipient);
+        assertEq(deployed.auxiliary, address(0));
         assertEq(deployed.arbitrator, address(0));
         assertEq(teamFlow.manager(), manager);
-        assertEq(address(teamFlow.childFlow()), address(childFlow));
         assertEq(teamFlow.perSeatRate(), 100);
         assertEq(teamFlow.maxTotalRate(), 150);
-        assertEq(address(childFlow.superToken()), address(superToken));
-        assertEq(childFlow.recipientAdmin(), address(teamFlow));
-        assertEq(childFlow.flowOperator(), address(teamFlow));
-        assertEq(childFlow.sweeper(), address(teamFlow));
-        assertEq(childFlow.parent(), address(0));
-        assertEq(childFlow.managerRewardPool(), address(0));
-        assertEq(childFlow.allocationPipeline(), address(0));
+        assertEq(address(teamFlow.superToken()), address(superToken));
+        assertEq(teamFlow.flowImplementation(), factory.teamFlowImplementation());
+        assertEq(teamFlow.recipientAdmin(), address(teamFlow));
+        assertEq(teamFlow.flowOperator(), address(teamFlow));
+        assertEq(teamFlow.sweeper(), address(teamFlow));
+        assertEq(teamFlow.parent(), address(0));
+        assertEq(teamFlow.managerRewardPool(), address(0));
+        assertEq(teamFlow.allocationPipeline(), address(0));
         assertEq(strategies.length, 1);
         assertEq(address(strategies[0]), address(teamFlow));
     }
@@ -97,6 +107,21 @@ contract TeamFlowFactoryTest is Test {
     function test_deployForBudget_revertsWhenBudgetTreasuryHasNoCode() public {
         vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
         factory.deployForBudget(MECHANISM_ID, makeAddr("no-code-budget"), abi.encode(_defaultConfig(100, 150)));
+    }
+
+    function test_deployForBudget_revertsWhenBudgetTreasuryFlowHasNoCode() public {
+        TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(makeAddr("no-code-flow"));
+
+        vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
+        factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
+    }
+
+    function test_deployForBudget_revertsWhenBudgetFlowSuperTokenHasNoCode() public {
+        TeamFlowManagedFlowMock invalidBudgetFlow = new TeamFlowManagedFlowMock(makeAddr("no-code-super-token"));
+        TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(address(invalidBudgetFlow));
+
+        vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
+        factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
     }
 
     function test_deployForBudget_revertsWhenManagerIsZero() public {
@@ -107,99 +132,165 @@ contract TeamFlowFactoryTest is Test {
         factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(cfg));
     }
 
-    function test_teamFlow_syncsEqualSplit_capsRate_andHardRemovesMembers() public {
+    function test_teamFlow_onlyManagerCanMutateSeatsAndRateConfig() public {
         IAllocationMechanismFactory.DeployedMechanism memory deployed =
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
 
-        TeamFlow teamFlow = TeamFlow(deployed.mechanism);
-        CustomFlow childFlow = CustomFlow(deployed.payoutRecipient);
-        uint256 strategyKey = uint256(uint160(address(teamFlow)));
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        teamFlow.addMember(alice, _recipientMetadata("Alice"));
+
+        vm.prank(manager);
+        teamFlow.addMember(alice, _recipientMetadata("Alice"));
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        teamFlow.removeMember(alice);
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        teamFlow.setRateConfig(50, 75);
+
+        assertEq(teamFlow.activeMemberCount(), 1);
+        assertEq(teamFlow.perSeatRate(), 100);
+        assertEq(teamFlow.maxTotalRate(), 150);
+    }
+
+    function test_teamFlow_revertsOnDuplicateInactiveAndNestedRecipientOperations() public {
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+
+        vm.prank(manager);
+        bytes32 aliceRecipientId = teamFlow.addMember(alice, _recipientMetadata("Alice"));
+
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(TeamFlow.MEMBER_ALREADY_ACTIVE.selector, alice));
+        teamFlow.addMember(alice, _recipientMetadata("Alice Again"));
+
+        vm.prank(manager);
+        bytes32 removedRecipientId = teamFlow.removeMember(alice);
+
+        assertEq(removedRecipientId, aliceRecipientId);
+        assertEq(teamFlow.memberRecipientId(alice), bytes32(0));
+
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(TeamFlow.MEMBER_NOT_ACTIVE.selector, alice));
+        teamFlow.removeMember(alice);
+
+        IAllocationStrategy[] memory strategies = new IAllocationStrategy[](1);
+        strategies[0] = IAllocationStrategy(address(teamFlow));
+
+        vm.prank(address(teamFlow));
+        vm.expectRevert(IFlow.NESTED_FLOW_RECIPIENTS_DISABLED.selector);
+        teamFlow.addFlowRecipient(
+            keccak256("nested-team-seat"),
+            _recipientMetadata("Nested Team Flow"),
+            address(teamFlow),
+            address(teamFlow),
+            address(teamFlow),
+            address(0),
+            0,
+            strategies
+        );
+    }
+
+    function test_teamFlow_syncsExactSeatUnits_capsRate_andHardRemovesMembers() public {
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
 
         vm.prank(manager);
         bytes32 aliceRecipientId = teamFlow.addMember(alice, _recipientMetadata("Alice"));
 
         assertEq(teamFlow.activeMemberCount(), 1);
-        assertEq(childFlow.targetOutflowRate(), 0);
-        assertGt(childFlow.distributionPool().getUnits(alice), 0);
+        assertEq(teamFlow.targetOutflowRate(), 0);
+        assertEq(teamFlow.distributionPool().getUnits(alice), DEFAULT_MEMBER_UNITS);
 
-        superToken.transfer(address(childFlow), INITIAL_CHILD_BALANCE);
+        superToken.transfer(address(teamFlow), INITIAL_TEAM_BALANCE);
 
         vm.prank(outsider);
         int96 appliedRate = teamFlow.sync();
         assertEq(appliedRate, int96(100));
-        assertEq(childFlow.targetOutflowRate(), int96(100));
-        assertTrue(childFlow.getAllocationCommitment(address(teamFlow), strategyKey) != bytes32(0));
+        assertEq(teamFlow.targetOutflowRate(), int96(100));
 
-        vm.prank(manager);
+        vm.startPrank(manager);
         bytes32 bobRecipientId = teamFlow.addMember(bob, _recipientMetadata("Bob"));
+        bytes32 carolRecipientId = teamFlow.addMember(carol, _recipientMetadata("Carol"));
+        vm.stopPrank();
 
-        assertEq(teamFlow.activeMemberCount(), 2);
-        assertEq(childFlow.targetOutflowRate(), int96(150));
-        assertEq(childFlow.distributionPool().getUnits(alice), childFlow.distributionPool().getUnits(bob));
+        assertEq(teamFlow.activeMemberCount(), 3);
+        assertEq(teamFlow.targetOutflowRate(), int96(150));
+        assertEq(teamFlow.distributionPool().getUnits(alice), DEFAULT_MEMBER_UNITS);
+        assertEq(teamFlow.distributionPool().getUnits(bob), DEFAULT_MEMBER_UNITS);
+        assertEq(teamFlow.distributionPool().getUnits(carol), DEFAULT_MEMBER_UNITS);
         assertTrue(bobRecipientId != bytes32(0));
+        assertTrue(carolRecipientId != bytes32(0));
 
         vm.prank(manager);
         bytes32 removedAliceRecipientId = teamFlow.removeMember(alice);
 
-        FlowTypes.FlowRecipient memory removedAlice = childFlow.getRecipientById(aliceRecipientId);
+        FlowTypes.FlowRecipient memory removedAlice = teamFlow.getRecipientById(aliceRecipientId);
         assertEq(removedAliceRecipientId, aliceRecipientId);
         assertTrue(removedAlice.isRemoved);
-        assertEq(childFlow.distributionPool().getUnits(alice), 0);
-        assertEq(teamFlow.activeMemberCount(), 1);
-        assertEq(childFlow.targetOutflowRate(), int96(100));
+        assertEq(teamFlow.distributionPool().getUnits(alice), 0);
+        assertEq(teamFlow.activeMemberCount(), 2);
+        assertEq(teamFlow.targetOutflowRate(), int96(150));
 
         vm.prank(manager);
         bytes32 readdedAliceRecipientId = teamFlow.addMember(alice, _recipientMetadata("Alice Again"));
 
         assertTrue(readdedAliceRecipientId != aliceRecipientId);
         assertEq(teamFlow.memberRecipientId(alice), readdedAliceRecipientId);
-        assertEq(childFlow.recipientCount(), 3);
-        assertEq(childFlow.targetOutflowRate(), int96(150));
+        assertEq(teamFlow.targetOutflowRate(), int96(150));
+        assertEq(teamFlow.distributionPool().getUnits(alice), DEFAULT_MEMBER_UNITS);
 
-        vm.prank(manager);
+        vm.startPrank(manager);
         teamFlow.removeMember(bob);
-        assertEq(childFlow.targetOutflowRate(), int96(100));
-
-        vm.prank(manager);
+        teamFlow.removeMember(carol);
         teamFlow.removeMember(alice);
+        vm.stopPrank();
 
-        FlowTypes.FlowRecipient memory removedBob = childFlow.getRecipientById(bobRecipientId);
-        FlowTypes.FlowRecipient memory removedReaddedAlice = childFlow.getRecipientById(readdedAliceRecipientId);
+        FlowTypes.FlowRecipient memory removedBob = teamFlow.getRecipientById(bobRecipientId);
+        FlowTypes.FlowRecipient memory removedCarol = teamFlow.getRecipientById(carolRecipientId);
+        FlowTypes.FlowRecipient memory removedReaddedAlice = teamFlow.getRecipientById(readdedAliceRecipientId);
 
         assertTrue(removedBob.isRemoved);
+        assertTrue(removedCarol.isRemoved);
         assertTrue(removedReaddedAlice.isRemoved);
         assertEq(teamFlow.activeMemberCount(), 0);
-        assertEq(childFlow.targetOutflowRate(), 0);
-        assertEq(childFlow.distributionPool().getUnits(alice), 0);
-        assertEq(childFlow.distributionPool().getUnits(bob), 0);
+        assertEq(teamFlow.targetOutflowRate(), 0);
+        assertEq(teamFlow.distributionPool().getUnits(alice), 0);
+        assertEq(teamFlow.distributionPool().getUnits(bob), 0);
+        assertEq(teamFlow.distributionPool().getUnits(carol), 0);
         assertEq(teamFlow.accountAllocationWeight(address(teamFlow)), 0);
     }
 
-    function test_teamFlow_setRateConfig_recomputesChildFlowTargetRate() public {
+    function test_teamFlow_setRateConfig_recomputesTargetRate() public {
         IAllocationMechanismFactory.DeployedMechanism memory deployed =
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(50, 200)));
 
-        TeamFlow teamFlow = TeamFlow(deployed.mechanism);
-        CustomFlow childFlow = CustomFlow(deployed.payoutRecipient);
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
 
-        superToken.transfer(address(childFlow), INITIAL_CHILD_BALANCE);
+        superToken.transfer(address(teamFlow), INITIAL_TEAM_BALANCE);
 
         vm.startPrank(manager);
         teamFlow.addMember(alice, _recipientMetadata("Alice"));
         teamFlow.addMember(bob, _recipientMetadata("Bob"));
-        assertEq(childFlow.targetOutflowRate(), int96(100));
+        assertEq(teamFlow.targetOutflowRate(), int96(100));
 
         teamFlow.setRateConfig(80, 150);
         assertEq(teamFlow.perSeatRate(), 80);
         assertEq(teamFlow.maxTotalRate(), 150);
-        assertEq(childFlow.targetOutflowRate(), int96(150));
+        assertEq(teamFlow.targetOutflowRate(), int96(150));
 
         teamFlow.setRateConfig(20, 0);
         vm.stopPrank();
 
         assertEq(teamFlow.perSeatRate(), 20);
         assertEq(teamFlow.maxTotalRate(), 0);
-        assertEq(childFlow.targetOutflowRate(), int96(40));
+        assertEq(teamFlow.targetOutflowRate(), int96(40));
     }
 
     function _deployBudgetFlow() internal returns (CustomFlow flow) {
@@ -216,7 +307,7 @@ contract TeamFlowFactoryTest is Test {
             address(0),
             address(0),
             address(0),
-            IFlow.FlowParams({managerRewardPoolFlowRatePpm: 0}),
+            IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
             _recipientMetadata("Budget Flow"),
             strategies
         );
