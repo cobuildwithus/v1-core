@@ -24,8 +24,7 @@ interface IBudgetTCRStackDeployer {
         address budgetStakeLedger,
         address goalFlow,
         address underwriterSlasherRouter,
-        uint32 budgetSlashPpm,
-        bytes32 recipientId
+        uint32 budgetSlashPpm
     ) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(

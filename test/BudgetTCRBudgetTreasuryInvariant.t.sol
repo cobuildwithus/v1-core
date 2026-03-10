@@ -72,8 +72,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         address,
         address,
         address,
-        uint32,
-        bytes32
+        uint32
     ) external returns (PreparationResult memory result) {
         result =
             PreparationResult({ strategy: strategy, budgetTreasury: preparedBudgetTreasury, premiumEscrow: premiumEscrow });

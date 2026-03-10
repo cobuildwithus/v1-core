@@ -25,7 +25,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public immutable override allocationMechanismArbitratorImplementation;
     address public immutable budgetFlowRouterStrategyImplementation;
     address public sharedBudgetFlowStrategy;
-    address public sharedBudgetFlowStrategyLedger;
 
     error BUDGET_STAKE_LEDGER_MISMATCH(address expectedLedger, address providedLedger);
     error SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
@@ -89,17 +88,18 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         address budgetStakeLedger,
         address goalFlow,
         address underwriterSlasherRouter,
-        uint32 budgetSlashPpm,
-        bytes32
+        uint32 budgetSlashPpm
     ) external onlyBudgetTCR returns (PreparationResult memory result) {
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) {
             strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
             BudgetFlowRouterStrategy(strategy).initialize(budgetStakeLedger, address(this));
             sharedBudgetFlowStrategy = strategy;
-            sharedBudgetFlowStrategyLedger = budgetStakeLedger;
-        } else if (sharedBudgetFlowStrategyLedger != budgetStakeLedger) {
-            revert BUDGET_STAKE_LEDGER_MISMATCH(sharedBudgetFlowStrategyLedger, budgetStakeLedger);
+        } else {
+            address strategyLedger = _sharedBudgetFlowStrategyLedger(strategy);
+            if (strategyLedger != budgetStakeLedger) {
+                revert BUDGET_STAKE_LEDGER_MISMATCH(strategyLedger, budgetStakeLedger);
+            }
         }
 
         address treasuryAnchor = Clones.clone(budgetTreasuryImplementation);
@@ -212,8 +212,18 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         factories[1] = teamFlowFactory_;
     }
 
+    function sharedBudgetFlowStrategyLedger() external view returns (address ledger) {
+        ledger = _sharedBudgetFlowStrategyLedger(sharedBudgetFlowStrategy);
+    }
+
     function _assertImplementationAddress(address implementation) internal view {
         if (implementation == address(0)) revert ADDRESS_ZERO();
         if (implementation.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(implementation);
+    }
+
+    function _sharedBudgetFlowStrategyLedger(address strategy) internal view returns (address ledger) {
+        if (strategy == address(0)) return address(0);
+
+        ledger = address(IBudgetFlowRouterStrategy(strategy).budgetStakeLedger());
     }
 }

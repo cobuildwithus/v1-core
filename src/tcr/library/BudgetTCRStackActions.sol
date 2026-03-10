@@ -66,12 +66,9 @@ library BudgetTCRStackActions {
             budgetStakeLedger,
             address(goalFlow),
             budgetStore.underwriterSlasherRouter(),
-            budgetStore.budgetSlashPpm(),
-            itemID
+            budgetStore.budgetSlashPpm()
         );
 
-        IAllocationStrategy[] memory childStrategies = new IAllocationStrategy[](1);
-        childStrategies[0] = IAllocationStrategy(prepared.strategy);
         address budgetTreasury = prepared.budgetTreasury;
         address premiumEscrow = prepared.premiumEscrow;
         address allocationMechanism = Clones.clone(deployer.allocationMechanismTcrImplementation());
@@ -84,7 +81,7 @@ library BudgetTCRStackActions {
             budgetTreasury,
             premiumEscrow,
             budgetStore.budgetPremiumPpm(),
-            childStrategies
+            IAllocationStrategy(prepared.strategy)
         );
 
         deployer.registerChildFlowRecipient(itemID, childFlow);

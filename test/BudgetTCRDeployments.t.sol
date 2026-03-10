@@ -798,8 +798,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         BudgetTCRStackDeploymentLibMockChildFlow childFlow = new BudgetTCRStackDeploymentLibMockChildFlow(
@@ -832,8 +831,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         address otherStrategy = makeAddr("other-strategy");
@@ -864,8 +862,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         BudgetTCRStackDeploymentLibNoStrategyChildFlow childFlow = new BudgetTCRStackDeploymentLibNoStrategyChildFlow();
@@ -888,8 +885,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         assertTrue(firstPreparation.budgetTreasury != address(0));
@@ -905,8 +901,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(2))
+            50_000
         );
 
         assertEq(secondPreparation.strategy, firstPreparation.strategy);
@@ -928,8 +923,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerB),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(3))
+            50_000
         );
     }
 
@@ -943,8 +937,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(budgetStakeLedgerA),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         BudgetFlowRouterStrategy strategy = BudgetFlowRouterStrategy(prepared.strategy);
@@ -967,8 +960,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             address(0),
             address(goalFlow),
             address(underwriterSlasherRouter),
-            50_000,
-            bytes32(uint256(1))
+            50_000
         );
 
         assertEq(deployer.sharedBudgetFlowStrategy(), address(0));
