@@ -8,6 +8,8 @@ import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositS
 
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 
@@ -25,6 +27,8 @@ contract GoalFactoryPairDeployer {
     struct GoalFactoryConfig {
         address revDeployer;
         address superfluidHost;
+        address goalDeploymentRegistry;
+        address goalDeploymentRegistryRegistrarAdmin;
         address cobuildToken;
         uint256 cobuildRevnetId;
         address cobuildTerminal;
@@ -46,10 +50,21 @@ contract GoalFactoryPairDeployer {
     }
 
     address public immutable budgetTcrFactory;
+    address public immutable goalDeploymentRegistry;
     address public immutable goalFactory;
 
     constructor(BudgetTcrFactoryConfig memory budgetTcrConfig, GoalFactoryConfig memory goalFactoryConfig) {
-        address predictedGoalFactory = _computeCreateAddress(address(this), 2);
+        bool deployGoalDeploymentRegistry = goalFactoryConfig.goalDeploymentRegistry == address(0);
+        // Pair deployer constructor creation order is: optional GoalDeploymentRegistry, BudgetTCRFactory, GoalFactory.
+        uint256 goalFactoryCreateNonce = deployGoalDeploymentRegistry ? 3 : 2;
+        address predictedGoalFactory = _computeCreateAddress(address(this), goalFactoryCreateNonce);
+
+        address goalDeploymentRegistry_ = goalFactoryConfig.goalDeploymentRegistry;
+        if (deployGoalDeploymentRegistry) {
+            GoalDeploymentRegistry deployedGoalDeploymentRegistry =
+                new GoalDeploymentRegistry(goalFactoryConfig.goalDeploymentRegistryRegistrarAdmin, predictedGoalFactory);
+            goalDeploymentRegistry_ = address(deployedGoalDeploymentRegistry);
+        }
 
         BudgetTCRFactory budgetTcrFactory_ = new BudgetTCRFactory(
             budgetTcrConfig.budgetTcrImplementation,
@@ -63,6 +78,7 @@ contract GoalFactoryPairDeployer {
             IREVDeployer(goalFactoryConfig.revDeployer),
             ISuperfluid(goalFactoryConfig.superfluidHost),
             budgetTcrFactory_,
+            IGoalDeploymentRegistry(goalDeploymentRegistry_),
             goalFactoryConfig.cobuildToken,
             goalFactoryConfig.cobuildRevnetId,
             goalFactoryConfig.cobuildTerminal,
@@ -88,6 +104,7 @@ contract GoalFactoryPairDeployer {
         }
 
         budgetTcrFactory = address(budgetTcrFactory_);
+        goalDeploymentRegistry = goalDeploymentRegistry_;
         goalFactory = address(goalFactory_);
     }
 
@@ -134,9 +151,11 @@ contract DeployGoalFactory is DeployScript {
 
     uint256 internal escrowBondBpsOut;
     address internal goalFactoryPairDeployerOut;
+    address internal goalDeploymentRegistryOut;
     address internal budgetTcrFactoryOut;
     address internal defaultSubmissionDepositStrategyOut;
     address internal goalFactoryOut;
+    address internal goalDeploymentRegistryRegistrarAdminOut;
 
     address internal defaultAllocationMechanismAdminOut;
     address internal defaultInvalidRoundRewardsSinkOut;
@@ -149,6 +168,9 @@ contract DeployGoalFactory is DeployScript {
     error IMPLEMENTATIONS_CHAIN_ID_MISSING(string sourcePath);
     error IMPLEMENTATIONS_CHAIN_ID_MISMATCH(uint256 expectedChainId, uint256 configuredChainId, string sourcePath);
     error REQUIRED_CONFIG_MISSING(string envKey, string tomlKey, string tomlPath);
+    error GOAL_DEPLOYMENT_REGISTRY_REGISTRAR_ADMIN_MISMATCH(
+        address expectedRegistrarAdmin, address actualRegistrarAdmin, address registry
+    );
     error SUBMISSION_DEPOSIT_STRATEGY_NOT_CONTRACT(address strategy);
     error SUBMISSION_DEPOSIT_STRATEGY_TOKEN_MISMATCH(address expectedToken, address actualToken, address strategy);
 
@@ -172,6 +194,12 @@ contract DeployGoalFactory is DeployScript {
         buybackHookOut = _requireConfigAddress("BUYBACK_HOOK", "$.core.buybackHook");
 
         escrowBondBpsOut = _resolveUint("ESCROW_BOND_BPS", "$.defaults.escrowBondBps", 5000);
+        goalDeploymentRegistryOut = _resolveAddress("GOAL_DEPLOYMENT_REGISTRY", "$.defaults.goalDeploymentRegistry", address(0));
+        goalDeploymentRegistryRegistrarAdminOut = _resolveAddress(
+            "GOAL_DEPLOYMENT_REGISTRY_REGISTRAR_ADMIN",
+            "$.defaults.goalDeploymentRegistryRegistrarAdmin",
+            deployerAddress
+        );
         defaultAllocationMechanismAdminOut = _resolveAddress(
             "DEFAULT_ALLOCATION_MECHANISM_ADMIN", "$.defaults.allocationMechanismAdmin", deployerAddress
         );
@@ -209,8 +237,9 @@ contract DeployGoalFactory is DeployScript {
             );
         }
 
-        (goalFactoryPairDeployerOut, budgetTcrFactoryOut, goalFactoryOut) = _deployFactoryPair();
+        (goalFactoryPairDeployerOut, goalDeploymentRegistryOut, budgetTcrFactoryOut, goalFactoryOut) = _deployFactoryPair();
         _assertBudgetTcrFactoryAuthorizedCaller(goalFactoryOut);
+        _ensureGoalFactoryAuthorizedRegistrar();
 
         console2.log("Deployer:", deployerAddress);
         if (bytes(implementationsTomlPathOut).length != 0) {
@@ -243,6 +272,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("BudgetTCRFactory:", budgetTcrFactoryOut);
         console2.log("DepositStrategy:", defaultSubmissionDepositStrategyOut);
         console2.log("--- Goal factory ---");
+        console2.log("GoalDeploymentRegistry:", goalDeploymentRegistryOut);
         console2.log("GoalFactory:", goalFactoryOut);
     }
 
@@ -278,6 +308,7 @@ contract DeployGoalFactory is DeployScript {
 
         _writeAddressLine(filePath, "BudgetTCRFactory", budgetTcrFactoryOut);
         _writeAddressLine(filePath, "GoalFactoryPairDeployer", goalFactoryPairDeployerOut);
+        _writeAddressLine(filePath, "GoalDeploymentRegistry", goalDeploymentRegistryOut);
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
         _writeUintLine(filePath, "ESCROW_BOND_BPS", escrowBondBpsOut);
         _writeAddressLine(filePath, "GoalFactory", goalFactoryOut);
@@ -314,7 +345,7 @@ contract DeployGoalFactory is DeployScript {
 
     function _deployFactoryPair()
         internal
-        returns (address pairDeployer, address budgetTcrFactory, address goalFactory)
+        returns (address pairDeployer, address goalDeploymentRegistry, address budgetTcrFactory, address goalFactory)
     {
         GoalFactoryPairDeployer deployedPair = new GoalFactoryPairDeployer(
             GoalFactoryPairDeployer.BudgetTcrFactoryConfig({
@@ -326,6 +357,8 @@ contract DeployGoalFactory is DeployScript {
             GoalFactoryPairDeployer.GoalFactoryConfig({
                 revDeployer: revDeployerAddressOut,
                 superfluidHost: superfluidHostAddressOut,
+                goalDeploymentRegistry: goalDeploymentRegistryOut,
+                goalDeploymentRegistryRegistrarAdmin: goalDeploymentRegistryRegistrarAdminOut,
                 cobuildToken: cobuildTokenAddressOut,
                 cobuildRevnetId: cobuildRevnetIdOut,
                 cobuildTerminal: cobuildTerminalOut,
@@ -348,8 +381,23 @@ contract DeployGoalFactory is DeployScript {
         );
 
         pairDeployer = address(deployedPair);
+        goalDeploymentRegistry = deployedPair.goalDeploymentRegistry();
         budgetTcrFactory = deployedPair.budgetTcrFactory();
         goalFactory = deployedPair.goalFactory();
+    }
+
+    function _ensureGoalFactoryAuthorizedRegistrar() internal {
+        GoalDeploymentRegistry goalDeploymentRegistry = GoalDeploymentRegistry(goalDeploymentRegistryOut);
+        if (goalDeploymentRegistry.isRegistrar(goalFactoryOut)) return;
+
+        address currentRegistrarAdmin = goalDeploymentRegistry.registrarAdmin();
+        if (currentRegistrarAdmin != deployerAddress) {
+            revert GOAL_DEPLOYMENT_REGISTRY_REGISTRAR_ADMIN_MISMATCH(
+                deployerAddress, currentRegistrarAdmin, goalDeploymentRegistryOut
+            );
+        }
+
+        goalDeploymentRegistry.setRegistrar(goalFactoryOut, true);
     }
 
     function _assertBudgetTcrFactoryAuthorizedCaller(address expectedCaller) internal view {
