@@ -413,9 +413,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
-        assertEq(
-            treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()))
-        );
+        assertEq(treasury.deadline(), _expectedDerivedDeadline(treasury));
         assertEq(treasury.activatedAt(), uint64(block.timestamp));
         assertGt(flow.targetOutflowRate(), 0);
     }
@@ -506,9 +504,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
         assertTrue(treasury.resolved());
         assertEq(flow.targetOutflowRate(), 0);
-        assertEq(
-            treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()))
-        );
+        assertEq(treasury.deadline(), _expectedDerivedDeadline(treasury));
     }
 
     function test_sync_afterFundingDeadline_withThresholdReached_keepsFundingAnchoredDeadline() public {
@@ -518,9 +514,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
-        assertEq(
-            treasury.deadline(), uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()))
-        );
+        assertEq(treasury.deadline(), _expectedDerivedDeadline(treasury));
         assertEq(treasury.timeRemaining(), treasury.executionDuration() - 1);
     }
 
@@ -2298,6 +2292,42 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         assertFalse(afterBoundary.canAcceptFunding);
     }
 
+    function test_lifecycleStatus_afterLateActivation_tracksFundingAnchoredDeadlineProgression() public {
+        superToken.mint(address(flow), 300e18);
+        _setIncomingFlowRate(50);
+
+        _warpPastFundingDeadline(treasury);
+        treasury.sync();
+
+        uint64 expectedDeadline =
+            uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()));
+        IBudgetTreasury.BudgetLifecycleStatus memory activeStatus = treasury.lifecycleStatus();
+        assertEq(uint256(activeStatus.currentState), uint256(IBudgetTreasury.BudgetState.Active));
+        assertFalse(activeStatus.isResolved);
+        assertTrue(activeStatus.canAcceptFunding);
+        assertTrue(activeStatus.isFundingWindowEnded);
+        assertTrue(activeStatus.hasDeadline);
+        assertFalse(activeStatus.isDeadlinePassed);
+        assertEq(activeStatus.deadline, expectedDeadline);
+        assertEq(activeStatus.activatedAt, treasury.fundingDeadline() + 1);
+        assertEq(activeStatus.timeRemaining, treasury.executionDuration() - 1);
+        assertEq(activeStatus.targetFlowRate, treasury.targetFlowRate());
+        assertGt(activeStatus.targetFlowRate, 0);
+
+        vm.warp(expectedDeadline);
+        IBudgetTreasury.BudgetLifecycleStatus memory deadlineStatus = treasury.lifecycleStatus();
+        assertEq(uint256(deadlineStatus.currentState), uint256(IBudgetTreasury.BudgetState.Active));
+        assertFalse(deadlineStatus.isResolved);
+        assertFalse(deadlineStatus.canAcceptFunding);
+        assertTrue(deadlineStatus.isFundingWindowEnded);
+        assertTrue(deadlineStatus.hasDeadline);
+        assertTrue(deadlineStatus.isDeadlinePassed);
+        assertEq(deadlineStatus.deadline, expectedDeadline);
+        assertEq(deadlineStatus.activatedAt, activeStatus.activatedAt);
+        assertEq(deadlineStatus.timeRemaining, 0);
+        assertEq(deadlineStatus.targetFlowRate, 0);
+    }
+
     function _deploy(uint64 fundingDeadline, uint64 executionDuration, uint256 activationThreshold, uint256 runwayCap)
         internal
         returns (BudgetTreasury deployed)
@@ -2452,6 +2482,10 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         if (spenddown > int96Max - incoming) return type(int96).max;
 
         return int96(uint96(incoming + spenddown));
+    }
+
+    function _expectedDerivedDeadline(BudgetTreasury target) internal view returns (uint64) {
+        return uint64(uint256(target.fundingDeadline()) + uint256(target.executionDuration()));
     }
 }
 
