@@ -574,24 +574,37 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
 
         address slashRecipient = winningChoice == 0 ? invalidRoundRewardsSink : address(this);
 
-        _voterSlashedOrProcessed[disputeId][round][voter] = true;
-
         uint256 slashWeight = bps2Uint(wrongOrMissedSlashBps, snapshotVotes);
         if (slashWeight != 0) {
             uint256 callerBountyWeight = bps2Uint(slashCallerBountyBps, slashWeight);
             uint256 recipientWeight = slashWeight - callerBountyWeight;
+            uint256 totalSlashReceived = 0;
 
             if (callerBountyWeight != 0) {
-                _slashJurorStake(voter, callerBountyWeight, msg.sender);
+                (uint256 goalReceived, uint256 cobuildReceived) = _slashJurorStakeAndMeasure(
+                    voter,
+                    callerBountyWeight,
+                    msg.sender
+                );
+                totalSlashReceived += goalReceived + cobuildReceived;
             }
             if (recipientWeight != 0) {
                 if (slashRecipient == address(this)) {
-                    _slashToWinnerPools(disputeId, round, voter, recipientWeight);
+                    totalSlashReceived += _slashToWinnerPools(disputeId, round, voter, recipientWeight);
                 } else {
-                    _slashJurorStake(voter, recipientWeight, slashRecipient);
+                    (uint256 goalReceived, uint256 cobuildReceived) = _slashJurorStakeAndMeasure(
+                        voter,
+                        recipientWeight,
+                        slashRecipient
+                    );
+                    totalSlashReceived += goalReceived + cobuildReceived;
                 }
             }
+
+            if (totalSlashReceived == 0) return;
         }
+
+        _voterSlashedOrProcessed[disputeId][round][voter] = true;
         emit VoterSlashed(disputeId, round, voter, snapshotVotes, slashWeight, missedReveal, slashRecipient);
     }
 
@@ -840,34 +853,26 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         return (number * bps) / FlowProtocolConstants.BPS_SCALE_UINT256;
     }
 
-    function _slashToWinnerPools(uint256 disputeId, uint256 round, address juror, uint256 weightAmount) internal {
-        IERC20 goalToken = _stakeVault.goalToken();
-        IERC20 cobuildToken = _stakeVault.cobuildToken();
-        bool sameStakeToken = address(goalToken) == address(cobuildToken);
-
-        uint256 goalBefore = goalToken.balanceOf(address(this));
-        uint256 cobuildBefore;
-        if (!sameStakeToken && address(cobuildToken) != address(0)) {
-            cobuildBefore = cobuildToken.balanceOf(address(this));
-        }
-
-        _slashJurorStake(juror, weightAmount, address(this));
-
-        uint256 goalReceived = goalToken.balanceOf(address(this)) - goalBefore;
+    function _slashToWinnerPools(
+        uint256 disputeId,
+        uint256 round,
+        address juror,
+        uint256 weightAmount
+    ) internal returns (uint256 totalReceived) {
+        (uint256 goalReceived, uint256 cobuildReceived) = _slashJurorStakeAndMeasure(
+            juror,
+            weightAmount,
+            address(this)
+        );
         if (goalReceived != 0) {
             _roundGoalSlashRewards[disputeId][round] += goalReceived;
         }
 
-        if (sameStakeToken) {
-            return;
+        if (cobuildReceived != 0) {
+            _roundCobuildSlashRewards[disputeId][round] += cobuildReceived;
         }
 
-        if (address(cobuildToken) != address(0)) {
-            uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBefore;
-            if (cobuildReceived != 0) {
-                _roundCobuildSlashRewards[disputeId][round] += cobuildReceived;
-            }
-        }
+        return goalReceived + cobuildReceived;
     }
 
     function _computeSlashRewardsForRound(
@@ -1028,8 +1033,27 @@ contract ERC20VotesArbitrator is IERC20VotesArbitrator, ReentrancyGuardUpgradeab
         return _votingToken.getPastVotes(voter, blockNumber);
     }
 
-    function _slashJurorStake(address juror, uint256 weightAmount, address recipient) internal {
+    function _slashJurorStakeAndMeasure(
+        address juror,
+        uint256 weightAmount,
+        address recipient
+    ) internal returns (uint256 goalReceived, uint256 cobuildReceived) {
+        IERC20 goalToken = _stakeVault.goalToken();
+        IERC20 cobuildToken = _stakeVault.cobuildToken();
+        bool sameStakeToken = address(goalToken) == address(cobuildToken);
+
+        uint256 goalBefore = goalToken.balanceOf(recipient);
+        uint256 cobuildBefore;
+        if (!sameStakeToken && address(cobuildToken) != address(0)) {
+            cobuildBefore = cobuildToken.balanceOf(recipient);
+        }
+
         IJurorSlasher(_stakeVault.jurorSlasher()).slashJurorStake(juror, weightAmount, recipient);
+
+        goalReceived = goalToken.balanceOf(recipient) - goalBefore;
+        if (!sameStakeToken && address(cobuildToken) != address(0)) {
+            cobuildReceived = cobuildToken.balanceOf(recipient) - cobuildBefore;
+        }
     }
 
     /**
