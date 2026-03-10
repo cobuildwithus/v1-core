@@ -22,6 +22,7 @@ contract CobuildSplitHookTest is Test {
     address internal controller = makeAddr("controller");
     address internal routeSetter = makeAddr("route-setter");
     address internal beneficiary = makeAddr("beneficiary");
+    address internal historicalBeneficiary = makeAddr("historical-beneficiary");
     address internal newOwner = makeAddr("new-owner");
 
     CobuildSplitHookMockToken internal communityToken;
@@ -47,17 +48,9 @@ contract CobuildSplitHookTest is Test {
         hook.setRouteSetter(routeSetter);
     }
 
-    function test_processSplitWith_consumesPendingRoute_andRoutesWeightedAmounts() public {
-        uint256[] memory goalIds = new uint256[](2);
-        goalIds[0] = GOAL_ID_ONE;
-        goalIds[1] = GOAL_ID_TWO;
-
-        uint32[] memory weights = new uint32[](2);
-        weights[0] = 1;
-        weights[1] = 3;
-
+    function test_processSplitWith_consumesPendingRoute_andRecordsObservedVolume() public {
         vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+        hook.beginPendingRoute(beneficiary, beneficiary, _goalIds(), _weights(1, 3));
 
         communityToken.mint(address(hook), 100e18);
 
@@ -70,19 +63,68 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
         assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
         assertEq(communityToken.balanceOf(address(hook)), 0);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.observedTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_usesDefaultRouteWhenNoPendingRoute() public {
-        uint256[] memory goalIds = new uint256[](2);
-        goalIds[0] = GOAL_ID_ONE;
-        goalIds[1] = GOAL_ID_TWO;
+    function test_processSplitWith_usesHistoricalRouteForPendingHistoricalRoute() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
 
-        uint32[] memory weights = new uint32[](2);
-        weights[0] = 2;
-        weights[1] = 1;
+        vm.prank(routeSetter);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
 
+        communityToken.mint(address(hook), 50e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(50e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 60e18);
+        assertEq(goalTerminalTwo.totalReceived(), 90e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 40e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 60e18);
+        assertEq(hook.observedTotalVolume(), 100e18);
+    }
+
+    function test_processSplitWith_usesManualDefaultForPendingHistoricalRouteWithoutHistory() public {
+        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
+
+        vm.prank(routeSetter);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
+
+        communityToken.mint(address(hook), 90e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(90e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 60e18);
+        assertEq(goalTerminalTwo.totalReceived(), 30e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+        assertEq(hook.observedTotalVolume(), 0);
+    }
+
+    function test_processSplitWith_usesHistoricalRouteForDirectPayWhenDefaultBeneficiarySet() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        hook.setDefaultBeneficiary(historicalBeneficiary);
+
+        communityToken.mint(address(hook), 50e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(50e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 60e18);
+        assertEq(goalTerminalTwo.totalReceived(), 90e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+        assertEq(hook.observedTotalVolume(), 100e18);
+    }
+
+    function test_processSplitWith_usesManualDefaultForDirectPayWhenNoHistoryExists() public {
         hook.setDefaultBeneficiary(beneficiary);
-        hook.setDefaultRoute(goalIds, weights);
+        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
 
         communityToken.mint(address(hook), 90e18);
 
@@ -93,6 +135,58 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 30e18);
         assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
         assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
+        assertEq(hook.observedTotalVolume(), 0);
+    }
+
+    function test_processSplitWith_escrowsDirectPayWithoutDefaultBeneficiaryEvenWhenHistoryExists() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        communityToken.mint(address(hook), 50e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(50e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+        assertEq(communityToken.balanceOf(address(hook)), 50e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 40e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 60e18);
+        assertEq(hook.observedTotalVolume(), 100e18);
+    }
+
+    function test_processSplitWith_escrowsDirectPayWithoutDefaultBeneficiaryEvenWhenManualDefaultExists() public {
+        hook.setDefaultRoute(_goalIds(), _weights(2, 1));
+
+        communityToken.mint(address(hook), 90e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(90e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 0);
+        assertEq(goalTerminalTwo.totalReceived(), 0);
+        assertEq(communityToken.balanceOf(address(hook)), 90e18);
+        assertEq(hook.observedTotalVolume(), 0);
+    }
+
+    function test_processSplitWith_ignoresUnapprovedGoalsWhenDerivingHistoricalRoute() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        hook.setApprovedGoal(GOAL_ID_TWO, false);
+        hook.setDefaultBeneficiary(historicalBeneficiary);
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 65e18);
+        assertEq(goalTerminalTwo.totalReceived(), 75e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+
+        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        assertEq(historicalGoalIds.length, 1);
+        assertEq(historicalGoalIds[0], GOAL_ID_ONE);
+        assertEq(historicalVolumes.length, 1);
+        assertEq(historicalVolumes[0], 25e18);
     }
 
     function test_processSplitWith_escrowsWhenNoRouteIsAvailable() public {
@@ -107,17 +201,9 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_sweepEscrowed_routesHeldBalanceUsingExplicitRoute() public {
-        uint256[] memory goalIds = new uint256[](2);
-        goalIds[0] = GOAL_ID_ONE;
-        goalIds[1] = GOAL_ID_TWO;
-
-        uint32[] memory weights = new uint32[](2);
-        weights[0] = 1;
-        weights[1] = 1;
-
         communityToken.mint(address(hook), 80e18);
 
-        uint256 sweptAmount = hook.sweepEscrowed(beneficiary, goalIds, weights);
+        uint256 sweptAmount = hook.sweepEscrowed(beneficiary, _goalIds(), _weights(1, 1));
 
         assertEq(sweptAmount, 80e18);
         assertEq(goalTerminalOne.totalReceived(), 40e18);
@@ -126,13 +212,13 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_processSplitWith_revertsWhenSelectedGoalHasNoPrimaryTerminal() public {
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(0)));
+
         uint256[] memory goalIds = new uint256[](1);
         goalIds[0] = GOAL_ID_ONE;
 
         uint32[] memory weights = new uint32[](1);
         weights[0] = 1;
-
-        directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(0)));
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
@@ -156,16 +242,10 @@ contract CobuildSplitHookTest is Test {
         hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
     }
 
-    function test_beginPendingRoute_revertsWhenCallerIsNotRouteSetter() public {
-        uint256[] memory goalIds = new uint256[](1);
-        goalIds[0] = GOAL_ID_ONE;
-
-        uint32[] memory weights = new uint32[](1);
-        weights[0] = 1;
-
+    function test_beginPendingHistoricalRoute_revertsWhenCallerIsNotRouteSetter() public {
         vm.prank(makeAddr("not-route-setter"));
         vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
-        hook.beginPendingRoute(beneficiary, beneficiary, goalIds, weights);
+        hook.beginPendingHistoricalRoute(beneficiary, beneficiary);
     }
 
     function test_processSplitWith_revertsWhenCallerIsNotController() public {
@@ -188,6 +268,28 @@ contract CobuildSplitHookTest is Test {
         CobuildSplitHook implementation = new CobuildSplitHook();
         deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
         deployedHook.initialize(IJBDirectory(address(directory)), COMMUNITY_REVNET_ID, address(communityToken), address(this));
+    }
+
+    function _seedObservedRoute(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_) internal {
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary_, beneficiary_, _goalIds(), _weights(firstWeight, secondWeight));
+
+        communityToken.mint(address(hook), amount);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(amount));
+    }
+
+    function _goalIds() internal pure returns (uint256[] memory goalIds) {
+        goalIds = new uint256[](2);
+        goalIds[0] = GOAL_ID_ONE;
+        goalIds[1] = GOAL_ID_TWO;
+    }
+
+    function _weights(uint32 firstWeight, uint32 secondWeight) internal pure returns (uint32[] memory weights) {
+        weights = new uint32[](2);
+        weights[0] = firstWeight;
+        weights[1] = secondWeight;
     }
 
     function _context(uint256 amount) internal view returns (JBSplitHookContext memory context) {
