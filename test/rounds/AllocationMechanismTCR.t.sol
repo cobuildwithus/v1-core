@@ -368,6 +368,26 @@ contract AllocationMechanismTCRTest is Test {
         mechanism2.initialize(address(budgetTreasury), _factoryArray(address(roundFactory)), mechanismTcrCfg);
     }
 
+    function test_initialize_revertsWhenNoInitialMechanismFactories() public {
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
+        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
+        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
+            IVotes(address(underlying)),
+            address(mechanism2),
+            1,
+            1,
+            1,
+            ARBITRATION_COST
+        );
+
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
+        address[] memory factories = new address[](0);
+
+        vm.expectRevert(AllocationMechanismTCR.NO_INITIAL_MECHANISM_FACTORIES.selector);
+        mechanism2.initialize(address(budgetTreasury), factories, mechanismTcrCfg);
+    }
+
     function test_initialize_revertsWhenRoundFactoryIsNotContract() public {
         AllocationMechanismTCR mechanismImplementation =
             new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
@@ -386,27 +406,6 @@ contract AllocationMechanismTCRTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
         mechanism2.initialize(address(budgetTreasury), _factoryArray(alice), mechanismTcrCfg);
-    }
-
-    function test_initialize_revertsWhenNoInitialMechanismFactories() public {
-        AllocationMechanismTCR mechanismImplementation =
-            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
-        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
-        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
-            IVotes(address(underlying)),
-            address(mechanism2),
-            1,
-            1,
-            1,
-            ARBITRATION_COST
-        );
-
-        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
-        budgetFlow.setRecipientAdmin(address(mechanism2));
-
-        address[] memory noFactories = new address[](0);
-        vm.expectRevert(AllocationMechanismTCR.NO_INITIAL_MECHANISM_FACTORIES.selector);
-        mechanism2.initialize(address(budgetTreasury), noFactories, mechanismTcrCfg);
     }
 
     function test_initialize_revertsWhenFactoryManagerIsZero() public {

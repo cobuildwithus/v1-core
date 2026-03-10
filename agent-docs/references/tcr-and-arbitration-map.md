@@ -53,9 +53,13 @@
 ## Mechanism Registry Notes
 
 - `RoundFactory` is a permissionless implementation of the generic allocation-mechanism factory interface and may emit non-canonical `RoundDeployed` events for arbitrary configurations.
+- `TeamFlowFactory` is a second generic allocation-mechanism factory implementation that deploys a `TeamFlow` manager
+  plus standalone child `CustomFlow` for equal-split team payouts.
 - Canonical round deployments use stake-vault-backed voting power but intentionally hardcode non-slashing arbitrators; only the budget TCR and allocation-mechanism TCR arbitrators are router-authorized slashers.
 - `AllocationMechanismTCR` now gates mechanism deployment factories through one governor-managed control:
   - `mechanismFactoryAllowed[factory]` allowlist.
+- New budget activations seed the per-budget mechanism registry from the stack deployer's initial factory set; the
+  default stack now seeds both `RoundFactory` and `TeamFlowFactory`.
 - Mechanism deployment config (factory + opaque mechanism payload) is immutable per curated listing payload.
 - Activation uses the listing's configured mechanism factory, with allowlist enforcement at submission-time validation and activation-time execution.
 - Canonical mechanism activations for product/indexing should be sourced from `AllocationMechanismTCR.MechanismActivated`, which links an accepted mechanism listing item id to the activated deployed stack.
@@ -75,6 +79,10 @@
 - Budget stack helper deployment side effects are only callable through `BudgetTCRDeployer.onlyBudgetTCR`.
 - Goal flow `recipientAdmin` must be configured to the per-goal `BudgetTCR` for budget recipient add/remove operations.
 - Budget child flow `recipientAdmin` must be configured to the per-budget `AllocationMechanismTCR` for round recipient add/remove operations.
+- TeamFlow child flows are standalone payout lanes:
+  - payout recipient seen by `AllocationMechanismTCR` / mechanism escrow is the child `CustomFlow`,
+  - the deployed `TeamFlow` owns the child flow's recipient and target-rate controls,
+  - departed TeamFlow seats are hard-removed and re-adds receive fresh recipient ids.
 - BudgetTCR runtime meta-evidence updates are locked after initialization.
 - Deployment-time meta-evidence should be content-addressed (IPFS/Arweave URI or raw CID/txid string).
 

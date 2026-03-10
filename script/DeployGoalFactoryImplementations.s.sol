@@ -23,6 +23,8 @@ import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
+import {TeamFlow} from "src/teamflow/TeamFlow.sol";
+import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
@@ -67,6 +69,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal roundFactoryImplOut;
     address internal allocationMechanismTcrImplOut;
     address internal budgetFlowRouterStrategyImplOut;
+    address internal teamFlowImplOut;
+    address internal teamFlowFactoryImplOut;
 
     address internal defaultSubmissionDepositStrategyOut;
     uint256 internal escrowBondBpsOut;
@@ -130,11 +134,14 @@ contract DeployGoalFactoryImplementations is DeployScript {
         JurorSlasherRouter jurorSlasherRouterImpl = _deployJurorSlasherRouterImplementation();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
         CustomFlow flowImpl = new CustomFlow();
+        TeamFlow teamFlowImpl = new TeamFlow();
+        TeamFlowFactory teamFlowFactoryImpl = new TeamFlowFactory(address(teamFlowImpl), address(flowImpl));
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
 
         BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(
             address(budgetTreasuryImpl),
             address(roundFactoryImpl),
+            address(teamFlowFactoryImpl),
             address(allocationMechanismTcrImpl),
             address(arbitratorImpl),
             address(budgetFlowRouterStrategyImpl)
@@ -166,6 +173,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         roundFactoryImplOut = address(roundFactoryImpl);
         allocationMechanismTcrImplOut = address(allocationMechanismTcrImpl);
         budgetFlowRouterStrategyImplOut = address(budgetFlowRouterStrategyImpl);
+        teamFlowImplOut = address(teamFlowImpl);
+        teamFlowFactoryImplOut = address(teamFlowFactoryImpl);
 
         defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
         cobuildTerminalOut = address(cobuildTerminal);
@@ -200,6 +209,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("RoundFactory impl:", roundFactoryImplOut);
         console2.log("AllocationMechanismTCR impl:", allocationMechanismTcrImplOut);
         console2.log("BudgetFlowRouterStrategy impl:", budgetFlowRouterStrategyImplOut);
+        console2.log("TeamFlow impl:", teamFlowImplOut);
+        console2.log("TeamFlowFactory impl:", teamFlowFactoryImplOut);
         console2.log("DefaultSubmissionDepositStrategy:", defaultSubmissionDepositStrategyOut);
         console2.log("--- Fake resolver ---");
         console2.log("FakeUMATreasurySuccessResolver:", fakeUmaResolverOut);

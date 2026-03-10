@@ -103,6 +103,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     error MECHANISM_EXPIRED_UNDERFUNDED(uint64 fundingDeadline, uint256 minRequired, uint256 totalReceived);
     error FACTORY_NOT_ALLOWED(address factory);
     error INVALID_FACTORY(address factory);
+    error NO_INITIAL_MECHANISM_FACTORIES();
     error ACTIVE_MECHANISM_RECIPIENT_CAP_REACHED(uint256 maxRecipients);
     error ACTIVE_MECHANISM_RECIPIENT_COUNT_UNDERFLOW();
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
@@ -140,6 +141,7 @@ contract AllocationMechanismTCR is GeneralizedTCR {
     mapping(bytes32 => bool) public activationQueued;
     mapping(bytes32 => bool) public removalQueued;
     mapping(bytes32 => MechanismDeployment) internal _mechanismDeployment;
+    address[] internal _initialMechanismFactories;
     uint256 public activeMechanismRecipientCount;
 
     constructor(address mechanismFundingEscrowImplementation_) {
@@ -158,14 +160,13 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function initialize(
         address budgetTreasury_,
-        address initialMechanismFactory_,
+        address[] calldata initialMechanismFactories_,
         InitConfig calldata initConfig
     ) external initializer {
-        if (budgetTreasury_ == address(0) || initialMechanismFactory_ == address(0)) revert ADDRESS_ZERO();
-        if (initialMechanismFactory_.code.length == 0) revert INVALID_FACTORY(initialMechanismFactory_);
+        if (budgetTreasury_ == address(0)) revert ADDRESS_ZERO();
+        if (initialMechanismFactories_.length == 0) revert NO_INITIAL_MECHANISM_FACTORIES();
 
         budgetTreasury = budgetTreasury_;
-        mechanismFactoryAllowed[initialMechanismFactory_] = true;
         address budgetFlowAddress = IBudgetTreasury(budgetTreasury_).flow();
         if (budgetFlowAddress == address(0) || budgetFlowAddress.code.length == 0) revert BUDGET_FLOW_MISMATCH();
         budgetFlow = IManagedFlow(budgetFlowAddress);
@@ -175,6 +176,20 @@ contract AllocationMechanismTCR is GeneralizedTCR {
         __GeneralizedTCR_init(initConfig.tcrConfig);
         if (initConfig.factoryManager == address(0)) revert ADDRESS_ZERO();
         factoryManager = initConfig.factoryManager;
+
+        uint256 factoryCount = initialMechanismFactories_.length;
+        for (uint256 i = 0; i < factoryCount; i++) {
+            address factory = initialMechanismFactories_[i];
+            if (factory == address(0)) revert ADDRESS_ZERO();
+            if (factory.code.length == 0) revert INVALID_FACTORY(factory);
+            if (mechanismFactoryAllowed[factory]) continue;
+
+            mechanismFactoryAllowed[factory] = true;
+            _initialMechanismFactories.push(factory);
+            emit MechanismFactoryAllowedSet(factory, true);
+        }
+
+        if (_initialMechanismFactories.length == 0) revert NO_INITIAL_MECHANISM_FACTORIES();
     }
 
     // ---------------------------
@@ -255,6 +270,10 @@ contract AllocationMechanismTCR is GeneralizedTCR {
 
     function mechanismDeployment(bytes32 itemID) external view returns (MechanismDeployment memory dep) {
         dep = _mechanismDeployment[itemID];
+    }
+
+    function initialMechanismFactories() external view returns (address[] memory factories) {
+        factories = _initialMechanismFactories;
     }
 
     // ---------------------------
