@@ -174,10 +174,14 @@ Community root routing
 - Underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` indexes premium against live budget coverage from `BudgetStakeLedger`,
+  - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure rather than resetting/skipping receipt accounting,
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total coverage is recycled to goal funding via goal flow,
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
+- `BudgetTCRFactory` treats submission-deposit capability probing as trusted deployment wiring:
+  - a clean `supportsEscrowBonding() == false` response preserves manual registry deposits,
+  - missing/reverting capability probes now fail deployment fast instead of silently falling back.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (failures are observable and retained),
@@ -314,6 +318,10 @@ Community root routing
 - Allocation updates are commitment-validated and should remain deterministic and auditable.
 - Previous committed allocation weight is sourced on-chain from `allocWeightPlusOne`.
 - `BudgetStakeLedger.checkpointAllocation` enforces sorted/unique recipient-id ordering to keep linear merge checkpoints sound.
+- Budget delta detection is ledger-owned:
+  - `BudgetStakeLedger.checkpointAllocation(...)` returns changed budget treasuries on the write path,
+  - `BudgetStakeLedger.previewChangedBudgetTreasuries(...)` reuses the same decreases-first ordering for read-only preview,
+  - malformed ordering is rejected locally by the ledger merge path rather than by caller convention alone.
 - `BudgetStakeLedger.checkpointAllocation` fails closed on stored-vs-expected allocation drift (no silent reconciliation/clamping).
 - `allocationPipeline` is configured at flow initialization and validated fail-fast during init.
 - Goal-flow allocation-ledger mode validation is enforced by `GoalFlowAllocationLedgerPipeline` via `GoalFlowLedgerMode`,

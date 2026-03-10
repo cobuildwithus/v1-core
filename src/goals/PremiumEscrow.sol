@@ -40,6 +40,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     error GOAL_NOT_SUCCEEDED(IGoalTreasury.GoalState state);
     error GOAL_NOT_EXPIRED(IGoalTreasury.GoalState state);
     error BUDGET_NOT_SUCCEEDED(IBudgetTreasury.BudgetState state);
+    error GOAL_FLOW_BASELINE_READ_FAILED(address goalFlow, address budgetFlow);
+    error GOAL_FLOW_RECEIPT_READ_FAILED(address goalFlow, address budgetFlow);
 
     event PremiumIndexed(
         uint256 indexed distributedPremium,
@@ -169,11 +171,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         budgetSlashPpm = budgetSlashPpm_;
 
         // Establish a baseline so future goal-flow receipt deltas are well-defined.
-        try IFlow(goalFlow_).getTotalReceivedByMember(budgetFlow) returns (uint256 totalReceived) {
-            accountedGoalReceived = totalReceived;
-        } catch {
-            accountedGoalReceived = 0;
-        }
+        accountedGoalReceived = _totalGoalFlowReceivedOrRevert(goalFlow_, budgetFlow, true);
     }
 
     /// @notice Connects this escrow as a member of the manager reward distribution pool.
@@ -516,12 +514,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         address budgetFlow_ = budgetFlow;
         if (budgetFlow_ == address(0)) return;
 
-        uint256 totalReceived;
-        try IFlow(goalFlow).getTotalReceivedByMember(budgetFlow_) returns (uint256 received_) {
-            totalReceived = received_;
-        } catch {
-            return;
-        }
+        uint256 totalReceived = _totalGoalFlowReceivedOrRevert(goalFlow, budgetFlow_, false);
 
         uint256 previousAccounted = accountedGoalReceived;
         // Defensive clamp in case cumulative receipt accounting ever moves backwards.
@@ -549,6 +542,21 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         accountedGoalReceived = previousAccounted + distributed;
 
         emit CreditIndexed(distributed, oldTotalCoverage, indexDelta, creditIndex);
+    }
+
+    function _totalGoalFlowReceivedOrRevert(
+        address goalFlow_,
+        address budgetFlow_,
+        bool isBaselineRead
+    ) internal view returns (uint256 totalReceived) {
+        try IFlow(goalFlow_).getTotalReceivedByMember(budgetFlow_) returns (uint256 received_) {
+            return received_;
+        } catch {
+            if (isBaselineRead) {
+                revert GOAL_FLOW_BASELINE_READ_FAILED(goalFlow_, budgetFlow_);
+            }
+            revert GOAL_FLOW_RECEIPT_READ_FAILED(goalFlow_, budgetFlow_);
+        }
     }
 
     function _checkpointGlobalFromManagerRewardPool() internal {

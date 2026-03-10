@@ -34,6 +34,7 @@ contract BudgetTCRFactory {
     error INVALID_UNDERWRITER_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
     error UNAUTHORIZED_STACK_DEPLOYER(address caller);
+    error SUBMISSION_DEPOSIT_STRATEGY_CAPABILITY_PROBE_FAILED(address strategy);
 
     struct RegistryConfigInput {
         address allocationMechanismAdmin;
@@ -398,7 +399,7 @@ contract BudgetTCRFactory {
         try ISubmissionDepositStrategyCapabilities(address(strategy)).supportsEscrowBonding() returns (bool supported) {
             return supported;
         } catch {
-            return false;
+            revert SUBMISSION_DEPOSIT_STRATEGY_CAPABILITY_PROBE_FAILED(address(strategy));
         }
     }
 }

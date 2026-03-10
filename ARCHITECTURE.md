@@ -116,12 +116,16 @@ cobuild-protocol/
 - Budget underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` premium entitlement uses a balance-index over live `BudgetStakeLedger` coverage checkpoints (no snapshot-only settlement),
+  - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure (no zero-baseline or silent checkpoint-skip fallback),
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
   - premium inflow with zero total budget coverage is recycled to goal funding via goal flow (no stranded/orphan premium),
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter and slashes `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`, routing through the per-goal underwriter slasher router,
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
     `executionDuration`.
+- Budget TCR deployment remains a trusted-core path:
+  - `BudgetTCRFactory` may preserve manual registry deposits when a strategy cleanly reports `supportsEscrowBonding() == false`,
+  - capability probe failures or missing capability interfaces now fail deployment fast instead of silently downgrading escrow-bond economics.
 - Underwriter slash recycling path:
   - `UnderwriterSlasherRouter` is configured as StakeVault underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (conversion failures are observable and retained),
@@ -214,6 +218,10 @@ cobuild-protocol/
 - Previous committed allocation weight for `(strategy, allocationKey)` is sourced on-chain (`allocWeightPlusOne`).
 - Allocation commitments are canonical over recipient ids + allocation scaled only (weight is tracked separately in cache/events).
 - Budget stake-ledger checkpoint merges require sorted/unique recipient-id arrays and fail closed on malformed order.
+- Budget change detection is ledger-owned:
+  - `BudgetStakeLedger.checkpointAllocation(...)` returns changed budget treasuries while applying checkpoints,
+  - `BudgetStakeLedger.previewChangedBudgetTreasuries(...)` reuses the same delta ordering semantics for read-only preview,
+  - changed-budget ordering remains decreases first, then increases, stable within each bucket.
 - Budget stake-ledger checkpointing fails closed on stored-vs-expected allocation drift (no silent reconciliation/clamping).
 - `allocationPipeline` is configured at flow initialization and validated fail-fast during init.
 - Goal-flow allocation-ledger validation (goal treasury wiring + strategy compatibility, including
@@ -242,6 +250,7 @@ cobuild-protocol/
 - Goal allocation pipeline underwriting hook:
   - after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
     budget's `PremiumEscrow` for the allocating account,
+  - `previewChildSyncRequirements(...)` derives changed budgets from the ledger preview path instead of reimplementing merge semantics,
   - checkpoint failures fail closed on allocation commit to preserve premium/slash accounting correctness.
 
 4. Governance boundary clarity

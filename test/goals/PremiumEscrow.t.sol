@@ -113,6 +113,43 @@ contract PremiumEscrowTest is Test {
         assertEq(maxEscrow.budgetSlashPpm(), FlowProtocolConstants.PPM_SCALE);
     }
 
+    function test_initializeRevertsWhenGoalFlowBaselineReadFails() public {
+        goalFlow.setRevertTotalReceivedByMemberRead(true);
+
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow failingEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PremiumEscrow.GOAL_FLOW_BASELINE_READ_FAILED.selector, address(goalFlow), address(budgetFlow)
+            )
+        );
+        failingEscrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM);
+    }
+
+    function test_checkpointRevertsWhenGoalFlowReceiptReadFails() public {
+        goalFlow.setRevertTotalReceivedByMemberRead(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PremiumEscrow.GOAL_FLOW_RECEIPT_READ_FAILED.selector, address(goalFlow), address(budgetFlow)
+            )
+        );
+        escrow.checkpoint(ALICE);
+    }
+
+    function test_slashRevertsWhenGoalFlowReceiptReadFails() public {
+        _prepareStandardFailedSlashScenario();
+        goalFlow.setRevertTotalReceivedByMemberRead(true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PremiumEscrow.GOAL_FLOW_RECEIPT_READ_FAILED.selector, address(goalFlow), address(budgetFlow)
+            )
+        );
+        escrow.slash(ALICE);
+    }
+
     function test_premiumAccrualCoverageIncreaseDecrease_splitsCorrectly() public {
         _setCoverageAndCheckpointBoth(100, 100);
         assertEq(escrow.totalCoverage(), 200);
@@ -1207,10 +1244,12 @@ contract PremiumEscrowMockBudgetFlow {
 
 contract PremiumEscrowMockGoalFlow {
     error FLOW_OPERATOR_REVERT();
+    error TOTAL_RECEIVED_BY_MEMBER_REVERT();
 
     ISuperToken internal _superToken;
     address internal _flowOperator;
     bool internal _revertFlowOperator;
+    bool internal _revertTotalReceivedByMemberRead;
     mapping(address => uint256) internal _totalReceivedByMember;
 
     constructor(address superToken_) {
@@ -1229,6 +1268,10 @@ contract PremiumEscrowMockGoalFlow {
         _revertFlowOperator = shouldRevert_;
     }
 
+    function setRevertTotalReceivedByMemberRead(bool shouldRevert_) external {
+        _revertTotalReceivedByMemberRead = shouldRevert_;
+    }
+
     function flowOperator() external view returns (address) {
         if (_revertFlowOperator) revert FLOW_OPERATOR_REVERT();
         return _flowOperator;
@@ -1239,6 +1282,7 @@ contract PremiumEscrowMockGoalFlow {
     }
 
     function getTotalReceivedByMember(address member) external view returns (uint256) {
+        if (_revertTotalReceivedByMemberRead) revert TOTAL_RECEIVED_BY_MEMBER_REVERT();
         return _totalReceivedByMember[member];
     }
 }

@@ -95,12 +95,14 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - Deposits still require live staking-open state (`currentOf(goalRevnetId).weight > 0`) when each deposit executes.
 - `BudgetStakeLedger` is coverage-only accounting (per-user and per-budget allocated stake plus checkpoint history for vote snapshots).
 - `PremiumEscrow` checkpoints per-underwriter budget coverage and accrues premium from indexed inflows.
+- `PremiumEscrow` goal-flow receipt baseline/checkpoint reads fail closed on read failure; receipt accounting no longer falls back to zero or silently skips failed reads.
 - Premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`).
 - Premium inflow with zero budget coverage is recycled to goal funding path (no orphan premium custody).
 - On goal `Expired`, escrowed premium can be swept via `PremiumEscrow.burnOnGoalFailure()` to goal flow for terminal residual burn settlement.
 - On escrow close to `Failed` or post-activation `Expired`, `PremiumEscrow.slash(underwriter)` treats `creditDrawn` as first-loss principal attributed to that underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and calls `UnderwriterSlasherRouter`.
 - Slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
   `executionDuration`.
+- `BudgetTCRFactory` only preserves manual registry deposits when the submission-deposit strategy cleanly reports `supportsEscrowBonding() == false`; probe failures now fail deployment instead of silently downgrading escrow-bond policy.
 - `UnderwriterSlasherRouter` receives slashed stake via `StakeVault`, best-effort converts cobuild -> goal token, upgrades to goal SuperToken, and forwards to goal funding target; failures remain observable and retryable via `retryForwarding`.
 - Post-goal-resolution underwriter withdrawals are caller-prepared, not globally budget-gated:
   - each underwriter runs `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over registered budgets,

@@ -20,6 +20,8 @@ import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmis
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
+import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
+import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
@@ -139,6 +141,30 @@ contract _MockUnderwriterSlasherRouterWithoutStakeVaultForFactory {
     function setAuthorizedPremiumEscrow(address, bool) external {}
 
     function slashUnderwriter(address, uint256) external {}
+}
+
+contract _MockSubmissionDepositStrategyWithoutCapabilities is ISubmissionDepositStrategy {
+    IERC20 private immutable _token;
+
+    constructor(IERC20 token_) {
+        _token = token_;
+    }
+
+    function token() external view override returns (IERC20) {
+        return _token;
+    }
+
+    function getSubmissionDepositAction(
+        bytes32,
+        IGeneralizedTCR.Status,
+        IArbitrable.Party,
+        address,
+        address,
+        address,
+        uint256
+    ) external pure override returns (DepositAction action, address recipient) {
+        return (DepositAction.Hold, address(0));
+    }
 }
 
 contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
@@ -1596,6 +1622,51 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             BudgetTCR(deployed.budgetTCR).removalChallengeBaseDeposit(),
             registryConfig.registryPolicy.removalChallengeBaseDeposit
         );
+    }
+
+    function test_deployBudgetTCRStackForGoal_reverts_when_submission_strategy_probe_fails() public {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new _MockSubmissionDepositStrategyWithoutCapabilities(IERC20(address(votingToken)))));
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            allocationMechanismAdmin: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            votingToken: IVotes(address(votingToken)),
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 101e18,
+                removalBaseDeposit: 202e18,
+                submissionChallengeBaseDeposit: 303e18,
+                removalChallengeBaseDeposit: 404e18,
+                challengePeriodDuration: 3 days
+            })
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BudgetTCRFactory.SUBMISSION_DEPOSIT_STRATEGY_CAPABILITY_PROBE_FAILED.selector,
+                address(submissionDepositStrategy)
+            )
+        );
+        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
     function _validImplementations() internal returns (address a, address b, address c) {

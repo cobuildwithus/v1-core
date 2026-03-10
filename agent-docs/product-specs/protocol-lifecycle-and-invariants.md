@@ -62,6 +62,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
+  - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure,
   - premium claims are allowed only while parent goal state is `Succeeded`,
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
@@ -156,6 +157,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - re-adding a previously removed member creates a fresh TeamFlow recipient id instead of reusing the removed one.
 - Factory discovery invariants:
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
+  - `BudgetTCRFactory` treats submission-deposit capability probing as required deployment wiring: clean `supportsEscrowBonding() == false` preserves manual deposits, while missing/reverting probes fail deployment.
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
     (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
   - The same authenticated mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the goal's `JurorSlasherRouter`; budget activation must fail closed if that authorization cannot be applied.
