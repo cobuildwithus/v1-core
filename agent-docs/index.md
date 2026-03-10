@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-10 (community routing market defaults, spend-policy targeting)
+Last verified: 2026-03-10 (community goal registry TCR, spend-policy targeting)
 
 ## Purpose
 

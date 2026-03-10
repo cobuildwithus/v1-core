@@ -352,8 +352,7 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     address public immutable override communityToken;
 
     address public override routeSetter;
-    address public override goalManager;
-    mapping(uint256 => address) internal _goalTreasuryOf;
+    address public override goalRegistry;
     bool internal _hasPendingRoute;
     bool internal _lastUsesHistoricalDefault;
 
@@ -369,7 +368,7 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         communityRevnetId = communityRevnetId_;
         communityToken = communityToken_;
         routeSetter = msg.sender;
-        goalManager = msg.sender;
+        goalRegistry = msg.sender;
     }
 
     function supportsInterface(bytes4) external pure override returns (bool) {
@@ -386,10 +385,6 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
 
     function approvedGoals() external pure override returns (uint256[] memory goals) {
         goals = new uint256[](0);
-    }
-
-    function goalTreasuryOf(uint256 goalId) external view override returns (address) {
-        return _goalTreasuryOf[goalId];
     }
 
     function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory volumes) {
@@ -440,14 +435,6 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     function cancelPendingRoute() external override {
         cancelPendingRouteCallCount += 1;
         _hasPendingRoute = false;
-    }
-
-    function addApprovedGoal(uint256 goalId, address goalTreasury) external override {
-        _goalTreasuryOf[goalId] = goalTreasury;
-    }
-
-    function removeApprovedGoal(uint256 goalId) external override {
-        delete _goalTreasuryOf[goalId];
     }
 
     function processSplitWith(JBSplitHookContext calldata) external payable override { }

@@ -61,6 +61,8 @@ cobuild-protocol/
   - `src/tcr/BudgetTCR.sol`
   - `src/tcr/BudgetTCRDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
+- Community goal curation extension:
+  - `src/tcr/CommunityGoalRegistry.sol`
 - Budget listing validation helpers:
   - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Storage and helpers: `src/tcr/storage/*.sol`, `src/tcr/library/TCRRounds.sol`, `src/tcr/utils/*.sol`, `src/tcr/strategies/*.sol`.
@@ -128,13 +130,19 @@ cobuild-protocol/
 - Community reserved-token routing is wrapper-seeded and split-driven:
   - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
     seeds either an explicit route or a historical-default route on `CobuildSplitHook`, then pays the configured community revnet.
-  - `CobuildSplitHook` is controller-gated for the configured community revnet, routes reserved community tokens into
-    goal-manager-approved child goals, stores each goal's treasury sink, records observed volume only from explicit
-    routed pays, and derives all non-explicit routing from that explicit-only historical volume.
+  - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
+    - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
+    - owner-backed system goals can be pinned/unpinned directly,
+    - each listing carries its goal treasury sink and paused/selectable state.
+  - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
+    `routeSetter` plus fixed init-time goal-registry reference, validates explicit routes against
+    `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into registry-selected child goals,
+    records observed volume only from explicit routed pays, and derives all non-explicit routing from that
+    explicit-only historical volume.
   - Wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction, including
     empty-metadata historical-default pays.
   - Raw direct community pays use historical explicit-volume weights only and pay each child goal terminal with that
-    goal's treasury as beneficiary; those direct/defaulted flows must not mutate the historical routing signal.
+    goal's registry-provided treasury as beneficiary; those direct/defaulted flows must not mutate the historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.

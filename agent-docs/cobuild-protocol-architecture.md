@@ -49,6 +49,8 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `src/tcr/BudgetTCRDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
   - `src/tcr/AllocationMechanismTCR.sol` (active mechanism registry with hard max of 7 active recipients)
+- Community goal curation:
+  - `src/tcr/CommunityGoalRegistry.sol`
 - Budget listing validation helpers:
   - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Supporting modules:
@@ -97,17 +99,21 @@ Community root routing
 - The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
   - empty metadata seeds a one-shot historical-default route for the same beneficiary.
-- `CobuildSplitHook` stores a fixed init-time `routeSetter` for wrapper seeding and a fixed init-time `goalManager`
-  for approved-goal membership updates.
+- `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
+  - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
+  - canonical item identity is `bytes32(goalId)`,
+  - owner-backed system goals can be pinned/unpinned directly,
+  - every listed goal carries its goal-treasury sink and paused/selectable status.
+- `CobuildSplitHook` stores a fixed init-time `routeSetter` for wrapper seeding and a fixed init-time
+  `CommunityGoalRegistry` reference for explicit-route validation and direct-pay treasury resolution.
 - During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
-- `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into approved child goals by
-  paying each goal's primary terminal for the community token.
+- `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
+  goals by paying each goal's primary terminal for the community token.
 - Only explicit routed payments record observed per-goal volume.
-- Historical-default routing is derived from approved goals with non-zero observed explicit volume; passive/defaulted flow
-  follows that signal but does not update it.
-- Approved goals are curated by a fixed init-time `goalManager`, and each approved goal stores its goal treasury sink.
-- If no pending route exists, the hook routes using historical explicit-volume weights only and uses each approved goal's
-  stored treasury as the beneficiary on the child goal `pay(...)` call.
+- Historical-default routing is derived from registry-selectable goals with non-zero observed explicit volume;
+  passive/defaulted flow follows that signal but does not update it.
+- If no pending route exists, the hook routes using historical explicit-volume weights only and uses each listed goal's
+  registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
 - If no usable historical route exists, the community pay fails closed instead of default-routing or escrowing.
 
 3. Goal treasury funding and resolution
@@ -117,7 +123,6 @@ Community root routing
   - `donateUnderlyingAndUpgrade(amount)` (auto-upgrade then transfer),
   - donation receipts are included in `totalRaised` (telemetry).
 - Goal treasury min-raise lifecycle gating is balance-based (`superToken.balanceOf(flow)`), not `totalRaised`, so direct flow inflows can satisfy activation.
-- Goal treasury initialization/event surface is config-only; it does not carry a generic owner field.
 - Goal treasury target computation uses legacy spend-pattern math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy` using the treasury's own distribution-pool units as policy context.
 - For active legacy linear spend-down, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable; policy-configured sync mode can instead use capped writes.
 - Goal sync does not enforce coverage-based rate clamping; underwriting is enforced by budget recipient credit-line gating in `BudgetTCR.syncBudgetTreasuries`.
@@ -180,7 +185,7 @@ Community root routing
     that update observed historical volume,
   - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
-  - approved-goal membership and treasury-sink metadata are fixed-role managed by a fixed init-time `goalManager`,
+  - goal membership and treasury-sink metadata are sourced from fixed init-time `CommunityGoalRegistry` state,
   - direct/defaulted routing uses goal treasury beneficiaries rather than a global default beneficiary,
   - missing explicit/historical data fails closed by reverting rather than guessing downstream funding destinations.
 

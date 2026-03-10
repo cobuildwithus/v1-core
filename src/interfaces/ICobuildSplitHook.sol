@@ -19,9 +19,7 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function routeSetter() external view returns (address);
 
-    function goalManager() external view returns (address);
-
-    function goalTreasuryOf(uint256 goalId) external view returns (address);
+    function goalRegistry() external view returns (address);
 
     function observedVolumeOf(uint256 goalId) external view returns (uint256);
 
@@ -45,8 +43,4 @@ interface ICobuildSplitHook is IJBSplitHook {
     function beginPendingHistoricalRoute(address payer, address beneficiary) external;
 
     function cancelPendingRoute() external;
-
-    function addApprovedGoal(uint256 goalId, address goalTreasury) external;
-
-    function removeApprovedGoal(uint256 goalId) external;
 }

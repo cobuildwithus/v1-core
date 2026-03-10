@@ -62,7 +62,7 @@
 - Wrapper-routed community pays, including empty-metadata historical-default pays, must fail closed when the pending route is not consumed in the same transaction.
 - Only explicit routed community pays should update historical routing volume; passive/defaulted flows must not make the default self-reinforcing.
 - Direct community pays with no usable historical route should revert instead of inferring a downstream route.
-- Direct community pays that do route should use each approved goal's treasury as the downstream beneficiary sink.
+- Direct community pays that do route should use each registry-listed goal's treasury as the downstream beneficiary sink.
 
 ## Verification Matrix
 

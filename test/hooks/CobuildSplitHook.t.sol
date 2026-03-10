@@ -6,6 +6,7 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import { CobuildSplitHook } from "src/hooks/CobuildSplitHook.sol";
+import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
@@ -21,7 +22,6 @@ contract CobuildSplitHookTest is Test {
 
     address internal controller = makeAddr("controller");
     address internal routeSetter = makeAddr("route-setter");
-    address internal goalManager = makeAddr("goal-manager");
     address internal beneficiary = makeAddr("beneficiary");
     address internal historicalBeneficiary = makeAddr("historical-beneficiary");
 
@@ -31,6 +31,7 @@ contract CobuildSplitHookTest is Test {
     CobuildSplitHookMockGoalTerminal internal goalTerminalTwo;
     CobuildSplitHookMockGoalTreasury internal goalTreasuryOne;
     CobuildSplitHookMockGoalTreasury internal goalTreasuryTwo;
+    CobuildSplitHookMockGoalRegistry internal goalRegistry;
     CobuildSplitHook internal hook;
 
     function setUp() public {
@@ -40,17 +41,59 @@ contract CobuildSplitHookTest is Test {
         goalTerminalTwo = new CobuildSplitHookMockGoalTerminal(communityToken);
         goalTreasuryOne = new CobuildSplitHookMockGoalTreasury(GOAL_ID_ONE);
         goalTreasuryTwo = new CobuildSplitHookMockGoalTreasury(GOAL_ID_TWO);
+        goalRegistry = new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID, address(communityToken));
 
-        hook = _deployHook();
+        hook = _deployHook(goalRegistry);
 
         directory.setController(COMMUNITY_REVNET_ID, controller);
         directory.setPrimaryTerminal(GOAL_ID_ONE, address(communityToken), IJBTerminal(address(goalTerminalOne)));
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(goalTerminalTwo)));
 
-        vm.startPrank(goalManager);
-        hook.addApprovedGoal(GOAL_ID_ONE, address(goalTreasuryOne));
-        hook.addApprovedGoal(GOAL_ID_TWO, address(goalTreasuryTwo));
-        vm.stopPrank();
+        goalRegistry.setGoal(GOAL_ID_ONE, address(goalTreasuryOne), true);
+        goalRegistry.setGoal(GOAL_ID_TWO, address(goalTreasuryTwo), true);
+    }
+
+    function test_initialize_revertsWhenGoalRegistryCommunityMismatch() public {
+        CobuildSplitHookMockGoalRegistry mismatchedRegistry =
+            new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID + 1, address(communityToken));
+
+        CobuildSplitHook implementation = new CobuildSplitHook();
+        CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildSplitHook.INVALID_PROJECT.selector, COMMUNITY_REVNET_ID, COMMUNITY_REVNET_ID + 1
+            )
+        );
+        deployedHook.initialize(
+            IJBDirectory(address(directory)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            routeSetter,
+            ICommunityGoalRegistry(address(mismatchedRegistry))
+        );
+    }
+
+    function test_initialize_revertsWhenGoalRegistryTokenMismatch() public {
+        CobuildSplitHookMockToken wrongToken = new CobuildSplitHookMockToken("Wrong", "WRONG");
+        CobuildSplitHookMockGoalRegistry mismatchedRegistry =
+            new CobuildSplitHookMockGoalRegistry(COMMUNITY_REVNET_ID, address(wrongToken));
+
+        CobuildSplitHook implementation = new CobuildSplitHook();
+        CobuildSplitHook deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildSplitHook.INVALID_SOURCE_TOKEN.selector, address(communityToken), address(wrongToken)
+            )
+        );
+        deployedHook.initialize(
+            IJBDirectory(address(directory)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            routeSetter,
+            ICommunityGoalRegistry(address(mismatchedRegistry))
+        );
     }
 
     function test_processSplitWith_consumesPendingRoute_andRecordsObservedVolume() public {
@@ -127,11 +170,10 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(50e18));
     }
 
-    function test_processSplitWith_ignoresRemovedGoalsWhenDerivingHistoricalRoute() public {
+    function test_processSplitWith_ignoresGoalsRemovedFromRegistryWhenDerivingHistoricalRoute() public {
         _seedObservedRoute(100e18, 1, 3, beneficiary);
 
-        vm.prank(goalManager);
-        hook.removeApprovedGoal(GOAL_ID_TWO);
+        goalRegistry.removeGoal(GOAL_ID_TWO);
 
         communityToken.mint(address(hook), 40e18);
 
@@ -205,54 +247,28 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(10e18));
     }
 
-    function test_addApprovedGoal_revertsWhenCallerIsNotGoalManager() public {
-        CobuildSplitHookMockGoalTreasury newGoalTreasury = new CobuildSplitHookMockGoalTreasury(303);
+    function test_processSplitWith_revertsWhenRegistryGoalTreasuryIsMissing() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        goalRegistry.setGoal(GOAL_ID_ONE, address(0), true);
 
-        vm.prank(makeAddr("not-goal-manager"));
-        vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
-        hook.addApprovedGoal(303, address(newGoalTreasury));
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        vm.expectRevert(abi.encodeWithSelector(CobuildSplitHook.NO_GOAL_TREASURY.selector, GOAL_ID_ONE));
+        hook.processSplitWith(_context(40e18));
     }
 
-    function test_addApprovedGoal_revertsWhenTreasuryGoalIdMismatch() public {
-        CobuildSplitHookMockGoalTreasury mismatchedTreasury = new CobuildSplitHookMockGoalTreasury(999);
-
-        vm.prank(goalManager);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CobuildSplitHook.INVALID_GOAL_TREASURY.selector, address(mismatchedTreasury), 303, 999
-            )
-        );
-        hook.addApprovedGoal(303, address(mismatchedTreasury));
-    }
-
-    function test_addApprovedGoal_revertsWhenTreasuryGoalIdLookupReverts() public {
-        CobuildSplitHookMockRevertingGoalTreasury revertingTreasury = new CobuildSplitHookMockRevertingGoalTreasury();
-
-        vm.prank(goalManager);
-        vm.expectRevert(
-            abi.encodeWithSelector(CobuildSplitHook.INVALID_GOAL_TREASURY.selector, address(revertingTreasury), 303, 0)
-        );
-        hook.addApprovedGoal(303, address(revertingTreasury));
-    }
-
-    function test_removeApprovedGoal_revertsWhenCallerIsNotGoalManager() public {
-        vm.prank(makeAddr("not-goal-manager"));
-        vm.expectRevert(CobuildSplitHook.UNAUTHORIZED.selector);
-        hook.removeApprovedGoal(GOAL_ID_ONE);
-    }
-
-    function test_removeApprovedGoal_clearsGoalTreasuryMapping() public {
-        vm.prank(goalManager);
-        hook.removeApprovedGoal(GOAL_ID_TWO);
-
-        assertEq(hook.goalTreasuryOf(GOAL_ID_TWO), address(0));
-
+    function test_approvedGoals_proxiesRegistrySelectableGoals() public view {
         uint256[] memory approvedGoalIds = hook.approvedGoals();
-        assertEq(approvedGoalIds.length, 1);
+
+        assertEq(approvedGoalIds.length, 2);
         assertEq(approvedGoalIds[0], GOAL_ID_ONE);
+        assertEq(approvedGoalIds[1], GOAL_ID_TWO);
     }
 
-    function _deployHook() internal returns (CobuildSplitHook deployedHook) {
+    function _deployHook(
+        CobuildSplitHookMockGoalRegistry goalRegistry_
+    ) internal returns (CobuildSplitHook deployedHook) {
         CobuildSplitHook implementation = new CobuildSplitHook();
         deployedHook = CobuildSplitHook(payable(Clones.clone(address(implementation))));
         deployedHook.initialize(
@@ -260,7 +276,7 @@ contract CobuildSplitHookTest is Test {
             COMMUNITY_REVNET_ID,
             address(communityToken),
             routeSetter,
-            goalManager
+            ICommunityGoalRegistry(address(goalRegistry_))
         );
     }
 
@@ -367,9 +383,60 @@ contract CobuildSplitHookMockGoalTreasury {
     }
 }
 
-contract CobuildSplitHookMockRevertingGoalTreasury {
-    function goalRevnetId() external pure returns (uint256) {
-        revert("goalRevnetId");
+contract CobuildSplitHookMockGoalRegistry {
+    uint256 public communityRevnetId;
+    address public communityToken;
+
+    uint256[] internal _selectableGoalIds;
+    mapping(uint256 goalId => bool selectable) internal _isSelectable;
+    mapping(uint256 goalId => address goalTreasury) internal _goalTreasuryOf;
+
+    constructor(uint256 communityRevnetId_, address communityToken_) {
+        communityRevnetId = communityRevnetId_;
+        communityToken = communityToken_;
+    }
+
+    function setGoal(uint256 goalId, address goalTreasury, bool selectable) external {
+        bool wasSelectable = _isSelectable[goalId];
+        _goalTreasuryOf[goalId] = goalTreasury;
+        _isSelectable[goalId] = selectable;
+
+        if (!wasSelectable && selectable) {
+            _selectableGoalIds.push(goalId);
+            return;
+        }
+        if (wasSelectable && !selectable) {
+            _removeGoal(goalId);
+        }
+    }
+
+    function removeGoal(uint256 goalId) external {
+        _isSelectable[goalId] = false;
+        _removeGoal(goalId);
+    }
+
+    function selectableGoalIds() external view returns (uint256[] memory goalIds) {
+        goalIds = _selectableGoalIds;
+    }
+
+    function isSelectable(uint256 goalId) external view returns (bool) {
+        return _isSelectable[goalId];
+    }
+
+    function goalTreasuryOf(uint256 goalId) external view returns (address) {
+        return _goalTreasuryOf[goalId];
+    }
+
+    function _removeGoal(uint256 goalId) internal {
+        uint256 length = _selectableGoalIds.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (_selectableGoalIds[i] != goalId) continue;
+
+            uint256 lastIndex = length - 1;
+            if (i != lastIndex) _selectableGoalIds[i] = _selectableGoalIds[lastIndex];
+            _selectableGoalIds.pop();
+            return;
+        }
     }
 }
 

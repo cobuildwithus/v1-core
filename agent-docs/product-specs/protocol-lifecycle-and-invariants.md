@@ -31,7 +31,6 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 ### Goal/Budget lifecycle
 
 - Goal and budget treasuries start in funding state, then activate or finalize based on thresholds and deadlines.
-- Goal treasury initialization/event surface is config-only; it does not accept or emit a generic owner field.
 - `sync()` is the permissionless best-next-action entrypoint:
   - `Funding`: activate when threshold is met (including post-`fundingDeadline` sync calls while state is still `Funding`), otherwise expire once the funding window has ended and threshold remains unmet.
   - `Active`: sync flow-rate while time remains; at/after deadline:
@@ -69,11 +68,16 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Community root routing is wrapper-seeded and split-driven:
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
     seeds either an explicit route or a historical-default route on `CobuildSplitHook`, and then pays the configured community revnet.
-  - `CobuildSplitHook` keeps both the wrapper `routeSetter` and the approved-goal `goalManager` fixed from initialization.
+  - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
+    - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
+    - owner-backed system goals can be pinned/unpinned directly,
+    - each listed goal carries its goal-treasury sink and paused/selectable state.
+  - `CobuildSplitHook` keeps both the wrapper `routeSetter` and the `CommunityGoalRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
   - Empty-metadata wrapper pays still fail closed unless the seeded historical/default route is consumed by the reserved-token split in the same transaction.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
-    only into goal-manager-approved child goals, stores each goal's treasury sink, derives market-default routing from approved goals with observed explicit routed volume,
+    only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
+    uses each goal's registry-provided treasury sink for raw direct-pay fallback beneficiaries,
     and otherwise fails closed when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),

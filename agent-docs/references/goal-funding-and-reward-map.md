@@ -8,11 +8,14 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
    - explicit metadata seeds an explicit per-payment route,
    - empty metadata seeds a historical-default route for the same beneficiary.
-3. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
-4. The split hook consumes the pending route and forwards reserved community tokens into approved child goals by paying each goal's primary terminal for the community token.
-5. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
-6. Approved goals are curated by a fixed `goalManager`, and each approved goal stores its goal treasury sink.
-7. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's treasury as beneficiary.
+3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
+   - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
+   - owner-backed system goals can be pinned/unpinned directly,
+   - each listed goal carries its goal-treasury sink and paused/selectable state.
+4. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
+5. The split hook consumes the pending route and forwards reserved community tokens into registry-selectable child goals by paying each goal's primary terminal for the community token.
+6. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
+7. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's registry-provided treasury as beneficiary.
 8. If no usable historical route exists, the community pay reverts instead of default-routing or escrowing reserved tokens.
 
 ## Goal Funding Path

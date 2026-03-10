@@ -17,11 +17,11 @@
 - Hook ingress: `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`
 - Community payment wrapper: `src/juicebox/CobuildPaymentTerminal.sol`
 - Interfaces: `src/interfaces/IGoalTreasury.sol`, `src/interfaces/IBudgetTreasury.sol`, `src/interfaces/ISpendPolicy.sol`, `src/interfaces/IStakeVault.sol`, `src/interfaces/IBudgetStakeLedger.sol`, `src/interfaces/IPremiumEscrow.sol`, `src/interfaces/IUnderwriterSlasherRouter.sol`, `src/interfaces/ITreasuryAuthority.sol`, `src/interfaces/ICobuildSplitHook.sol`
-- Community-routing curation boundary: `CobuildSplitHook` owns approved goal + goal treasury sink metadata, while the external goal-manager role/TCR owns membership changes.
+- Community-routing curation boundary: `CommunityGoalRegistry` owns selectable-goal membership plus goal-treasury sink metadata, while `CobuildSplitHook` remains a thin router that reads registry state and observed explicit-volume history.
 
 ### TCR/arbitration domain
 
-- Core: `src/tcr/GeneralizedTCR.sol`, `src/tcr/ERC20VotesArbitrator.sol`, `src/tcr/BudgetTCR.sol`
+- Core: `src/tcr/GeneralizedTCR.sol`, `src/tcr/ERC20VotesArbitrator.sol`, `src/tcr/BudgetTCR.sol`, `src/tcr/CommunityGoalRegistry.sol`
 - Budget stack orchestration: `src/tcr/BudgetTCRDeployer.sol`, `src/tcr/BudgetTCRValidator.sol`, `src/tcr/BudgetTCRFactory.sol`
 - Support: `src/tcr/interfaces/**`, `src/tcr/storage/**`, `src/tcr/library/**`, `src/tcr/utils/**`, `src/tcr/strategies/**`
 
