@@ -22,6 +22,7 @@ import { Checkpoints } from "@openzeppelin/contracts/utils/structs/Checkpoints.s
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { AddressKeyAllocation } from "../library/AddressKeyAllocation.sol";
 import { TokenTransfers } from "../library/TokenTransfers.sol";
 import { StakeVaultJurorMath } from "./library/StakeVaultJurorMath.sol";
 import { StakeVaultSlashMath } from "./library/StakeVaultSlashMath.sol";
@@ -595,11 +596,11 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function allocationKey(address caller, bytes calldata) external pure override returns (uint256) {
-        return uint256(uint160(caller));
+        return AddressKeyAllocation.keyFor(caller);
     }
 
-    function accountForAllocationKey(uint256 allocationKey) external pure override returns (address) {
-        return _accountForKey(allocationKey);
+    function accountForAllocationKey(uint256 key) external pure override returns (address) {
+        return AddressKeyAllocation.accountForKey(key);
     }
 
     function currentWeight(uint256 key) external view override returns (uint256) {
@@ -917,8 +918,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function _accountForKey(uint256 key) internal pure returns (address) {
-        if (key > type(uint160).max) revert INVALID_ALLOCATION_KEY(key);
-        return address(SafeCast.toUint160(key));
+        return AddressKeyAllocation.accountForKey(key);
     }
 
     function _safeTransferFromExact(IERC20 token, address from, uint256 amount) internal {
