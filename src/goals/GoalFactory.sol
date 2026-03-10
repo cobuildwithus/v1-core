@@ -17,6 +17,7 @@ import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 
+import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
@@ -36,6 +37,7 @@ contract GoalFactory {
     IREVDeployer public immutable REV_DEPLOYER;
     BudgetTCRFactory public immutable BUDGET_TCR_FACTORY;
     ISuperfluid public immutable SUPERFLUID_HOST;
+    IGoalDeploymentRegistry public immutable GOAL_DEPLOYMENT_REGISTRY;
 
     address public immutable COBUILD_TOKEN;
     uint8 public immutable COBUILD_DECIMALS;
@@ -114,6 +116,7 @@ contract GoalFactory {
         IBudgetTCR.BudgetValidationBounds budgetBounds;
         IBudgetTCR.OracleValidationBounds oracleBounds;
         address budgetSuccessResolver;
+        address budgetSpendPolicy;
         IArbitrator.ArbitratorParams arbitratorParams;
     }
 
@@ -166,6 +169,7 @@ contract GoalFactory {
         IREVDeployer revDeployer,
         ISuperfluid superfluidHost,
         BudgetTCRFactory budgetTcrFactory,
+        IGoalDeploymentRegistry goalDeploymentRegistry,
         address cobuildToken,
         uint256 cobuildRevnetId,
         address cobuildTerminal,
@@ -188,6 +192,7 @@ contract GoalFactory {
         if (address(revDeployer) == address(0)) revert ADDRESS_ZERO();
         if (address(superfluidHost) == address(0)) revert ADDRESS_ZERO();
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
+        if (address(goalDeploymentRegistry) == address(0)) revert ADDRESS_ZERO();
         if (cobuildToken == address(0)) revert ADDRESS_ZERO();
         if (cobuildTerminal == address(0)) revert ADDRESS_ZERO();
         if (jbMultiTerminal == address(0)) revert ADDRESS_ZERO();
@@ -206,6 +211,7 @@ contract GoalFactory {
         if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
         if (goalTreasuryImpl.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryImpl);
+        if (address(goalDeploymentRegistry).code.length == 0) revert NOT_A_CONTRACT(address(goalDeploymentRegistry));
         if (stakeVaultImpl.code.length == 0) revert NOT_A_CONTRACT(stakeVaultImpl);
         if (flowImpl.code.length == 0) revert NOT_A_CONTRACT(flowImpl);
         if (splitHookImpl.code.length == 0) revert NOT_A_CONTRACT(splitHookImpl);
@@ -228,6 +234,7 @@ contract GoalFactory {
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;
         BUDGET_TCR_FACTORY = budgetTcrFactory;
+        GOAL_DEPLOYMENT_REGISTRY = goalDeploymentRegistry;
 
         COBUILD_TOKEN = cobuildToken;
         COBUILD_DECIMALS = IERC20Metadata(cobuildToken).decimals();
@@ -304,6 +311,8 @@ contract GoalFactory {
         }
         if (p.goalSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (p.goalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.goalSpendPolicy);
+        if (p.budgetTCR.budgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (p.budgetTCR.budgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.budgetTCR.budgetSpendPolicy);
 
         if (
             p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
@@ -346,6 +355,7 @@ contract GoalFactory {
         if (tcrStack.budgetTCR != predictedBudgetTCR) {
             revert BUDGET_TCR_ADDRESS_MISMATCH(predictedBudgetTCR, tcrStack.budgetTCR);
         }
+        GOAL_DEPLOYMENT_REGISTRY.registerGoal(revnet.goalRevnetId, address(core.goalTreasury));
 
         out = DeployedGoalStack({
             goalRevnetId: revnet.goalRevnetId,
@@ -479,6 +489,7 @@ contract GoalFactory {
                     budgetBounds: p.budgetTCR.budgetBounds,
                     oracleBounds: p.budgetTCR.oracleBounds,
                     arbitratorParams: p.budgetTCR.arbitratorParams,
+                    budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
                     goalFlow: core.goalFlow,
                     goalTreasury: core.goalTreasury,
                     goalToken: revnet.goalToken,

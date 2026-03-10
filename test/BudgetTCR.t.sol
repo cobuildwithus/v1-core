@@ -29,6 +29,8 @@ import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {TeamFlow} from "src/teamflow/TeamFlow.sol";
+import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
@@ -38,6 +40,7 @@ import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyRea
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
@@ -61,8 +64,9 @@ import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
-contract BudgetTCRTest is TestUtils {
+contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
         keccak256("BudgetStackDeployed(bytes32,address,address,address)");
     bytes32 internal constant BUDGET_ALLOCATION_MECHANISM_DEPLOYED_SIG =
@@ -102,6 +106,7 @@ contract BudgetTCRTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -140,6 +145,7 @@ contract BudgetTCRTest is TestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -182,6 +188,38 @@ contract BudgetTCRTest is TestUtils {
         deploymentConfig.stackDeployer = address(0);
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_spend_policy_is_invalid() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetSpendPolicy = address(new BudgetTCRNonSpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy
+            )
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_spend_policy_rejects_active_context() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetSpendPolicy = address(new BudgetTCRZeroContextOnlySpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy
+            )
+        );
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -555,12 +593,22 @@ contract BudgetTCRTest is TestUtils {
         assertEq(PremiumEscrow(premiumEscrow).accountedManagerRewardReceived(), 0);
     }
 
+    function test_activateRegisteredBudget_setsConfiguredBudgetSpendPolicyOnBudgetTreasury() public {
+        bytes32 itemID = _registerDefaultListing();
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        assertEq(budgetTcr.budgetSpendPolicy(), budgetSpendPolicy);
+        assertEq(IBudgetTreasury(budgetTreasury).spendPolicy(), budgetSpendPolicy);
+    }
+
     function test_activateRegisteredBudget_initializesAllocationMechanismWithRegistryConfig() public {
         bytes32 itemID = _registerDefaultListing();
 
         (address childFlow,) = goalFlow.recipients(itemID);
         AllocationMechanismTCR allocationMechanism =
             AllocationMechanismTCR(MockBudgetChildFlow(childFlow).recipientAdmin());
+        BudgetTCRDeployer deployer = BudgetTCRDeployer(stackDeployer);
+        address[] memory initialFactories = allocationMechanism.initialMechanismFactories();
 
         assertTrue(address(allocationMechanism.arbitrator()) != address(0));
         assertEq(allocationMechanism.factoryManager(), allocationMechanismAdmin);
@@ -574,6 +622,11 @@ contract BudgetTCRTest is TestUtils {
         assertEq(allocationMechanism.submissionChallengeBaseDeposit(), submissionChallengeBaseDeposit);
         assertEq(allocationMechanism.removalChallengeBaseDeposit(), removalChallengeBaseDeposit);
         assertEq(allocationMechanism.challengePeriodDuration(), challengePeriodDuration);
+        assertEq(initialFactories.length, 2);
+        assertEq(initialFactories[0], deployer.roundFactory());
+        assertEq(initialFactories[1], deployer.teamFlowFactory());
+        assertTrue(allocationMechanism.mechanismFactoryAllowed(deployer.roundFactory()));
+        assertTrue(allocationMechanism.mechanismFactoryAllowed(deployer.teamFlowFactory()));
     }
 
     function test_activateRegisteredBudget_exposesCanonicalTopologyAndReverseLookups() public {
@@ -2268,6 +2321,7 @@ contract BudgetTCRTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -2293,16 +2347,17 @@ contract BudgetTCRTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        RoundFactory roundFactory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new PrizePoolSubmissionDepositStrategy()),
+            address(new ERC20VotesArbitrator())
+        );
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()), address(new CustomFlow()));
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(
-                new RoundFactory(
-                    address(new RoundSubmissionTCR()),
-                    address(new RoundPrizeVault()),
-                    address(new PrizePoolSubmissionDepositStrategy()),
-                    address(new ERC20VotesArbitrator())
-                )
-            ),
+            address(roundFactory),
+            address(teamFlowFactory),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
@@ -2371,7 +2426,22 @@ contract BudgetTCRTest is TestUtils {
     }
 }
 
-contract BudgetTCRRealFlowIntegrationTest is TestUtils {
+contract BudgetTCRNonSpendPolicy {}
+
+contract BudgetTCRZeroContextOnlySpendPolicy is ISpendPolicy {
+    error ACTIVE_CONTEXT_REJECTED();
+
+    function targetFlowRate(SpendContext calldata ctx) external pure returns (int96) {
+        if (ctx.timeRemaining == 0) return 0;
+        revert ACTIVE_CONTEXT_REJECTED();
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        return SyncMode.Capped;
+    }
+}
+
+contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
     address internal requester = makeAddr("requester");
@@ -2408,6 +2478,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -2434,6 +2505,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         CustomFlow goalFlowImplementation = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImplementation), "");
@@ -2717,6 +2789,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -2742,16 +2815,17 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        RoundFactory roundFactory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new PrizePoolSubmissionDepositStrategy()),
+            address(new ERC20VotesArbitrator())
+        );
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()), address(new CustomFlow()));
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(
-                new RoundFactory(
-                    address(new RoundSubmissionTCR()),
-                    address(new RoundPrizeVault()),
-                    address(new PrizePoolSubmissionDepositStrategy()),
-                    address(new ERC20VotesArbitrator())
-                )
-            ),
+            address(roundFactory),
+            address(teamFlowFactory),
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

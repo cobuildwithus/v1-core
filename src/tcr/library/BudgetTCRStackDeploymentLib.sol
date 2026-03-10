@@ -56,6 +56,7 @@ library BudgetTCRStackDeploymentLib {
         uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing memory listing,
         address successResolver,
+        address spendPolicy,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) internal returns (address) {
@@ -67,6 +68,7 @@ library BudgetTCRStackDeploymentLib {
         if (goalFlow == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouter == address(0)) revert ADDRESS_ZERO();
         if (successResolver == address(0)) revert ADDRESS_ZERO();
+        if (spendPolicy == address(0)) revert ADDRESS_ZERO();
 
         if (budgetTreasury.code.length == 0) revert INVALID_TREASURY(budgetTreasury);
 
@@ -84,11 +86,11 @@ library BudgetTCRStackDeploymentLib {
                 successAssertionBond: successAssertionBond,
                 successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
                 successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
-                spendPolicy: address(0)
+                spendPolicy: spendPolicy
             })
         );
 
-        _assertTreasuryConfiguration(budgetTreasury, budgetTCR, childFlow, premiumEscrow);
+        _assertTreasuryConfiguration(budgetTreasury, budgetTCR, childFlow, premiumEscrow, spendPolicy);
         IPremiumEscrow(premiumEscrow).initialize(
             budgetTreasury,
             budgetStakeLedger,
@@ -103,11 +105,13 @@ library BudgetTCRStackDeploymentLib {
         address budgetTreasury,
         address budgetTCR,
         address childFlow,
-        address premiumEscrow
+        address premiumEscrow,
+        address spendPolicy
     ) private view {
         address configuredController;
         address configuredFlow;
         address configuredPremiumEscrow;
+        address configuredSpendPolicy;
 
         try IBudgetTreasury(budgetTreasury).controller() returns (address controller_) {
             configuredController = controller_;
@@ -125,9 +129,17 @@ library BudgetTCRStackDeploymentLib {
         } catch {
             revert INVALID_TREASURY_CONFIGURATION(budgetTreasury);
         }
+        try IBudgetTreasury(budgetTreasury).spendPolicy() returns (address spendPolicy_) {
+            configuredSpendPolicy = spendPolicy_;
+        } catch {
+            revert INVALID_TREASURY_CONFIGURATION(budgetTreasury);
+        }
 
         if (
-            configuredController != budgetTCR || configuredFlow != childFlow || configuredPremiumEscrow != premiumEscrow
+            configuredController != budgetTCR ||
+            configuredFlow != childFlow ||
+            configuredPremiumEscrow != premiumEscrow ||
+            configuredSpendPolicy != spendPolicy
         ) {
             revert INVALID_TREASURY_CONFIGURATION(budgetTreasury);
         }

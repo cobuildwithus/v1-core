@@ -369,19 +369,25 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
             string memory artifact = vm.readFile(artifactPath);
             address expectedGoalFactory = _artifactAddressForKey(artifact, "GoalFactory");
+            address goalDeploymentRegistry = _artifactAddressForKey(artifact, "GoalDeploymentRegistry");
             address budgetTcrFactory = _artifactAddressForKey(artifact, "BudgetTCRFactory");
             address pairDeployer = _artifactAddressForKey(artifact, "GoalFactoryPairDeployer");
-            address predictedBudgetTcrFactory = _predictCreateAddress(pairDeployer, 1);
-            address predictedGoalFactory = _predictCreateAddress(pairDeployer, 2);
+            address predictedGoalDeploymentRegistry = _predictCreateAddress(pairDeployer, 1);
+            uint256 budgetTcrFactoryCreateNonce = goalDeploymentRegistry == predictedGoalDeploymentRegistry ? 2 : 1;
+            uint256 goalFactoryCreateNonce = goalDeploymentRegistry == predictedGoalDeploymentRegistry ? 3 : 2;
+            address predictedBudgetTcrFactory = _predictCreateAddress(pairDeployer, budgetTcrFactoryCreateNonce);
+            address predictedGoalFactory = _predictCreateAddress(pairDeployer, goalFactoryCreateNonce);
 
             assertGt(pairDeployer.code.length, 0);
             assertGt(expectedGoalFactory.code.length, 0);
+            assertGt(goalDeploymentRegistry.code.length, 0);
             assertGt(budgetTcrFactory.code.length, 0);
             assertEq(budgetTcrFactory, predictedBudgetTcrFactory);
             assertEq(expectedGoalFactory, predictedGoalFactory);
-            assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), predictedGoalFactory);
+            assertEq(BudgetTCRFactory(budgetTcrFactory).authorizedCaller(), expectedGoalFactory);
 
             GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
+            assertEq(address(deployedFactory.GOAL_DEPLOYMENT_REGISTRY()), goalDeploymentRegistry);
             assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
             assertEq(deployedFactory.JB_MULTI_TERMINAL(), expectedJbMultiTerminal);
             assertEq(deployedFactory.COBUILD_TOKEN(), address(token));
@@ -541,6 +547,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         DeployGoalFromFactory internal deployScript;
         MockGoalFactoryForScript internal mockFactory;
         MockScriptSpendPolicy internal goalSpendPolicy;
+        MockScriptSpendPolicy internal budgetSpendPolicy;
         FakeResolverNoop internal successResolver;
         FakeResolverNoop internal budgetSuccessResolver;
 
@@ -548,6 +555,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             deployScript = new DeployGoalFromFactory();
             mockFactory = new MockGoalFactoryForScript();
             goalSpendPolicy = new MockScriptSpendPolicy();
+            budgetSpendPolicy = new MockScriptSpendPolicy();
             successResolver = new FakeResolverNoop();
             budgetSuccessResolver = new FakeResolverNoop();
         }
@@ -560,6 +568,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             deployScript.run();
 
             assertEq(mockFactory.lastGoalSpendPolicy(), address(goalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(budgetSpendPolicy));
             assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
             assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
             assertEq(mockFactory.lastSuccessLiveness(), SUCCESS_LIVENESS);
@@ -578,6 +587,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("GOAL_OWNER: ", vm.toString(deployer))));
             assertTrue(
                 _stringContains(artifact, string.concat("GOAL_SPEND_POLICY: ", vm.toString(address(goalSpendPolicy))))
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("BUDGET_SPEND_POLICY: ", vm.toString(address(budgetSpendPolicy)))
+                )
             );
             assertTrue(
                 _stringContains(artifact, string.concat("SUCCESS_RESOLVER: ", vm.toString(address(successResolver))))
@@ -637,6 +651,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
             vm.setEnv("GOAL_FACTORY", vm.toString(address(mockFactory)));
             vm.setEnv("GOAL_SPEND_POLICY", vm.toString(address(goalSpendPolicy)));
+            vm.setEnv("BUDGET_SPEND_POLICY", vm.toString(address(budgetSpendPolicy)));
             vm.setEnv("SUCCESS_RESOLVER", vm.toString(address(successResolver)));
             vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(address(budgetSuccessResolver)));
             vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
@@ -664,7 +679,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         error ACTIVE_CONTEXT_REJECTED();
 
         function targetFlowRate(SpendContext calldata ctx) external pure returns (int96) {
-            if (ctx.timeRemaining == 0 && ctx.totalRecipientUnits == 0) return 0;
+            if (ctx.timeRemaining == 0) return 0;
             revert ACTIVE_CONTEXT_REJECTED();
         }
 
@@ -675,6 +690,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
     contract MockGoalFactoryForScript {
         address public lastGoalSpendPolicy;
+        address public lastBudgetSpendPolicy;
         address public lastSuccessResolver;
         address public lastBudgetSuccessResolver;
         uint64 public lastSuccessLiveness;
@@ -689,6 +705,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             returns (GoalFactory.DeployedGoalStack memory out)
         {
             lastGoalSpendPolicy = p.goalSpendPolicy;
+            lastBudgetSpendPolicy = p.budgetTCR.budgetSpendPolicy;
             lastSuccessResolver = p.success.successResolver;
             lastBudgetSuccessResolver = p.budgetTCR.budgetSuccessResolver;
             lastSuccessLiveness = p.success.successAssertionLiveness;

@@ -28,6 +28,7 @@ import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
@@ -42,8 +43,9 @@ import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
-contract BudgetTCRCreditLineGatingTest is TestUtils {
+contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
         keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,address,bytes4,bytes)");
     bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG =
@@ -71,6 +73,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -109,6 +112,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -444,6 +448,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -469,16 +474,18 @@ contract BudgetTCRCreditLineGatingTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(
-                new RoundFactory(
-                    address(new RoundSubmissionTCR()),
-                    address(new RoundPrizeVault()),
-                    address(new PrizePoolSubmissionDepositStrategy()),
-                    address(new ERC20VotesArbitrator())
-                )
-            ),
+            roundFactory,
+            roundFactory,
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

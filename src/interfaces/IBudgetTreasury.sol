@@ -80,7 +80,6 @@ interface IBudgetTreasury is
     error SUCCESS_RESOLUTION_DISABLED();
     error SUCCESS_ASSERTION_NOT_VERIFIED();
     error ONLY_CONTROLLER();
-    error NEGATIVE_FLOW_COMPONENT(int96 incomingRate, int96 spenddownRate);
 
     event BudgetConfigured(
         address indexed controller,

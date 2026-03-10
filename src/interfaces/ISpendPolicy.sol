@@ -15,7 +15,6 @@ interface ISpendPolicy {
         uint256 timeRemaining;
         int96 incomingRate;
         int96 currentOutflowRate;
-        uint128 totalRecipientUnits;
     }
 
     function targetFlowRate(SpendContext calldata ctx) external view returns (int96);

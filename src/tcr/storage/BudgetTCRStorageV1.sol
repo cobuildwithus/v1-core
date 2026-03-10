@@ -34,6 +34,7 @@ contract BudgetTCRStorageV1 {
     uint32 public budgetPremiumPpm;
     uint32 public budgetSlashPpm;
     address public budgetSuccessResolver;
+    address internal _budgetSpendPolicy;
     address public allocationMechanismAdmin;
 
     IBudgetTCR.BudgetValidationBounds public budgetValidationBounds;
@@ -44,4 +45,8 @@ contract BudgetTCRStorageV1 {
     mapping(address => bytes32) internal _itemIdByChildFlow;
     mapping(bytes32 => bool) internal _pendingRegistrationActivations;
     mapping(bytes32 => bool) internal _pendingRemovalFinalizations;
+
+    function budgetSpendPolicy() public view virtual returns (address policy) {
+        policy = _budgetSpendPolicy;
+    }
 }

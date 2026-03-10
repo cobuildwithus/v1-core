@@ -9,6 +9,7 @@ contract LinearSpendPolicy is ISpendPolicy, Initializable {
     uint256 private constant INT96_MAX_UINT = uint256(uint96(type(int96).max));
 
     bool public includeIncomingRate;
+    uint256 public maxTargetFlowRate;
     SyncMode private _syncMode;
     bool private _policyInitialized;
 
@@ -18,21 +19,31 @@ contract LinearSpendPolicy is ISpendPolicy, Initializable {
         _disableInitializers();
     }
 
-    function initialize(bool includeIncomingRate_, SyncMode syncMode_) external initializer {
+    function initialize(
+        bool includeIncomingRate_,
+        uint256 maxTargetFlowRate_,
+        SyncMode syncMode_
+    ) external initializer {
         includeIncomingRate = includeIncomingRate_;
+        maxTargetFlowRate = maxTargetFlowRate_;
         _syncMode = syncMode_;
         _policyInitialized = true;
     }
 
     function targetFlowRate(SpendContext calldata ctx) external view override returns (int96) {
         _requireInitialized();
-        if (ctx.totalRecipientUnits == 0 || ctx.timeRemaining == 0) return 0;
+        if (ctx.timeRemaining == 0) return 0;
 
         uint256 spendDown = ctx.treasuryBalance / ctx.timeRemaining;
         uint256 aggregate = spendDown;
 
         if (includeIncomingRate && ctx.incomingRate > 0) {
             aggregate = _capAddUint96(aggregate, uint256(uint96(ctx.incomingRate)));
+        }
+
+        uint256 configuredCap = maxTargetFlowRate;
+        if (configuredCap != 0 && aggregate > configuredCap) {
+            aggregate = configuredCap;
         }
 
         return _toInt96Capped(aggregate);

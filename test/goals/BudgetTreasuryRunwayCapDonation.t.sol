@@ -5,7 +5,9 @@ import {Test} from "forge-std/Test.sol";
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 /// @dev Minimal SuperToken stub for `BudgetTreasury.treasuryBalance()` in tests.
 contract MockSuperToken {
@@ -65,11 +67,12 @@ contract MockPremiumEscrow {
 
     }
 
-contract BudgetTreasuryRunwayCapDonationTest is Test {
+contract BudgetTreasuryRunwayCapDonationTest is Test, SpendPolicyTestUtils {
     function test_donationsStillAllowedBeyondRunwayCap() public {
         BudgetTreasury implementation = new BudgetTreasury();
         address treasuryAddr = Clones.clone(address(implementation));
         BudgetTreasury treasury = BudgetTreasury(treasuryAddr);
+        address spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         MockSuperToken superToken = new MockSuperToken();
         MockParentFlow parentFlow = new MockParentFlow();
@@ -91,7 +94,7 @@ contract BudgetTreasuryRunwayCapDonationTest is Test {
             successAssertionBond: 0,
             successOracleSpecHash: bytes32(uint256(1)),
             successAssertionPolicyHash: bytes32(uint256(2)),
-            spendPolicy: address(0)
+            spendPolicy: spendPolicy
         });
 
         treasury.initialize(address(this), config);

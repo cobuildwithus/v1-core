@@ -305,6 +305,7 @@ contract BudgetTCRFactory {
         config = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
+            budgetSpendPolicy: deploymentConfig.budgetSpendPolicy,
             goalFlow: deploymentConfig.goalFlow,
             goalTreasury: deploymentConfig.goalTreasury,
             goalToken: deploymentConfig.goalToken,

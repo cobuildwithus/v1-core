@@ -27,6 +27,7 @@ import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -37,6 +38,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract BudgetTCRInvariantPremiumEscrowConnectMock {
     function connectManagerRewardPool(address) external { }
@@ -87,6 +89,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         uint32,
         IBudgetTCR.BudgetListing calldata,
         address,
+        address,
         uint64,
         uint256
     ) external returns (address budgetTreasury) {
@@ -103,6 +106,11 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         return _roundFactory;
     }
 
+    function initialMechanismFactories() external view returns (address[] memory factories) {
+        factories = new address[](1);
+        factories[0] = _roundFactory;
+    }
+
     function allocationMechanismTcrImplementation() external view returns (address) {
         return _mechanismTcrImplementation;
     }
@@ -112,7 +120,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     }
 }
 
-contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
+contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils {
     MockVotesToken internal depositToken;
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
@@ -127,6 +135,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -166,6 +175,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -237,6 +247,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),

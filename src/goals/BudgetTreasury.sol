@@ -21,7 +21,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
     uint64 private constant REASSERT_GRACE_DURATION = 1 days;
-    uint256 private constant INT96_MAX_UINT = uint256(uint96(type(int96).max));
 
     BudgetState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
@@ -67,10 +66,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (premiumEscrow_ == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrow_.code.length == 0) revert NOT_A_CONTRACT(premiumEscrow_);
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
-        if (config.spendPolicy != address(0) && config.spendPolicy.code.length == 0) {
-            revert NOT_A_CONTRACT(config.spendPolicy);
-        }
-        if (config.spendPolicy != address(0)) _requireValidSpendPolicy(config.spendPolicy);
+        if (config.spendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (config.spendPolicy.code.length == 0) revert NOT_A_CONTRACT(config.spendPolicy);
+        _requireValidSpendPolicy(config.spendPolicy);
         if (
             config.successAssertionLiveness == 0 ||
             config.successOracleSpecHash == bytes32(0) ||
@@ -292,16 +290,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         // slither-disable-next-line incorrect-equality
         if (remaining == 0) return 0;
 
-        if (spendPolicy == address(0)) {
-            int96 incomingRate = _incomingFlowRate();
-            int96 spenddownRate = _linearBalanceSpenddownFlowRate(balance, remaining);
-            return _composeTargetFlowRate(incomingRate, spenddownRate);
-        }
-
-        uint128 totalUnits = _flow.distributionPool().getTotalUnits();
-        if (totalUnits == 0) return 0;
-
-        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining, totalUnits));
+        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining));
     }
 
     function lifecycleStatus() external view override returns (BudgetLifecycleStatus memory status) {
@@ -334,30 +323,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return parentMemberFlowRate;
     }
 
-    function _linearBalanceSpenddownFlowRate(uint256 balance, uint256 remaining) internal pure returns (int96) {
-        uint256 rawRate = balance / remaining;
-        if (rawRate > INT96_MAX_UINT) return type(int96).max;
-        return SafeCast.toInt96(SafeCast.toInt256(rawRate));
-    }
-
-    function _composeTargetFlowRate(int96 incomingRate, int96 spenddownRate) internal pure returns (int96) {
-        if (incomingRate < 0 || spenddownRate < 0) {
-            revert NEGATIVE_FLOW_COMPONENT(incomingRate, spenddownRate);
-        }
-
-        uint256 incoming = SafeCast.toUint256(incomingRate);
-        if (incoming >= INT96_MAX_UINT) return type(int96).max;
-
-        uint256 spenddown = SafeCast.toUint256(spenddownRate);
-        if (spenddown > INT96_MAX_UINT - incoming) return type(int96).max;
-
-        return SafeCast.toInt96(SafeCast.toInt256(incoming + spenddown));
-    }
-
     function _buildSpendContext(
         uint256 balance,
-        uint256 remaining,
-        uint128 totalUnits
+        uint256 remaining
     ) internal view returns (ISpendPolicy.SpendContext memory ctx) {
         ctx = ISpendPolicy.SpendContext({
             nowTs: uint64(block.timestamp),
@@ -366,13 +334,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             treasuryBalance: balance,
             timeRemaining: remaining,
             incomingRate: _incomingFlowRate(),
-            currentOutflowRate: _flow.targetOutflowRate(),
-            totalRecipientUnits: totalUnits
+            currentOutflowRate: _flow.targetOutflowRate()
         });
     }
 
     function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
-        if (spendPolicy == address(0)) return ISpendPolicy.SyncMode.Capped;
         return ISpendPolicy(spendPolicy).syncMode();
     }
 
@@ -389,13 +355,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             ISpendPolicy(candidate).targetFlowRate(
                 ISpendPolicy.SpendContext({
                     nowTs: uint64(block.timestamp),
-                    activatedAt: 0,
-                    deadline: 0,
-                    treasuryBalance: 0,
-                    timeRemaining: 0,
+                    activatedAt: uint64(block.timestamp),
+                    deadline: uint64(block.timestamp) + 1,
+                    treasuryBalance: 1,
+                    timeRemaining: 1,
                     incomingRate: 0,
-                    currentOutflowRate: 0,
-                    totalRecipientUnits: 0
+                    currentOutflowRate: 0
                 })
             )
         returns (int96) {} catch {

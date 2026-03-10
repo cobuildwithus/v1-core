@@ -33,6 +33,7 @@ import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePool
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 
@@ -43,8 +44,9 @@ import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken, ISuperfluidPool } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
 
-contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
+contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils {
     MockVotesToken internal depositToken;
     MockVotesToken internal goalToken;
     MockVotesToken internal cobuildToken;
@@ -59,6 +61,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -103,6 +106,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter =
             address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -200,6 +204,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -243,9 +248,18 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            roundFactory,
+            roundFactory,
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

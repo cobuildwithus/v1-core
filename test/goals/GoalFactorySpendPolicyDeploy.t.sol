@@ -26,21 +26,23 @@ import {JBTerminalConfig} from "@bananapus/core-v5/structs/JBTerminalConfig.sol"
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
+import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
-import {UnitsCapSpendPolicy} from "src/goals/policies/UnitsCapSpendPolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
-contract GoalFactorySpendPolicyDeployTest is Test {
+contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     uint256 internal constant COBUILD_REVNET_ID = 1;
     uint256 internal constant GOAL_REVNET_ID = 2;
     address internal constant PREDICTED_BUDGET_TCR = address(0xBEEF);
@@ -60,6 +62,7 @@ contract GoalFactorySpendPolicyDeployTest is Test {
     FactoryDeployMockSuperfluidHost internal superfluidHost;
     FactoryDeployMockBudgetTcrFactory internal budgetTcrFactory;
     FactoryDeployDummyContract internal successResolver;
+    GoalDeploymentRegistry internal goalDeploymentRegistry;
 
     function setUp() public {
         cobuildToken = new FactoryDeployMockToken("Cobuild", "CBD");
@@ -76,6 +79,7 @@ contract GoalFactorySpendPolicyDeployTest is Test {
         superfluidHost = new FactoryDeployMockSuperfluidHost(address(superTokenFactory));
         budgetTcrFactory = new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR);
         successResolver = new FactoryDeployDummyContract();
+        goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 7 days), 1e18);
@@ -95,6 +99,7 @@ contract GoalFactorySpendPolicyDeployTest is Test {
             IREVDeployer(address(revDeployer)),
             ISuperfluid(address(superfluidHost)),
             BudgetTCRFactory(address(budgetTcrFactory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
             address(cobuildToken),
             COBUILD_REVNET_ID,
             address(cobuildTerminal),
@@ -114,6 +119,7 @@ contract GoalFactorySpendPolicyDeployTest is Test {
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
         );
+        goalDeploymentRegistry.setRegistrar(address(factory), true);
     }
 
     function test_deployGoal_setsConfiguredSpendPolicyOnDeployedGoalTreasury() public {
@@ -125,42 +131,77 @@ contract GoalFactorySpendPolicyDeployTest is Test {
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(spendPolicy));
     }
 
+    function test_deployGoal_registersCanonicalGoalTreasury() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(_baseDeployParams(address(spendPolicy)));
+
+        assertTrue(goalDeploymentRegistry.isRegisteredGoal(deployed.goalRevnetId));
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
+    }
+
+    function test_deployGoal_revertsWhenFactoryIsNotAuthorizedRegistrar() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+        goalDeploymentRegistry.setRegistrar(address(factory), false);
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
+
+        vm.expectRevert(IGoalDeploymentRegistry.UNAUTHORIZED.selector);
+        factory.deployGoal(params);
+    }
+
+    function test_deployGoal_passesConfiguredBudgetSpendPolicyToBudgetTcrFactory() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        LinearSpendPolicy configuredBudgetSpendPolicy = _deployBudgetSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        params.budgetTCR.budgetSpendPolicy = address(configuredBudgetSpendPolicy);
+
+        factory.deployGoal(params);
+
+        assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(configuredBudgetSpendPolicy));
+    }
+
     function test_deployGoal_bubblesInvalidSpendPolicyFromGoalTreasuryInitialization() public {
         FactoryDeployDummyContract invalidPolicy = new FactoryDeployDummyContract();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(_baseDeployParams(address(invalidPolicy)));
+        factory.deployGoal(params);
     }
 
     function test_deployGoal_revertsForUninitializedLinearSpendPolicyImplementation() public {
         LinearSpendPolicy invalidPolicy = new LinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(_baseDeployParams(address(invalidPolicy)));
+        factory.deployGoal(params);
     }
 
-    function test_deployGoal_revertsForUninitializedUnitsCapSpendPolicyClone() public {
-        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
-        UnitsCapSpendPolicy invalidPolicy = UnitsCapSpendPolicy(Clones.clone(address(implementation)));
+    function test_deployGoal_revertsForUninitializedLinearSpendPolicyClone() public {
+        LinearSpendPolicy implementation = new LinearSpendPolicy();
+        LinearSpendPolicy invalidPolicy = LinearSpendPolicy(Clones.clone(address(implementation)));
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(_baseDeployParams(address(invalidPolicy)));
+        factory.deployGoal(params);
     }
 
     function test_deployGoal_revertsForPolicyThatFailsActiveContextValidation() public {
         ZeroContextOnlySpendPolicy invalidPolicy = new ZeroContextOnlySpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(_baseDeployParams(address(invalidPolicy)));
+        factory.deployGoal(params);
     }
 
     function _deployLinearSpendPolicy() internal returns (LinearSpendPolicy policy) {
-        LinearSpendPolicy implementation = new LinearSpendPolicy();
-        policy = LinearSpendPolicy(Clones.clone(address(implementation)));
-        policy.initialize(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        policy = _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
     }
 
-    function _baseDeployParams(address goalSpendPolicy) internal view returns (GoalFactory.DeployParams memory p) {
+    function _deployBudgetSpendPolicy() internal returns (LinearSpendPolicy policy) {
+        policy = _deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped);
+    }
+
+    function _baseDeployParams(address goalSpendPolicy) internal returns (GoalFactory.DeployParams memory p) {
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
             ticker: "GOAL",
@@ -209,6 +250,7 @@ contract GoalFactorySpendPolicyDeployTest is Test {
             }),
             oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 0, bondAmount: 0}),
             budgetSuccessResolver: address(successResolver),
+            budgetSpendPolicy: address(_deployBudgetSpendPolicy()),
             arbitratorParams: IArbitrator.ArbitratorParams({
                 votingPeriod: 0,
                 votingDelay: 0,
@@ -234,7 +276,7 @@ contract ZeroContextOnlySpendPolicy is ISpendPolicy {
     error ACTIVE_CONTEXT_REJECTED();
 
     function targetFlowRate(SpendContext calldata ctx) external pure returns (int96) {
-        if (ctx.timeRemaining == 0 && ctx.totalRecipientUnits == 0) return 0;
+        if (ctx.timeRemaining == 0) return 0;
         revert ACTIVE_CONTEXT_REJECTED();
     }
 
@@ -247,6 +289,7 @@ contract FactoryDeployDummyContract {}
 
 contract FactoryDeployMockBudgetTcrFactory {
     address internal immutable _predictedBudgetTcr;
+    address public lastBudgetSpendPolicy;
 
     constructor(address predictedBudgetTcr_) {
         _predictedBudgetTcr = predictedBudgetTcr_;
@@ -258,9 +301,10 @@ contract FactoryDeployMockBudgetTcrFactory {
 
     function deployBudgetTCRStackForGoal(
         BudgetTCRFactory.RegistryConfigInput calldata,
-        IBudgetTCR.DeploymentConfig calldata,
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
         IArbitrator.ArbitratorParams calldata
-    ) external view returns (BudgetTCRFactory.DeployedBudgetTCRStack memory deployed) {
+    ) external returns (BudgetTCRFactory.DeployedBudgetTCRStack memory deployed) {
+        lastBudgetSpendPolicy = deploymentConfig.budgetSpendPolicy;
         deployed.budgetTCR = _predictedBudgetTcr;
         deployed.arbitrator = address(0xA11CE);
         deployed.token = address(0xCAFE);

@@ -11,12 +11,13 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - owner-backed system goals can be pinned/unpinned directly,
-   - each listed goal carries its goal-treasury sink and paused/selectable state.
-4. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
-5. The split hook consumes the pending route and forwards reserved community tokens into registry-selectable child goals by paying each goal's primary terminal for the community token.
-6. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
-7. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's registry-provided treasury as beneficiary.
-8. If no usable historical route exists, the community pay reverts instead of default-routing or escrowing reserved tokens.
+   - each listed goal carries metadata plus paused/selectable state only.
+4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
+5. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
+6. The split hook consumes the pending route and forwards reserved community tokens into registry-selectable child goals by paying each goal's primary terminal for the community token.
+7. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
+8. If no pending route exists, the split hook uses historical explicit-volume weights only and pays each goal terminal with that goal's deployment-registry-provided treasury as beneficiary.
+9. If no usable historical route exists, the community pay reverts instead of default-routing or escrowing reserved tokens.
 
 ## Goal Funding Path
 
@@ -34,9 +35,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Goal Lifecycle Path
 
 1. Treasury begins in `Funding`.
-2. `sync()` handles both funding activation and active-state flow-rate updates using either:
-   - legacy spend-pattern targeting (linear today) from treasury balance and remaining time when `spendPolicy == address(0)`, with buffer-aware liquidation-horizon guarding and best-effort fallback writes, or
-   - configured `ISpendPolicy` targeting/sync-mode selection using the treasury's own distribution-pool units as policy context.
+2. `sync()` handles both funding activation and active-state flow-rate updates through configured `ISpendPolicy` targeting/sync-mode selection.
+   - The current uncapped goal default is `LinearSpendPolicy(includeIncomingRate=false, maxTargetFlowRate=0, syncMode=LinearSpendDownFallback)`, so raw target remains treasury balance over remaining time with buffer-aware liquidation-horizon guarding and best-effort fallback writes when that sync mode is selected.
 3. Success is assertion-backed and resolver-gated:
    - immutable `successResolver` controls assertion registration/clearing,
    - goal `resolveSuccess` is success-resolver-only and requires a pending truthful assertion,
@@ -56,12 +56,12 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 
 1. Parent funding enters each budget child flow from the goal flow recipient path.
 2. Budgets are deployed as child flows where the budget treasury is child `flowOperator`/`sweeper`, and manager reward stream is routed to per-budget `PremiumEscrow` at `budgetPremiumPpm`.
-3. Budget treasury active target flow-rate is either:
-   - legacy trusted incoming plus balance spenddown when `spendPolicy == address(0)`:
+3. Budget treasury active target flow-rate is policy-only:
+   - the repo-wide default budget deployment is `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`,
+   - that preserves trusted incoming plus balance spenddown:
      - trusted incoming component: `max(parent.getMemberFlowRate(child), 0)`,
      - spenddown component: `treasuryBalance / timeRemaining`,
-     - total target is the saturated sum of both components (`int96.max` cap), or
-   - configured `ISpendPolicy` targeting/sync-mode selection using the budget treasury's own distribution-pool units as policy context.
+     - total target is the saturated sum of both components (`int96.max` cap).
 4. Budget treasury is assertion-backed for success and controller-gated for manual failure (`resolveFailure`) under deadline constraints.
 5. Budget finalization is state-first, then best-effort side effects:
    - child outflow stop,

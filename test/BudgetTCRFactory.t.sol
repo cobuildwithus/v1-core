@@ -24,6 +24,7 @@ import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
@@ -33,6 +34,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract _MockImplementation {}
 
@@ -139,7 +141,7 @@ contract _MockUnderwriterSlasherRouterWithoutStakeVaultForFactory {
     function slashUnderwriter(address, uint256) external {}
 }
 
-contract BudgetTCRFactoryTest is Test {
+contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
     using stdStorage for StdStorage;
 
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
@@ -1624,10 +1626,19 @@ contract BudgetTCRFactoryTest is Test {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         return BudgetTCRDeployer(
             new BudgetTCRDeployer(
                 address(new BudgetTreasury()),
-                address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+                roundFactory,
+                roundFactory,
                 address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
                 address(new ERC20VotesArbitrator()),
                 address(new BudgetFlowRouterStrategy())
@@ -1659,6 +1670,7 @@ contract BudgetTCRFactoryTest is Test {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
+            budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,
             goalToken: goalToken,

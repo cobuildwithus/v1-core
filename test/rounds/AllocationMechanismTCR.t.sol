@@ -202,11 +202,27 @@ contract AllocationMechanismTCRTest is Test {
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(mechanismArbitrator);
 
-        mechanism.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
+        mechanism.initialize(address(budgetTreasury), _factoryArray(address(roundFactory)), mechanismTcrCfg);
 
         underlying.mint(alice, 1000e18);
         vm.prank(alice);
         underlying.approve(address(mechanism), type(uint256).max);
+    }
+
+    function _factoryArray(address factory) internal pure returns (address[] memory factories) {
+        factories = new address[](1);
+        factories[0] = factory;
+    }
+
+    function _factoryArray(
+        address factoryA,
+        address factoryB,
+        address factoryC
+    ) internal pure returns (address[] memory factories) {
+        factories = new address[](3);
+        factories[0] = factoryA;
+        factories[1] = factoryB;
+        factories[2] = factoryC;
     }
 
     function _validListing(
@@ -349,7 +365,7 @@ contract AllocationMechanismTCRTest is Test {
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
 
         vm.expectRevert(AllocationMechanismTCR.BUDGET_FLOW_MISMATCH.selector);
-        mechanism2.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
+        mechanism2.initialize(address(budgetTreasury), _factoryArray(address(roundFactory)), mechanismTcrCfg);
     }
 
     function test_initialize_revertsWhenRoundFactoryIsNotContract() public {
@@ -366,9 +382,31 @@ contract AllocationMechanismTCRTest is Test {
         );
 
         AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
+        budgetFlow.setRecipientAdmin(address(mechanism2));
 
         vm.expectRevert(abi.encodeWithSelector(AllocationMechanismTCR.INVALID_FACTORY.selector, alice));
-        mechanism2.initialize(address(budgetTreasury), alice, mechanismTcrCfg);
+        mechanism2.initialize(address(budgetTreasury), _factoryArray(alice), mechanismTcrCfg);
+    }
+
+    function test_initialize_revertsWhenNoInitialMechanismFactories() public {
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
+        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
+        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
+            IVotes(address(underlying)),
+            address(mechanism2),
+            1,
+            1,
+            1,
+            ARBITRATION_COST
+        );
+
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
+        budgetFlow.setRecipientAdmin(address(mechanism2));
+
+        address[] memory noFactories = new address[](0);
+        vm.expectRevert(AllocationMechanismTCR.NO_INITIAL_MECHANISM_FACTORIES.selector);
+        mechanism2.initialize(address(budgetTreasury), noFactories, mechanismTcrCfg);
     }
 
     function test_initialize_revertsWhenFactoryManagerIsZero() public {
@@ -389,11 +427,47 @@ contract AllocationMechanismTCRTest is Test {
         budgetFlow.setRecipientAdmin(address(mechanism2));
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
-        mechanism2.initialize(address(budgetTreasury), address(roundFactory), mechanismTcrCfg);
+        mechanism2.initialize(address(budgetTreasury), _factoryArray(address(roundFactory)), mechanismTcrCfg);
     }
 
     function test_initialize_setsFactoryManager() public view {
         assertEq(mechanism.factoryManager(), factoryManager);
+    }
+
+    function test_initialize_seedsInitialMechanismFactoriesAndDedupes() public {
+        AllocationMechanismTCR mechanismImplementation =
+            new AllocationMechanismTCR(address(new MechanismFundingEscrow()));
+        AllocationMechanismTCR mechanism2 = AllocationMechanismTCR(Clones.clone(address(mechanismImplementation)));
+        RoundFactory altFactory = new RoundFactory(
+            address(new RoundSubmissionTCR()),
+            address(new RoundPrizeVault()),
+            address(new PrizePoolSubmissionDepositStrategy()),
+            address(new ERC20VotesArbitrator())
+        );
+        RoundTestArbitrator arbitrator2 = new RoundTestArbitrator(
+            IVotes(address(underlying)),
+            address(mechanism2),
+            1,
+            1,
+            1,
+            ARBITRATION_COST
+        );
+
+        AllocationMechanismTCR.InitConfig memory mechanismTcrCfg = _mechanismInitConfig(arbitrator2);
+        budgetFlow.setRecipientAdmin(address(mechanism2));
+
+        mechanism2.initialize(
+            address(budgetTreasury),
+            _factoryArray(address(roundFactory), address(altFactory), address(roundFactory)),
+            mechanismTcrCfg
+        );
+
+        address[] memory factories = mechanism2.initialMechanismFactories();
+        assertEq(factories.length, 2);
+        assertEq(factories[0], address(roundFactory));
+        assertEq(factories[1], address(altFactory));
+        assertTrue(mechanism2.mechanismFactoryAllowed(address(roundFactory)));
+        assertTrue(mechanism2.mechanismFactoryAllowed(address(altFactory)));
     }
 
     function test_mechanismFundingEscrowImplementation_initializeReverts() public {
@@ -506,6 +580,9 @@ contract AllocationMechanismTCRTest is Test {
 
     function test_initialize_setsInitialMechanismFactoryAsAllowlisted() public view {
         assertTrue(mechanism.mechanismFactoryAllowed(address(roundFactory)));
+        address[] memory factories = mechanism.initialMechanismFactories();
+        assertEq(factories.length, 1);
+        assertEq(factories[0], address(roundFactory));
     }
 
     function test_setMechanismFactoryAllowed_onlyFactoryManager() public {

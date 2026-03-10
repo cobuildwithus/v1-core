@@ -10,6 +10,7 @@ import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeplo
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { RoundFactory } from "src/rounds/RoundFactory.sol";
 import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
 import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
@@ -27,6 +28,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract BudgetTCRStackDeploymentLibHarness {
     function deployTreasuryClone(address treasuryImplementation) external returns (address treasury) {
@@ -74,6 +76,7 @@ contract BudgetTCRStackDeploymentLibHarness {
         uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
+        address spendPolicy,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) external returns (address deployedBudgetTreasury) {
@@ -88,6 +91,7 @@ contract BudgetTCRStackDeploymentLibHarness {
             budgetSlashPpm,
             listing,
             successResolver,
+            spendPolicy,
             successAssertionLiveness,
             successAssertionBond
         );
@@ -233,7 +237,7 @@ contract BudgetTCRDiscoveryEmitterMock {
     }
 }
 
-contract BudgetTCRStackDeploymentLibTest is Test {
+contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
     BudgetTCRStackDeploymentLibHarness internal harness;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
     BudgetTCRStackDeploymentLibMockToken internal cobuildToken;
@@ -243,6 +247,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
     PremiumEscrow internal premiumEscrowImplementation;
     BudgetTCRStackDeploymentLibMockGoalFlow internal goalFlow;
     MockUnderwriterSlasherRouter internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
     uint64 internal constant SUCCESS_ASSERTION_LIVENESS = 1 days;
     uint256 internal constant SUCCESS_ASSERTION_BOND = 10e18;
     uint32 internal constant BUDGET_SLASH_PPM = 50_000;
@@ -262,6 +267,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
         premiumEscrowImplementation = new PremiumEscrow();
         goalFlow = new BudgetTCRStackDeploymentLibMockGoalFlow(address(goalToken));
         underwriterSlasherRouter = new MockUnderwriterSlasherRouter(address(this), address(0));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
     }
 
     function test_prepareAndDeploy_linksTreasuryAnchor_andSharedStrategyUsesFlowRecipientRegistration() public {
@@ -579,6 +585,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
             BUDGET_SLASH_PPM,
             listing,
             successResolver,
+            budgetSpendPolicy,
             SUCCESS_ASSERTION_LIVENESS,
             SUCCESS_ASSERTION_BOND
         );
@@ -603,7 +610,7 @@ contract BudgetTCRStackDeploymentLibTest is Test {
     }
 }
 
-contract BudgetTCRDeployerSharedStrategyTest is Test {
+contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     BudgetTCRDeployer internal deployer;
     BudgetTCRStackDeploymentLibMockToken internal goalToken;
     BudgetTCRStackDeploymentLibMockToken internal cobuildToken;
@@ -645,9 +652,18 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
 
     function test_initialize_revertsWhenCalledOnImplementation() public {
         address premiumEscrowImplementationAddress = address(new PremiumEscrow());
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            roundFactory,
+            roundFactory,
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
@@ -969,6 +985,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         new BudgetTCRDeployer(
             budgetTreasuryImplementation,
             roundFactory,
+            roundFactory,
             allocationMechanismTcrImplementation,
             allocationMechanismArbitratorImplementation,
             address(0)
@@ -986,6 +1003,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
         new BudgetTCRDeployer(
             budgetTreasuryImplementation,
             roundFactory,
+            roundFactory,
             allocationMechanismTcrImplementation,
             allocationMechanismArbitratorImplementation,
             noCode
@@ -993,9 +1011,18 @@ contract BudgetTCRDeployerSharedStrategyTest is Test {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            roundFactory,
+            roundFactory,
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

@@ -431,13 +431,12 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         uint128 totalUnits = _flow.distributionPool().getTotalUnits();
         if (totalUnits == 0) return 0;
 
-        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining, totalUnits));
+        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining));
     }
 
     function _buildSpendContext(
         uint256 balance,
-        uint256 remaining,
-        uint128 totalUnits
+        uint256 remaining
     ) internal view returns (ISpendPolicy.SpendContext memory ctx) {
         ctx = ISpendPolicy.SpendContext({
             nowTs: uint64(block.timestamp),
@@ -446,8 +445,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             treasuryBalance: balance,
             timeRemaining: remaining,
             incomingRate: 0,
-            currentOutflowRate: _flow.targetOutflowRate(),
-            totalRecipientUnits: totalUnits
+            currentOutflowRate: _flow.targetOutflowRate()
         });
     }
 
@@ -478,8 +476,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             treasuryBalance: 1,
             timeRemaining: 1,
             incomingRate: 0,
-            currentOutflowRate: 0,
-            totalRecipientUnits: 1
+            currentOutflowRate: 0
         });
     }
 

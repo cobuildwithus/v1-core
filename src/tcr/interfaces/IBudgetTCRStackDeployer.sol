@@ -38,6 +38,7 @@ interface IBudgetTCRStackDeployer {
         uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
+        address spendPolicy,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) external returns (address deployedBudgetTreasury);
@@ -59,6 +60,7 @@ interface IBudgetTCRStackDeployer {
         address roundFactory
     ) external;
 
+    function initialMechanismFactories() external view returns (address[] memory);
     function roundFactory() external view returns (address);
     function allocationMechanismTcrImplementation() external view returns (address);
     function allocationMechanismArbitratorImplementation() external view returns (address);

@@ -37,14 +37,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - goal treasuries resolve pending assertions deterministically (`Succeeded` when truthful, `Expired` when false/invalid, else remain active with zero target flow),
     - budget treasuries open a one-time post-deadline reassert grace when the first pending assertion settles false/invalid; if grace elapses without a new pending assertion (or the grace reassert settles false/invalid), state transitions to `Expired`.
   - Terminal states: no-op.
-- Goal active flow-rate targeting uses legacy spend-pattern math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy.targetFlowRate(SpendContext)`:
-  - legacy/default raw linear target is `treasuryBalance / timeRemaining`,
-  - legacy/default sync applies a proactive buffer-derived liquidation-horizon cap before write attempts when the linear target is currently buffer-affordable,
-  - sync mode is `LinearSpendDownFallback` for the legacy/default path and otherwise follows the configured policy.
+- Goal active flow-rate targeting is policy-only and always delegates to `ISpendPolicy.targetFlowRate(SpendContext)`:
+  - the current uncapped goal default is `LinearSpendPolicy(includeIncomingRate=false, maxTargetFlowRate=0, syncMode=LinearSpendDownFallback)`,
+  - that policy yields raw linear target `treasuryBalance / timeRemaining`,
+  - goal sync applies the proactive buffer-derived liquidation-horizon cap only when the configured policy selects `LinearSpendDownFallback`.
 - Goal active flow-rate targeting is not coverage-rate-clamped:
   - underwriting enforcement uses budget credit-line recipient gating in `BudgetTCR.syncBudgetTreasuries`,
   - goal target returns zero when distribution pool total units are zero (no enabled recipients),
-  - policy `totalRecipientUnits` are sourced from the treasury's own distribution pool, so units can represent either direct seat weights or direct child-budget weights depending on topology.
+  - policy context does not include recipient units; it is limited to timing, balance, incoming rate, and current outflow.
 - Budget credit-line gating uses:
   - exposure meter: `goalFlow.getTotalReceivedByMember(childFlow)`,
   - insured line: `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`, optionally further bounded by `runwayCap`,
@@ -52,11 +52,11 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - budget `executionDuration` does not increase insured principal; it only affects budget treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` during `BudgetTCR.syncBudgetTreasuries`,
   - enforcement is best-effort in batch sync; failures emit `BudgetCreditCapEnforcementFailed` and do not abort other items.
-- Budget active flow-rate targeting uses legacy trusted-incoming plus balance-spenddown math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy.targetFlowRate(SpendContext)`:
-  - legacy/default trusted incoming component: `max(parentFlow.getMemberFlowRate(address(budgetFlow)), 0)`,
-  - legacy/default spenddown component: `treasuryBalance / timeRemaining`,
-  - legacy/default raw budget target is the sum of both components, saturated to `int96.max`,
-  - legacy/default sync mode is `Capped`, while configured policies can select `Capped` or `LinearSpendDownFallback`,
+- Budget active flow-rate targeting is policy-only and always delegates to `ISpendPolicy.targetFlowRate(SpendContext)`:
+  - the repo-wide default budget deployment is a BudgetTCR-wide `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`,
+  - that policy preserves the current trusted incoming component `max(parentFlow.getMemberFlowRate(address(budgetFlow)), 0)` plus balance spenddown `treasuryBalance / timeRemaining`,
+  - raw budget target is the sum of both components, saturated to `int96.max`,
+  - default sync mode remains `Capped`, while other configured policies may select `Capped` or `LinearSpendDownFallback`,
   - unsolicited third-party inbound streams to the budget flow must not increase the trusted incoming component.
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
@@ -71,13 +71,17 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - owner-backed system goals can be pinned/unpinned directly,
-    - each listed goal carries its goal-treasury sink and paused/selectable state.
-  - `CobuildSplitHook` keeps both the wrapper `routeSetter` and the `CommunityGoalRegistry` reference fixed from initialization.
+    - each listed goal carries metadata plus paused/selectable state only.
+  - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
+    - authorized goal-factory versions register deployed treasuries exactly once,
+    - treasury identity is immutable per goal id once registered.
+  - `CobuildSplitHook` keeps both the wrapper `routeSetter`, the `CommunityGoalRegistry` reference, and the
+    `GoalDeploymentRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
   - Empty-metadata wrapper pays still fail closed unless the seeded historical/default route is consumed by the reserved-token split in the same transaction.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
-    uses each goal's registry-provided treasury sink for raw direct-pay fallback beneficiaries,
+    uses each goal's deployment-registry-provided treasury sink for raw direct-pay fallback beneficiaries,
     and otherwise fails closed when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
@@ -124,6 +128,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Arbitrator token/arbitrable compatibility is a hard precondition.
 - `AllocationMechanismTCR` enforces `MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`; activation beyond cap reverts and active-recipient
   count decrements when funding stops or finalized removals detach recipients.
+- Per-budget mechanism registries initialize with a non-empty initial factory set supplied by the stack deployer; the
+  current default stack seeds both `RoundFactory` and `TeamFlowFactory` as immediately allowlisted mechanism
+  factories.
+- `TeamFlowFactory` deploys a `TeamFlow` manager plus standalone child `CustomFlow` and keeps the existing
+  mechanism-funding escrow release path by using that child flow as the payout recipient.
+- `TeamFlow` is the child flow's single allocation strategy and equal-split seat manager:
+  - seat removal uses hard `removeRecipient` on the child flow rather than enable/disable toggles,
+  - re-adding a previously removed member creates a fresh child-flow recipient id instead of reusing the removed one.
 - Factory discovery invariants:
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
   - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery

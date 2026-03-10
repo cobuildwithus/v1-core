@@ -97,6 +97,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             cobuildToken: address(0),
             cobuildDecimals: 0,
             budgetSuccessResolver: address(0),
+            budgetSpendPolicy: address(0),
             budgetBounds: IBudgetTCR.BudgetValidationBounds({
                 minFundingLeadTime: 0,
                 maxFundingHorizon: 0,

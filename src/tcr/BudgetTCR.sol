@@ -11,6 +11,7 @@ import { BudgetTCRTerminalActions } from "./library/BudgetTCRTerminalActions.sol
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
@@ -27,11 +28,15 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     ) external initializer {
         if (deploymentConfig.stackDeployer == address(0)) revert ADDRESS_ZERO();
         if (deploymentConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
+        if (deploymentConfig.budgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalFlow) == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalTreasury) == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalToken) == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.cobuildToken) == address(0)) revert ADDRESS_ZERO();
         if (address(deploymentConfig.goalRulesets) == address(0)) revert ADDRESS_ZERO();
+        if (deploymentConfig.budgetSpendPolicy.code.length == 0) {
+            revert NOT_A_CONTRACT(deploymentConfig.budgetSpendPolicy);
+        }
         if (deploymentConfig.premiumEscrowImplementation == address(0)) {
             revert INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address(0));
         }
@@ -52,6 +57,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
         }
         if (initConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
+        _requireValidBudgetSpendPolicy(deploymentConfig.budgetSpendPolicy);
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -78,6 +84,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
+        _budgetSpendPolicy = deploymentConfig.budgetSpendPolicy;
         allocationMechanismAdmin = initConfig.allocationMechanismAdmin;
         budgetValidationBounds = budgetBounds;
         oracleValidationBounds = oracleBounds;
@@ -103,6 +110,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function isRemovalPending(bytes32 itemId) external view override returns (bool pending) {
         pending = _pendingRemovalFinalizations[itemId];
+    }
+
+    function budgetSpendPolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
+        policy = super.budgetSpendPolicy();
     }
 
     function budgetStackTopology(
@@ -350,6 +361,33 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             strategy: deployment.strategy,
             allocationMechanism: deployment.allocationMechanism,
             allocationMechanismArbitrator: deployment.allocationMechanismArbitrator
+        });
+    }
+
+    function _requireValidBudgetSpendPolicy(address candidate) private view {
+        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
+            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
+                revert INVALID_BUDGET_SPEND_POLICY(candidate);
+            }
+        } catch {
+            revert INVALID_BUDGET_SPEND_POLICY(candidate);
+        }
+
+        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
+            revert INVALID_BUDGET_SPEND_POLICY(candidate);
+        }
+    }
+
+    function _spendPolicyValidationContext() private view returns (ISpendPolicy.SpendContext memory ctx) {
+        uint64 nowTs = uint64(block.timestamp);
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: nowTs,
+            activatedAt: nowTs,
+            deadline: nowTs + 1,
+            treasuryBalance: 1,
+            timeRemaining: 1,
+            incomingRate: 0,
+            currentOutflowRate: 0
         });
     }
 }

@@ -31,6 +31,7 @@ import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
@@ -46,8 +47,9 @@ import { ERC1820RegistryCompiled } from
 import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
 import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
 
-contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
+contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     uint256 internal constant INITIAL_WEIGHT = 12e24;
     uint32 internal constant HALF_SCALED = 500_000;
     bytes32 internal constant EXTRA_RECIPIENT_ID = bytes32(uint256(1));
@@ -92,6 +94,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSpendPolicy;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -128,6 +131,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         goalFlowImpl = new CustomFlow();
@@ -411,6 +415,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
+            budgetSpendPolicy: budgetSpendPolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -439,9 +444,18 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils {
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
         BudgetTCRDeployer implementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
-            address(new RoundFactory(address(new RoundSubmissionTCR()), address(new RoundPrizeVault()), address(new PrizePoolSubmissionDepositStrategy()), address(new ERC20VotesArbitrator()))),
+            roundFactory,
+            roundFactory,
             address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())

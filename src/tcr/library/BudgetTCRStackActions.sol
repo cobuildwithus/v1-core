@@ -103,6 +103,7 @@ library BudgetTCRStackActions {
             budgetStore.budgetSlashPpm(),
             listing,
             budgetStore.budgetSuccessResolver(),
+            budgetStore.budgetSpendPolicy(),
             oracleLiveness,
             oracleBondAmount
         );
@@ -187,9 +188,10 @@ library BudgetTCRStackActions {
             })
         );
 
+        address[] memory initialMechanismFactories = deployer.initialMechanismFactories();
         AllocationMechanismTCR(allocationMechanism).initialize(
             budgetTreasury,
-            deployer.roundFactory(),
+            initialMechanismFactories,
             _mechanismInitConfig(mechanismArbitrator, budgetStore, tcrStore)
         );
     }

@@ -20,6 +20,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public discoveryEmitter;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
+    address public immutable teamFlowFactory;
     address public immutable override allocationMechanismTcrImplementation;
     address public immutable override allocationMechanismArbitratorImplementation;
     address public immutable budgetFlowRouterStrategyImplementation;
@@ -38,18 +39,21 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     constructor(
         address budgetTreasuryImplementation_,
         address roundFactory_,
+        address teamFlowFactory_,
         address allocationMechanismTcrImplementation_,
         address allocationMechanismArbitratorImplementation_,
         address budgetFlowRouterStrategyImplementation_
     ) {
         _assertImplementationAddress(budgetTreasuryImplementation_);
         _assertImplementationAddress(roundFactory_);
+        _assertImplementationAddress(teamFlowFactory_);
         _assertImplementationAddress(allocationMechanismTcrImplementation_);
         _assertImplementationAddress(allocationMechanismArbitratorImplementation_);
         _assertImplementationAddress(budgetFlowRouterStrategyImplementation_);
 
         budgetTreasuryImplementation = budgetTreasuryImplementation_;
         roundFactory = roundFactory_;
+        teamFlowFactory = teamFlowFactory_;
         allocationMechanismTcrImplementation = allocationMechanismTcrImplementation_;
         allocationMechanismArbitratorImplementation = allocationMechanismArbitratorImplementation_;
         budgetFlowRouterStrategyImplementation = budgetFlowRouterStrategyImplementation_;
@@ -132,6 +136,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         uint32 budgetSlashPpm,
         IBudgetTCR.BudgetListing calldata listing,
         address successResolver,
+        address spendPolicy,
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) external onlyBudgetTCR returns (address deployedBudgetTreasury) {
@@ -146,6 +151,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             budgetSlashPpm,
             listing,
             successResolver,
+            spendPolicy,
             successAssertionLiveness,
             successAssertionBond
         );
@@ -189,6 +195,21 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             allocationMechanismArbitrator,
             roundFactory_
         );
+    }
+
+    function initialMechanismFactories() external view override returns (address[] memory factories) {
+        address roundFactory_ = roundFactory;
+        address teamFlowFactory_ = teamFlowFactory;
+
+        if (teamFlowFactory_ == roundFactory_) {
+            factories = new address[](1);
+            factories[0] = roundFactory_;
+            return factories;
+        }
+
+        factories = new address[](2);
+        factories[0] = roundFactory_;
+        factories[1] = teamFlowFactory_;
     }
 
     function _assertImplementationAddress(address implementation) internal view {

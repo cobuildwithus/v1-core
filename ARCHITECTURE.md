@@ -39,6 +39,7 @@ cobuild-protocol/
 
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`.
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`.
+- Canonical deployed-goal registry: `src/goals/GoalDeploymentRegistry.sol`.
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
 - Optional treasury spend-policy modules: `src/goals/policies/*.sol`.
 - Goal stake vault: `src/goals/StakeVault.sol`.
@@ -61,6 +62,9 @@ cobuild-protocol/
   - `src/tcr/BudgetTCR.sol`
   - `src/tcr/BudgetTCRDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
+  - `src/tcr/AllocationMechanismTCR.sol` (per-budget mechanism registry; new stacks seed both `RoundFactory` and
+    `TeamFlowFactory`)
+  - `src/teamflow/TeamFlow.sol`, `src/teamflow/TeamFlowFactory.sol` (equal-split team payout mechanism family)
 - Community goal curation extension:
   - `src/tcr/CommunityGoalRegistry.sol`
 - Budget listing validation helpers:
@@ -83,20 +87,23 @@ cobuild-protocol/
 - Goal treasury min-raise lifecycle checks are balance-based (`superToken.balanceOf(flow)`), so direct flow transfers can satisfy activation thresholds.
 - Shared treasury mechanics are centralized in `TreasuryBase` for donation ingress, treasury balance reads, and flow-rate zeroing helpers; lifecycle policy remains treasury-specific.
 - Treasury flow-rate invariants are intentionally split:
-  - Goal treasury uses legacy spend-pattern targeting when `spendPolicy == address(0)` and otherwise delegates target
-    math plus sync-mode selection to `ISpendPolicy`.
-    The legacy/default path remains linear spenddown from treasury balance over remaining time, with proactive
-    buffer-derived liquidation-horizon capping and best-effort writes (target, fallback bounded, then zero on
-    persistent write failure). Goal sync still does not apply coverage-based speed clamping; it only returns zero
-    target when the distribution pool has zero units.
-  - Budget treasury uses legacy trusted-incoming plus linear spenddown targeting when `spendPolicy == address(0)` and
-    otherwise delegates target math plus sync-mode selection to `ISpendPolicy`.
-    The legacy/default path remains:
+  - Goal treasury is policy-only: initialization requires a nonzero `spendPolicy`, target math always delegates to
+    `ISpendPolicy`, and current uncapped goal behavior is expressed by `LinearSpendPolicy(includeIncomingRate=false,
+    maxTargetFlowRate=0, syncMode=LinearSpendDownFallback)`.
+    Goal sync still uses the linear-spenddown fallback writer when the policy selects `LinearSpendDownFallback`, so
+    balance-driven targets retain proactive buffer-derived liquidation-horizon capping and best-effort writes
+    (target, fallback bounded, then zero on persistent write failure). Goal sync still does not apply coverage-based
+    speed clamping; it only returns zero target when the distribution pool has zero units.
+  - Budget treasury is also policy-only: initialization requires a nonzero `spendPolicy`, target math always delegates
+    to `ISpendPolicy`, and the repo-wide default budget behavior is now an explicit BudgetTCR-wide
+    `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`.
+    That preserves the current trusted incoming plus balance spenddown target:
     - trusted incoming component from parent member flow-rate (`max(parent.getMemberFlowRate(child), 0)`),
     - linear balance spenddown component (`treasuryBalance / timeRemaining`),
     - total target saturated to `int96.max` and applied with capped best-effort writes.
-  - Policy context derives `totalRecipientUnits` from the treasury's own flow distribution pool, so policy-driven spend
-    can scale either with direct seat-holder weights or with direct child-budget weights depending on treasury topology.
+  - Policy context is now treasury-topology-agnostic and contains only timing/balance/flow fields
+    (`nowTs`, `activatedAt`, `deadline`, `treasuryBalance`, `timeRemaining`, `incomingRate`,
+    `currentOutflowRate`); recipient units are not part of `ISpendPolicy.SpendContext`.
 - Budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
   - cumulative exposure meter is `goalFlow.getTotalReceivedByMember(childFlow)`,
   - insured line is slashable first-loss principal `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`,
@@ -133,16 +140,21 @@ cobuild-protocol/
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - owner-backed system goals can be pinned/unpinned directly,
-    - each listing carries its goal treasury sink and paused/selectable state.
+    - each listing carries metadata plus paused/selectable state only.
+  - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
+    - `GoalFactory` registers each deployed goal treasury exactly once,
+    - owner-authorized future goal-factory versions can register into the same registry over time,
+    - treasury identity is immutable per goal id once registered.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
-    `routeSetter` plus fixed init-time goal-registry reference, validates explicit routes against
-    `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into registry-selected child goals,
-    records observed volume only from explicit routed pays, and derives all non-explicit routing from that
-    explicit-only historical volume.
+    `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates explicit
+    routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
+    registry-selected child goals, records observed volume only from explicit routed pays, and derives all
+    non-explicit routing from that explicit-only historical volume.
   - Wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction, including
     empty-metadata historical-default pays.
   - Raw direct community pays use historical explicit-volume weights only and pay each child goal terminal with that
-    goal's registry-provided treasury as beneficiary; those direct/defaulted flows must not mutate the historical routing signal.
+    goal's deployment-registry-provided treasury as beneficiary; those direct/defaulted flows must not mutate the
+    historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.
@@ -236,6 +248,12 @@ cobuild-protocol/
 - `AllocationMechanismTCR` enforces a hard active recipient cap (`MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`):
   - activation reverts when the cap is reached,
   - active count decrements on funding-stop and removal-finalization recipient removals.
+- New per-budget `AllocationMechanismTCR` instances initialize with a non-empty initial factory set from
+  `BudgetTCRDeployer`; the default stack seeds both `RoundFactory` and `TeamFlowFactory`.
+- `TeamFlowFactory` deploys a `TeamFlow` manager plus standalone child `CustomFlow`, returns that child flow as the
+  mechanism payout recipient, and keeps the existing mechanism-escrow release path unchanged.
+- `TeamFlow` owns the child flow's `recipientAdmin`, `flowOperator`, and `sweeper` roles, acts as the child flow's
+  single allocation strategy, equal-splits active seats, and hard-removes departed seats via `removeRecipient`.
 - Runtime budget recipient add/remove operations are executed directly by `BudgetTCR`, so goal-flow `recipientAdmin` should be configured to the per-goal `BudgetTCR`.
 - Child flow synchronization is explicit per recipient:
   - `ParentSynced` (default): parent allocation pipeline computes/applies child sync updates.

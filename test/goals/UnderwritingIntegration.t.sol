@@ -10,7 +10,6 @@ import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
-import {UnitsCapSpendPolicy} from "src/goals/policies/UnitsCapSpendPolicy.sol";
 import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
@@ -173,7 +172,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
             GOAL_FUNDING_TARGET
         );
         stakeVault.setUnderwriterSlasher(address(router));
-        defaultGoalSpendPolicy = address(_deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback));
+        defaultGoalSpendPolicy =
+            address(_deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback));
 
         budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
         budgetTreasury = new UnderwritingMockBudgetTreasury(ISuperToken(address(goalSuperToken)));
@@ -243,13 +243,13 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
         _itemIdByChildFlow[topology.childFlow] = itemId;
     }
 
-    function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
+    function _deployLinearSpendPolicy(bool includeIncomingRate, uint256 maxTargetFlowRate, ISpendPolicy.SyncMode syncMode)
         internal
         returns (LinearSpendPolicy policy)
     {
         LinearSpendPolicy implementation = new LinearSpendPolicy();
         policy = LinearSpendPolicy(Clones.clone(address(implementation)));
-        policy.initialize(includeIncomingRate, syncMode);
+        policy.initialize(includeIncomingRate, maxTargetFlowRate, syncMode);
     }
 
     function test_underwriterCoverage_premiumAccruesAndClaims() public {
@@ -1371,6 +1371,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
         delayedBudgetFlow.setFlowOperator(address(delayedBudgetTreasury));
         delayedBudgetFlow.setSweeper(address(delayedBudgetTreasury));
+        address defaultBudgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         delayedBudgetTreasury.initialize(
             address(this),
@@ -1386,7 +1387,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("underwriting-budget-success-oracle-spec"),
                 successAssertionPolicyHash: keccak256("underwriting-budget-success-policy"),
-                spendPolicy: address(0)
+                spendPolicy: defaultBudgetSpendPolicy
             })
         );
 
@@ -1547,7 +1548,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     successAssertionBond: 10e18,
                     successOracleSpecHash: keccak256("underwriting-real-budget-success-oracle-spec"),
                     successAssertionPolicyHash: keccak256("underwriting-real-budget-success-policy"),
-                    spendPolicy: address(0)
+                    spendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped))
                 })
             );
 
@@ -1821,7 +1822,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             keccak256("goal-test-domain")
         );
         LinearSpendPolicy goalSpendPolicy =
-            _deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+            _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
         defaultGoalSpendPolicy = address(goalSpendPolicy);
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
@@ -2006,7 +2007,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     function test_initialize_revertsWhenSpendPolicyIsUninitializedClone() public {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
-        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
+        LinearSpendPolicy implementation = new LinearSpendPolicy();
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.spendPolicy = address(Clones.clone(address(implementation)));
@@ -2015,9 +2016,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
     }
 
-    function test_sync_unitsCapSpendPolicy_usesConfiguredTargetAndCappedSyncMode() public {
+    function test_sync_linearSpendPolicy_withCap_usesConfiguredTargetAndCappedSyncMode() public {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
-        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(100, 1_000, 0, 1, false);
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, 200, ISpendPolicy.SyncMode.Capped);
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
@@ -2026,22 +2027,26 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
 
         distributionPool.setTotalUnits(2);
-        cfa.setDepositPerFlowRate(10);
+        cfa.setDepositPerFlowRate(6_000_000);
 
-        uint256 balance = 1_000;
+        uint256 balance = 600_000_000;
         superToken.mint(address(flow), balance);
         vm.prank(address(hook));
         assertTrue(candidateTreasury.recordHookFunding(balance));
 
         candidateTreasury.sync();
 
-        assertEq(candidateTreasury.targetFlowRate(), 200);
+        uint256 uncappedTarget = balance / candidateTreasury.timeRemaining();
+        int96 expectedTarget = int96(uint96(uncappedTarget > 200 ? 200 : uncappedTarget));
+
+        assertEq(candidateTreasury.targetFlowRate(), expectedTarget);
         assertEq(flow.targetOutflowRate(), 100);
     }
 
     function test_sync_linearSpendPolicy_usesLinearFallbackMode() public {
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
-        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        LinearSpendPolicy spendPolicy =
+            _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
@@ -2341,14 +2346,14 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         _assertGoalFailClosedGraceState(unresolvedConfigTreasury);
     }
 
-    function test_sync_unitsCapSpendPolicy_atDeadline_failClosedGraceKeepsZeroTarget() public {
+    function test_sync_linearSpendPolicy_withCap_atDeadline_failClosedGraceKeepsZeroTarget() public {
         UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig = new UnderwritingRevertingOptimisticOracleResolverConfig(
             IERC20(address(underlyingToken)),
             successResolverConfig.escalationManager(),
             successResolverConfig.domainId()
         );
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
-        UnitsCapSpendPolicy spendPolicy = _deployUnitsCapSpendPolicy(100, 1_000, 0, 1, false);
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, 200, ISpendPolicy.SyncMode.Capped);
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
@@ -2528,25 +2533,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
     }
 
-    function _deployLinearSpendPolicy(bool includeIncomingRate, ISpendPolicy.SyncMode syncMode)
+    function _deployLinearSpendPolicy(bool includeIncomingRate, uint256 maxTargetFlowRate, ISpendPolicy.SyncMode syncMode)
         internal
         returns (LinearSpendPolicy policy)
     {
         LinearSpendPolicy implementation = new LinearSpendPolicy();
         policy = LinearSpendPolicy(Clones.clone(address(implementation)));
-        policy.initialize(includeIncomingRate, syncMode);
-    }
-
-    function _deployUnitsCapSpendPolicy(
-        uint128 ratePerUnitPerSecond,
-        uint128 maxTotalRate,
-        uint256 reserveFloor,
-        uint64 minRunwaySeconds,
-        bool includeIncomingRate
-    ) internal returns (UnitsCapSpendPolicy policy) {
-        UnitsCapSpendPolicy implementation = new UnitsCapSpendPolicy();
-        policy = UnitsCapSpendPolicy(Clones.clone(address(implementation)));
-        policy.initialize(ratePerUnitPerSecond, maxTotalRate, reserveFloor, minRunwaySeconds, includeIncomingRate);
+        policy.initialize(includeIncomingRate, maxTargetFlowRate, syncMode);
     }
 
     function _cloneGoalTreasuryWithPredictedAddress() internal returns (GoalTreasury candidateTreasury) {

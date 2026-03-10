@@ -24,6 +24,7 @@ import {
     ISuperToken,
     ISuperfluidPool
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract TreasuryTerminalInvariantUnderlying is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
@@ -411,7 +412,7 @@ contract TreasuryTerminalInvariantUnderwriterSlasherRouter {
     }
 }
 
-contract TreasuryTerminalLifecycleInvariantHandler is Test {
+contract TreasuryTerminalLifecycleInvariantHandler is Test, SpendPolicyTestUtils {
     uint256 internal constant PROJECT_ID = 1;
     uint256 internal constant MAX_AMOUNT = 1e24;
 
@@ -460,9 +461,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         goalTokens.setProjectIdOf(address(goalUnderlying), PROJECT_ID);
 
         GoalTreasury goalTreasuryImplementation = new GoalTreasury();
-        LinearSpendPolicy goalSpendPolicyImplementation = new LinearSpendPolicy();
-        LinearSpendPolicy goalSpendPolicy = LinearSpendPolicy(Clones.clone(address(goalSpendPolicyImplementation)));
-        goalSpendPolicy.initialize(false, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        LinearSpendPolicy goalSpendPolicy =
+            _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
         goalHook = new TreasuryTerminalInvariantHook(goalDirectory);
         address predictedGoalTreasury = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         goalStakeVault.setGoalTreasury(predictedGoalTreasury);
@@ -505,6 +505,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
         premiumEscrow = PremiumEscrow(Clones.clone(address(premiumEscrowImplementation)));
         BudgetTreasury budgetTreasuryImplementation = new BudgetTreasury();
         budgetTreasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
+        LinearSpendPolicy budgetSpendPolicy = _deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped);
         budgetStakeVault.setGoalTreasury(address(budgetTreasury));
         budgetFlow.setFlowOperator(address(budgetTreasury));
         budgetFlow.setSweeper(address(budgetTreasury));
@@ -522,7 +523,7 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test {
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
                 successAssertionPolicyHash: keccak256("budget-assertion-policy"),
-                spendPolicy: address(0)
+                spendPolicy: address(budgetSpendPolicy)
             })
         );
         premiumEscrow.initialize(

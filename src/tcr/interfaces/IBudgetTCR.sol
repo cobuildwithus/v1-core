@@ -48,6 +48,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     struct DeploymentConfig {
         address stackDeployer;
         address budgetSuccessResolver;
+        address budgetSpendPolicy;
         IFlow goalFlow;
         IGoalTreasury goalTreasury;
         IERC20 goalToken;
@@ -134,6 +135,8 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     error TERMINAL_RESOLUTION_FAILED();
     error BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     error INVALID_PPM(uint32 ppmValue);
+    error NOT_A_CONTRACT(address account);
+    error INVALID_BUDGET_SPEND_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
@@ -147,4 +150,5 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     function retryRemovedBudgetResolution(bytes32 itemID) external returns (bool terminallyResolved);
     function pruneTerminalBudget(address budgetTreasury) external returns (bool removedFromParent, bool goalSynced);
     function syncBudgetTreasuries(bytes32[] calldata itemIDs) external returns (uint256 attempted, uint256 succeeded);
+    function budgetSpendPolicy() external view returns (address);
 }

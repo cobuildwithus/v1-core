@@ -30,6 +30,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`
+- Canonical deployed-goal registry: `src/goals/GoalDeploymentRegistry.sol`
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`
 - Optional treasury spend-policy modules: `src/goals/policies/*.sol`
 - Stake and weight accounting: `src/goals/StakeVault.sol`
@@ -49,6 +50,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - `src/tcr/BudgetTCRDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
   - `src/tcr/AllocationMechanismTCR.sol` (active mechanism registry with hard max of 7 active recipients)
+  - `src/teamflow/TeamFlow.sol`, `src/teamflow/TeamFlowFactory.sol` (equal-split team mechanism family)
 - Community goal curation:
   - `src/tcr/CommunityGoalRegistry.sol`
 - Budget listing validation helpers:
@@ -90,6 +92,10 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - continues when individual treasury `sync()` calls fail.
 - Flow rate mutators are role-gated:
   - `setTargetOutflowRate` and `refreshTargetOutflowRate`: flow-operator/parent.
+- `TeamFlow` uses a standalone child `CustomFlow` payout lane:
+  - child flow `recipientAdmin`, `flowOperator`, and `sweeper` are all the deployed `TeamFlow`,
+  - TeamFlow is the child flow's only allocation strategy,
+  - seat changes hard-remove departed recipients and recompute equal allocations locally on the child flow.
 
 Community root routing
 - Community payments can arrive through `CobuildPaymentTerminal`.
@@ -103,9 +109,13 @@ Community root routing
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
   - owner-backed system goals can be pinned/unpinned directly,
-  - every listed goal carries its goal-treasury sink and paused/selectable status.
-- `CobuildSplitHook` stores a fixed init-time `routeSetter` for wrapper seeding and a fixed init-time
-  `CommunityGoalRegistry` reference for explicit-route validation and direct-pay treasury resolution.
+  - every listed goal carries metadata plus paused/selectable status only.
+- `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
+  - `GoalFactory` registers each deployed goal treasury exactly once,
+  - future owner-authorized goal-factory versions can register into the same registry,
+  - treasury identity is immutable per goal id.
+- `CobuildSplitHook` stores a fixed init-time `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
+  explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
 - During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
 - `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
   goals by paying each goal's primary terminal for the community token.
@@ -113,7 +123,7 @@ Community root routing
 - Historical-default routing is derived from registry-selectable goals with non-zero observed explicit volume;
   passive/defaulted flow follows that signal but does not update it.
 - If no pending route exists, the hook routes using historical explicit-volume weights only and uses each listed goal's
-  registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
+  deployment-registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
 - If no usable historical route exists, the community pay fails closed instead of default-routing or escrowing.
 
 3. Goal treasury funding and resolution
@@ -123,8 +133,9 @@ Community root routing
   - `donateUnderlyingAndUpgrade(amount)` (auto-upgrade then transfer),
   - donation receipts are included in `totalRaised` (telemetry).
 - Goal treasury min-raise lifecycle gating is balance-based (`superToken.balanceOf(flow)`), not `totalRaised`, so direct flow inflows can satisfy activation.
-- Goal treasury target computation uses legacy spend-pattern math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy` using the treasury's own distribution-pool units as policy context.
-- For active legacy linear spend-down, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable; policy-configured sync mode can instead use capped writes.
+- Goal treasury target computation is policy-only.
+- The current uncapped goal default is `LinearSpendPolicy(includeIncomingRate=false, maxTargetFlowRate=0, syncMode=LinearSpendDownFallback)`, so raw target remains treasury balance over remaining time.
+- When the configured policy selects `LinearSpendDownFallback`, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable.
 - Goal sync does not enforce coverage-based rate clamping; underwriting is enforced by budget recipient credit-line gating in `BudgetTCR.syncBudgetTreasuries`.
 - Goal sync still fail-safe guards empty distribution: when total distribution units are zero, target rate is zero.
 - Budget credit-line gating uses:
@@ -135,8 +146,9 @@ Community root routing
   - budget `executionDuration` does not increase insured principal; it only affects downstream treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` in `syncBudgetTreasuries`,
   - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
-- Budget treasury active target flow-rate uses legacy trusted-incoming plus balance-spenddown math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy` using the treasury's own distribution-pool units as policy context.
-- Legacy/default budget targeting remains:
+- Budget treasury active target flow-rate is policy-only.
+- The repo-wide default budget deployment is `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`.
+- That preserves current budget targeting:
   - trusted incoming from parent member flow (`max(parent.getMemberFlowRate(child), 0)`),
   - linear balance spenddown (`treasuryBalance / timeRemaining`),
   - total target saturated at `int96.max`.
@@ -185,8 +197,9 @@ Community root routing
     that update observed historical volume,
   - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
-  - goal membership and treasury-sink metadata are sourced from fixed init-time `CommunityGoalRegistry` state,
-  - direct/defaulted routing uses goal treasury beneficiaries rather than a global default beneficiary,
+  - goal membership is sourced from fixed init-time `CommunityGoalRegistry` state while treasury beneficiaries are
+    sourced from fixed init-time `GoalDeploymentRegistry` state,
+  - direct/defaulted routing uses canonical goal treasury beneficiaries rather than a global default beneficiary,
   - missing explicit/historical data fails closed by reverting rather than guessing downstream funding destinations.
 
 4. Budget treasury lifecycle
@@ -194,7 +207,7 @@ Community root routing
 - Budget treasury supports direct donation ingress while funding is open:
   - `donateUnderlyingAndUpgrade(amount)`.
 - Activation threshold and execution-duration semantics govern outflow windows.
-- Active target flow-rate is trusted parent member flow-rate (`parent.getMemberFlowRate(child)`) only (pass-through budget invariant).
+- Active target flow-rate is policy-only; the default budget stack wiring uses `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`, which preserves the current `incoming + balance / timeRemaining` pacing.
 - Budget terminal resolution settles residual child-flow SuperToken balance back to the parent goal flow.
 - Post-finalization late child-flow inflows can be settled with `BudgetTreasury.settleLateResidualToParent()`.
 
@@ -262,9 +275,12 @@ Community root routing
 - `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.
 - Budget stack discovery for indexers is available from fixed emitters:
   - `BudgetTCRFactory.BudgetTCRStackDeployedForGoal` emits first-hop `BudgetTCR` + arbitrator deployment.
-  - `BudgetTCRFactory` also re-emits child-stack and mechanism deployment callbacks from registered stack deployers (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`) so indexers can discover dynamic children without subscribing to unknown `BudgetTCR` emitters first.
+- `BudgetTCRFactory` also re-emits child-stack and mechanism deployment callbacks from registered stack deployers (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`) so indexers can discover dynamic children without subscribing to unknown `BudgetTCR` emitters first.
   - The mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the per-goal `JurorSlasherRouter`, so activation fails closed if router wiring is missing or invalid.
   - Round deployments emitted by `RoundFactory` do not trigger juror-router authorization because round arbitrators are non-slashing by design.
+- New budget activations seed each per-budget `AllocationMechanismTCR` with both `RoundFactory` and
+  `TeamFlowFactory`, so TeamFlow is available immediately as a curated mechanism type without auto-creating a
+  mechanism instance.
 - Invalid/no-vote arbitrator round rewards are routed to a configured `invalidRoundRewardSink`.
 
 ## Test Harness Boundaries

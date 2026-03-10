@@ -27,6 +27,7 @@ library GoalFactoryBudgetTcrDeploy {
         address cobuildToken;
         uint8 cobuildDecimals;
         address budgetSuccessResolver;
+        address budgetSpendPolicy;
         IBudgetTCR.BudgetValidationBounds budgetBounds;
         IBudgetTCR.OracleValidationBounds oracleBounds;
         IArbitrator.ArbitratorParams arbitratorParams;
@@ -67,6 +68,7 @@ library GoalFactoryBudgetTcrDeploy {
         IBudgetTCR.DeploymentConfig memory tcrDeployCfg = IBudgetTCR.DeploymentConfig({
             stackDeployer: address(0),
             budgetSuccessResolver: request.budgetSuccessResolver,
+            budgetSpendPolicy: request.budgetSpendPolicy,
             goalFlow: request.goalFlow,
             goalTreasury: request.goalTreasury,
             goalToken: IERC20(request.goalToken),

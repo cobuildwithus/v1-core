@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {
     SharedMockCFA,
     SharedMockSuperfluidHost,
@@ -12,11 +13,12 @@ import {
     SharedMockSuperToken,
     SharedMockUnderlying
 } from "test/goals/helpers/TreasurySharedMocks.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
+contract BudgetTreasuryRunwayCapActivationRegressionTest is Test, SpendPolicyTestUtils {
     address internal controller = address(0xA11CE);
 
     SharedMockUnderlying internal underlyingToken;
@@ -26,6 +28,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
     BudgetTreasury internal budgetTreasuryImplementation;
     BudgetTreasury internal treasury;
     address internal premiumEscrow;
+    address internal budgetSpendPolicy;
 
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
@@ -45,6 +48,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
         budgetTreasuryImplementation = new BudgetTreasury();
         treasury = BudgetTreasury(Clones.clone(address(budgetTreasuryImplementation)));
         premiumEscrow = address(new BudgetTreasuryRunwayMockPremiumEscrow());
+        budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         flow.setFlowOperator(address(treasury));
         flow.setSweeper(address(treasury));
@@ -63,7 +67,7 @@ contract BudgetTreasuryRunwayCapActivationRegressionTest is Test {
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("budget-oracle-spec"),
                 successAssertionPolicyHash: keccak256("budget-assertion-policy"),
-                spendPolicy: address(0)
+                spendPolicy: budgetSpendPolicy
             })
         );
     }
