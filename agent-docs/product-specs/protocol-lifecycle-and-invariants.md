@@ -78,7 +78,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CobuildSplitHook` keeps both the wrapper `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
-  - Empty-metadata wrapper pays still fail closed unless the seeded historical/default route is consumed by the reserved-token split in the same transaction.
+  - Empty-metadata wrapper pays fail closed when the seeded historical/default route remains unconsumed after a pay that returned nonzero beneficiary tokens; if the pay returns zero beneficiary tokens, the wrapper clears the unused pending route instead of reverting.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
     uses each goal's deployment-registry-provided treasury sink for raw direct-pay fallback beneficiaries,
