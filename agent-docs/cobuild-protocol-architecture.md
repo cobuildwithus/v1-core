@@ -133,11 +133,15 @@ Community root routing
   reserved-token delta.
 - Older controller backlog encountered during a wrapper-routed pay is moved into hook-managed historical backlog and is
   distributed later through permissionless historical routing.
+- `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
+  longer has to scan/pay every historically weighted goal in one transaction.
 - Only explicit routed payments record observed per-goal volume.
 - Historical-default routing is derived from registry-selectable goals with non-zero observed explicit volume;
   passive/defaulted flow follows that signal but does not update it.
 - If no pending route exists, the hook routes using historical explicit-volume weights only and uses each listed goal's
   deployment-registry-provided treasury as the beneficiary on the child goal `pay(...)` call.
+- If hook-managed historical backlog already exists, later direct community-pay historical callbacks defer the new
+  amount into backlog instead of piggybacking the old backlog through that payer's transaction.
 - If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
   retry instead of blocking wrapper-routed mints.
 

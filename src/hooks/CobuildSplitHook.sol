@@ -40,6 +40,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error NO_ROUTE_AVAILABLE();
     error PENDING_ROUTE_EXISTS();
     error NO_PENDING_ROUTE();
+    error INVALID_HISTORICAL_FLUSH_PAGE_SIZE();
     error INVALID_BACKLOG_SNAPSHOT(uint256 backlogTokenCount, uint256 sourceAmount);
     error NO_GOAL_TERMINAL(uint256 goalId);
     error GOAL_PAYMENT_OUTFLOW_MISMATCH(uint256 goalId, uint256 expectedAmount, uint256 actualAmount);
@@ -66,6 +67,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     event PendingHistoricalRouteConsumed(address indexed payer, address indexed beneficiary, uint256 sourceAmount);
     event HistoricalBacklogDeferred(uint256 amount, uint256 newBacklogAmount);
     event HistoricalBacklogFlushed(uint256 amount, uint256 remainingBacklogAmount);
+    event HistoricalBacklogFlushReset(uint256 indexed epoch, uint256 remainingBacklogAmount);
     event HistoricalVolumeRecorded(
         uint256 indexed goalId,
         uint256 amount,
@@ -100,6 +102,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         bool fromPendingRoute;
     }
 
+    struct HistoricalBacklogProgress {
+        bool active;
+        uint256 remainingAmount;
+        uint256 processedGoalCount;
+    }
+
     IJBDirectory public directory;
     uint256 public communityRevnetId;
     address public communityToken;
@@ -110,8 +118,11 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     mapping(uint256 => uint256) public override observedVolumeOf;
     uint256 public override cumulativeObservedVolume;
     uint256 public override historicalBacklogAmount;
+    uint256 public historicalBacklogRoutingEpoch;
 
     PendingRoute private _pendingRoute;
+    HistoricalBacklogProgress private _historicalBacklogProgress;
+    mapping(uint256 goalId => uint256 epoch) private _historicalBacklogProcessedAtEpoch;
 
     constructor() {
         _disableInitializers();
@@ -193,6 +204,21 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         (, , totalHistoricalVolume) = _loadHistoricalRouteRuntime();
     }
 
+    function historicalBacklogProgress()
+        external
+        view
+        override
+        returns (HistoricalBacklogProgressView memory progress)
+    {
+        HistoricalBacklogProgress storage stored = _historicalBacklogProgress;
+        progress = HistoricalBacklogProgressView({
+            active: stored.active,
+            epoch: historicalBacklogRoutingEpoch,
+            remainingAmount: stored.remainingAmount,
+            processedGoalCount: stored.processedGoalCount
+        });
+    }
+
     function historicalRoute() external view override returns (uint256[] memory goalIds, uint256[] memory volumes) {
         return _historicalRoute();
     }
@@ -261,13 +287,17 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         _clearPendingRoute();
     }
 
-    function flushHistoricalBacklog() external override nonReentrant returns (uint256 routedAmount) {
+    function flushHistoricalBacklog(
+        uint256 maxGoalCount
+    ) external override nonReentrant returns (uint256 routedAmount) {
+        if (maxGoalCount == 0) revert INVALID_HISTORICAL_FLUSH_PAGE_SIZE();
+
         routedAmount = historicalBacklogAmount;
         if (routedAmount == 0) return 0;
 
         IERC20 token = IERC20(communityToken);
         _requireHookBalance(token, routedAmount);
-        if (!_flushHistoricalBacklogIfPossible(token, routedAmount)) return 0;
+        routedAmount = _routeHistoricalBacklogPage(token, maxGoalCount);
     }
 
     function processSplitWith(JBSplitHookContext calldata context) external payable override nonReentrant {
@@ -337,10 +367,12 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             return;
         }
 
-        uint256 routedHistoricalBacklogAmount = historicalBacklogAmount;
-        uint256 totalHistoricalAmount = amount + routedHistoricalBacklogAmount;
-        _requireHookBalance(token, totalHistoricalAmount);
-        if (!_flushHistoricalBacklogIfPossible(token, totalHistoricalAmount)) {
+        if (historicalBacklogAmount != 0) {
+            _deferHistoricalBacklog(amount);
+            return;
+        }
+
+        if (!_routeUsingHistoricalVolumesToGoalTreasuries(token, amount)) {
             _deferHistoricalBacklog(amount);
             return;
         }
@@ -484,18 +516,62 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         }
 
         cumulativeObservedVolume = updatedCumulativeObservedVolume;
+        _resetHistoricalBacklogProgress();
     }
 
-    function _flushHistoricalBacklogIfPossible(IERC20 token, uint256 sourceAmount) internal returns (bool didFlush) {
-        if (!_routeUsingHistoricalVolumesToGoalTreasuries(token, sourceAmount)) return false;
+    function _routeHistoricalBacklogPage(IERC20 token, uint256 maxGoalCount) internal returns (uint256 routedAmount) {
+        HistoricalBacklogProgress storage progress = _historicalBacklogProgress;
+        if (!progress.active) _startHistoricalBacklogProgress();
 
-        uint256 backlogAmount = historicalBacklogAmount;
-        if (backlogAmount != 0) {
-            historicalBacklogAmount = 0;
-            emit HistoricalBacklogFlushed(backlogAmount, 0);
+        uint256 epoch = historicalBacklogRoutingEpoch;
+        (
+            uint256[] memory selectableIds,
+            uint256 remainingVolume,
+            uint256 remainingGoalCount
+        ) = _remainingHistoricalRouteRuntime(epoch);
+        if (remainingGoalCount == 0 || remainingVolume == 0) {
+            _resetHistoricalBacklogProgress();
+            return 0;
         }
 
-        return true;
+        uint256 remainingAmount = progress.remainingAmount;
+        uint256 processedThisCall;
+        for (uint256 i = 0; i < selectableIds.length; i++) {
+            if (processedThisCall == maxGoalCount) break;
+
+            uint256 goalId = selectableIds[i];
+            if (_historicalBacklogProcessedAtEpoch[goalId] == epoch) continue;
+
+            uint256 volume = observedVolumeOf[goalId];
+            if (volume == 0) continue;
+
+            uint256 amountForGoal = remainingGoalCount == 1
+                ? remainingAmount
+                : (remainingAmount * volume) / remainingVolume;
+            remainingGoalCount -= 1;
+            remainingVolume -= volume;
+
+            _historicalBacklogProcessedAtEpoch[goalId] = epoch;
+            progress.processedGoalCount += 1;
+            processedThisCall += 1;
+
+            if (amountForGoal == 0) continue;
+
+            address beneficiary = _goalDeploymentRegistry.goalTreasuryOf(goalId);
+            if (beneficiary == address(0)) revert NO_GOAL_TREASURY(goalId);
+
+            _payGoal(token, goalId, amountForGoal, beneficiary, false);
+            remainingAmount -= amountForGoal;
+            routedAmount += amountForGoal;
+        }
+
+        progress.remainingAmount = remainingAmount;
+        historicalBacklogAmount = remainingAmount;
+        if (remainingAmount == 0) {
+            _completeHistoricalBacklogProgress();
+        }
+
+        emit HistoricalBacklogFlushed(routedAmount, remainingAmount);
     }
 
     function _validateRoute(uint256[] calldata goalIds, uint32[] calldata weights) internal view {
@@ -558,6 +634,22 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         }
     }
 
+    function _remainingHistoricalRouteRuntime(
+        uint256 epoch
+    ) internal view returns (uint256[] memory selectableIds, uint256 totalRemainingVolume, uint256 remainingGoalCount) {
+        selectableIds = _goalRegistry.selectableGoalIds();
+        for (uint256 i = 0; i < selectableIds.length; i++) {
+            uint256 goalId = selectableIds[i];
+            if (_historicalBacklogProcessedAtEpoch[goalId] == epoch) continue;
+
+            uint256 volume = observedVolumeOf[goalId];
+            if (volume == 0) continue;
+
+            totalRemainingVolume += volume;
+            remainingGoalCount += 1;
+        }
+    }
+
     function _allocatedAmountForShare(
         uint256 sourceAmount,
         uint256 share,
@@ -607,7 +699,27 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     function _deferHistoricalBacklog(uint256 amount) internal {
         if (amount == 0) return;
         historicalBacklogAmount += amount;
+        _resetHistoricalBacklogProgress();
         emit HistoricalBacklogDeferred(amount, historicalBacklogAmount);
+    }
+
+    function _startHistoricalBacklogProgress() internal {
+        historicalBacklogRoutingEpoch += 1;
+        _historicalBacklogProgress.active = true;
+        _historicalBacklogProgress.remainingAmount = historicalBacklogAmount;
+        _historicalBacklogProgress.processedGoalCount = 0;
+    }
+
+    function _completeHistoricalBacklogProgress() internal {
+        _historicalBacklogProgress.active = false;
+        _historicalBacklogProgress.remainingAmount = 0;
+        _historicalBacklogProgress.processedGoalCount = 0;
+    }
+
+    function _resetHistoricalBacklogProgress() internal {
+        if (!_historicalBacklogProgress.active) return;
+        emit HistoricalBacklogFlushReset(historicalBacklogRoutingEpoch, historicalBacklogAmount);
+        _completeHistoricalBacklogProgress();
     }
 
     function _copyUint256Array(uint256[] storage values) internal view returns (uint256[] memory copied) {

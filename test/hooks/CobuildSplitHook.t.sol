@@ -7,6 +7,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {CobuildSplitHook} from "src/hooks/CobuildSplitHook.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 
@@ -252,7 +253,7 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.totalReceived(), 40e18);
         assertEq(goalTerminalTwo.totalReceived(), 60e18);
 
-        uint256 routedAmount = hook.flushHistoricalBacklog();
+        uint256 routedAmount = hook.flushHistoricalBacklog(2);
 
         assertEq(routedAmount, 40e18);
         assertEq(hook.historicalBacklogAmount(), 0);
@@ -261,6 +262,140 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
         assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
         assertEq(communityToken.balanceOf(address(hook)), 0);
+    }
+
+    function test_flushHistoricalBacklog_pagesAcrossGoalsAndTracksProgress() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        uint256 firstPageAmount = hook.flushHistoricalBacklog(1);
+
+        assertEq(firstPageAmount, 16e18);
+        assertEq(hook.historicalBacklogAmount(), 24e18);
+        assertEq(goalTerminalOne.totalReceived(), 56e18);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+
+        ICobuildSplitHook.HistoricalBacklogProgressView memory progress = hook.historicalBacklogProgress();
+        assertTrue(progress.active);
+        assertEq(progress.epoch, 1);
+        assertEq(progress.remainingAmount, 24e18);
+        assertEq(progress.processedGoalCount, 1);
+
+        uint256 secondPageAmount = hook.flushHistoricalBacklog(1);
+
+        assertEq(secondPageAmount, 24e18);
+        assertEq(hook.historicalBacklogAmount(), 0);
+        assertEq(goalTerminalOne.totalReceived(), 56e18);
+        assertEq(goalTerminalTwo.totalReceived(), 84e18);
+
+        progress = hook.historicalBacklogProgress();
+        assertFalse(progress.active);
+        assertEq(progress.remainingAmount, 0);
+        assertEq(progress.processedGoalCount, 0);
+    }
+
+    function test_flushHistoricalBacklog_resetsPaginationWhenNewBacklogArrives() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        assertEq(hook.flushHistoricalBacklog(1), 16e18);
+        assertEq(hook.historicalBacklogAmount(), 24e18);
+
+        vm.prank(routeSetter);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary, 10e18);
+
+        communityToken.mint(address(hook), 10e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(10e18));
+
+        ICobuildSplitHook.HistoricalBacklogProgressView memory progress = hook.historicalBacklogProgress();
+        assertFalse(progress.active);
+        assertEq(hook.historicalBacklogAmount(), 34e18);
+
+        uint256 restartedPageAmount = hook.flushHistoricalBacklog(1);
+
+        assertEq(restartedPageAmount, 13_600_000_000_000_000_000);
+        assertEq(hook.historicalBacklogAmount(), 20_400_000_000_000_000_000);
+        assertEq(goalTerminalOne.totalReceived(), 69_600_000_000_000_000_000);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+
+        progress = hook.historicalBacklogProgress();
+        assertTrue(progress.active);
+        assertEq(progress.epoch, 2);
+        assertEq(progress.remainingAmount, 20_400_000_000_000_000_000);
+        assertEq(progress.processedGoalCount, 1);
+    }
+
+    function test_flushHistoricalBacklog_resetsPaginationWhenExplicitHistoryChanges() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        assertEq(hook.flushHistoricalBacklog(1), 16e18);
+        assertEq(hook.historicalBacklogAmount(), 24e18);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 20e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(20e18));
+
+        ICobuildSplitHook.HistoricalBacklogProgressView memory progress = hook.historicalBacklogProgress();
+        assertFalse(progress.active);
+        assertEq(hook.historicalBacklogAmount(), 24e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 45e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
+
+        uint256 restartedPageAmount = hook.flushHistoricalBacklog(1);
+
+        assertEq(restartedPageAmount, 9e18);
+        assertEq(hook.historicalBacklogAmount(), 15e18);
+        assertEq(goalTerminalOne.totalReceived(), 70e18);
+        assertEq(goalTerminalTwo.totalReceived(), 75e18);
+
+        progress = hook.historicalBacklogProgress();
+        assertTrue(progress.active);
+        assertEq(progress.epoch, 2);
+        assertEq(progress.remainingAmount, 15e18);
+        assertEq(progress.processedGoalCount, 1);
+    }
+
+    function test_flushHistoricalBacklog_revertsWhenPageSizeIsZero() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        vm.expectRevert(CobuildSplitHook.INVALID_HISTORICAL_FLUSH_PAGE_SIZE.selector);
+        hook.flushHistoricalBacklog(0);
     }
 
     function test_processSplitWith_revertsWhenBacklogSnapshotExceedsSourceAmount() public {
@@ -300,6 +435,28 @@ contract CobuildSplitHookTest is Test {
         assertEq(communityToken.balanceOf(address(hook)), 50e18);
         assertEq(goalTerminalOne.totalReceived(), 0);
         assertEq(goalTerminalTwo.totalReceived(), 0);
+    }
+
+    function test_processSplitWith_defersDirectPayWhenHistoricalBacklogAlreadyExists() public {
+        _seedObservedRoute(100e18, 2, 3, beneficiary);
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
+
+        communityToken.mint(address(hook), 40e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(40e18));
+
+        communityToken.mint(address(hook), 10e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(10e18));
+
+        assertEq(hook.historicalBacklogAmount(), 50e18);
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 60e18);
+        assertEq(communityToken.balanceOf(address(hook)), 50e18);
     }
 
     function test_processSplitWith_ignoresGoalsRemovedFromRegistryWhenDerivingHistoricalRoute() public {

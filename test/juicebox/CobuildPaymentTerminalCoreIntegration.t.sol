@@ -155,7 +155,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), observedVolumeTwoBefore);
         assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
 
-        uint256 flushedBacklogAmount = wrapperFixture.hook.flushHistoricalBacklog();
+        uint256 flushedBacklogAmount = wrapperFixture.hook.flushHistoricalBacklog(2);
 
         assertEq(flushedBacklogAmount, DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.hook.historicalBacklogAmount(), 0);
@@ -210,9 +210,35 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), 15e18);
         assertEq(wrapperFixture.hook.cumulativeObservedVolume(), 20e18);
 
-        uint256 flushedBacklogAmount = wrapperFixture.hook.flushHistoricalBacklog();
+        uint256 flushedBacklogAmount = wrapperFixture.hook.flushHistoricalBacklog(2);
 
         assertEq(flushedBacklogAmount, DIRECT_PAY_AMOUNT / 2);
+        assertEq(wrapperFixture.hook.historicalBacklogAmount(), 0);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
+        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), address(wrapperFixture.goalTreasuryOne));
+        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), address(wrapperFixture.goalTreasuryTwo));
+    }
+
+    function test_wrapperExplicitRoute_permissionlessHistoricalBacklogFlushCanResumeAcrossPages() public {
+        _payCommunityDirect(
+            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+        );
+
+        uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
+        uint32[] memory weights = _weights(1, 3);
+        _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights));
+
+        uint256 firstPageAmount = wrapperFixture.hook.flushHistoricalBacklog(1);
+
+        assertEq(firstPageAmount, 5e18);
+        assertEq(wrapperFixture.hook.historicalBacklogAmount(), 15e18);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 15e18);
+
+        uint256 secondPageAmount = wrapperFixture.hook.flushHistoricalBacklog(1);
+
+        assertEq(secondPageAmount, 15e18);
         assertEq(wrapperFixture.hook.historicalBacklogAmount(), 0);
         assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
         assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
@@ -239,7 +265,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(manualFixture.goalTerminalTwo.totalReceived(), 0);
         assertEq(manualFixture.hook.cumulativeObservedVolume(), 0);
 
-        uint256 flushedBacklogAmount = manualFixture.hook.flushHistoricalBacklog();
+        uint256 flushedBacklogAmount = manualFixture.hook.flushHistoricalBacklog(2);
 
         assertEq(flushedBacklogAmount, 0);
         assertEq(manualFixture.hook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT);
@@ -280,7 +306,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(freshFixture.hook.observedVolumeOf(freshFixture.goalIdTwo), 15e18);
         assertEq(freshFixture.hook.cumulativeObservedVolume(), 20e18);
 
-        uint256 flushedBacklogAmount = freshFixture.hook.flushHistoricalBacklog();
+        uint256 flushedBacklogAmount = freshFixture.hook.flushHistoricalBacklog(2);
 
         assertEq(flushedBacklogAmount, DIRECT_PAY_AMOUNT / 2);
         assertEq(freshFixture.hook.historicalBacklogAmount(), 0);

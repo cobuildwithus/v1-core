@@ -544,6 +544,20 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         volumes = new uint256[](0);
     }
 
+    function historicalBacklogProgress()
+        external
+        pure
+        override
+        returns (HistoricalBacklogProgressView memory progress)
+    {
+        progress = HistoricalBacklogProgressView({
+            active: false,
+            epoch: 0,
+            remainingAmount: 0,
+            processedGoalCount: 0
+        });
+    }
+
     function pendingRoute() external view override returns (PendingRouteView memory out) {
         out = PendingRouteView({
             payer: lastPayer,
@@ -597,7 +611,7 @@ contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
         _hasPendingRoute = false;
     }
 
-    function flushHistoricalBacklog() external override returns (uint256 routedAmount) {
+    function flushHistoricalBacklog(uint256) external override returns (uint256 routedAmount) {
         routedAmount = historicalBacklogAmount;
         historicalBacklogAmount = 0;
     }

@@ -14,6 +14,13 @@ interface ICobuildSplitHook is IJBSplitHook {
         uint32[] weights;
     }
 
+    struct HistoricalBacklogProgressView {
+        bool active;
+        uint256 epoch;
+        uint256 remainingAmount;
+        uint256 processedGoalCount;
+    }
+
     function communityRevnetId() external view returns (uint256);
 
     function communityToken() external view returns (address);
@@ -29,6 +36,8 @@ interface ICobuildSplitHook is IJBSplitHook {
     function currentHistoricalTotalVolume() external view returns (uint256);
 
     function historicalBacklogAmount() external view returns (uint256);
+
+    function historicalBacklogProgress() external view returns (HistoricalBacklogProgressView memory progress);
 
     function selectableGoalIds() external view returns (uint256[] memory goalIds);
 
@@ -50,6 +59,7 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function cancelPendingRoute() external;
 
-    /// @notice Best-effort permissionless backlog flush. Returns 0 and leaves backlog parked when no historical route exists.
-    function flushHistoricalBacklog() external returns (uint256 routedAmount);
+    /// @notice Best-effort permissionless backlog flush. Routes at most `maxGoalCount` historical goals in this call.
+    /// @dev Returns 0 and leaves backlog parked when no historical route exists.
+    function flushHistoricalBacklog(uint256 maxGoalCount) external returns (uint256 routedAmount);
 }

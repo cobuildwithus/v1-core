@@ -31,12 +31,14 @@ contract CobuildSplitHookGasProfileTest is Test {
     uint256 internal constant DEFAULT_MAX_GOAL_COUNT = 512;
     uint256 internal constant GAS_TARGET_16M = 16_000_000;
     uint256 internal constant GOAL_ID_BASE = 10_000;
+    uint256 internal constant PAGINATED_FLUSH_GOAL_COUNT = 16;
     uint256 internal constant TOKENS_PER_GOAL = 1e18;
     // Keep these aligned with the current CobuildSplitHook storage layout.
     uint256 internal constant OBSERVED_VOLUME_MAPPING_SLOT = 6;
 
     bytes32 internal constant SCENARIO_DIRECT_HISTORICAL = keccak256("direct_historical_goal_treasuries");
     bytes32 internal constant SCENARIO_PENDING_HISTORICAL = keccak256("pending_historical_beneficiary");
+    bytes32 internal constant SCENARIO_PAGINATED_BACKLOG = keccak256("paginated_historical_backlog_treasuries");
 
     event HistoricalRoutingGasMeasured(bytes32 indexed scenario, uint256 indexed goalCount, uint256 gasUsed);
     event HistoricalRoutingThresholdFound(
@@ -99,6 +101,34 @@ contract CobuildSplitHookGasProfileTest is Test {
         emit log_named_uint("pending_historical_route_gas_at_threshold", result.thresholdGasUsed);
         emit log_named_uint("pending_historical_route_last_safe_goal_count", result.lastSafeGoalCount);
         emit log_named_uint("pending_historical_route_gas_at_last_safe_count", result.lastSafeGasUsed);
+    }
+
+    function test_gasProfile_paginatedHistoricalBacklogFlush_staysBelow16mAt512Goals() public {
+        Scenario memory scenario = _deployHistoricalRoutingScenario(DEFAULT_MAX_GOAL_COUNT);
+        uint256 sourceAmount = DEFAULT_MAX_GOAL_COUNT * TOKENS_PER_GOAL;
+
+        vm.prank(scenario.routeSetter);
+        scenario.hook.beginPendingHistoricalRoute(scenario.beneficiary, scenario.beneficiary, sourceAmount);
+
+        scenario.token.mint(address(scenario.hook), sourceAmount);
+
+        vm.prank(scenario.controller);
+        scenario.hook.processSplitWith(_context(address(scenario.token), sourceAmount));
+
+        assertEq(scenario.hook.historicalBacklogAmount(), sourceAmount);
+
+        uint256 gasBefore = gasleft();
+        uint256 routedAmount = scenario.hook.flushHistoricalBacklog(PAGINATED_FLUSH_GOAL_COUNT);
+        uint256 gasUsed = gasBefore - gasleft();
+
+        _emitGasMeasurement(SCENARIO_PAGINATED_BACKLOG, DEFAULT_MAX_GOAL_COUNT, gasUsed);
+
+        assertEq(routedAmount, PAGINATED_FLUSH_GOAL_COUNT * TOKENS_PER_GOAL);
+        assertEq(
+            scenario.hook.historicalBacklogAmount(),
+            (DEFAULT_MAX_GOAL_COUNT - PAGINATED_FLUSH_GOAL_COUNT) * TOKENS_PER_GOAL
+        );
+        assertLt(gasUsed, GAS_TARGET_16M, "paginated backlog gas");
     }
 
     function profile_findFirstHistoricalRouteGoalCountOverTarget(
