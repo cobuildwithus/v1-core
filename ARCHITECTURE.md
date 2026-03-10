@@ -140,7 +140,9 @@ cobuild-protocol/
     - deploys the wrapper before hook initialization,
     - initializes `CobuildSplitHook` with the deployed wrapper as its fixed `routeSetter` in the same transaction.
   - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
-    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, then pays the configured community revnet.
+    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, pays the configured community
+    revnet, and synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created
+    reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - owner-backed system goals can be pinned/unpinned directly,
@@ -154,8 +156,12 @@ cobuild-protocol/
     routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes reserved community tokens into
     registry-selected child goals, records observed volume only from explicit routed pays, and derives all
     non-explicit routing from that explicit-only historical volume.
-  - Wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction, including
-    empty-metadata historical-default pays.
+  - Wrapper-routed community pays fail closed if the community already has pending reserved tokens before the wrapper pay,
+    so a user-selected route cannot capture earlier backlog.
+  - If the wrapper pay creates reserved tokens, the wrapper forces same-transaction split delivery and the pending route
+    must be consumed in that same transaction.
+  - If the wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
+    routing state behind.
   - Raw direct community pays use historical explicit-volume weights only and pay each child goal terminal with that
     goal's deployment-registry-provided treasury as beneficiary; those direct/defaulted flows must not mutate the
     historical routing signal.

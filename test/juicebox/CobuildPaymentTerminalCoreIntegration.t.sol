@@ -77,7 +77,6 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     }
 
     WrapperFixture internal wrapperFixture;
-    WrapperFixture internal fullReservedWrapperFixture;
     ManualFixture internal manualFixture;
 
     function setUp() public {
@@ -85,128 +84,79 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         controller = new AsyncReservedController(directory);
 
         wrapperFixture = _deployWrapperFixture(HALF_RESERVED_PERCENT);
-        fullReservedWrapperFixture = _deployWrapperFixture(FULL_RESERVED_PERCENT);
         manualFixture = _deployManualFixture(FULL_RESERVED_PERCENT);
     }
 
-    function test_wrapperExplicitRoute_revertsBecauseReservedSplitHookRunsLater() public {
-        uint256 amount = DIRECT_PAY_AMOUNT;
-        _mintCommunityTokens(wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, amount);
+    function test_wrapperExplicitRoute_fundsSelectedGoalsAndMintsCommunityTokensInSameTransaction() public {
+        uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
+        uint32[] memory weights = _weights(1, 3);
+        uint256 beneficiaryTokenCount = _payWrapper(
+            wrapperFixture, payer, DIRECT_PAY_AMOUNT, payer, "pick-goals", abi.encode(goalIds, weights)
+        );
+
+        assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
+        assertEq(wrapperFixture.communityToken.balanceOf(payer), DIRECT_PAY_AMOUNT / 2);
+        assertFalse(wrapperFixture.hook.hasPendingRoute());
+        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 5e18);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 15e18);
+        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), payer);
+        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), payer);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne), 5e18);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), 15e18);
+        assertEq(wrapperFixture.hook.cumulativeObservedVolume(), 20e18);
+    }
+
+    function test_wrapperHistoricalRoute_usesObservedHistoryAndFundsGoalsInSameTransaction() public {
+        _seedObservedHistoryForWrapperFixture(wrapperFixture, DIRECT_PAY_AMOUNT);
+        uint256 observedVolumeOneBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne);
+        uint256 observedVolumeTwoBefore = wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo);
+        uint256 cumulativeObservedBefore = wrapperFixture.hook.cumulativeObservedVolume();
+
+        uint256 beneficiaryTokenCount =
+            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "historical-route", bytes(""));
+
+        assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
+        assertEq(wrapperFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
+        assertFalse(wrapperFixture.hook.hasPendingRoute());
+        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
+        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 10e18);
+        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
+        assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), payerTwo);
+        assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), payerTwo);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdOne), observedVolumeOneBefore);
+        assertEq(wrapperFixture.hook.observedVolumeOf(wrapperFixture.goalIdTwo), observedVolumeTwoBefore);
+        assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
+    }
+
+    function test_wrapperExplicitRoute_revertsWhenPendingReservedTokensAlreadyExist() public {
+        _payCommunityDirect(
+            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+        );
 
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
+        _mintCommunityTokens(wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payerTwo, DIRECT_PAY_AMOUNT);
 
-        vm.startPrank(payer);
-        wrapperFixture.communityToken.approve(address(wrapperFixture.wrapper), amount);
-        vm.expectRevert(CobuildPaymentTerminal.ROUTE_NOT_CONSUMED.selector);
+        vm.startPrank(payerTwo);
+        wrapperFixture.communityToken.approve(address(wrapperFixture.wrapper), DIRECT_PAY_AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildPaymentTerminal.PENDING_RESERVED_TOKENS.selector, DIRECT_PAY_AMOUNT / 2)
+        );
         wrapperFixture.wrapper.pay(
             wrapperFixture.communityRevnetId,
             address(wrapperFixture.communityToken),
-            amount,
-            payer,
+            DIRECT_PAY_AMOUNT,
+            payerTwo,
             0,
             "pick-goals",
             abi.encode(goalIds, weights)
         );
         vm.stopPrank();
 
-        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
+        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 0);
         assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 0);
-    }
-
-    function test_wrapperHistoricalRoute_revertsBecauseReservedSplitHookRunsLater() public {
-        uint256 amount = DIRECT_PAY_AMOUNT;
-        _mintCommunityTokens(wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, amount);
-
-        vm.startPrank(payer);
-        wrapperFixture.communityToken.approve(address(wrapperFixture.wrapper), amount);
-        vm.expectRevert(CobuildPaymentTerminal.ROUTE_NOT_CONSUMED.selector);
-        wrapperFixture.wrapper.pay(
-            wrapperFixture.communityRevnetId,
-            address(wrapperFixture.communityToken),
-            amount,
-            payer,
-            0,
-            "historical-route",
-            bytes("")
-        );
-        vm.stopPrank();
-
-        assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
-        assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 0);
-        assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 0);
-    }
-
-    function test_wrapperHistoricalRouteWithFullReservedPercent_clearsPendingRoute_thenLaterDistributionReverts() public {
-        uint256 amount = DIRECT_PAY_AMOUNT;
-        _mintCommunityTokens(
-            fullReservedWrapperFixture.communityRevnetId, fullReservedWrapperFixture.communityToken, payer, amount
-        );
-
-        vm.startPrank(payer);
-        fullReservedWrapperFixture.communityToken.approve(address(fullReservedWrapperFixture.wrapper), amount);
-        uint256 beneficiaryTokenCount = fullReservedWrapperFixture.wrapper.pay(
-            fullReservedWrapperFixture.communityRevnetId,
-            address(fullReservedWrapperFixture.communityToken),
-            amount,
-            payer,
-            0,
-            "historical-route-full-reserved",
-            bytes("")
-        );
-        vm.stopPrank();
-
-        assertEq(beneficiaryTokenCount, 0);
-        assertFalse(fullReservedWrapperFixture.hook.hasPendingRoute());
-        assertEq(controller.pendingReservedTokenBalanceOf(fullReservedWrapperFixture.communityRevnetId), amount);
-        assertEq(fullReservedWrapperFixture.goalTerminalOne.totalReceived(), 0);
-        assertEq(fullReservedWrapperFixture.goalTerminalTwo.totalReceived(), 0);
-
-        vm.expectRevert(CobuildSplitHook.NO_ROUTE_AVAILABLE.selector);
-        controller.sendReservedTokensToSplitsOf(fullReservedWrapperFixture.communityRevnetId);
-
-        assertEq(controller.pendingReservedTokenBalanceOf(fullReservedWrapperFixture.communityRevnetId), amount);
-        assertEq(fullReservedWrapperFixture.goalTerminalOne.totalReceived(), 0);
-        assertEq(fullReservedWrapperFixture.goalTerminalTwo.totalReceived(), 0);
-    }
-
-    function test_wrapperHistoricalRouteWithFullReservedPercent_discardsSelectedRoute_thenFallsBackToOldTreasuryHistory()
-        public
-    {
-        _seedObservedHistoryForWrapperFixture(fullReservedWrapperFixture, ROUTE_SEED_AMOUNT);
-
-        uint256 amount = DIRECT_PAY_AMOUNT;
-        _mintCommunityTokens(
-            fullReservedWrapperFixture.communityRevnetId, fullReservedWrapperFixture.communityToken, payerTwo, amount
-        );
-
-        vm.startPrank(payerTwo);
-        fullReservedWrapperFixture.communityToken.approve(address(fullReservedWrapperFixture.wrapper), amount);
-        uint256 beneficiaryTokenCount = fullReservedWrapperFixture.wrapper.pay(
-            fullReservedWrapperFixture.communityRevnetId,
-            address(fullReservedWrapperFixture.communityToken),
-            amount,
-            payerTwo,
-            0,
-            "historical-route-full-reserved-with-history",
-            bytes("")
-        );
-        vm.stopPrank();
-
-        assertEq(beneficiaryTokenCount, 0);
-        assertFalse(fullReservedWrapperFixture.hook.hasPendingRoute());
-        assertEq(controller.pendingReservedTokenBalanceOf(fullReservedWrapperFixture.communityRevnetId), amount);
-        assertEq(fullReservedWrapperFixture.goalTerminalOne.totalReceived(), 25e18);
-        assertEq(fullReservedWrapperFixture.goalTerminalTwo.totalReceived(), 75e18);
-
-        controller.sendReservedTokensToSplitsOf(fullReservedWrapperFixture.communityRevnetId);
-
-        assertEq(controller.pendingReservedTokenBalanceOf(fullReservedWrapperFixture.communityRevnetId), 0);
-        assertEq(fullReservedWrapperFixture.goalTerminalOne.totalReceived(), 35e18);
-        assertEq(fullReservedWrapperFixture.goalTerminalTwo.totalReceived(), 105e18);
-        assertEq(fullReservedWrapperFixture.goalTerminalOne.lastBeneficiary(), address(fullReservedWrapperFixture.goalTreasuryOne));
-        assertEq(fullReservedWrapperFixture.goalTerminalTwo.lastBeneficiary(), address(fullReservedWrapperFixture.goalTreasuryTwo));
     }
 
     function test_directCommunityPayWithoutHistoricalRoute_laterDistributionReverts() public {
@@ -422,14 +372,10 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         controller.sendReservedTokensToSplitsOf(manualFixture.communityRevnetId);
     }
 
-    /// @dev Harness-only preseed representing observed history from an earlier reserved-token distribution.
-    /// It impersonates the configured route setter to isolate the later full-reserved wrapper behavior under async core semantics.
     function _seedObservedHistoryForWrapperFixture(WrapperFixture memory fixture, uint256 amount) internal {
-        _beginPendingRoute(
-            fixture.hook, address(fixture.wrapper), payer, routeBeneficiary, fixture.goalIdOne, fixture.goalIdTwo
-        );
-        _payCommunityDirect(fixture.communityTerminal, fixture.communityRevnetId, fixture.communityToken, payer, amount);
-        controller.sendReservedTokensToSplitsOf(fixture.communityRevnetId);
+        uint256[] memory goalIds = _goalIds(fixture.goalIdOne, fixture.goalIdTwo);
+        uint32[] memory weights = _weights(1, 3);
+        _payWrapper(fixture, payer, amount, routeBeneficiary, "seed-history", abi.encode(goalIds, weights));
     }
 
     function _beginPendingRoute(
@@ -445,6 +391,30 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(pendingPayer, beneficiary, goalIds, weights);
+    }
+
+    function _payWrapper(
+        WrapperFixture memory fixture,
+        address from,
+        uint256 amount,
+        address beneficiary,
+        string memory memo,
+        bytes memory metadata
+    ) internal returns (uint256 beneficiaryTokenCount) {
+        _mintCommunityTokens(fixture.communityRevnetId, fixture.communityToken, from, amount);
+
+        vm.startPrank(from);
+        fixture.communityToken.approve(address(fixture.wrapper), amount);
+        beneficiaryTokenCount = fixture.wrapper.pay(
+            fixture.communityRevnetId,
+            address(fixture.communityToken),
+            amount,
+            beneficiary,
+            0,
+            memo,
+            metadata
+        );
+        vm.stopPrank();
     }
 
     function _payCommunityDirect(

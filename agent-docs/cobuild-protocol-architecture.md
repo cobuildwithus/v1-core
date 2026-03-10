@@ -109,6 +109,11 @@ Community root routing
 - The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
   - empty metadata seeds a one-shot historical-default route for the same beneficiary.
+- Before seeding a new route, the wrapper requires the community controller's pending reserved-token balance to be zero.
+- After the community pay returns, if it created reserved tokens, the wrapper immediately calls
+  `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
+- If the community pay created no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
+  state behind.
 - `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
@@ -120,7 +125,8 @@ Community root routing
   - treasury identity is immutable per goal id.
 - `CobuildSplitHook` stores a fixed init-time contract `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
-- During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
+- During wrapper-routed community pays, reserved-token split delivery is forced synchronously by the wrapper through the
+  community controller's `sendReservedTokensToSplitsOf(...)` call.
 - `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into registry-selectable child
   goals by paying each goal's primary terminal for the community token.
 - Only explicit routed payments record observed per-goal volume.
@@ -201,6 +207,8 @@ Community root routing
     that update observed historical volume,
   - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
+  - wrapper-routed pays fail closed when preexisting pending reserved-token backlog would make the selected route unsafe
+    to apply,
   - goal membership is sourced from fixed init-time `CommunityGoalRegistry` state while treasury beneficiaries are
     sourced from fixed init-time `GoalDeploymentRegistry` state,
   - direct/defaulted routing uses canonical goal treasury beneficiaries rather than a global default beneficiary,

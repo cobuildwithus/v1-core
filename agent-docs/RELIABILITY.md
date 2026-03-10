@@ -59,8 +59,12 @@
 - Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
 
 7. Community wrapper/split-hook route handoff mismatch
-- Wrapper-routed community pays with explicit routes must fail closed when the pending route is not consumed in the same transaction.
-- Empty-metadata historical-default wrapper pays fail closed when the pending route remains unconsumed after a pay that returned nonzero beneficiary tokens; zero-beneficiary-token pays clear the unused pending route instead of reverting.
+- Wrapper-routed community pays must reject preexisting pending reserved-token backlog so a user-selected route cannot
+  capture earlier mints.
+- If a wrapper-routed pay creates reserved tokens, the wrapper must force `sendReservedTokensToSplitsOf(...)` in the
+  same transaction and fail closed if the pending route still is not consumed.
+- If a wrapper-routed pay creates no reserved tokens, the wrapper should clear the unused pending route instead of
+  leaving stale routing state behind.
 - Only explicit routed community pays should update historical routing volume; passive/defaulted flows must not make the default self-reinforcing.
 - Direct community pays with no usable historical route should revert instead of inferring a downstream route.
 - Direct community pays that do route should use each registry-listed goal's treasury as the downstream beneficiary sink.

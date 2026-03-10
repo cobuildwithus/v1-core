@@ -71,7 +71,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - deploys the wrapper before hook initialization so `routeSetter` can still be fixed at init time,
     - initializes the hook with the deployed wrapper as the fixed `routeSetter` in the same transaction.
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
-    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, and then pays the configured community revnet.
+    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, pays the configured community
+    revnet, and synchronously flushes reserved-token splits through the community controller when that pay created
+    reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - owner-backed system goals can be pinned/unpinned directly,
@@ -82,7 +84,11 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - Explicit routed community pays are the only community flows that record historical routing volume.
-  - Empty-metadata wrapper pays fail closed when the seeded historical/default route remains unconsumed after a pay that returned nonzero beneficiary tokens; if the pay returns zero beneficiary tokens, the wrapper clears the unused pending route instead of reverting.
+  - Wrapper-routed community pays fail closed when preexisting pending reserved-token backlog exists, so a new user
+    route cannot capture earlier backlog.
+  - If a wrapper-routed pay creates reserved tokens, the wrapper must force same-transaction split delivery and pending-route consumption.
+  - If a wrapper-routed pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving
+    stale routing state behind.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only into registry-selectable child goals, derives market-default routing from registry-selectable goals with observed explicit routed volume,
     uses each goal's deployment-registry-provided treasury sink for raw direct-pay fallback beneficiaries,

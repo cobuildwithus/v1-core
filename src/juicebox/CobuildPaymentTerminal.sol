@@ -7,6 +7,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
@@ -39,6 +40,8 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     error DEST_TERMINAL_IS_SELF();
     error ZERO_COBUILD_OUT();
     error ROUTE_NOT_CONSUMED();
+    error NO_CONTROLLER();
+    error PENDING_RESERVED_TOKENS(uint256 tokenCount);
 
     constructor(
         IJBDirectory directory,
@@ -216,6 +219,10 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     ) internal returns (uint256 beneficiaryTokenCount) {
         _requireSplitHookConfiguration();
 
+        IJBController controller = _controllerOf();
+        uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
+        if (pendingReservedTokenBalance != 0) revert PENDING_RESERVED_TOKENS(pendingReservedTokenBalance);
+
         IJBTerminal destinationTerminal = _destinationTerminalOf();
         bool hasExplicitRoute = goalIds.length != 0;
         if (hasExplicitRoute) {
@@ -239,15 +246,29 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         cobuildToken.forceApprove(address(destinationTerminal), 0);
 
         if (!SPLIT_HOOK.hasPendingRoute()) return beneficiaryTokenCount;
-        if (hasExplicitRoute || beneficiaryTokenCount != 0) revert ROUTE_NOT_CONSUMED();
 
-        SPLIT_HOOK.cancelPendingRoute();
+        pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID);
+        if (pendingReservedTokenBalance == 0) {
+            SPLIT_HOOK.cancelPendingRoute();
+            return beneficiaryTokenCount;
+        }
+
+        controller.sendReservedTokensToSplitsOf(COMMUNITY_REVNET_ID);
+        if (SPLIT_HOOK.hasPendingRoute()) revert ROUTE_NOT_CONSUMED();
     }
 
     function _destinationTerminalOf() internal view returns (IJBTerminal destinationTerminal) {
         destinationTerminal = DIRECTORY.primaryTerminalOf(COMMUNITY_REVNET_ID, COBUILD_TOKEN);
         if (address(destinationTerminal) == address(0)) revert NO_DEST_TERMINAL();
         if (address(destinationTerminal) == address(this)) revert DEST_TERMINAL_IS_SELF();
+    }
+
+    function _controllerOf() internal view returns (IJBController controller) {
+        address controllerAddress = address(DIRECTORY.controllerOf(COMMUNITY_REVNET_ID));
+        if (controllerAddress == address(0)) revert NO_CONTROLLER();
+        if (controllerAddress.code.length == 0) revert NOT_A_CONTRACT(controllerAddress);
+
+        controller = IJBController(controllerAddress);
     }
 
     function _requireSplitHookConfiguration() internal view {
