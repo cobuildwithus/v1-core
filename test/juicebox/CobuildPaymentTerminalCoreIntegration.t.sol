@@ -129,6 +129,29 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(wrapperFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
     }
 
+    function test_wrapperHistoricalRoute_withFullReservedMintPreservesBeneficiaryAndFlushesReservedTokens() public {
+        WrapperFixture memory fullReservedFixture = _deployWrapperFixture(FULL_RESERVED_PERCENT);
+        _seedObservedHistoryForWrapperFixture(fullReservedFixture, DIRECT_PAY_AMOUNT);
+        uint256 observedVolumeOneBefore = fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdOne);
+        uint256 observedVolumeTwoBefore = fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdTwo);
+        uint256 cumulativeObservedBefore = fullReservedFixture.hook.cumulativeObservedVolume();
+
+        uint256 beneficiaryTokenCount =
+            _payWrapper(fullReservedFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "historical-route", bytes(""));
+
+        assertEq(beneficiaryTokenCount, 0);
+        assertEq(fullReservedFixture.communityToken.balanceOf(payerTwo), 0);
+        assertFalse(fullReservedFixture.hook.hasPendingRoute());
+        assertEq(controller.pendingReservedTokenBalanceOf(fullReservedFixture.communityRevnetId), 0);
+        assertEq(fullReservedFixture.goalTerminalOne.totalReceived(), 20e18);
+        assertEq(fullReservedFixture.goalTerminalTwo.totalReceived(), 60e18);
+        assertEq(fullReservedFixture.goalTerminalOne.lastBeneficiary(), payerTwo);
+        assertEq(fullReservedFixture.goalTerminalTwo.lastBeneficiary(), payerTwo);
+        assertEq(fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdOne), observedVolumeOneBefore);
+        assertEq(fullReservedFixture.hook.observedVolumeOf(fullReservedFixture.goalIdTwo), observedVolumeTwoBefore);
+        assertEq(fullReservedFixture.hook.cumulativeObservedVolume(), cumulativeObservedBefore);
+    }
+
     function test_wrapperExplicitRoute_revertsWhenPendingReservedTokensAlreadyExist() public {
         _payCommunityDirect(
             wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
