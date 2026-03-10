@@ -138,6 +138,40 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.observedTotalVolume(), 0);
     }
 
+    function test_processSplitWith_prefersHistoricalRouteOverManualDefaultForPendingHistoricalRoute() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        hook.setDefaultRoute(_goalIds(), _weights(5, 1));
+
+        vm.prank(routeSetter);
+        hook.beginPendingHistoricalRoute(historicalBeneficiary, historicalBeneficiary);
+
+        communityToken.mint(address(hook), 60e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(60e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 120e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+    }
+
+    function test_processSplitWith_prefersHistoricalRouteOverManualDefaultForDirectPay() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        hook.setDefaultBeneficiary(historicalBeneficiary);
+        hook.setDefaultRoute(_goalIds(), _weights(5, 1));
+
+        communityToken.mint(address(hook), 60e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(60e18));
+
+        assertEq(goalTerminalOne.totalReceived(), 40e18);
+        assertEq(goalTerminalTwo.totalReceived(), 120e18);
+        assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
+        assertEq(goalTerminalTwo.lastBeneficiary(), historicalBeneficiary);
+    }
+
     function test_processSplitWith_escrowsDirectPayWithoutDefaultBeneficiaryEvenWhenHistoryExists() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 
@@ -183,6 +217,18 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.lastBeneficiary(), historicalBeneficiary);
 
         (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        assertEq(historicalGoalIds.length, 1);
+        assertEq(historicalGoalIds[0], GOAL_ID_ONE);
+        assertEq(historicalVolumes.length, 1);
+        assertEq(historicalVolumes[0], 25e18);
+    }
+
+    function test_historicalRoute_omitsGoalsWithoutPrimaryTerminal() public {
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(0)));
+
+        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+
         assertEq(historicalGoalIds.length, 1);
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
         assertEq(historicalVolumes.length, 1);

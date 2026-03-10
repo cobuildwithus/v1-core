@@ -14,8 +14,8 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
 
 /// @notice Terminal wrapper that lets a payer route the community revnet's reserved-token split into selected child goals.
-/// @dev The wrapper sets a one-shot pending route on `CobuildSplitHook` immediately before calling the community
-/// revnet's primary terminal. The downstream reserved-token split is expected to consume that route in the same tx.
+/// @dev The wrapper seeds either an explicit route or a historical-default route on `CobuildSplitHook` immediately
+/// before calling the community revnet's primary terminal.
 contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -221,6 +221,8 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
         bool hasExplicitRoute = goalIds.length != 0;
         if (hasExplicitRoute) {
             SPLIT_HOOK.beginPendingRoute(msg.sender, beneficiary, goalIds, weights);
+        } else {
+            SPLIT_HOOK.beginPendingHistoricalRoute(msg.sender, beneficiary);
         }
 
         cobuildToken.forceApprove(address(destinationTerminal), cobuildAmount);
@@ -237,7 +239,10 @@ contract CobuildPaymentTerminal is IJBTerminal, ReentrancyGuard {
 
         cobuildToken.forceApprove(address(destinationTerminal), 0);
 
-        if (hasExplicitRoute && SPLIT_HOOK.hasPendingRoute()) revert ROUTE_NOT_CONSUMED();
+        if (!SPLIT_HOOK.hasPendingRoute()) return beneficiaryTokenCount;
+        if (hasExplicitRoute || beneficiaryTokenCount != 0) revert ROUTE_NOT_CONSUMED();
+
+        SPLIT_HOOK.cancelPendingRoute();
     }
 
     function _destinationTerminalOf() internal view returns (IJBTerminal destinationTerminal) {

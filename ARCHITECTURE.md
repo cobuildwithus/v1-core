@@ -40,6 +40,7 @@ cobuild-protocol/
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`.
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`.
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
+- Optional treasury spend-policy modules: `src/goals/policies/*.sol`.
 - Goal stake vault: `src/goals/StakeVault.sol`.
 - Goal/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/slash math modules).
 - Allocation strategies:
@@ -80,14 +81,20 @@ cobuild-protocol/
 - Goal treasury min-raise lifecycle checks are balance-based (`superToken.balanceOf(flow)`), so direct flow transfers can satisfy activation thresholds.
 - Shared treasury mechanics are centralized in `TreasuryBase` for donation ingress, treasury balance reads, and flow-rate zeroing helpers; lifecycle policy remains treasury-specific.
 - Treasury flow-rate invariants are intentionally split:
-  - Goal treasury uses a spend-pattern target model (linear locked today) from treasury balance over remaining time.
-    Goal sync proactively caps linear targets with a buffer-derived liquidation-horizon bound when the target is currently
-    buffer-affordable, then applies best-effort writes (target, fallback bounded, then zero on persistent write failure).
-    Goal sync does not apply coverage-based speed clamping; it only returns zero target when the distribution pool has zero units.
-  - Budget treasury target is composite:
+  - Goal treasury uses legacy spend-pattern targeting when `spendPolicy == address(0)` and otherwise delegates target
+    math plus sync-mode selection to `ISpendPolicy`.
+    The legacy/default path remains linear spenddown from treasury balance over remaining time, with proactive
+    buffer-derived liquidation-horizon capping and best-effort writes (target, fallback bounded, then zero on
+    persistent write failure). Goal sync still does not apply coverage-based speed clamping; it only returns zero
+    target when the distribution pool has zero units.
+  - Budget treasury uses legacy trusted-incoming plus linear spenddown targeting when `spendPolicy == address(0)` and
+    otherwise delegates target math plus sync-mode selection to `ISpendPolicy`.
+    The legacy/default path remains:
     - trusted incoming component from parent member flow-rate (`max(parent.getMemberFlowRate(child), 0)`),
     - linear balance spenddown component (`treasuryBalance / timeRemaining`),
-    - total target is saturated to `int96.max` and applied with best-effort writes plus buffer-aware fallback semantics.
+    - total target saturated to `int96.max` and applied with capped best-effort writes.
+  - Policy context derives `totalRecipientUnits` from the treasury's own flow distribution pool, so policy-driven spend
+    can scale either with direct seat-holder weights or with direct child-budget weights depending on treasury topology.
 - Budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
   - cumulative exposure meter is `goalFlow.getTotalReceivedByMember(childFlow)`,
   - insured line is slashable first-loss principal `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`,
@@ -120,11 +127,14 @@ cobuild-protocol/
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
 - Community reserved-token routing is wrapper-seeded and split-driven:
   - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from `pay(...).metadata`,
-    sets a one-shot pending route on `CobuildSplitHook`, then pays the configured community revnet.
+    seeds either an explicit route or a historical-default route on `CobuildSplitHook`, then pays the configured community revnet.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, routes reserved community tokens into
-    approved child goals, falls back to a default route/default beneficiary when configured, and otherwise escrows
-    reserved tokens for later owner-directed sweep.
-  - Explicit wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction.
+    approved child goals, records observed volume only from explicit routed pays, derives historical default routing from
+    that explicit-only volume, falls back to a manual default route when configured, and otherwise escrows reserved tokens.
+  - Wrapper-routed community pays fail closed if the pending route is not consumed in the same transaction, including
+    empty-metadata historical-default pays.
+  - Raw direct community pays can only auto-route when `defaultBeneficiary` is configured; those direct/defaulted flows
+    must not mutate the historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.

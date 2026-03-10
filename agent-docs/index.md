@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-10 (community routing wrapper)
+Last verified: 2026-03-10 (community routing market defaults, spend-policy targeting)
 
 ## Purpose
 

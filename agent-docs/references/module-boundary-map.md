@@ -12,11 +12,11 @@
 
 ### Goals/treasury domain
 
-- Contracts: `src/goals/TreasuryBase.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, `src/goals/StakeVault.sol`, `src/goals/BudgetStakeLedger.sol`, `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`, `src/goals/UMATreasurySuccessResolver.sol`
+- Contracts: `src/goals/TreasuryBase.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, `src/goals/StakeVault.sol`, `src/goals/BudgetStakeLedger.sol`, `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`, `src/goals/UMATreasurySuccessResolver.sol`, `src/goals/policies/*.sol`
 - Libraries: `src/goals/library/*.sol`
 - Hook ingress: `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`
 - Community payment wrapper: `src/juicebox/CobuildPaymentTerminal.sol`
-- Interfaces: `src/interfaces/IGoalTreasury.sol`, `src/interfaces/IBudgetTreasury.sol`, `src/interfaces/IStakeVault.sol`, `src/interfaces/IBudgetStakeLedger.sol`, `src/interfaces/IPremiumEscrow.sol`, `src/interfaces/IUnderwriterSlasherRouter.sol`, `src/interfaces/ITreasuryAuthority.sol`
+- Interfaces: `src/interfaces/IGoalTreasury.sol`, `src/interfaces/IBudgetTreasury.sol`, `src/interfaces/ISpendPolicy.sol`, `src/interfaces/IStakeVault.sol`, `src/interfaces/IBudgetStakeLedger.sol`, `src/interfaces/IPremiumEscrow.sol`, `src/interfaces/IUnderwriterSlasherRouter.sol`, `src/interfaces/ITreasuryAuthority.sol`, `src/interfaces/ICobuildSplitHook.sol`
 
 ### TCR/arbitration domain
 

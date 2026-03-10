@@ -8,6 +8,7 @@ interface ICobuildSplitHook is IJBSplitHook {
         address payer;
         address beneficiary;
         uint64 createdAt;
+        bool usesHistoricalDefault;
         uint256[] goalIds;
         uint32[] weights;
     }
@@ -20,9 +21,15 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function defaultBeneficiary() external view returns (address);
 
+    function observedVolumeOf(uint256 goalId) external view returns (uint256);
+
+    function observedTotalVolume() external view returns (uint256);
+
     function approvedGoals() external view returns (uint256[] memory);
 
     function defaultRoute() external view returns (uint256[] memory goalIds, uint32[] memory weights);
+
+    function historicalRoute() external view returns (uint256[] memory goalIds, uint256[] memory volumes);
 
     function pendingRoute() external view returns (PendingRouteView memory);
 
@@ -34,6 +41,10 @@ interface ICobuildSplitHook is IJBSplitHook {
         uint256[] calldata goalIds,
         uint32[] calldata weights
     ) external;
+
+    function beginPendingHistoricalRoute(address payer, address beneficiary) external;
+
+    function cancelPendingRoute() external;
 
     function setRouteSetter(address routeSetter_) external;
 

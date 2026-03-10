@@ -33,6 +33,7 @@
 - `src/library/FlowRates.sol`
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
+- `src/goals/policies/*.sol`
 - `src/goals/StakeVault.sol`
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/UnderwriterSlasherRouter.sol`
@@ -47,6 +48,7 @@
 - Keep permission checks explicit at public entrypoints.
 - Avoid silent behavior changes in upgrade paths.
 - Preserve fail-safe behavior on transfer and callback failures.
+- Keep historical community-routing signal updates explicit-only; defaulted/passive flows must not mutate the route-selection signal.
 - Treat timestamp/state-machine edge conditions as high-risk and test accordingly.
 - In trusted core deployment paths, require canonical interfaces/selectors explicitly and fail fast if missing.
 - Do not add compatibility shims or selector-probe fallbacks for required dependencies; reserve probe/`try` patterns for explicitly optional integrations and document them.

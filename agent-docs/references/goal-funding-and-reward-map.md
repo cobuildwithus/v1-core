@@ -5,10 +5,13 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Community root routing path
 
 1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
-2. The wrapper optionally sets a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal.
+2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
+   - explicit metadata seeds an explicit per-payment route,
+   - empty metadata seeds a historical-default route for the same beneficiary.
 3. During the root revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
 4. The split hook consumes the pending route and forwards reserved community tokens into approved child goals by paying each goal's primary terminal for the community token.
-5. If no pending route exists, the split hook either uses a configured default route/default beneficiary or escrows the reserved community tokens for later sweep.
+5. Only explicit routed payments record observed per-goal volume; historical/defaulted routing follows that signal without reinforcing it.
+6. If no pending route exists, the split hook first tries the historical explicit-volume route for `defaultBeneficiary`, then a configured manual default route, and otherwise escrows the reserved community tokens for later sweep.
 
 ## Goal Funding Path
 
@@ -26,9 +29,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Goal Lifecycle Path
 
 1. Treasury begins in `Funding`.
-2. `sync()` handles both funding activation and active-state flow-rate updates using spend-pattern targeting (linear today) from treasury balance and remaining time:
-   - linear target is proactively guarded by buffer-aware liquidation-horizon constraints when currently affordable,
-   - write fallback ladder remains best-effort (target -> bounded fallback -> zero).
+2. `sync()` handles both funding activation and active-state flow-rate updates using either:
+   - legacy spend-pattern targeting (linear today) from treasury balance and remaining time when `spendPolicy == address(0)`, with buffer-aware liquidation-horizon guarding and best-effort fallback writes, or
+   - configured `ISpendPolicy` targeting/sync-mode selection using the treasury's own distribution-pool units as policy context.
 3. Success is assertion-backed and resolver-gated:
    - immutable `successResolver` controls assertion registration/clearing,
    - goal `resolveSuccess` is success-resolver-only and requires a pending truthful assertion,
@@ -48,10 +51,12 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 
 1. Parent funding enters each budget child flow from the goal flow recipient path.
 2. Budgets are deployed as child flows where the budget treasury is child `flowOperator`/`sweeper`, and manager reward stream is routed to per-budget `PremiumEscrow` at `budgetPremiumPpm`.
-3. Budget treasury active target flow-rate is trusted incoming plus balance spenddown:
-   - trusted incoming component: `max(parent.getMemberFlowRate(child), 0)`,
-   - spenddown component: `treasuryBalance / timeRemaining`,
-   - total target is the saturated sum of both components (`int96.max` cap).
+3. Budget treasury active target flow-rate is either:
+   - legacy trusted incoming plus balance spenddown when `spendPolicy == address(0)`:
+     - trusted incoming component: `max(parent.getMemberFlowRate(child), 0)`,
+     - spenddown component: `treasuryBalance / timeRemaining`,
+     - total target is the saturated sum of both components (`int96.max` cap), or
+   - configured `ISpendPolicy` targeting/sync-mode selection using the budget treasury's own distribution-pool units as policy context.
 4. Budget treasury is assertion-backed for success and controller-gated for manual failure (`resolveFailure`) under deadline constraints.
 5. Budget finalization is state-first, then best-effort side effects:
    - child outflow stop,
@@ -90,6 +95,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - `src/hooks/GoalRevnetSplitHook.sol`
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
+- `src/goals/policies/*.sol`
 - `src/goals/BudgetStakeLedger.sol`
 - `src/goals/StakeVault.sol`
 - `src/goals/PremiumEscrow.sol`

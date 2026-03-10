@@ -22,6 +22,7 @@
 
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
+- `src/goals/policies/*.sol`
 - `src/goals/StakeVault.sol`
 - `src/goals/BudgetStakeLedger.sol`
 - `src/goals/PremiumEscrow.sol`
@@ -44,19 +45,23 @@
 2. Treasury deadline/threshold edge conditions
 - Must avoid ambiguous activation/finalization outcomes at boundary timestamps.
 
-3. Hook/token conversion mismatch
+3. Spend-policy target/sync mismatch
+- Policy-selected target math and sync mode must preserve legacy behavior when unset and must not desynchronize applied outflow from treasury topology or buffer constraints.
+
+4. Hook/token conversion mismatch
 - Funding ingress should reject unsupported or inconsistent token/value combinations.
 
-4. Dispute/request timing races
+5. Dispute/request timing races
 - TCR challenge and timeout semantics should remain explicit and test-backed.
 
-5. Child-sync and premium-checkpoint downstream failures
+6. Child-sync and premium-checkpoint downstream failures
 - Parent allocation commits remain live when downstream child-sync calls fail; failures stay observable and permissionlessly repairable.
 - Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
 
-6. Community wrapper/split-hook route handoff mismatch
-- Explicit routed community pays must fail closed when the pending route is not consumed in the same transaction.
-- Direct community pays with no explicit/default route should escrow reserved tokens instead of inferring a downstream route.
+7. Community wrapper/split-hook route handoff mismatch
+- Wrapper-routed community pays, including empty-metadata historical-default pays, must fail closed when the pending route is not consumed in the same transaction.
+- Only explicit routed community pays should update historical routing volume; passive/defaulted flows must not make the default self-reinforcing.
+- Direct community pays with no usable historical route or manual default route should escrow reserved tokens instead of inferring a downstream route.
 
 ## Verification Matrix
 

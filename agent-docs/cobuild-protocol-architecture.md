@@ -31,6 +31,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`
+- Optional treasury spend-policy modules: `src/goals/policies/*.sol`
 - Stake and weight accounting: `src/goals/StakeVault.sol`
 - Underwriting premium/slash modules: `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
@@ -93,13 +94,18 @@ Community root routing
 - The wrapper accepts native ETH or COBUILD:
   - native ETH is first paid into the COBUILD revnet to acquire COBUILD,
   - direct COBUILD pays are forwarded without the intermediate conversion step.
-- The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)` and seeds a
-  one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal.
+- The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
+  - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
+  - empty metadata seeds a one-shot historical-default route for the same beneficiary.
 - During the community revnet pay, its reserved-token split calls `CobuildSplitHook.processSplitWith(...)`.
 - `CobuildSplitHook` consumes the pending route and forwards reserved community tokens into approved child goals by
   paying each goal's primary terminal for the community token.
+- Only explicit routed payments record observed per-goal volume.
+- Historical-default routing is derived from approved goals with non-zero observed explicit volume; passive/defaulted flow
+  follows that signal but does not update it.
 - If no pending route exists, the hook either:
-  - uses a configured default route plus default beneficiary, or
+  - uses the historical explicit-volume route for `defaultBeneficiary` when available,
+  - falls back to a configured manual default route plus default beneficiary, or
   - escrows the reserved community tokens for later owner-directed sweep.
 
 3. Goal treasury funding and resolution
@@ -109,8 +115,8 @@ Community root routing
   - `donateUnderlyingAndUpgrade(amount)` (auto-upgrade then transfer),
   - donation receipts are included in `totalRaised` (telemetry).
 - Goal treasury min-raise lifecycle gating is balance-based (`superToken.balanceOf(flow)`), not `totalRaised`, so direct flow inflows can satisfy activation.
-- Goal treasury target computation is spend-pattern driven (linear pattern locked at present).
-- For active linear spend-down, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable; write-time fallback behavior remains best-effort.
+- Goal treasury target computation uses legacy spend-pattern math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy` using the treasury's own distribution-pool units as policy context.
+- For active legacy linear spend-down, goal sync adds a proactive buffer-derived liquidation-horizon cap when the linear target is currently buffer-affordable; policy-configured sync mode can instead use capped writes.
 - Goal sync does not enforce coverage-based rate clamping; underwriting is enforced by budget recipient credit-line gating in `BudgetTCR.syncBudgetTreasuries`.
 - Goal sync still fail-safe guards empty distribution: when total distribution units are zero, target rate is zero.
 - Budget credit-line gating uses:
@@ -121,10 +127,11 @@ Community root routing
   - budget `executionDuration` does not increase insured principal; it only affects downstream treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` in `syncBudgetTreasuries`,
   - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
-- Budget treasury active target flow-rate is composite:
+- Budget treasury active target flow-rate uses legacy trusted-incoming plus balance-spenddown math when `spendPolicy == address(0)` and otherwise delegates to `ISpendPolicy` using the treasury's own distribution-pool units as policy context.
+- Legacy/default budget targeting remains:
   - trusted incoming from parent member flow (`max(parent.getMemberFlowRate(child), 0)`),
   - linear balance spenddown (`treasuryBalance / timeRemaining`),
-  - total target saturates at `int96.max`.
+  - total target saturated at `int96.max`.
 - Goal and budget treasuries share thin mechanics via `TreasuryBase` (donation ingress wrappers, treasury-balance reads, and flow-zero helper), while retaining separate lifecycle/economic policy logic.
 - Finalization path still triggers flow stop + residual settlement + stake-vault resolution.
 - Underwriting premium/slash routing is hard-cutover:
@@ -166,9 +173,11 @@ Community root routing
   - Closed nonterminal path defers split funds on treasury.
   - Terminal closed path applies treasury terminal settlement policy.
 - `CobuildSplitHook` is controller-gated and wrapper-seeded:
-  - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route,
-  - default routing requires both a `defaultRoute` and `defaultBeneficiary`,
-  - missing explicit/default route data fails closed to escrow rather than guessing downstream funding destinations.
+  - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route and are the only flows
+    that update observed historical volume,
+  - empty-metadata wrapper pays seed a one-shot historical-default route so beneficiary propagation is preserved,
+  - direct/defaulted routing requires `defaultBeneficiary`,
+  - missing explicit/historical/manual default data fails closed to escrow rather than guessing downstream funding destinations.
 
 4. Budget treasury lifecycle
 - Budget treasury uses live treasury balance (`superToken.balanceOf(flow)`) for activation/expiry checks.
