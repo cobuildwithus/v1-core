@@ -5,7 +5,9 @@ import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { ICommunityGoalRegistry } from "./interfaces/ICommunityGoalRegistry.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
+import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     struct InitConfig {
@@ -20,6 +22,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     struct GoalListing {
         string metadataURI;
         bool isSystem;
+        uint32 floorPpm;
         bool paused;
     }
 
@@ -31,10 +34,13 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     uint256 public override communityRevnetId;
     address public override communityToken;
     address public override owner;
+    uint32 public override totalSystemFloorPpm;
 
     mapping(uint256 goalId => GoalListing listing) private _goalListings;
     uint256[] private _listedGoalIds;
     mapping(uint256 goalId => uint256 indexPlusOne) private _listedGoalIndexPlusOne;
+    uint256[] private _systemGoalIds;
+    mapping(uint256 goalId => uint256 indexPlusOne) private _systemGoalIndexPlusOne;
 
     constructor() {
         _disableInitializers();
@@ -105,6 +111,18 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         }
     }
 
+    function systemRoute() external view override returns (uint256[] memory goalIds, uint32[] memory floorPpms) {
+        uint256 length = _systemGoalIds.length;
+        goalIds = new uint256[](length);
+        floorPpms = new uint32[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            uint256 goalId = _systemGoalIds[i];
+            goalIds[i] = goalId;
+            floorPpms[i] = _goalListings[goalId].floorPpm;
+        }
+    }
+
     function listingOf(uint256 goalId) external view override returns (GoalListingView memory listing) {
         GoalListing storage stored = _goalListings[goalId];
         bool listed = _isListedGoal(goalId);
@@ -113,6 +131,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
             itemId: listed ? _goalItemId(goalId) : bytes32(0),
             metadataURI: stored.metadataURI,
             isSystem: stored.isSystem,
+            floorPpm: stored.floorPpm,
             paused: stored.paused,
             selectable: _isSelectableGoal(goalId)
         });
@@ -126,18 +145,32 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         return _isSelectableGoal(goalId);
     }
 
-    function pinSystemGoal(uint256 goalId, string calldata metadataURI) external override onlyOwner {
+    function isSystemGoal(uint256 goalId) external view override returns (bool) {
+        return _systemGoalIndexPlusOne[goalId] != 0;
+    }
+
+    function pinSystemGoal(uint256 goalId, string calldata metadataURI, uint32 floorPpm) external override onlyOwner {
         _assertGoalCanExist(goalId);
+        if (floorPpm == 0 || floorPpm > FlowProtocolConstants.PPM_SCALE) revert INVALID_SYSTEM_FLOOR_PPM(floorPpm);
 
         GoalListing storage listing = _goalListings[goalId];
         bool listed = _isListedGoal(goalId);
         if (listed && !listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
+        uint32 previousFloorPpm = listed ? listing.floorPpm : 0;
 
         bytes32 itemId = _goalItemId(goalId);
         if (!listed && items[itemId].status != Status.Absent) revert GOAL_ALREADY_LISTED(goalId);
-        if (!listed) _addListedGoal(goalId);
 
-        _setListing(listing, metadataURI, true);
+        uint256 updatedTotalSystemFloorPpm = uint256(totalSystemFloorPpm) + floorPpm - previousFloorPpm;
+        if (updatedTotalSystemFloorPpm > FlowProtocolConstants.PPM_SCALE) {
+            revert TOTAL_SYSTEM_FLOOR_PPM_EXCEEDS_MAX(updatedTotalSystemFloorPpm);
+        }
+
+        if (!listed) _addListedGoal(goalId);
+        _addSystemGoal(goalId);
+        totalSystemFloorPpm = SafeCast.toUint32(updatedTotalSystemFloorPpm);
+
+        _setListing(listing, metadataURI, true, floorPpm);
 
         emit GoalPinned(goalId, metadataURI);
     }
@@ -147,7 +180,9 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (!_isListedGoal(goalId)) revert GOAL_NOT_LISTED(goalId);
         if (!listing.isSystem) revert GOAL_NOT_SYSTEM(goalId);
 
+        totalSystemFloorPpm -= listing.floorPpm;
         _removeListedGoal(goalId);
+        _removeSystemGoal(goalId);
         delete _goalListings[goalId];
 
         emit GoalUnpinned(goalId);
@@ -199,7 +234,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (listed && listing.isSystem) revert GOAL_ALREADY_LISTED(goalId);
         if (!listed) _addListedGoal(goalId);
 
-        _setListing(listing, data.metadataURI, false);
+        _setListing(listing, data.metadataURI, false, 0);
 
         emit GoalListed(itemID, goalId, data.metadataURI);
     }
@@ -270,13 +305,42 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         delete _listedGoalIndexPlusOne[goalId];
     }
 
+    function _addSystemGoal(uint256 goalId) internal {
+        if (_systemGoalIndexPlusOne[goalId] != 0) return;
+
+        _systemGoalIndexPlusOne[goalId] = _systemGoalIds.length + 1;
+        _systemGoalIds.push(goalId);
+    }
+
+    function _removeSystemGoal(uint256 goalId) internal {
+        uint256 indexPlusOne = _systemGoalIndexPlusOne[goalId];
+        if (indexPlusOne == 0) return;
+
+        uint256 removeIndex = indexPlusOne - 1;
+        uint256 lastIndex = _systemGoalIds.length - 1;
+        if (removeIndex != lastIndex) {
+            uint256 movedGoalId = _systemGoalIds[lastIndex];
+            _systemGoalIds[removeIndex] = movedGoalId;
+            _systemGoalIndexPlusOne[movedGoalId] = removeIndex + 1;
+        }
+
+        _systemGoalIds.pop();
+        delete _systemGoalIndexPlusOne[goalId];
+    }
+
     function _goalItemId(uint256 goalId) internal pure returns (bytes32) {
         return bytes32(uint256(goalId));
     }
 
-    function _setListing(GoalListing storage listing, string memory metadataURI, bool isSystem) internal {
+    function _setListing(
+        GoalListing storage listing,
+        string memory metadataURI,
+        bool isSystem,
+        uint32 floorPpm
+    ) internal {
         listing.metadataURI = metadataURI;
         listing.isSystem = isSystem;
+        listing.floorPpm = floorPpm;
         listing.paused = false;
     }
 }
