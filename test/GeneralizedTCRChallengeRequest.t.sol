@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import "test/GeneralizedTCR.t.sol";
+import { IEvidence } from "src/tcr/interfaces/IEvidence.sol";
 import { StdStorage, stdStorage } from "forge-std/StdStorage.sol";
 
 contract GeneralizedTCRChallengeRequestTest is GeneralizedTCRTestBase {
@@ -169,6 +170,29 @@ contract GeneralizedTCRChallengeRequestTest is GeneralizedTCRTestBase {
             false,
             IGeneralizedTCR.Status.RegistrationRequested
         );
+
+        vm.prank(challenger);
+        tcr.challengeRequest(itemID, "");
+    }
+
+    function test_challengeRequest_emits_dispute_with_request_index_and_challenger() public {
+        _approveAddItemCost(requester);
+        bytes memory item = abi.encodePacked("item-dispute-event");
+        vm.prank(requester);
+        bytes32 itemID = tcr.addItem(item);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        tcr.executeRequest(itemID);
+
+        _approveRemoveCost(requester);
+        vm.prank(requester);
+        tcr.removeItem(itemID, "");
+
+        _approveChallengeRemovalCost(challenger);
+        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(itemID, uint256(1))));
+
+        vm.expectEmit(true, true, true, true, address(tcr));
+        emit IEvidence.Dispute(IArbitrator(address(arb)), 1, 1, evidenceGroupID, itemID, 1, challenger);
 
         vm.prank(challenger);
         tcr.challengeRequest(itemID, "");

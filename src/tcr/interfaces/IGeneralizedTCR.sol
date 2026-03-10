@@ -165,8 +165,14 @@ interface IGeneralizedTCR {
      * @param _itemID The ID of the affected item
      * @param _requestIndex The index of the latest request
      * @param _requestType Whether it is a registration or a removal request
+     * @param _requester The canonical requester for this request cycle
      */
-    event RequestSubmitted(bytes32 indexed _itemID, uint256 indexed _requestIndex, Status indexed _requestType);
+    event RequestSubmitted(
+        bytes32 indexed _itemID,
+        uint256 indexed _requestIndex,
+        Status indexed _requestType,
+        address _requester
+    );
 
     /**
      * @notice Emitted when someone submits a request. This is useful to quickly find an item and request from an evidence event and vice-versa

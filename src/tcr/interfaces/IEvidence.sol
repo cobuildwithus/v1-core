@@ -6,6 +6,7 @@
 // With modifications by rocketman for the Nouns Flows project.
 // Changes:
 // - Added itemID to the Dispute event
+// - Added requestIndex and challenger to the Dispute event
 pragma solidity ^0.8.0;
 
 import { IArbitrator } from "./IArbitrator.sol";
@@ -43,12 +44,16 @@ interface IEvidence {
      * @param _metaEvidenceID Unique identifier of meta-evidence.
      * @param _evidenceGroupID Unique identifier of the evidence group that is linked to this dispute.
      * @param _itemID Unique identifier of the item that is linked to this dispute.
+     * @param _requestIndex The canonical request cycle index for the disputed item.
+     * @param _challenger The canonical challenger for this dispute.
      */
     event Dispute(
         IArbitrator indexed _arbitrator,
         uint256 indexed _disputeID,
         uint256 _metaEvidenceID,
         uint256 _evidenceGroupID,
-        bytes32 _itemID
+        bytes32 _itemID,
+        uint256 _requestIndex,
+        address _challenger
     );
 }

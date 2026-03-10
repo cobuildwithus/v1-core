@@ -3,9 +3,11 @@
 ## Request Lifecycle
 
 1. Add/remove request submitted in `GeneralizedTCR`.
+   - `RequestSubmitted` emits the canonical requester for the request cycle.
 2. Request deposits and arbitration cost snapshots are recorded.
 3. Challenge window allows dispute creation.
 4. If challenged, arbitrator dispute is created and linked back to item/request.
+   - `Dispute` emits the canonical request index and challenger so downstream consumers can resolve actor targeting from logs alone.
 
 ## Arbitration Lifecycle
 

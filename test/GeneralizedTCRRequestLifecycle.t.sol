@@ -4,6 +4,38 @@ pragma solidity ^0.8.34;
 import "test/GeneralizedTCR.t.sol";
 
 contract GeneralizedTCRRequestLifecycleTest is GeneralizedTCRTestBase {
+    function test_addItem_emits_request_submitted_with_requester() public {
+        _approveAddItemCost(requester);
+        bytes memory item = abi.encodePacked("item-request-submitted");
+        bytes32 itemID = keccak256(item);
+
+        vm.expectEmit(true, true, true, true, address(tcr));
+        emit IGeneralizedTCR.RequestSubmitted(itemID, 0, IGeneralizedTCR.Status.RegistrationRequested, requester);
+
+        vm.prank(requester);
+        tcr.addItem(item);
+    }
+
+    function test_removeItem_emits_request_submitted_with_requester() public {
+        _approveAddItemCost(requester);
+        bytes memory item = abi.encodePacked("item-remove-request-submitted");
+        vm.prank(requester);
+        bytes32 itemID = tcr.addItem(item);
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        tcr.executeRequest(itemID);
+
+        address remover = makeAddr("remover");
+        token.mint(remover, 1_000_000e18);
+        _approveRemoveCost(remover);
+
+        vm.expectEmit(true, true, true, true, address(tcr));
+        emit IGeneralizedTCR.RequestSubmitted(itemID, 1, IGeneralizedTCR.Status.ClearingRequested, remover);
+
+        vm.prank(remover);
+        tcr.removeItem(itemID, "");
+    }
+
     function test_getRequestState_returnsNone_forMissingRequest() public view {
         (
             IGeneralizedTCR.RequestPhase phase,

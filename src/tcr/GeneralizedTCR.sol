@@ -178,7 +178,8 @@ abstract contract GeneralizedTCR is
             revert ITEM_MUST_HAVE_PENDING_REQUEST();
         }
 
-        Request storage request = item.requests[item.requests.length - 1];
+        uint256 requestIndex = item.requests.length - 1;
+        Request storage request = item.requests[requestIndex];
         uint256 challengePeriod = request.challengePeriodDuration;
         if (block.timestamp - request.submissionTime > challengePeriod) {
             revert CHALLENGE_MUST_BE_WITHIN_TIME_LIMIT();
@@ -212,10 +213,18 @@ abstract contract GeneralizedTCR is
         request.disputed = true;
         round.feeRewards = round.feeRewards.subCap(arbitrationCost);
 
-        emit ItemStatusChange(_itemID, item.requests.length - 1, 0, request.disputed, false, item.status);
+        emit ItemStatusChange(_itemID, requestIndex, 0, request.disputed, false, item.status);
 
-        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(_itemID, item.requests.length - 1)));
-        emit Dispute(request.arbitrator, request.disputeID, request.metaEvidenceID, evidenceGroupID, _itemID);
+        uint256 evidenceGroupID = uint256(keccak256(abi.encodePacked(_itemID, requestIndex)));
+        emit Dispute(
+            request.arbitrator,
+            request.disputeID,
+            request.metaEvidenceID,
+            evidenceGroupID,
+            _itemID,
+            requestIndex,
+            msg.sender
+        );
 
         if (bytes(_evidence).length > 0) {
             emit Evidence(request.arbitrator, evidenceGroupID, msg.sender, _evidence);
@@ -428,7 +437,7 @@ abstract contract GeneralizedTCR is
             false,
             item.status
         );
-        emit RequestSubmitted(_itemID, openResult.requestIndex, item.status);
+        emit RequestSubmitted(_itemID, openResult.requestIndex, item.status, msg.sender);
         emit RequestEvidenceGroupID(_itemID, openResult.requestIndex, openResult.evidenceGroupID);
     }
 
