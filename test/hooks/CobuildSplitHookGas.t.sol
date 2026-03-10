@@ -12,6 +12,7 @@ import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.so
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
 import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 
@@ -262,7 +263,7 @@ contract CobuildSplitHookGasProfileTest is Test {
             projectId: COMMUNITY_REVNET_ID,
             groupId: RESERVED_TOKENS_GROUP_ID,
             split: JBSplit({
-                percent: 0,
+                percent: JBConstants.SPLITS_TOTAL_PERCENT,
                 projectId: 0,
                 beneficiary: payable(address(0)),
                 preferAddToBalance: false,

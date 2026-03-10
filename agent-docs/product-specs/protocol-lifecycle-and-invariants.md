@@ -87,6 +87,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Wrapper-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
     pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
     historical flushing so a new user route cannot capture earlier backlog.
+  - `CobuildSplitHook` only accepts controller callbacks whose split percent is the full reserved-token bucket
+    (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because pending-route/backlog
+    accounting assumes one coherent callback bucket.
   - If a wrapper-routed pay creates reserved tokens, the wrapper must force same-transaction split delivery and
     pending-route consumption for that newly created delta.
   - If a wrapper-routed pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving

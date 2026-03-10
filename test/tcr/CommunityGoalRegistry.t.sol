@@ -179,6 +179,29 @@ contract CommunityGoalRegistryTest is Test {
         assertTrue(registry.isSelectable(GOAL_ID_ONE));
     }
 
+    function test_isSelectable_returnsFalseWhenPrimaryTerminalHasNoCode() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        address noCodeTerminal = makeAddr("no-code-terminal");
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(noCodeTerminal));
+
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        uint256[] memory selectableGoalIds = registry.selectableGoalIds();
+        assertEq(selectableGoalIds.length, 0);
+    }
+
+    function test_pinSystemGoal_revertsWhenPrimaryTerminalHasNoCode() public {
+        address noCodeTerminal = makeAddr("no-code-terminal");
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(noCodeTerminal));
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_TERMINAL_NOT_CONFIGURED.selector, GOAL_ID_ONE)
+        );
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal");
+    }
+
     function test_pinSystemGoal_revertsWhenGoalAlreadyHasPendingTcrRequest() public {
         bytes memory item = _goalItem(GOAL_ID_ONE, "ipfs://goal-one");
 

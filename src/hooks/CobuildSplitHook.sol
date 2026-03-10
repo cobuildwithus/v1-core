@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import { IJBSplitHook } from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -30,6 +31,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error INVALID_SOURCE_TOKEN(address expectedToken, address actualToken);
     error INVALID_DIRECTORY(address expectedDirectory, address actualDirectory);
     error INVALID_SPLIT_GROUP(uint256 expectedGroupId, uint256 actualGroupId);
+    error INVALID_SPLIT_PERCENT(uint256 expectedPercent, uint256 actualPercent);
     error INVALID_ROUTE_LENGTHS(uint256 goalIdsLength, uint256 weightsLength);
     error INVALID_ROUTE_WEIGHT(uint256 index);
     error DUPLICATE_GOAL(uint256 goalId);
@@ -40,6 +42,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error NO_PENDING_ROUTE();
     error INVALID_BACKLOG_SNAPSHOT(uint256 backlogTokenCount, uint256 sourceAmount);
     error NO_GOAL_TERMINAL(uint256 goalId);
+    error GOAL_PAYMENT_OUTFLOW_MISMATCH(uint256 goalId, uint256 expectedAmount, uint256 actualAmount);
     error NATIVE_VALUE_MISMATCH(uint256 expected, uint256 actual);
     error INSUFFICIENT_HOOK_BALANCE(address token, uint256 expected, uint256 available);
 
@@ -275,6 +278,9 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         if (context.groupId != RESERVED_TOKENS_GROUP_ID) {
             revert INVALID_SPLIT_GROUP(RESERVED_TOKENS_GROUP_ID, context.groupId);
         }
+        if (context.split.percent != JBConstants.SPLITS_TOTAL_PERCENT) {
+            revert INVALID_SPLIT_PERCENT(JBConstants.SPLITS_TOTAL_PERCENT, context.split.percent);
+        }
         if (msg.value != 0) revert NATIVE_VALUE_MISMATCH(0, msg.value);
         if (msg.sender != address(directory.controllerOf(context.projectId))) revert UNAUTHORIZED();
 
@@ -345,13 +351,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 remaining = route.sourceAmount;
 
         for (uint256 i = 0; i < route.goalIds.length; i++) {
-            uint256 amountForGoal;
-            if (i + 1 == route.goalIds.length) {
-                amountForGoal = remaining;
-            } else {
-                amountForGoal = (route.sourceAmount * uint256(route.weights[i])) / totalWeight;
-                remaining -= amountForGoal;
-            }
+            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
+                route.sourceAmount,
+                route.weights[i],
+                totalWeight,
+                remaining,
+                i,
+                route.goalIds.length
+            );
+            remaining = nextRemaining;
             if (amountForGoal == 0) continue;
 
             uint256 goalId = route.goalIds[i];
@@ -376,13 +384,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
         uint256 remaining = sourceAmount;
         for (uint256 i = 0; i < goalIds.length; i++) {
-            uint256 amountForGoal;
-            if (i + 1 == goalIds.length) {
-                amountForGoal = remaining;
-            } else {
-                amountForGoal = (sourceAmount * volumes[i]) / totalHistoricalVolume;
-                remaining -= amountForGoal;
-            }
+            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
+                sourceAmount,
+                volumes[i],
+                totalHistoricalVolume,
+                remaining,
+                i,
+                goalIds.length
+            );
+            remaining = nextRemaining;
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
@@ -405,13 +415,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
         uint256 remaining = sourceAmount;
         for (uint256 i = 0; i < goalIds.length; i++) {
-            uint256 amountForGoal;
-            if (i + 1 == goalIds.length) {
-                amountForGoal = remaining;
-            } else {
-                amountForGoal = (sourceAmount * volumes[i]) / totalHistoricalVolume;
-                remaining -= amountForGoal;
-            }
+            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
+                sourceAmount,
+                volumes[i],
+                totalHistoricalVolume,
+                remaining,
+                i,
+                goalIds.length
+            );
+            remaining = nextRemaining;
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
@@ -431,12 +443,17 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         address beneficiary,
         bool fromPendingRoute
     ) internal {
-        address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
-        if (terminalAddress == address(0)) revert NO_GOAL_TERMINAL(goalId);
+        IJBTerminal terminal = _goalTerminalOf(goalId);
+        address terminalAddress = address(terminal);
+        uint256 hookBalanceBefore = token.balanceOf(address(this));
 
         token.forceApprove(terminalAddress, amount);
-        IJBTerminal(terminalAddress).pay(goalId, communityToken, amount, beneficiary, 0, "", bytes(""));
+        terminal.pay(goalId, communityToken, amount, beneficiary, 0, "", bytes(""));
         token.forceApprove(terminalAddress, 0);
+
+        uint256 hookBalanceAfter = token.balanceOf(address(this));
+        uint256 actualOutflow = hookBalanceBefore > hookBalanceAfter ? hookBalanceBefore - hookBalanceAfter : 0;
+        if (actualOutflow != amount) revert GOAL_PAYMENT_OUTFLOW_MISMATCH(goalId, amount, actualOutflow);
 
         emit GoalRouted(beneficiary, goalId, communityToken, amount, fromPendingRoute);
     }
@@ -447,13 +464,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 updatedCumulativeObservedVolume = cumulativeObservedVolume;
 
         for (uint256 i = 0; i < goalIds.length; i++) {
-            uint256 amountForGoal;
-            if (i + 1 == goalIds.length) {
-                amountForGoal = remaining;
-            } else {
-                amountForGoal = (sourceAmount * uint256(weights[i])) / totalWeight;
-                remaining -= amountForGoal;
-            }
+            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
+                sourceAmount,
+                weights[i],
+                totalWeight,
+                remaining,
+                i,
+                goalIds.length
+            );
+            remaining = nextRemaining;
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
@@ -502,12 +521,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         if (totalWeight == 0) revert NO_ROUTE_AVAILABLE();
     }
 
-    function _sumVolumes(uint256[] memory volumes) internal pure returns (uint256 totalVolume) {
-        for (uint256 i = 0; i < volumes.length; i++) {
-            totalVolume += volumes[i];
-        }
-    }
-
     function _historicalRoute() internal view returns (uint256[] memory goalIds, uint256[] memory volumes) {
         uint256[] memory selectableIds = _goalRegistry.selectableGoalIds();
         uint256 selectableLength = selectableIds.length;
@@ -540,8 +553,31 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         (goalIds, volumes) = _historicalRoute();
         if (goalIds.length == 0) return (goalIds, volumes, 0);
 
-        totalHistoricalVolume = _sumVolumes(volumes);
-        if (totalHistoricalVolume == 0) return (goalIds, volumes, 0);
+        for (uint256 i = 0; i < volumes.length; i++) {
+            totalHistoricalVolume += volumes[i];
+        }
+    }
+
+    function _allocatedAmountForShare(
+        uint256 sourceAmount,
+        uint256 share,
+        uint256 totalShare,
+        uint256 remaining,
+        uint256 index,
+        uint256 itemCount
+    ) internal pure returns (uint256 amountForGoal, uint256 nextRemaining) {
+        if (index + 1 == itemCount) return (remaining, 0);
+
+        amountForGoal = (sourceAmount * share) / totalShare;
+        nextRemaining = remaining - amountForGoal;
+    }
+
+    function _goalTerminalOf(uint256 goalId) internal view returns (IJBTerminal terminal) {
+        address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
+        if (terminalAddress == address(0)) revert NO_GOAL_TERMINAL(goalId);
+        if (terminalAddress.code.length == 0) revert NOT_A_CONTRACT(terminalAddress);
+
+        terminal = IJBTerminal(terminalAddress);
     }
 
     function _replaceStorageRoute(

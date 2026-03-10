@@ -761,7 +761,7 @@ contract CobuildSplitHookMockGoalRegistry {
 
     function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
         address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
-        return _isSelectable[goalId] && terminalAddress != address(0) && terminalAddress.code.length != 0;
+        return _isSelectable[goalId] && terminalAddress.code.length != 0;
     }
 
     function _removeGoal(uint256 goalId) internal {

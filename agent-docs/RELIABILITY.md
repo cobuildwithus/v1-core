@@ -61,6 +61,8 @@
 7. Community wrapper/split-hook route handoff mismatch
 - Wrapper-routed community pays must snapshot preexisting pending reserved-token backlog so a user-selected route only
   captures the current pay's newly created reserved-token delta.
+- `CobuildSplitHook` must only receive the full reserved-token split bucket; fractional split callbacks should revert
+  instead of being treated as coherent backlog/new-delta accounting input.
 - If a wrapper-routed pay creates reserved tokens, the wrapper must force `sendReservedTokensToSplitsOf(...)` in the
   same transaction and fail closed only if the pending route still is not consumed after routing the current pay's new
   delta.

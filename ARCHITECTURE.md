@@ -158,6 +158,9 @@ cobuild-protocol/
     non-explicit routing from that explicit-only historical volume.
   - Wrapper-routed community pays fail closed if the community already has pending reserved tokens before the wrapper pay,
     so a user-selected route cannot capture earlier backlog.
+  - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
+    (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because the hook backlog-snapshot
+    math assumes one coherent bucket.
   - If the wrapper pay creates reserved tokens, the wrapper forces same-transaction split delivery and the pending route
     must be consumed in that same transaction.
   - If the wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving stale

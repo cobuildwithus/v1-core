@@ -227,7 +227,8 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     }
 
     function _goalHasPrimaryTerminal(uint256 goalId) internal view returns (bool) {
-        return address(directory.primaryTerminalOf(goalId, communityToken)) != address(0);
+        address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
+        return terminalAddress.code.length != 0;
     }
 
     function _isRegisteredGoal(uint256 goalId) internal view returns (bool) {
