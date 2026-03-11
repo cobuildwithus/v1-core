@@ -72,7 +72,11 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function prepareBudgetStack(address, address, address) external returns (PreparationResult memory result) {
         result = PreparationResult({
-            strategy: strategy, budgetTreasury: preparedBudgetTreasury, premiumEscrow: premiumEscrow
+            strategy: strategy,
+            budgetTreasury: preparedBudgetTreasury,
+            premiumEscrow: premiumEscrow,
+            childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
+            allocationMechanism: address(0)
         });
     }
 
@@ -98,6 +102,17 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     function emitBudgetStackDeployed(bytes32, address, address, address, address) external {}
 
     function emitBudgetAllocationMechanismDeployed(bytes32, address, address, address) external {}
+
+    function stackModuleConfig() external pure returns (StackModuleConfig memory config) {
+        config = StackModuleConfig({
+            childFlowStrategyMode: ChildFlowStrategyMode.Fixed,
+            childFlowStrategyTarget: address(0x2222222222222222222222222222222222222222),
+            mechanismLayerMode: MechanismLayerMode.None,
+            childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
+            premiumEscrowImplementation: address(0x4444444444444444444444444444444444444444),
+            requireZeroPremiumAndSlashRates: false
+        });
+    }
 
     function roundFactory() external view returns (address) {
         return _roundFactory;
@@ -237,6 +252,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),

@@ -26,6 +26,7 @@ import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRout
 
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
@@ -287,6 +288,31 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         assertTrue(goalFlow.recipientEnabled(itemID));
     }
 
+    function test_syncBudgetTreasuries_usesCustomBudgetGatePolicy_andContinuesTreasurySyncAfterPolicyRevert() public {
+        BudgetTCRRevertingGatePolicy gatePolicy = new BudgetTCRRevertingGatePolicy();
+        BudgetTCR customBudgetTcr = _deployBudgetTcrWithGatePolicy(address(gatePolicy));
+        bytes32 itemID = _registerDefaultListing(customBudgetTcr);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "POLICY_REVERT");
+
+        goalFlow.setRecipientEnabledState(itemID, true);
+
+        vm.expectEmit(true, true, true, true, address(customBudgetTcr));
+        emit BudgetCreditCapEnforcementFailed(
+            itemID, budgetTreasury, address(gatePolicy), IBudgetGatePolicy.evaluateBudgetGate.selector, reason
+        );
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = customBudgetTcr.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertTrue(goalFlow.recipientEnabled(itemID));
+    }
+
     function test_syncBudgetTreasuries_enforcesCreditCapBeforeBudgetSync() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -400,34 +426,57 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     }
 
     function _approveAddCost(address who) internal returns (uint256 addCost) {
-        (addCost,,,,) = budgetTcr.getTotalCosts();
+        return _approveAddCost(budgetTcr, who);
+    }
+
+    function _approveAddCost(BudgetTCR controller, address who) internal returns (uint256 addCost) {
+        (addCost,,,,) = controller.getTotalCosts();
         vm.prank(who);
-        depositToken.approve(address(budgetTcr), addCost);
+        depositToken.approve(address(controller), addCost);
     }
 
     function _registerDefaultListing() internal returns (bytes32 itemID) {
-        _approveAddCost(requester);
-        itemID = _submitListing(requester, _defaultListing());
+        return _registerDefaultListing(budgetTcr);
+    }
+
+    function _registerDefaultListing(BudgetTCR controller) internal returns (bytes32 itemID) {
+        _approveAddCost(controller, requester);
+        itemID = _submitListing(controller, requester, _defaultListing());
         _warpRoll(block.timestamp + challengePeriodDuration + 1);
-        budgetTcr.executeRequest(itemID);
-        assertTrue(budgetTcr.isRegistrationPending(itemID));
-        budgetTcr.activateRegisteredBudget(itemID);
-        budgetTcr.withdrawFeesAndRewards(requester, itemID, 0, 0);
+        controller.executeRequest(itemID);
+        assertTrue(controller.isRegistrationPending(itemID));
+        controller.activateRegisteredBudget(itemID);
+        controller.withdrawFeesAndRewards(requester, itemID, 0, 0);
     }
 
     function _submitListing(address submitter, IBudgetTCR.BudgetListing memory listing)
         internal
         returns (bytes32 itemID)
     {
+        return _submitListing(budgetTcr, submitter, listing);
+    }
+
+    function _submitListing(BudgetTCR controller, address submitter, IBudgetTCR.BudgetListing memory listing)
+        internal
+        returns (bytes32 itemID)
+    {
         vm.prank(submitter);
-        itemID = budgetTcr.addItem(abi.encode(listing));
+        itemID = controller.addItem(abi.encode(listing));
     }
 
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
+        return _defaultRegistryConfig(IArbitrator(address(arbitrator)));
+    }
+
+    function _defaultRegistryConfig(IArbitrator arbitrator_)
+        internal
+        view
+        returns (IBudgetTCR.InitConfig memory registryConfig)
+    {
         registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
             tcrConfig: IGeneralizedTCRConfig.RegistryConfig({
-                arbitrator: IArbitrator(address(arbitrator)),
+                arbitrator: arbitrator_,
                 votingToken: IVotes(address(depositToken)),
                 submissionDepositStrategy: submissionDepositStrategy,
                 registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
@@ -449,6 +498,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -471,6 +521,28 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
+    }
+
+    function _deployBudgetTcrWithGatePolicy(address gatePolicy) internal returns (BudgetTCR customBudgetTcr) {
+        BudgetTCR tcrImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+
+        address tcrInstance = _deployProxy(address(tcrImpl), "");
+        address customStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetTCRDeployer(customStackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
+
+        bytes memory arbInit = _defaultArbitratorInitData(
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
+        address arbProxy = _deployProxy(address(arbImpl), arbInit);
+
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig();
+        deploymentConfig.stackDeployer = customStackDeployer;
+        deploymentConfig.budgetGatePolicy = gatePolicy;
+
+        customBudgetTcr = BudgetTCR(tcrInstance);
+        customBudgetTcr.initialize(_defaultRegistryConfig(IArbitrator(arbProxy)), deploymentConfig);
+        goalFlow.setRecipientAdmin(address(customBudgetTcr));
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
@@ -543,5 +615,18 @@ contract BudgetTCRCreditLineGoalFlow is MockGoalFlowForBudgetTCR {
 
     function recipientEnabled(bytes32 recipientId) external view returns (bool) {
         return _recipientEnabled[recipientId];
+    }
+}
+
+contract BudgetTCRRevertingGatePolicy is IBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata context) external pure returns (SyncResult memory result) {
+        if (
+            context.itemID == bytes32(0) && address(context.goalFlow) == address(0) && context.childFlow == address(0)
+                && context.budgetTreasury == address(0) && context.coverageSource == address(0)
+                && context.coverageToCreditPpm == 0
+        ) {
+            return result;
+        }
+        revert("POLICY_REVERT");
     }
 }

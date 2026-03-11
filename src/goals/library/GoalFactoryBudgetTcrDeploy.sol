@@ -69,6 +69,7 @@ library GoalFactoryBudgetTcrDeploy {
             stackDeployer: address(0),
             budgetSuccessResolver: request.budgetSuccessResolver,
             budgetSpendPolicy: request.budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: request.goalFlow,
             goalTreasury: request.goalTreasury,
             goalToken: IERC20(request.goalToken),

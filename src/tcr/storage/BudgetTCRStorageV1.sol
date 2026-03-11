@@ -30,6 +30,7 @@ contract BudgetTCRStorageV1 {
 
     address public stackDeployer;
     address public premiumEscrowImplementation;
+    address internal _budgetGatePolicy;
     address public underwriterSlasherRouter;
     uint32 public budgetPremiumPpm;
     uint32 public budgetSlashPpm;
@@ -48,5 +49,9 @@ contract BudgetTCRStorageV1 {
 
     function budgetSpendPolicy() public view virtual returns (address policy) {
         policy = _budgetSpendPolicy;
+    }
+
+    function budgetGatePolicy() public view virtual returns (address policy) {
+        policy = _budgetGatePolicy;
     }
 }

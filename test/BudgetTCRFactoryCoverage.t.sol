@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
-import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
-import { ISubmissionDepositStrategyCapabilities } from "src/tcr/interfaces/ISubmissionDepositStrategyCapabilities.sol";
-import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
-import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {JurorSlasherRouter} from "src/goals/JurorSlasherRouter.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {ISubmissionDepositStrategyCapabilities} from "src/tcr/interfaces/ISubmissionDepositStrategyCapabilities.sol";
+import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
+import {IArbitrable} from "src/tcr/interfaces/IArbitrable.sol";
+import {IFlow} from "src/interfaces/IFlow.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
 import {
     _MockImplementation,
@@ -34,12 +34,12 @@ import {
     _MockStakeVaultForFactory,
     _MockUnderwriterSlasherRouterForFactory
 } from "test/BudgetTCRFactory.t.sol";
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
@@ -75,15 +75,14 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         IArbitrator.ArbitratorParams memory arbitratorParams;
 
         vm.prank(unauthorizedCaller);
-        vm.expectRevert(
-            abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER.selector, unauthorizedCaller)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_CALLER.selector, unauthorizedCaller));
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, arbitratorParams);
     }
 
     function test_deployBudgetTCRStackForGoal_revertsOnZeroRegistryInputs() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory =
+            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -123,7 +122,8 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
 
     function test_deployBudgetTCRStackForGoal_revertsWhenGoalTreasuryStakeVaultIsZero() public {
         (address budgetImpl, address arbImpl, address deployerImpl) = _validMockImplementations();
-        BudgetTCRFactory factory = new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
+        BudgetTCRFactory factory =
+            new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, address(this), DEFAULT_ESCROW_BOND_BPS);
 
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
@@ -216,7 +216,9 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
 
-        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(
+            BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit
+        );
         assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
         assertEq(
             BudgetTCR(deployed.budgetTCR).submissionChallengeBaseDeposit(),
@@ -250,7 +252,9 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
 
-        assertEq(BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit);
+        assertEq(
+            BudgetTCR(deployed.budgetTCR).submissionBaseDeposit(), registryConfig.registryPolicy.submissionBaseDeposit
+        );
         assertEq(BudgetTCR(deployed.budgetTCR).removalBaseDeposit(), registryConfig.registryPolicy.removalBaseDeposit);
         assertEq(
             BudgetTCR(deployed.budgetTCR).submissionChallengeBaseDeposit(),
@@ -298,10 +302,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         c = address(new _MockImplementation());
     }
 
-    function _defaultRegistryConfig(
-        IVotes votingToken,
-        ISubmissionDepositStrategy strategy
-    )
+    function _defaultRegistryConfig(IVotes votingToken, ISubmissionDepositStrategy strategy)
         internal
         returns (BudgetTCRFactory.RegistryConfigInput memory registryConfig)
     {
@@ -341,16 +342,14 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         IGoalTreasury goalTreasury,
         IERC20 goalToken,
         IERC20 cobuildToken
-    )
-        internal
-        returns (IBudgetTCR.DeploymentConfig memory deploymentConfig)
-    {
+    ) internal returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         IStakeVault stakeVault = IStakeVault(goalTreasury.stakeVault());
 
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,
             goalToken: goalToken,
@@ -371,10 +370,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
                 maxActivationThreshold: 1_000_000e18,
                 maxRunwayCap: 2_000_000e18
             }),
-            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                liveness: 1 days,
-                bondAmount: 10e18
-            })
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
 
         address expectedBudgetTCR = factory.predictBudgetTCRAddress(
@@ -392,9 +388,8 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         if (_MockStakeVaultForFactory(address(stakeVault)).jurorSlasher() == address(0)) {
             mockGoalTreasury.configureJurorSlasher(address(new JurorSlasherRouter(stakeVault, address(factory))));
         }
-        deploymentConfig.underwriterSlasherRouter = address(
-            new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR)
-        );
+        deploymentConfig.underwriterSlasherRouter =
+            address(new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR));
         if (_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher() == address(0)) {
             mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
         }
@@ -432,11 +427,7 @@ contract WrongRecipientEscrowDetectionStrategy is ISubmissionDepositStrategy, IS
         address,
         address,
         uint256
-    )
-        external
-        view
-        returns (DepositAction action, address recipient)
-    {
+    ) external view returns (DepositAction action, address recipient) {
         if (requestType == IGeneralizedTCR.Status.RegistrationRequested && ruling == IArbitrable.Party.Requester) {
             return (DepositAction.Hold, address(0));
         }
@@ -473,11 +464,7 @@ contract RevertingDepositStrategy is ISubmissionDepositStrategy, ISubmissionDepo
         address,
         address,
         uint256
-    )
-        external
-        pure
-        returns (DepositAction, address)
-    {
+    ) external pure returns (DepositAction, address) {
         revert("STRATEGY_READ_REVERT");
     }
 }

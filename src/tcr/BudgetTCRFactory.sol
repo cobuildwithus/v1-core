@@ -307,6 +307,7 @@ contract BudgetTCRFactory {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
             budgetSpendPolicy: deploymentConfig.budgetSpendPolicy,
+            budgetGatePolicy: deploymentConfig.budgetGatePolicy,
             goalFlow: deploymentConfig.goalFlow,
             goalTreasury: deploymentConfig.goalTreasury,
             goalToken: deploymentConfig.goalToken,

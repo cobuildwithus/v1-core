@@ -8,9 +8,9 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
+import { IBudgetController } from "src/interfaces/IBudgetController.sol";
 
-interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
+interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
     struct BudgetValidationBounds {
         uint64 minFundingLeadTime;
         uint64 maxFundingHorizon;
@@ -49,6 +49,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
         address stackDeployer;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
+        address budgetGatePolicy;
         IFlow goalFlow;
         IGoalTreasury goalTreasury;
         IERC20 goalToken;
@@ -137,6 +138,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     error INVALID_PPM(uint32 ppmValue);
     error NOT_A_CONTRACT(address account);
     error INVALID_BUDGET_SPEND_POLICY(address policy);
+    error INVALID_BUDGET_GATE_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
@@ -148,7 +150,6 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetStackTopologyReader {
     function isRegistrationPending(bytes32 itemId) external view returns (bool pending);
     function isRemovalPending(bytes32 itemId) external view returns (bool pending);
     function retryRemovedBudgetResolution(bytes32 itemID) external returns (bool terminallyResolved);
-    function pruneTerminalBudget(address budgetTreasury) external returns (bool removedFromParent, bool goalSynced);
-    function syncBudgetTreasuries(bytes32[] calldata itemIDs) external returns (uint256 attempted, uint256 succeeded);
     function budgetSpendPolicy() external view returns (address);
+    function budgetGatePolicy() external view returns (address);
 }

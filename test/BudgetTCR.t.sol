@@ -36,6 +36,7 @@ import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetController} from "src/interfaces/IBudgetController.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
@@ -200,9 +201,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetSpendPolicy = address(new BudgetTCRNonSpendPolicy());
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy
-            )
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy)
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
@@ -216,9 +215,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetSpendPolicy = address(new BudgetTCRZeroContextOnlySpendPolicy());
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy
-            )
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy)
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
@@ -322,6 +319,38 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             )
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_gate_policy_has_no_code() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        address noCodeBudgetGatePolicy = makeAddr("no-code-budget-gate-policy");
+        deploymentConfig.budgetGatePolicy = noCodeBudgetGatePolicy;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, noCodeBudgetGatePolicy));
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_gate_policy_does_not_implement_interface() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        address invalidBudgetGatePolicy = address(new BudgetTCRNonSpendPolicy());
+        deploymentConfig.budgetGatePolicy = invalidBudgetGatePolicy;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, invalidBudgetGatePolicy));
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_setUp_deploys_default_stake_coverage_gate_policy_when_budget_gate_policy_is_zero() public {
+        address gatePolicy = budgetTcr.budgetGatePolicy();
+        assertTrue(gatePolicy != address(0));
+        assertGt(gatePolicy.code.length, 0);
     }
 
     function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
@@ -680,6 +709,100 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(missingChildTopology.childFlow, address(0));
         assertEq(budgetTcr.itemIdForBudgetTreasury(unknownBudgetTreasury), bytes32(0));
         assertEq(budgetTcr.itemIdForChildFlow(unknownChildFlow), bytes32(0));
+    }
+
+    function test_openBudgetControllerInterface_exposesTopologyAndBatchSync() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+
+        IBudgetController controller = IBudgetController(address(budgetTcr));
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            controller.budgetStackTopologyForBudgetTreasury(budgetTreasury);
+        assertTrue(active);
+        assertEq(topology.childFlow, childFlow);
+        assertEq(topology.budgetTreasury, budgetTreasury);
+        assertEq(controller.itemIdForBudgetTreasury(budgetTreasury), itemID);
+        assertEq(controller.itemIdForChildFlow(childFlow), itemID);
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+        (uint256 attempted, uint256 succeeded) = controller.syncBudgetTreasuries(itemIDs);
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+    }
+
+    function test_budgetControllerTopology_readsAllowZeroMechanismModules() public {
+        BudgetTCRTopologyHarness harness = new BudgetTCRTopologyHarness();
+        bytes32 itemID = keccak256("managed-budget-topology");
+        address childFlow = makeAddr("managed-child-flow");
+        address budgetTreasury = makeAddr("managed-budget-treasury");
+        address premiumEscrow = makeAddr("managed-premium-escrow");
+        address strategy = makeAddr("managed-budget-strategy");
+        IBudgetStackTopologyReader.BudgetStackTopology memory expectedTopology =
+            IBudgetStackTopologyReader.BudgetStackTopology({
+                childFlow: childFlow,
+                budgetTreasury: budgetTreasury,
+                premiumEscrow: premiumEscrow,
+                strategy: strategy,
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            });
+
+        harness.seedBudgetStackTopology(itemID, expectedTopology, true);
+
+        IBudgetController controller = IBudgetController(address(harness));
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            controller.budgetStackTopology(itemID);
+        assertTrue(active);
+        _assertBudgetStackTopology(topology, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory byTreasury, bool treasuryActive) =
+            controller.budgetStackTopologyForBudgetTreasury(budgetTreasury);
+        assertTrue(treasuryActive);
+        _assertBudgetStackTopology(byTreasury, expectedTopology);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory byChildFlow, bool childFlowActive) =
+            controller.budgetStackTopologyForChildFlow(childFlow);
+        assertTrue(childFlowActive);
+        _assertBudgetStackTopology(byChildFlow, expectedTopology);
+        assertEq(controller.itemIdForBudgetTreasury(budgetTreasury), itemID);
+        assertEq(controller.itemIdForChildFlow(childFlow), itemID);
+    }
+
+    function test_budgetControllerTopology_readsIgnoreStaleReverseIndexes() public {
+        BudgetTCRTopologyHarness harness = new BudgetTCRTopologyHarness();
+        bytes32 itemID = keccak256("canonical-budget-topology");
+        address childFlow = makeAddr("canonical-child-flow");
+        address budgetTreasury = makeAddr("canonical-budget-treasury");
+        address staleBudgetTreasury = makeAddr("stale-budget-treasury");
+        address staleChildFlow = makeAddr("stale-child-flow");
+        IBudgetStackTopologyReader.BudgetStackTopology memory topology = IBudgetStackTopologyReader.BudgetStackTopology({
+            childFlow: childFlow,
+            budgetTreasury: budgetTreasury,
+            premiumEscrow: makeAddr("canonical-premium-escrow"),
+            strategy: makeAddr("canonical-budget-strategy"),
+            allocationMechanism: address(0),
+            allocationMechanismArbitrator: address(0)
+        });
+
+        harness.seedBudgetStackTopology(itemID, topology, true);
+        harness.seedStaleReverseIndexes(itemID, staleBudgetTreasury, staleChildFlow);
+
+        IBudgetController controller = IBudgetController(address(harness));
+        (IBudgetStackTopologyReader.BudgetStackTopology memory staleBudgetTopology, bool budgetActive) =
+            controller.budgetStackTopologyForBudgetTreasury(staleBudgetTreasury);
+        (IBudgetStackTopologyReader.BudgetStackTopology memory staleChildTopology, bool childFlowActive) =
+            controller.budgetStackTopologyForChildFlow(staleChildFlow);
+
+        assertFalse(budgetActive);
+        assertFalse(childFlowActive);
+        assertEq(staleBudgetTopology.budgetTreasury, address(0));
+        assertEq(staleChildTopology.childFlow, address(0));
+        assertEq(controller.itemIdForBudgetTreasury(staleBudgetTreasury), bytes32(0));
+        assertEq(controller.itemIdForChildFlow(staleChildFlow), bytes32(0));
+        assertEq(controller.itemIdForBudgetTreasury(budgetTreasury), itemID);
+        assertEq(controller.itemIdForChildFlow(childFlow), itemID);
     }
 
     function test_finalizeRemovedBudget_keepsTopologyDiscoverableButInactive() public {
@@ -2317,6 +2440,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -2433,6 +2557,31 @@ contract BudgetTCRZeroContextOnlySpendPolicy is ISpendPolicy {
 
     function syncMode() external pure returns (SyncMode) {
         return SyncMode.Capped;
+    }
+}
+
+contract BudgetTCRTopologyHarness is BudgetTCR {
+    function seedBudgetStackTopology(
+        bytes32 itemID,
+        IBudgetStackTopologyReader.BudgetStackTopology calldata topology,
+        bool active
+    ) external {
+        _budgetDeployments[itemID] = BudgetDeployment({
+            childFlow: topology.childFlow,
+            budgetTreasury: topology.budgetTreasury,
+            premiumEscrow: topology.premiumEscrow,
+            strategy: topology.strategy,
+            allocationMechanism: topology.allocationMechanism,
+            allocationMechanismArbitrator: topology.allocationMechanismArbitrator,
+            active: active
+        });
+        _itemIdByBudgetTreasury[topology.budgetTreasury] = itemID;
+        _itemIdByChildFlow[topology.childFlow] = itemID;
+    }
+
+    function seedStaleReverseIndexes(bytes32 itemID, address budgetTreasuryAlias, address childFlowAlias) external {
+        _itemIdByBudgetTreasury[budgetTreasuryAlias] = itemID;
+        _itemIdByChildFlow[childFlowAlias] = itemID;
     }
 }
 
@@ -2784,6 +2933,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),

@@ -1,53 +1,54 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { TestUtils } from "test/utils/TestUtils.sol";
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
+import {TestUtils} from "test/utils/TestUtils.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
     BudgetTCRGoalTreasuryHarness as MockGoalTreasuryForBudgetTCR,
     BudgetTCRRewardEscrowHarness as MockRewardEscrowForBudgetTCR,
     BudgetTCRStakeLedgerHarness as MockBudgetStakeLedgerForBudgetTCR,
     BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
 } from "test/helpers/BudgetTCRSystemHarnesses.sol";
-import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
-import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
+import {FlowSuperfluidFrameworkDeployer} from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
 
-import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { EscrowSubmissionDepositStrategy } from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
-import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
-import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
-import { MechanismFundingEscrow } from "src/escrow/MechanismFundingEscrow.sol";
-import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
-import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { CustomFlow } from "src/flows/CustomFlow.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { ERC1820RegistryCompiled } from
-    "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
-import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
-import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
-import { MockUnderwriterSlasherRouter } from "test/mocks/MockUnderwriterSlasherRouter.sol";
-import { SpendPolicyTestUtils } from "test/helpers/SpendPolicyTestUtils.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {
+    ERC1820RegistryCompiled
+} from "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
+import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
+import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
+import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 
 contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     uint256 internal constant INITIAL_WEIGHT = 12e24;
@@ -100,21 +101,15 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");
         cobuildToken = new MockVotesToken("COBUILD", "COB");
-        submissionDepositStrategy = ISubmissionDepositStrategy(
-            address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken))))
-        );
+        submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(depositToken)))));
         depositToken.mint(requester, 1_000_000e18);
 
         vm.etch(ERC1820RegistryCompiled.at, ERC1820RegistryCompiled.bin);
         sfDeployer = new FlowSuperfluidFrameworkDeployer();
         sfDeployer.deployTestFramework();
-        (TestToken u, SuperToken s) = sfDeployer.deployWrapperSuperToken(
-            "MockUSD",
-            "mUSD",
-            18,
-            type(uint256).max,
-            owner
-        );
+        (TestToken u, SuperToken s) =
+            sfDeployer.deployWrapperSuperToken("MockUSD", "mUSD", 18, type(uint256).max, owner);
         underlyingToken = u;
         superToken = s;
 
@@ -147,22 +142,23 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
             url: "https://goal.flow.test"
         });
 
-        IFlow.FlowParams memory flowParams = IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 100_000 });
+        IFlow.FlowParams memory flowParams = IFlow.FlowParams({managerRewardPoolFlowRatePpm: 100_000});
 
         vm.prank(owner);
-        ICustomFlow(goalFlowProxy).initialize(
-            address(superToken),
-            address(goalFlowImpl),
-            tcrInstance,
-            tcrInstance,
-            tcrInstance,
-            managerRewardPool,
-            address(0),
-            address(0),
-            flowParams,
-            flowMetadata,
-            strategies
-        );
+        ICustomFlow(goalFlowProxy)
+            .initialize(
+                address(superToken),
+                address(goalFlowImpl),
+                tcrInstance,
+                tcrInstance,
+                tcrInstance,
+                managerRewardPool,
+                address(0),
+                address(0),
+                flowParams,
+                flowMetadata,
+                strategies
+            );
         goalFlow = CustomFlow(goalFlowProxy);
 
         FlowTypes.RecipientMetadata memory extraMetadata = FlowTypes.RecipientMetadata({
@@ -182,14 +178,8 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         bytes memory arbInit = _defaultArbitratorInitData(
-                owner,
-                address(depositToken),
-                tcrInstance,
-                votingPeriod,
-                votingDelay,
-                revealPeriod,
-                arbitrationCost
-            );
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         arbitrator = ERC20VotesArbitrator(arbProxy);
@@ -218,10 +208,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), _units(reducedWeight, HALF_SCALED));
-        assertEq(
-            goalFlow.getAllocationCommitment(address(strategy), allocationKey),
-            keccak256(abi.encode(ids, scaled))
-        );
+        assertEq(goalFlow.getAllocationCommitment(address(strategy), allocationKey), keccak256(abi.encode(ids, scaled)));
     }
 
     function test_budgetRegistration_setsChildFlowAuthoritiesToBudgetTreasury() public {
@@ -261,10 +248,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         _allocateWithPrevState(allocator, nextIds, nextScaled);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
-        assertEq(
-            goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT),
-            _units(INITIAL_WEIGHT, 1_000_000)
-        );
+        assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), _units(INITIAL_WEIGHT, 1_000_000));
         assertEq(
             goalFlow.getAllocationCommitment(address(strategy), allocationKey),
             keccak256(abi.encode(nextIds, nextScaled))
@@ -296,10 +280,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         _allocateWithPrevState(allocator, nextIds, nextScaled);
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
-        assertEq(
-            goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT),
-            _units(reducedWeight, 1_000_000)
-        );
+        assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), _units(reducedWeight, 1_000_000));
         assertEq(
             goalFlow.getAllocationCommitment(address(strategy), allocationKey),
             keccak256(abi.encode(nextIds, nextScaled))
@@ -326,17 +307,12 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
 
         assertEq(goalFlow.distributionPool().getUnits(budgetRecipient), 0);
         assertEq(goalFlow.distributionPool().getUnits(EXTRA_RECIPIENT), 0);
-        assertEq(
-            goalFlow.getAllocationCommitment(address(strategy), allocationKey),
-            keccak256(abi.encode(ids, scaled))
-        );
+        assertEq(goalFlow.getAllocationCommitment(address(strategy), allocationKey), keccak256(abi.encode(ids, scaled)));
     }
 
-    function _allocateWithPrevState(
-        address caller,
-        bytes32[] memory recipientIds,
-        uint32[] memory allocationsPpm
-    ) internal {
+    function _allocateWithPrevState(address caller, bytes32[] memory recipientIds, uint32[] memory allocationsPpm)
+        internal
+    {
         vm.prank(caller);
         goalFlow.allocate(recipientIds, allocationsPpm);
     }
@@ -415,6 +391,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
+            budgetGatePolicy: address(0),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -435,10 +412,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
                 maxActivationThreshold: 1_000_000e18,
                 maxRunwayCap: 2_000_000e18
             }),
-            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({
-                liveness: 1 days,
-                bondAmount: 10e18
-            })
+            oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         });
     }
 
@@ -475,8 +449,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         listing.activationThreshold = 100e18;
         listing.runwayCap = 1_000e18;
         listing.oracleConfig = IBudgetTCR.OracleConfig({
-            oracleSpecHash: keccak256("budget-oracle-spec"),
-            assertionPolicyHash: keccak256("budget-assertion-policy")
+            oracleSpecHash: keccak256("budget-oracle-spec"), assertionPolicyHash: keccak256("budget-assertion-policy")
         });
     }
 }
