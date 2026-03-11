@@ -93,6 +93,14 @@ interface IManagedBudgetController is IBudgetController {
 
     function setBudgetWeights(bytes32[] calldata itemIDs, uint32[] calldata ppm) external;
     function setBudgetFlowWeights(bytes32 budgetItemID, bytes32[] calldata itemIDs, uint32[] calldata ppm) external;
+    function addBudgetFlowRecipient(
+        bytes32 budgetItemID,
+        bytes32 recipientId,
+        address recipient,
+        FlowTypes.RecipientMetadata calldata metadata
+    ) external returns (bytes32 createdRecipientId, address recipientAddress);
+    function removeBudgetFlowRecipient(bytes32 budgetItemID, bytes32 recipientId) external;
+    function setBudgetFlowRecipientEnabled(bytes32 budgetItemID, bytes32 recipientId, bool enabled) external;
 
     function transferAuthority(address newAuthority) external;
     function acceptAuthority() external;

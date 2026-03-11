@@ -29,13 +29,11 @@ contract ManagedBudgetControllerStackDeployer is IManagedBudgetControllerStackDe
 
     function prepareBudgetStack(
         address controller,
-        address authority,
         address budgetAllocationLedger,
         address goalFlow,
         address goalTreasury
     ) external override returns (PreparationResult memory result) {
         _requireController(controller);
-        _requireContract(authority);
         _requireContract(budgetAllocationLedger);
         _requireContract(goalFlow);
         _requireContract(goalTreasury);

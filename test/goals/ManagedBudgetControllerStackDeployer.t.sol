@@ -16,10 +16,12 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
     NullPremiumEscrow internal premiumEscrowImplementation;
     ManagedBudgetControllerStackDeployer internal deployer;
 
-    address internal authority = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal budgetAllocationLedger = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal goalFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal goalTreasury = address(new ManagedBudgetControllerStackDeployerDummyContract());
+    address internal childFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
+    address internal successResolver = address(new ManagedBudgetControllerStackDeployerDummyContract());
+    address internal spendPolicy = address(new ManagedBudgetControllerStackDeployerDummyContract());
 
     function setUp() public {
         budgetTreasuryImplementation = new BudgetTreasury();
@@ -55,7 +57,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
 
     function test_prepareBudgetStack_deploysScopedStrategyAndClonesImplementations() public {
         IManagedBudgetControllerStackDeployer.PreparationResult memory result =
-            deployer.prepareBudgetStack(address(this), authority, budgetAllocationLedger, goalFlow, goalTreasury);
+            deployer.prepareBudgetStack(address(this), budgetAllocationLedger, goalFlow, goalTreasury);
 
         assertTrue(result.strategy != address(0));
         assertTrue(result.budgetTreasury != address(0));
@@ -77,19 +79,46 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
                 ManagedBudgetControllerStackDeployer.ONLY_CONTROLLER.selector, controller, address(this)
             )
         );
-        deployer.prepareBudgetStack(controller, authority, budgetAllocationLedger, goalFlow, goalTreasury);
+        deployer.prepareBudgetStack(controller, budgetAllocationLedger, goalFlow, goalTreasury);
     }
 
-    function test_prepareBudgetStack_revertsOnZeroAuthority() public {
+    function test_prepareBudgetStack_revertsOnZeroController() public {
         vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
-        deployer.prepareBudgetStack(address(this), address(0), budgetAllocationLedger, goalFlow, goalTreasury);
+        deployer.prepareBudgetStack(address(0), budgetAllocationLedger, goalFlow, goalTreasury);
+    }
+
+    function test_prepareBudgetStack_revertsOnZeroBudgetAllocationLedger() public {
+        vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
+        deployer.prepareBudgetStack(address(this), address(0), goalFlow, goalTreasury);
     }
 
     function test_prepareBudgetStack_revertsOnNonContractGoalFlow() public {
         vm.expectRevert(
             abi.encodeWithSelector(ManagedBudgetControllerStackDeployer.NOT_A_CONTRACT.selector, address(0xBEEF))
         );
-        deployer.prepareBudgetStack(address(this), authority, budgetAllocationLedger, address(0xBEEF), goalTreasury);
+        deployer.prepareBudgetStack(address(this), budgetAllocationLedger, address(0xBEEF), goalTreasury);
+    }
+
+    function test_deployBudgetTreasury_revertsOnZeroUnderwriterSlasherRouter() public {
+        IManagedBudgetControllerStackDeployer.PreparationResult memory prepared =
+            deployer.prepareBudgetStack(address(this), budgetAllocationLedger, goalFlow, goalTreasury);
+
+        vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
+        deployer.deployBudgetTreasury(
+            address(this),
+            prepared.budgetTreasury,
+            prepared.premiumEscrow,
+            childFlow,
+            budgetAllocationLedger,
+            goalFlow,
+            address(0),
+            0,
+            _defaultBudgetConfig(),
+            successResolver,
+            spendPolicy,
+            1 days,
+            1 ether
+        );
     }
 
     function test_deployBudgetTreasury_revertsWhenCallerIsNotController() public {

@@ -13,6 +13,7 @@ import { IManagedBudgetControllerStackDeployer } from "src/interfaces/IManagedBu
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetTCRTerminalActions } from "src/tcr/library/BudgetTCRTerminalActions.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpgradeable {
@@ -86,15 +87,14 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (initConfig.authority == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.goalTreasury);
         _requireContract(initConfig.goalFlow);
+        _requireContract(initConfig.budgetAllocationLedger);
         _requireContract(initConfig.stackDeployer);
-        if (initConfig.budgetAllocationLedger != address(0)) {
-            _requireContract(initConfig.budgetAllocationLedger);
-        }
         if (initConfig.budgetGatePolicy != address(0)) {
             _requireContract(initConfig.budgetGatePolicy);
         }
         if (initConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.budgetSpendPolicy);
+        _requireContract(initConfig.underwriterSlasherRouter);
         if (initConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_PPM(initConfig.budgetPremiumPpm);
         }
@@ -174,7 +174,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         IManagedBudgetControllerStackDeployer deployer = IManagedBudgetControllerStackDeployer(stackDeployer);
         IManagedBudgetControllerStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             address(this),
-            authority,
             budgetAllocationLedger,
             goalFlow,
             goalTreasury
@@ -185,7 +184,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         (, childFlow_) = ICustomFlow(goalFlow).addFlowRecipient(
             itemID,
             config.metadata,
-            authority,
+            address(this),
             prepared.budgetTreasury,
             prepared.budgetTreasury,
             prepared.premiumEscrow,
@@ -234,11 +233,9 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             childFlow_
         );
 
-        terminallyResolved = true;
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
         if (treasury.activatedAt() != 0) {
-            treasury.forceFlowRateToZero();
-            terminallyResolved = treasury.resolved();
+            treasury.failRemovedBudget();
         } else {
             treasury.disableSuccessResolution();
             if (!BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury)) {
@@ -246,6 +243,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             }
         }
 
+        terminallyResolved = true;
         _setItemActive(itemID, false);
         emit ManagedBudgetRemoved(itemID, childFlow_, budgetTreasury_, removedFromParent, terminallyResolved);
     }
@@ -278,12 +276,37 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         bytes32[] calldata itemIDs,
         uint32[] calldata ppm
     ) external override onlyAuthority nonReentrant {
-        BudgetDeployment storage deployment = _budgetDeployments[budgetItemID];
-        if (deployment.budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
-        if (!deployment.active) revert ITEM_NOT_ACTIVE();
+        BudgetDeployment storage deployment = _requireActiveBudgetDeployment(budgetItemID);
 
         ICustomFlow(deployment.childFlow).allocate(itemIDs, ppm);
         emit ManagedBudgetFlowWeightsSet(budgetItemID, itemIDs, ppm);
+    }
+
+    function addBudgetFlowRecipient(
+        bytes32 budgetItemID,
+        bytes32 recipientId,
+        address recipient,
+        FlowTypes.RecipientMetadata calldata metadata
+    ) external override onlyAuthority nonReentrant returns (bytes32 createdRecipientId, address recipientAddress) {
+        BudgetDeployment storage deployment = _requireActiveBudgetDeployment(budgetItemID);
+        return ICustomFlow(deployment.childFlow).addRecipient(recipientId, recipient, metadata);
+    }
+
+    function removeBudgetFlowRecipient(
+        bytes32 budgetItemID,
+        bytes32 recipientId
+    ) external override onlyAuthority nonReentrant {
+        BudgetDeployment storage deployment = _requireActiveBudgetDeployment(budgetItemID);
+        ICustomFlow(deployment.childFlow).removeRecipient(recipientId);
+    }
+
+    function setBudgetFlowRecipientEnabled(
+        bytes32 budgetItemID,
+        bytes32 recipientId,
+        bool enabled
+    ) external override onlyAuthority nonReentrant {
+        BudgetDeployment storage deployment = _requireActiveBudgetDeployment(budgetItemID);
+        IFlow(deployment.childFlow).setRecipientEnabled(recipientId, enabled);
     }
 
     function transferAuthority(address newAuthority) external override onlyAuthority {
@@ -444,6 +467,12 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         itemID = _itemIdByChildFlow[childFlow_];
         if (itemID == bytes32(0)) return bytes32(0);
         if (_budgetDeployments[itemID].childFlow != childFlow_) return bytes32(0);
+    }
+
+    function _requireActiveBudgetDeployment(bytes32 itemID) private view returns (BudgetDeployment storage deployment) {
+        deployment = _budgetDeployments[itemID];
+        if (deployment.budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
+        if (!deployment.active) revert ITEM_NOT_ACTIVE();
     }
 
     function _budgetStackTopologyFromDeployment(

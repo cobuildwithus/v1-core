@@ -705,9 +705,10 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         (address childFlow, address budgetTreasury) = controller.createBudget(itemID, _defaultBudgetConfig("Budget A"));
 
         BudgetTreasury treasury = BudgetTreasury(budgetTreasury);
-        _mintAndUpgrade(owner, treasury.activationThreshold());
+        uint256 activationThreshold = treasury.activationThreshold();
+        _mintAndUpgrade(owner, activationThreshold);
         vm.prank(owner);
-        superToken.transfer(childFlow, treasury.activationThreshold());
+        superToken.transfer(childFlow, activationThreshold);
         treasury.sync();
 
         assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
@@ -777,12 +778,25 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         ppm[0] = 1_000_000;
 
         vm.prank(rotatedSafe);
+        controller.setBudgetFlowRecipientEnabled(budgetItemID, childRecipientId, false);
+        assertFalse(IFlow(childFlow).isRecipientEnabled(childRecipientId));
+
+        vm.prank(rotatedSafe);
+        controller.setBudgetFlowRecipientEnabled(budgetItemID, childRecipientId, true);
+        assertTrue(IFlow(childFlow).isRecipientEnabled(childRecipientId));
+
+        vm.prank(rotatedSafe);
         controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
 
         assertEq(
             IFlow(childFlow).getAllocationCommitment(address(childStrategy), controllerKey),
             keccak256(abi.encode(recipientIds, ppm))
         );
+
+        vm.prank(rotatedSafe);
+        controller.removeBudgetFlowRecipient(budgetItemID, childRecipientId);
+        assertTrue(TestableCustomFlow(childFlow).getRecipientById(childRecipientId).isRemoved);
+
         assertTrue(ICustomFlow(childFlow).canAllocate(controllerKey, address(controller)));
         assertFalse(ICustomFlow(childFlow).canAllocate(safeKey, safe));
         assertFalse(ICustomFlow(childFlow).canAllocate(newSafeKey, rotatedSafe));

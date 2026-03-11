@@ -14,7 +14,6 @@ interface IManagedBudgetControllerStackDeployer {
 
     function prepareBudgetStack(
         address controller,
-        address authority,
         address budgetAllocationLedger,
         address goalFlow,
         address goalTreasury
