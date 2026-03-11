@@ -26,8 +26,6 @@ contract CobuildPaymentTerminalTest is Test {
     CobuildPaymentTerminalMockSplitHook internal splitHook;
     CobuildPaymentTerminalMockController internal controller;
     CobuildPaymentTerminalMockPaymentSourceTerminal internal sourceTerminal;
-    CobuildPaymentTerminalMockCommunityTerminal internal tokenCommunityTerminal;
-    CobuildPaymentTerminalMockNativeCommunityTerminal internal nativeCommunityTerminal;
     CobuildPaymentTerminal internal paymentTerminal;
 
     function setUp() public {
@@ -40,19 +38,19 @@ contract CobuildPaymentTerminalTest is Test {
         splitHook = new CobuildPaymentTerminalMockSplitHook(COMMUNITY_REVNET_ID, address(paymentToken), address(goalRegistry));
         controller = new CobuildPaymentTerminalMockController(splitHook, tokens);
         sourceTerminal = new CobuildPaymentTerminalMockPaymentSourceTerminal(paymentToken);
-        tokenCommunityTerminal = new CobuildPaymentTerminalMockCommunityTerminal(paymentToken, controller);
-        nativeCommunityTerminal = new CobuildPaymentTerminalMockNativeCommunityTerminal(controller);
         paymentTerminal = new CobuildPaymentTerminal(IJBDirectory(address(directory)));
 
         splitHook.setRouteSetter(address(paymentTerminal));
         tokens.setTokenOf(PAYMENT_SOURCE_REVNET_ID, address(paymentToken));
+        tokens.setTokenOf(COMMUNITY_REVNET_ID, address(paymentToken));
 
         directory.setController(PAYMENT_SOURCE_REVNET_ID, IJBController(address(controller)));
         directory.setController(COMMUNITY_REVNET_ID, IJBController(address(controller)));
         directory.setPrimaryTerminal(
             PAYMENT_SOURCE_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sourceTerminal))
         );
-        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, address(paymentToken), IJBTerminal(address(tokenCommunityTerminal)));
+        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(paymentTerminal)));
+        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, address(paymentToken), IJBTerminal(address(paymentTerminal)));
     }
 
     function test_registerCommunity_storesConfig() public {
@@ -135,9 +133,87 @@ contract CobuildPaymentTerminalTest is Test {
         );
     }
 
+    function test_registerCommunity_revertsWhenCanonicalNativeTerminalIsNotSharedTerminal() public {
+        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sourceTerminal)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildPaymentTerminal.INVALID_NATIVE_TERMINAL.selector, address(paymentTerminal), address(sourceTerminal)
+            )
+        );
+        paymentTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID, ICobuildSplitHook(address(splitHook)), address(paymentToken), PAYMENT_SOURCE_REVNET_ID, false
+        );
+    }
+
+    function test_registerCommunity_revertsWhenCanonicalPaymentTerminalIsNotSharedTerminal() public {
+        directory.setPrimaryTerminal(
+            COMMUNITY_REVNET_ID, address(paymentToken), IJBTerminal(address(new CobuildPaymentTerminalMockTerminal()))
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildPaymentTerminal.INVALID_PAYMENT_TERMINAL.selector,
+                address(paymentTerminal),
+                directory.primaryTerminalOf(COMMUNITY_REVNET_ID, address(paymentToken))
+            )
+        );
+        paymentTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID, ICobuildSplitHook(address(splitHook)), address(paymentToken), PAYMENT_SOURCE_REVNET_ID, false
+        );
+    }
+
+    function test_registerCommunity_revertsWhenAlreadyRegistered() public {
+        _registerCommunity(false);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildPaymentTerminal.COMMUNITY_ALREADY_REGISTERED.selector, COMMUNITY_REVNET_ID)
+        );
+        paymentTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID, ICobuildSplitHook(address(splitHook)), address(paymentToken), PAYMENT_SOURCE_REVNET_ID, false
+        );
+    }
+
+    function test_registerCommunity_revertsWhenSelfPaymentSourceCommunityIsNotRegistered() public {
+        directory.setPrimaryTerminal(PAYMENT_SOURCE_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(paymentTerminal)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildPaymentTerminal.PAYMENT_SOURCE_NOT_REGISTERED.selector, PAYMENT_SOURCE_REVNET_ID
+            )
+        );
+        paymentTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID, ICobuildSplitHook(address(splitHook)), address(paymentToken), PAYMENT_SOURCE_REVNET_ID, false
+        );
+    }
+
+    function test_accountingContexts_returnNativeAndPaymentTokenContextsAfterRegistration() public {
+        _registerCommunity(false);
+
+        JBAccountingContext memory nativeContext =
+            paymentTerminal.accountingContextForTokenOf(COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN);
+        JBAccountingContext memory paymentContext =
+            paymentTerminal.accountingContextForTokenOf(COMMUNITY_REVNET_ID, address(paymentToken));
+        JBAccountingContext[] memory contexts = paymentTerminal.accountingContextsOf(COMMUNITY_REVNET_ID);
+
+        assertEq(nativeContext.token, JBConstants.NATIVE_TOKEN);
+        assertEq(nativeContext.decimals, 18);
+        assertEq(nativeContext.currency, uint32(uint160(JBConstants.NATIVE_TOKEN)));
+
+        assertEq(paymentContext.token, address(paymentToken));
+        assertEq(paymentContext.decimals, paymentToken.decimals());
+        assertEq(paymentContext.currency, uint32(uint160(address(paymentToken))));
+
+        assertEq(contexts.length, 2);
+        assertEq(contexts[0].token, nativeContext.token);
+        assertEq(contexts[1].token, paymentContext.token);
+        assertEq(contexts[1].decimals, paymentContext.decimals);
+        assertEq(contexts[1].currency, paymentContext.currency);
+    }
+
     function test_payWithEth_routesThroughPaymentSourceAndFlushesReservedTokens() public {
         _registerCommunity(false);
-        tokenCommunityTerminal.setReturnedTokenCount(1 ether);
+        controller.setReturnedTokenCount(1 ether);
 
         uint256[] memory goalIds = new uint256[](2);
         goalIds[0] = 11;
@@ -160,11 +236,10 @@ contract CobuildPaymentTerminalTest is Test {
         assertEq(beneficiaryTokenCount, 1 ether);
         assertEq(sourceTerminal.lastPaidAmount(), 2 ether);
         assertEq(sourceTerminal.lastMinReturnedTokens(), 1);
-        assertEq(tokenCommunityTerminal.lastReceivedPayment(), 2 ether);
-        assertEq(tokenCommunityTerminal.lastProjectId(), COMMUNITY_REVNET_ID);
-        assertEq(tokenCommunityTerminal.lastBeneficiary(), address(this));
-        assertEq(tokenCommunityTerminal.lastMinReturnedTokens(), 5);
-        assertEq(tokenCommunityTerminal.lastMetadata().length, 0);
+        assertEq(controller.lastMintProjectId(), COMMUNITY_REVNET_ID);
+        assertEq(controller.lastMintTokenCount(), 2 ether);
+        assertEq(controller.lastMintBeneficiary(), address(this));
+        assertTrue(controller.lastUseReservedPercent());
         assertEq(splitHook.beginPendingRouteCallCount(), 1);
         assertFalse(splitHook.hasPendingRoute());
         assertEq(splitHook.lastBacklogTokenCount(), 0);
@@ -174,7 +249,7 @@ contract CobuildPaymentTerminalTest is Test {
 
     function test_payWithPaymentToken_revertsWhenExplicitRouteIsNotConsumed() public {
         _registerCommunity(false);
-        tokenCommunityTerminal.setReturnedTokenCount(0.5 ether);
+        controller.setReturnedTokenCount(0.5 ether);
         controller.setConsumePendingRouteOnSend(false);
         paymentToken.mint(address(this), 1 ether);
         paymentToken.approve(address(paymentTerminal), 1 ether);
@@ -198,7 +273,7 @@ contract CobuildPaymentTerminalTest is Test {
 
     function test_payWithPaymentToken_withoutMetadataFlushesReservedTokensWithoutPendingRoute() public {
         _registerCommunity(false);
-        tokenCommunityTerminal.setReturnedTokenCount(2 ether);
+        controller.setReturnedTokenCount(2 ether);
         paymentToken.mint(address(this), 5 ether);
         paymentToken.approve(address(paymentTerminal), 5 ether);
 
@@ -207,7 +282,7 @@ contract CobuildPaymentTerminalTest is Test {
         );
 
         assertEq(beneficiaryTokenCount, 2 ether);
-        assertEq(tokenCommunityTerminal.lastReceivedPayment(), 5 ether);
+        assertEq(controller.lastMintTokenCount(), 5 ether);
         assertEq(splitHook.beginPendingRouteCallCount(), 0);
         assertFalse(splitHook.hasPendingRoute());
         assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
@@ -216,7 +291,7 @@ contract CobuildPaymentTerminalTest is Test {
 
     function test_payWithPaymentToken_withoutMetadataDoesNotFlushWhenNoReservedTokensWereCreated() public {
         _registerCommunity(false);
-        tokenCommunityTerminal.setReturnedTokenCount(5 ether);
+        controller.setReturnedTokenCount(5 ether);
         paymentToken.mint(address(this), 5 ether);
         paymentToken.approve(address(paymentTerminal), 5 ether);
 
@@ -237,12 +312,9 @@ contract CobuildPaymentTerminalTest is Test {
         paymentTerminal.pay(COMMUNITY_REVNET_ID, address(paymentToken), 1 ether, address(this), 0, "memo", bytes(""));
     }
 
-    function test_payWithEth_directNativeAllowedPaysCommunityNativeTerminal() public {
-        directory.setPrimaryTerminal(
-            COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(nativeCommunityTerminal))
-        );
+    function test_payWithEth_directNativeAllowedMintsOnSharedTerminalWithoutPaymentSourceHop() public {
         _registerCommunity(true);
-        nativeCommunityTerminal.setReturnedTokenCount(1 ether);
+        controller.setReturnedTokenCount(1 ether);
 
         uint256[] memory goalIds = new uint256[](1);
         goalIds[0] = 11;
@@ -260,19 +332,14 @@ contract CobuildPaymentTerminalTest is Test {
         );
 
         assertEq(beneficiaryTokenCount, 1 ether);
-        assertEq(nativeCommunityTerminal.lastReceivedValue(), 2 ether);
         assertEq(sourceTerminal.lastPaidAmount(), 0);
+        assertEq(controller.lastMintProjectId(), COMMUNITY_REVNET_ID);
+        assertEq(controller.lastMintTokenCount(), 2 ether);
         assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
         assertFalse(splitHook.hasPendingRoute());
     }
 
     function _registerCommunity(bool directNativeAllowed) internal {
-        if (directNativeAllowed) {
-            directory.setPrimaryTerminal(
-                COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(nativeCommunityTerminal))
-            );
-        }
-
         paymentTerminal.registerCommunity(
             COMMUNITY_REVNET_ID,
             ICobuildSplitHook(address(splitHook)),
@@ -380,6 +447,11 @@ contract CobuildPaymentTerminalMockController {
 
     bool internal _consumePendingRouteOnSend = true;
     uint256 internal _sendReservedTokensToSplitsCallCount;
+    uint256 internal _returnedTokenCount = type(uint256).max;
+    uint256 internal _lastMintProjectId;
+    uint256 internal _lastMintTokenCount;
+    address internal _lastMintBeneficiary;
+    bool internal _lastUseReservedPercent;
     mapping(uint256 => uint256) internal _pendingReservedTokenBalanceOf;
 
     constructor(CobuildPaymentTerminalMockSplitHook splitHook_, CobuildPaymentTerminalMockTokens tokens_) {
@@ -395,6 +467,10 @@ contract CobuildPaymentTerminalMockController {
         _consumePendingRouteOnSend = shouldConsume;
     }
 
+    function setReturnedTokenCount(uint256 returnedTokenCount_) external {
+        _returnedTokenCount = returnedTokenCount_;
+    }
+
     function setPendingReservedTokenBalance(uint256 projectId, uint256 amount) external {
         _pendingReservedTokenBalanceOf[projectId] = amount;
     }
@@ -405,6 +481,27 @@ contract CobuildPaymentTerminalMockController {
 
     function pendingReservedTokenBalanceOf(uint256 projectId) external view returns (uint256) {
         return _pendingReservedTokenBalanceOf[projectId];
+    }
+
+    function mintTokensOf(
+        uint256 projectId,
+        uint256 tokenCount,
+        address beneficiary,
+        string calldata,
+        bool useReservedPercent
+    ) external returns (uint256 beneficiaryTokenCount) {
+        _lastMintProjectId = projectId;
+        _lastMintTokenCount = tokenCount;
+        _lastMintBeneficiary = beneficiary;
+        _lastUseReservedPercent = useReservedPercent;
+
+        beneficiaryTokenCount = _returnedTokenCount == type(uint256).max ? tokenCount : _returnedTokenCount;
+        require(beneficiaryTokenCount <= tokenCount, "returned");
+
+        uint256 reservedTokenCount = tokenCount - beneficiaryTokenCount;
+        if (reservedTokenCount != 0) {
+            _pendingReservedTokenBalanceOf[projectId] += reservedTokenCount;
+        }
     }
 
     function sendReservedTokensToSplitsOf(uint256 projectId) external returns (uint256 tokenCount) {
@@ -420,117 +517,25 @@ contract CobuildPaymentTerminalMockController {
     function sendReservedTokensToSplitsCallCount() external view returns (uint256) {
         return _sendReservedTokensToSplitsCallCount;
     }
-}
 
-contract CobuildPaymentTerminalMockCommunityTerminal {
-    CobuildPaymentTerminalMockToken internal immutable _token;
-    CobuildPaymentTerminalMockController internal immutable _controller;
-
-    uint256 internal _returnedTokenCount;
-    uint256 internal _lastProjectId;
-    uint256 internal _lastReceivedPayment;
-    address internal _lastBeneficiary;
-    uint256 internal _lastMinReturnedTokens;
-    bytes internal _lastMetadata;
-
-    constructor(CobuildPaymentTerminalMockToken token_, CobuildPaymentTerminalMockController controller_) {
-        _token = token_;
-        _controller = controller_;
-        _returnedTokenCount = type(uint256).max;
+    function lastMintProjectId() external view returns (uint256) {
+        return _lastMintProjectId;
     }
 
-    function setReturnedTokenCount(uint256 returnedTokenCount_) external {
-        _returnedTokenCount = returnedTokenCount_;
+    function lastMintTokenCount() external view returns (uint256) {
+        return _lastMintTokenCount;
     }
 
-    function pay(
-        uint256 projectId,
-        address token,
-        uint256 amount,
-        address beneficiary,
-        uint256 minReturnedTokens,
-        string calldata,
-        bytes calldata metadata
-    ) external returns (uint256 beneficiaryTokenCount) {
-        require(token == address(_token), "token");
-        _token.transferFrom(msg.sender, address(this), amount);
-
-        _lastProjectId = projectId;
-        _lastReceivedPayment = amount;
-        _lastBeneficiary = beneficiary;
-        _lastMinReturnedTokens = minReturnedTokens;
-        _lastMetadata = metadata;
-
-        beneficiaryTokenCount = _returnedTokenCount == type(uint256).max ? amount : _returnedTokenCount;
-        require(beneficiaryTokenCount <= amount, "returned");
-
-        uint256 reservedTokenCount = amount - beneficiaryTokenCount;
-        if (reservedTokenCount != 0) {
-            _controller.recordReservedTokens(projectId, reservedTokenCount);
-        }
+    function lastMintBeneficiary() external view returns (address) {
+        return _lastMintBeneficiary;
     }
 
-    function lastProjectId() external view returns (uint256) {
-        return _lastProjectId;
-    }
-
-    function lastReceivedPayment() external view returns (uint256) {
-        return _lastReceivedPayment;
-    }
-
-    function lastBeneficiary() external view returns (address) {
-        return _lastBeneficiary;
-    }
-
-    function lastMinReturnedTokens() external view returns (uint256) {
-        return _lastMinReturnedTokens;
-    }
-
-    function lastMetadata() external view returns (bytes memory) {
-        return _lastMetadata;
+    function lastUseReservedPercent() external view returns (bool) {
+        return _lastUseReservedPercent;
     }
 }
 
-contract CobuildPaymentTerminalMockNativeCommunityTerminal {
-    CobuildPaymentTerminalMockController internal immutable _controller;
-    uint256 internal _returnedTokenCount;
-    uint256 internal _lastReceivedValue;
-
-    constructor(CobuildPaymentTerminalMockController controller_) {
-        _controller = controller_;
-        _returnedTokenCount = type(uint256).max;
-    }
-
-    function setReturnedTokenCount(uint256 returnedTokenCount_) external {
-        _returnedTokenCount = returnedTokenCount_;
-    }
-
-    function pay(
-        uint256 projectId,
-        address token,
-        uint256 amount,
-        address,
-        uint256,
-        string calldata,
-        bytes calldata
-    ) external payable returns (uint256 beneficiaryTokenCount) {
-        require(token == JBConstants.NATIVE_TOKEN, "token");
-        require(msg.value == amount, "value");
-
-        _lastReceivedValue = amount;
-        beneficiaryTokenCount = _returnedTokenCount == type(uint256).max ? amount : _returnedTokenCount;
-        require(beneficiaryTokenCount <= amount, "returned");
-
-        uint256 reservedTokenCount = amount - beneficiaryTokenCount;
-        if (reservedTokenCount != 0) {
-            _controller.recordReservedTokens(projectId, reservedTokenCount);
-        }
-    }
-
-    function lastReceivedValue() external view returns (uint256) {
-        return _lastReceivedValue;
-    }
-}
+contract CobuildPaymentTerminalMockTerminal {}
 
 contract CobuildPaymentTerminalMockSplitHook is ICobuildSplitHook {
     uint256 public immutable override communityRevnetId;
