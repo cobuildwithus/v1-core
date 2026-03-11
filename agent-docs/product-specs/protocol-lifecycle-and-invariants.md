@@ -74,14 +74,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - initializes the hook with the shared terminal as the fixed `routeSetter`,
     - fail-closes registration unless the community revnet's live reserved-token split group already contains exactly one nonzero split whose `hook` is that same predicted address for the current ruleset,
     - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
-    - completes same-transaction community registration on that terminal through the terminal's approved-factory path instead of requiring a redundant second owner signature.
+    - completes same-transaction community registration on that terminal through the terminal's approved-factory path, while standalone registration remains a direct owner call on the shared terminal.
   - `CobuildCommunityTerminal` optionally decodes community pay metadata as
     `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`,
     seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, forwards `jbMetadata` unchanged
     into terminal-store accounting and pay-hook `payerMetadata`, pays through the registered community config, and
     synchronously flushes reserved-token splits through the community controller when that pay created reserved tokens.
   - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
-    payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
+    payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay; the supported entrypoints are direct owner calls and the approved factory path only.
   - If `directNativeAllowed`, community registration must pin `paymentSourceRevnetId == communityRevnetId`.
   - Community registration must also prove on-chain that the current reserved-token split group will call the registered
     hook by requiring exactly one live nonzero split whose `hook` matches the registered split hook.
@@ -142,11 +142,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - budget treasuries allow one post-deadline reassert during active reassert grace after a late false-settled pending assertion,
   - success can finalize post-deadline when assertion was initiated pre-deadline, or for budgets via the one-time post-deadline grace reassert.
 - Pending assertions block active-state terminalization races only while unresolved.
-- Accepted budget delistings (on-chain `removeItem`/`finalizeRemovedBudget`) use activation-locked split semantics:
+- Open-preset accepted budget delistings (on-chain `removeItem`/`finalizeRemovedBudget`) use activation-locked split semantics:
   - pre-activation delisting disables budget success resolution at delist-acceptance and strict-finalizes the budget to terminal `Failed`,
   - activation-locked delisting stops forward spend/funding while preserving success eligibility and does not auto-force `Failed`,
   - retry progression for delisted activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only,
   - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; same-byte resubmission is only valid when the earlier request was removed before activation deployed a child-flow recipient.
+- Managed-preset controller removals use fail-closed terminalization:
+  - pre-activation removals still strict-finalize to terminal `Failed`,
+  - activated removals call the treasury's controller-only removal fail-close path, terminalize immediately to `Failed`, and keep future `sync()` calls as terminal no-ops.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
   - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.

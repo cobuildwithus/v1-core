@@ -42,7 +42,7 @@ Remove the privileged system-goal and registry-owner model from community routin
 ## Design Notes
 
 - Community bootstrap auth should move from `registry.owner()` to `DIRECTORY.PROJECTS().ownerOf(communityRevnetId)`.
-- `CobuildCommunityTerminalFactory.deployFor(...)` can stay externally callable because the terminal registration signature remains the true bootstrap authorization.
+- `CobuildCommunityTerminalFactory.deployFor(...)` can stay externally callable because it still enforces `msg.sender == DIRECTORY.PROJECTS().ownerOf(communityRevnetId)`, and terminal registration is now limited to direct owner calls or the approved-factory path.
 - Direct goal funding remains independent from TCR listing; TCR only gates community-root routing.
 
 ## Verification

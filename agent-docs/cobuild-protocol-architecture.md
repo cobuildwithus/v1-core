@@ -90,7 +90,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: `NullPremiumEscrow`
-- Budget child `recipientAdmin`: Safe-direct in v1; the Safe is not the allocator identity
+- Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
 ## Key Interaction Paths
@@ -138,9 +138,10 @@ Community root routing
   - initializes the hook with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
   - requires the live reserved split group to already contain exactly one nonzero split that points at that predicted hook address for the current ruleset,
   - requires deployment orchestration to atomically set the live reserved split to that predicted hook address before calling `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
-  - registers the community on that same terminal in the same transaction through the terminal's approved-factory path, so the project owner does not need to supply a redundant second signature.
+  - registers the community on that same terminal in the same transaction through the terminal's approved-factory path, while standalone registration remains a direct owner call on the shared terminal.
 - Community payments can arrive through the shared `CobuildCommunityTerminal` only after the community binds immutable
   routing config and points both its native ETH terminal and registered payment-token terminal at that shared terminal.
+- Registration modes are intentionally narrow: direct project-owner calls or the approved factory path only.
 - The shared canonical terminal accepts native ETH or the registered community payment token:
   - if `directNativeAllowed`, registration requires `paymentSourceRevnetId == communityRevnetId`,
   - if `directNativeAllowed`, native ETH is recorded directly on the community revnet through the shared terminal's JB terminal-store path,
@@ -341,7 +342,8 @@ Community root routing
   - pre-activation removals disable budget success resolution and strict-finalize to `Failed`,
   - activation-locked removals preserve normal terminal progression and use `retryRemovedBudgetResolution(...)` for spend-stop plus treasury progression.
 - Managed-preset removal semantics stay on `ManagedBudgetController`:
-  - `removeBudget(...)` removes the goal-flow recipient and terminalizes or spend-stops based on treasury activation state,
+  - `removeBudget(...)` removes the goal-flow recipient and fail-closes the treasury on removal,
+  - activated removals use the treasury's controller-only removal terminalization path, so later permissionless `sync()` calls remain terminal no-ops,
   - `pruneTerminalBudget(...)` remains permissionless through shared `IBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal slasher wiring is initialization-bound:

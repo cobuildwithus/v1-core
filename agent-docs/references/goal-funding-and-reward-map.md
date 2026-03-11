@@ -14,18 +14,19 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - Premium / risk modules are now pluggable:
   - open preset: `PremiumEscrow`
   - managed preset: `NullPremiumEscrow`
-- Managed v1 deliberately keeps child budget `recipientAdmin` on the Safe directly.
+- Managed child-budget admin and allocator identity are both controller-centric; Safe authority operates through `ManagedBudgetController`.
 - Advisory TCR for maintainer goals and any managed mechanism controller are intentionally out of scope for this pass.
 
 ## Community Root Routing Path
 
 1. A payer routes an evergreen community revnet payment through `CobuildCommunityTerminal`.
 2. `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction through the terminal's approved-factory path.
-3. Registration fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook for the current ruleset.
-4. `CommunityGoalRegistry` remains the canonical onchain source of donor-visible goals.
-5. `GoalDeploymentRegistry` remains the canonical onchain source of `goalId -> goalTreasury`.
-6. Direct goal funding uses `CobuildGoalTerminal`, which resolves each goal's payment token and source revnet from the registered goal treasury plus stake vault.
-7. When community reserved tokens are minted, `CobuildSplitHook` routes either:
+3. Outside the factory flow, community registration is a direct project-owner call on `CobuildCommunityTerminal`; there is no offchain-signature registration path.
+4. Registration fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook for the current ruleset.
+5. `CommunityGoalRegistry` remains the canonical onchain source of donor-visible goals.
+6. `GoalDeploymentRegistry` remains the canonical onchain source of `goalId -> goalTreasury`.
+7. Direct goal funding uses `CobuildGoalTerminal`, which resolves each goal's payment token and source revnet from the registered goal treasury plus stake vault.
+8. When community reserved tokens are minted, `CobuildSplitHook` routes either:
    - the explicit one-shot route seeded by the terminal for the current pay, or
    - hook-managed backlog for later permissionless flush.
 
@@ -55,7 +56,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 
 1. `ManagedBudgetController` is the budget controller, topology registry, and goal-level allocator identity.
 2. `GoalFactoryManagedPresetDeploy` wires:
-   - `SingleAllocatorStrategy` for the goal flow, owned by and allocating as `ManagedBudgetController`
+   - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
    - `ManagedBudgetControllerStackDeployer` for budget child stacks
    - `NoopBudgetGatePolicy`
    - `NullPremiumEscrow`
@@ -63,7 +64,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - cloned `BudgetTreasury`
    - cloned `NullPremiumEscrow`
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
-4. Managed child-flow `recipientAdmin` is the Safe directly in v1.
+4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
 6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`, and authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
 
@@ -89,6 +90,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - `NullPremiumEscrow` still records wiring (`budgetTreasury`, `budgetStakeLedger`, `goalFlow`, `underwriterSlasherRouter`, `budgetSlashPpm`) so the topology remains uniform.
 - Runtime premium, claim, slash, and burn operations are intentional no-ops.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
+- Managed removals now fail-close at the treasury layer: `ManagedBudgetController.removeBudget(...)` terminalizes activated removed budgets immediately through the controller-only removal path, so later `BudgetTreasury.sync()` calls cannot restart payout.
 
 ## Stake, Coverage, and Reward Semantics
 

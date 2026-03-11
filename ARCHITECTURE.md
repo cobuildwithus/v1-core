@@ -103,7 +103,7 @@ Managed preset
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: `NullPremiumEscrow`
-- Budget child `recipientAdmin`: Safe-direct in v1; the Safe is not the allocator identity
+- Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
 ## Cross-Cutting Invariants
@@ -185,11 +185,11 @@ Managed preset
     - initializes `CobuildSplitHook` with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
     - fail-closes registration unless the community revnet's live reserved-token split group already contains exactly one nonzero split whose `hook` is that same predicted address for the current ruleset,
     - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
-    - completes same-transaction community registration on that terminal through the terminal's approved-factory path, so the project owner does not need to supply a redundant second signature.
+    - completes same-transaction community registration on that terminal through the terminal's approved-factory path, while standalone registration remains a direct project-owner call on the shared terminal.
   - `CobuildCommunityTerminal` is a shared community payment terminal:
     - it must be the community revnet's canonical `DIRECTORY` primary terminal for both native ETH and the registered payment token before registration succeeds,
     - it must also prove on-chain that `controller.sendReservedTokensToSplitsOf(communityRevnetId)` will hit the registered hook by validating that the current reserved split group contains exactly one nonzero split for that hook,
-    - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once through community-project-owner-driven registration,
+    - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once either through a direct community-project-owner call or the approved factory path,
     - `pay(...).metadata` now carries `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)` so one-shot explicit routing and downstream JB payer metadata travel together,
     - when `directNativeAllowed` is enabled, registration requires `paymentSourceRevnetId == communityRevnetId`,
     - native ETH either records a canonical JB pay directly on that terminal when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
@@ -343,6 +343,9 @@ Managed preset
 - `BudgetTCR` exposes permissionless retry for removed-but-unresolved budget progression (`retryRemovedBudgetResolution`) on the open preset:
   - pre-activation removals retry terminal-only resolution,
   - activation-locked removals retry spend-stop + treasury sync progression.
+- `ManagedBudgetController` fail-closes removals on the managed preset:
+  - pre-activation removals remain strict terminal `Failed`,
+  - activated removals use the treasury's controller-only removal terminalization path, so later `sync()` calls cannot reopen spend after removal.
 - Budget controllers expose permissionless best-effort budget treasury batch sync:
 - open preset (`BudgetTCR.syncBudgetTreasuries`):
   - skips undeployed/inactive item IDs,
@@ -363,7 +366,7 @@ Managed preset
   - `RoundFactory` round arbitrators keep stake-vault voting but are intentionally deployed as non-slashing and are never added to the router allowlist.
 - Budget child-flow role wiring is preset-specific and explicit:
   - open preset: `BudgetTCR` creates the child recipient using `BudgetTCRDeployer` stack-module config, typically with the budget treasury as `flowOperator` / `sweeper` and the mechanism-layer admin as child `recipientAdmin`,
-  - managed preset: `ManagedBudgetController` creates the child recipient with the Safe as child `recipientAdmin`, the cloned budget treasury as `flowOperator` / `sweeper`, and keeps budget-flow allocation authority on the controller contract rather than the Safe.
+  - managed preset: `ManagedBudgetController` creates the child recipient with itself as child `recipientAdmin`, the cloned budget treasury as `flowOperator` / `sweeper`, and keeps both child admin and budget-flow allocation authority on the controller contract so Safe authority handoff stays controller-centric.
 - Budget stack topology is registry-owned rather than graph-discovered:
   - `BudgetTCR` and `ManagedBudgetController` both expose direct topology getters plus reverse lookups by budget treasury and child flow,
   - inactive/removed stacks remain discoverable through that registry surface with `active == false`.

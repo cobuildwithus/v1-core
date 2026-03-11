@@ -5,9 +5,6 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import { SignatureChecker } from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -31,14 +28,8 @@ import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistr
 /// on this terminal or recursively acquire the registered payment token through another community or external native terminal.
 contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    using MessageHashUtils for bytes32;
 
     uint256 private constant RESERVED_TOKENS_GROUP_ID = 1;
-
-    bytes32 private constant REGISTER_COMMUNITY_TYPEHASH =
-        keccak256(
-            "RegisterCommunity(address registrant,uint256 communityRevnetId,address splitHook,address paymentToken,uint256 paymentSourceRevnetId,bool directNativeAllowed,uint256 deadline,address terminal,uint256 chainId)"
-        );
 
     struct CommunityConfig {
         ICobuildSplitHook splitHook;
@@ -78,8 +69,6 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     error INVALID_PAYMENT_TERMINAL(address expectedTerminal, address actualTerminal);
     error INVALID_RESERVED_SPLIT_COUNT(uint256 expectedCount, uint256 actualCount);
     error INVALID_RESERVED_SPLIT_PERCENT(uint256 expectedPercent, uint256 actualPercent);
-    error INVALID_REGISTRATION_SIGNATURE(address expectedSigner, address actualSigner);
-    error REGISTRATION_DEADLINE_EXPIRED(uint256 deadline, uint256 currentTimestamp);
     error NO_PAYMENT_ETH_TERMINAL(uint256 paymentSourceRevnetId);
     error PAYMENT_SOURCE_NOT_REGISTERED(uint256 paymentSourceRevnetId);
     error ZERO_PAYMENT_OUT();
@@ -159,47 +148,6 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         );
     }
 
-    function registerCommunityWithSignature(
-        address registrant,
-        uint256 communityRevnetId,
-        ICobuildSplitHook splitHook,
-        address paymentToken,
-        uint256 paymentSourceRevnetId,
-        bool directNativeAllowed,
-        uint256 deadline,
-        bytes calldata signature
-    ) external {
-        if (block.timestamp > deadline) {
-            revert REGISTRATION_DEADLINE_EXPIRED(deadline, block.timestamp);
-        }
-
-        bytes32 signedDigest = _registrationDigestOf(
-            registrant,
-            communityRevnetId,
-            address(splitHook),
-            paymentToken,
-            paymentSourceRevnetId,
-            directNativeAllowed,
-            deadline
-        ).toEthSignedMessageHash();
-
-        if (registrant.code.length == 0) {
-            address actualSigner = ECDSA.recover(signedDigest, signature);
-            if (actualSigner != registrant) revert INVALID_REGISTRATION_SIGNATURE(registrant, actualSigner);
-        } else if (!SignatureChecker.isValidSignatureNow(registrant, signedDigest, signature)) {
-            revert INVALID_REGISTRATION_SIGNATURE(registrant, address(0));
-        }
-
-        _registerCommunity(
-            registrant,
-            communityRevnetId,
-            splitHook,
-            paymentToken,
-            paymentSourceRevnetId,
-            directNativeAllowed
-        );
-    }
-
     function registerCommunityFromFactory(
         address registrant,
         uint256 communityRevnetId,
@@ -218,26 +166,6 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             paymentToken,
             paymentSourceRevnetId,
             directNativeAllowed
-        );
-    }
-
-    function registrationDigestOf(
-        address registrant,
-        uint256 communityRevnetId,
-        address splitHook,
-        address paymentToken,
-        uint256 paymentSourceRevnetId,
-        bool directNativeAllowed,
-        uint256 deadline
-    ) external view returns (bytes32 digest) {
-        digest = _registrationDigestOf(
-            registrant,
-            communityRevnetId,
-            splitHook,
-            paymentToken,
-            paymentSourceRevnetId,
-            directNativeAllowed,
-            deadline
         );
     }
 
@@ -921,30 +849,5 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         if (token == JBConstants.NATIVE_TOKEN) return;
 
         IERC20(token).forceApprove(to, 0);
-    }
-
-    function _registrationDigestOf(
-        address registrant,
-        uint256 communityRevnetId,
-        address splitHook,
-        address paymentToken,
-        uint256 paymentSourceRevnetId,
-        bool directNativeAllowed,
-        uint256 deadline
-    ) internal view returns (bytes32 digest) {
-        digest = keccak256(
-            abi.encode(
-                REGISTER_COMMUNITY_TYPEHASH,
-                registrant,
-                communityRevnetId,
-                splitHook,
-                paymentToken,
-                paymentSourceRevnetId,
-                directNativeAllowed,
-                deadline,
-                address(this),
-                block.chainid
-            )
-        );
     }
 }
