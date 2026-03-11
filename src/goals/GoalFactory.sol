@@ -18,6 +18,7 @@ import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
+import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
@@ -64,6 +65,8 @@ contract GoalFactory {
     address public immutable JUROR_SLASHER_ROUTER_IMPL;
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
 
+    address public immutable DEFAULT_GOAL_SPEND_POLICY;
+    address public immutable DEFAULT_BUDGET_SPEND_POLICY;
     address public immutable DEFAULT_SUBMISSION_DEPOSIT_STRATEGY;
     address public immutable DEFAULT_ALLOCATION_MECHANISM_ADMIN;
     address public immutable DEFAULT_INVALID_ROUND_REWARDS_SINK;
@@ -190,6 +193,7 @@ contract GoalFactory {
     error MANAGED_SAFE_REQUIRED();
     error MANAGED_SAFE_NOT_CONTRACT(address safe);
     error MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
+    error INVALID_DEFAULT_SPEND_POLICY(address policy);
 
     constructor(
         IREVDeployer revDeployer,
@@ -209,6 +213,8 @@ contract GoalFactory {
         address premiumEscrowImpl,
         address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
+        address defaultGoalSpendPolicy,
+        address defaultBudgetSpendPolicy,
         address defaultSubmissionDepositStrategy,
         address defaultAllocationMechanismAdmin,
         address defaultInvalidRoundRewardsSink
@@ -230,6 +236,8 @@ contract GoalFactory {
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
+        if (defaultGoalSpendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (defaultBudgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
         if (defaultAllocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
         if (defaultInvalidRoundRewardsSink == address(0)) revert ADDRESS_ZERO();
@@ -245,6 +253,8 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
+        if (defaultGoalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultGoalSpendPolicy);
+        if (defaultBudgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultBudgetSpendPolicy);
         if (goalPaymentTerminal.code.length == 0) revert NOT_A_CONTRACT(goalPaymentTerminal);
         if (jbMultiTerminal.code.length == 0) revert NOT_A_CONTRACT(jbMultiTerminal);
         if (buybackHookDataHook.code.length == 0) revert NOT_A_CONTRACT(buybackHookDataHook);
@@ -252,6 +262,8 @@ contract GoalFactory {
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
+        _requireValidDefaultSpendPolicy(defaultGoalSpendPolicy);
+        _requireValidDefaultSpendPolicy(defaultBudgetSpendPolicy);
         _validateGoalTerminalConfig(revDeployer, goalDeploymentRegistry, goalPaymentTerminal);
 
         REV_DEPLOYER = revDeployer;
@@ -274,6 +286,8 @@ contract GoalFactory {
         JUROR_SLASHER_ROUTER_IMPL = jurorSlasherRouterImpl;
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
 
+        DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy;
+        DEFAULT_BUDGET_SPEND_POLICY = defaultBudgetSpendPolicy;
         DEFAULT_SUBMISSION_DEPOSIT_STRATEGY = defaultSubmissionDepositStrategy;
         DEFAULT_ALLOCATION_MECHANISM_ADMIN = defaultAllocationMechanismAdmin;
         DEFAULT_INVALID_ROUND_REWARDS_SINK = defaultInvalidRoundRewardsSink;
@@ -329,6 +343,33 @@ contract GoalFactory {
         if (terminalRegistry != address(goalDeploymentRegistry)) {
             revert INVALID_GOAL_TERMINAL_REGISTRY(address(goalDeploymentRegistry), terminalRegistry);
         }
+    }
+
+    function _requireValidDefaultSpendPolicy(address policy) private view {
+        try ISpendPolicy(policy).syncMode() returns (ISpendPolicy.SyncMode mode) {
+            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
+                revert INVALID_DEFAULT_SPEND_POLICY(policy);
+            }
+        } catch {
+            revert INVALID_DEFAULT_SPEND_POLICY(policy);
+        }
+
+        try ISpendPolicy(policy).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
+            revert INVALID_DEFAULT_SPEND_POLICY(policy);
+        }
+    }
+
+    function _spendPolicyValidationContext() private view returns (ISpendPolicy.SpendContext memory ctx) {
+        uint64 nowTs = uint64(block.timestamp);
+        ctx = ISpendPolicy.SpendContext({
+            nowTs: nowTs,
+            activatedAt: nowTs,
+            deadline: nowTs + 1,
+            treasuryBalance: 1,
+            timeRemaining: 1,
+            incomingRate: 0,
+            currentOutflowRate: 0
+        });
     }
 
     function _resolveFundingContext(

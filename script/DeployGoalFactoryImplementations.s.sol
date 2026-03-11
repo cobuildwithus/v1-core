@@ -14,6 +14,7 @@ import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.so
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
@@ -37,6 +38,7 @@ import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
 import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
+import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 
 contract DeployGoalFactoryImplementations is DeployScript {
     string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
@@ -72,8 +74,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal budgetFlowRouterStrategyImplOut;
     address internal teamFlowImplOut;
     address internal teamFlowFactoryImplOut;
+    address internal linearSpendPolicyImplOut;
 
     address internal defaultSubmissionDepositStrategyOut;
+    address internal defaultGoalSpendPolicyOut;
+    address internal defaultBudgetSpendPolicyOut;
     uint256 internal escrowBondBpsOut;
     address internal defaultAllocationMechanismAdminOut;
     address internal defaultInvalidRoundRewardsSinkOut;
@@ -143,6 +148,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         TeamFlow teamFlowImpl = new TeamFlow();
         TeamFlowFactory teamFlowFactoryImpl = new TeamFlowFactory(address(teamFlowImpl));
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
+        LinearSpendPolicy linearSpendPolicyImpl = new LinearSpendPolicy();
 
         BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(
             address(budgetTreasuryImpl),
@@ -156,6 +162,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         PrizePoolSubmissionDepositStrategy defaultSubmissionDepositStrategy =
             PrizePoolSubmissionDepositStrategy(Clones.clone(address(prizePoolSubmissionDepositStrategyImpl)));
         defaultSubmissionDepositStrategy.initialize(IERC20(cobuildTokenAddressOut), BURN);
+        LinearSpendPolicy defaultGoalSpendPolicy = LinearSpendPolicy(Clones.clone(address(linearSpendPolicyImpl)));
+        defaultGoalSpendPolicy.initialize(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+        LinearSpendPolicy defaultBudgetSpendPolicy = LinearSpendPolicy(Clones.clone(address(linearSpendPolicyImpl)));
+        defaultBudgetSpendPolicy.initialize(true, 0, ISpendPolicy.SyncMode.Capped);
         FakeUMATreasurySuccessResolver fakeUmaResolver = new FakeUMATreasurySuccessResolver(
             IERC20(cobuildTokenAddressOut), fakeUmaEscalationManagerOut, fakeUmaDomainIdOut, fakeUmaOwnerOut
         );
@@ -181,8 +191,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
         budgetFlowRouterStrategyImplOut = address(budgetFlowRouterStrategyImpl);
         teamFlowImplOut = address(teamFlowImpl);
         teamFlowFactoryImplOut = address(teamFlowFactoryImpl);
+        linearSpendPolicyImplOut = address(linearSpendPolicyImpl);
 
         defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
+        defaultGoalSpendPolicyOut = address(defaultGoalSpendPolicy);
+        defaultBudgetSpendPolicyOut = address(defaultBudgetSpendPolicy);
         fakeUmaResolverOut = address(fakeUmaResolver);
 
         console2.log("Deployer:", deployerAddress);
@@ -216,7 +229,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("BudgetFlowRouterStrategy impl:", budgetFlowRouterStrategyImplOut);
         console2.log("TeamFlow impl:", teamFlowImplOut);
         console2.log("TeamFlowFactory impl:", teamFlowFactoryImplOut);
+        console2.log("LinearSpendPolicy impl:", linearSpendPolicyImplOut);
         console2.log("DefaultSubmissionDepositStrategy:", defaultSubmissionDepositStrategyOut);
+        console2.log("DefaultGoalSpendPolicy:", defaultGoalSpendPolicyOut);
+        console2.log("DefaultBudgetSpendPolicy:", defaultBudgetSpendPolicyOut);
         console2.log("--- Fake resolver ---");
         console2.log("FakeUMATreasurySuccessResolver:", fakeUmaResolverOut);
         console2.log("FAKE_UMA_OWNER:", fakeUmaOwnerOut);
@@ -271,8 +287,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "RoundFactoryImpl", roundFactoryImplOut);
         _writeAddressLine(filePath, "AllocationMechanismTCRImpl", allocationMechanismTcrImplOut);
         _writeAddressLine(filePath, "BudgetFlowRouterStrategyImpl", budgetFlowRouterStrategyImplOut);
+        _writeAddressLine(filePath, "LinearSpendPolicyImpl", linearSpendPolicyImplOut);
 
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
+        _writeAddressLine(filePath, "DefaultGoalSpendPolicy", defaultGoalSpendPolicyOut);
+        _writeAddressLine(filePath, "DefaultBudgetSpendPolicy", defaultBudgetSpendPolicyOut);
         _writeUintLine(filePath, "ESCROW_BOND_BPS", escrowBondBpsOut);
         _writeAddressLine(filePath, "DEFAULT_ALLOCATION_MECHANISM_ADMIN", defaultAllocationMechanismAdminOut);
         _writeAddressLine(filePath, "DEFAULT_INVALID_ROUND_REWARDS_SINK", defaultInvalidRoundRewardsSinkOut);
@@ -459,6 +478,9 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "budgetFlowRouterStrategy = \"",
             vm.toString(budgetFlowRouterStrategyImplOut),
+            "\"\n",
+            "linearSpendPolicy = \"",
+            vm.toString(linearSpendPolicyImplOut),
             "\"\n\n"
         );
 
@@ -476,6 +498,12 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "submissionDepositStrategy = \"",
             vm.toString(defaultSubmissionDepositStrategyOut),
+            "\"\n",
+            "goalSpendPolicy = \"",
+            vm.toString(defaultGoalSpendPolicyOut),
+            "\"\n",
+            "budgetSpendPolicy = \"",
+            vm.toString(defaultBudgetSpendPolicyOut),
             "\"\n\n"
         );
 

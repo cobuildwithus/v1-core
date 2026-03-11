@@ -45,6 +45,8 @@ contract GoalFactoryPairDeployer {
         address premiumEscrowImpl;
         address jurorSlasherRouterImpl;
         address underwriterSlasherRouterImpl;
+        address defaultGoalSpendPolicy;
+        address defaultBudgetSpendPolicy;
         address defaultSubmissionDepositStrategy;
         address defaultAllocationMechanismAdmin;
         address defaultInvalidRoundRewardsSink;
@@ -107,6 +109,8 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.premiumEscrowImpl,
             goalFactoryConfig.jurorSlasherRouterImpl,
             goalFactoryConfig.underwriterSlasherRouterImpl,
+            goalFactoryConfig.defaultGoalSpendPolicy,
+            goalFactoryConfig.defaultBudgetSpendPolicy,
             goalFactoryConfig.defaultSubmissionDepositStrategy,
             goalFactoryConfig.defaultAllocationMechanismAdmin,
             goalFactoryConfig.defaultInvalidRoundRewardsSink
@@ -168,6 +172,8 @@ contract DeployGoalFactory is DeployScript {
     address internal goalDeploymentRegistryOut;
     address internal budgetTcrFactoryOut;
     address internal defaultSubmissionDepositStrategyOut;
+    address internal defaultGoalSpendPolicyOut;
+    address internal defaultBudgetSpendPolicyOut;
     address internal goalFactoryOut;
     address internal goalDeploymentRegistryRegistrarAdminOut;
 
@@ -219,6 +225,9 @@ contract DeployGoalFactory is DeployScript {
         );
         defaultInvalidRoundRewardsSinkOut =
             _resolveAddress("DEFAULT_INVALID_ROUND_REWARDS_SINK", "$.defaults.invalidRoundRewardsSink", BURN);
+        defaultGoalSpendPolicyOut = _requireConfigAddress("DEFAULT_GOAL_SPEND_POLICY", "$.defaults.goalSpendPolicy");
+        defaultBudgetSpendPolicyOut =
+            _requireConfigAddress("DEFAULT_BUDGET_SPEND_POLICY", "$.defaults.budgetSpendPolicy");
 
         goalTreasuryImplOut = _requireConfigAddress("GOAL_TREASURY_IMPL", "$.implementations.goalTreasury");
         stakeVaultImplOut = _requireConfigAddress("STAKE_VAULT_IMPL", "$.implementations.stakeVault");
@@ -286,6 +295,8 @@ contract DeployGoalFactory is DeployScript {
         console2.log("BudgetTCRFactory:", budgetTcrFactoryOut);
         console2.log("DepositStrategy:", defaultSubmissionDepositStrategyOut);
         console2.log("--- Goal factory ---");
+        console2.log("DefaultGoalSpendPolicy:", defaultGoalSpendPolicyOut);
+        console2.log("DefaultBudgetSpendPolicy:", defaultBudgetSpendPolicyOut);
         console2.log("GoalDeploymentRegistry:", goalDeploymentRegistryOut);
         console2.log("GoalFactory:", goalFactoryOut);
     }
@@ -324,6 +335,8 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "GoalFactoryPairDeployer", goalFactoryPairDeployerOut);
         _writeAddressLine(filePath, "GoalDeploymentRegistry", goalDeploymentRegistryOut);
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
+        _writeAddressLine(filePath, "DefaultGoalSpendPolicy", defaultGoalSpendPolicyOut);
+        _writeAddressLine(filePath, "DefaultBudgetSpendPolicy", defaultBudgetSpendPolicyOut);
         _writeUintLine(filePath, "ESCROW_BOND_BPS", escrowBondBpsOut);
         _writeAddressLine(filePath, "GoalFactory", goalFactoryOut);
 
@@ -388,6 +401,8 @@ contract DeployGoalFactory is DeployScript {
                 premiumEscrowImpl: premiumEscrowImplOut,
                 jurorSlasherRouterImpl: jurorSlasherRouterImplOut,
                 underwriterSlasherRouterImpl: underwriterSlasherRouterImplOut,
+                defaultGoalSpendPolicy: defaultGoalSpendPolicyOut,
+                defaultBudgetSpendPolicy: defaultBudgetSpendPolicyOut,
                 defaultSubmissionDepositStrategy: defaultSubmissionDepositStrategyOut,
                 defaultAllocationMechanismAdmin: defaultAllocationMechanismAdminOut,
                 defaultInvalidRoundRewardsSink: defaultInvalidRoundRewardsSinkOut

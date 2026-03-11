@@ -8,6 +8,7 @@ import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -49,6 +50,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredUnderwriterSlasherRouterImpl;
     address internal configuredBuybackHookDataHook;
     address internal configuredBuybackHook;
+    address internal configuredDefaultGoalSpendPolicy;
+    address internal configuredDefaultBudgetSpendPolicy;
 
     function setUp() public {
         revnetDirectory = new MockDirectory();
@@ -73,6 +76,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
+        configuredDefaultGoalSpendPolicy = address(new MockSpendPolicy());
+        configuredDefaultBudgetSpendPolicy = address(new MockSpendPolicy());
 
         revnetTokens.setTokenOf(PAYMENT_REVNET_ID, address(paymentToken));
         revnetDirectory.setPrimaryTerminal(
@@ -465,6 +470,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredPremiumEscrowImpl,
             configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
+            configuredDefaultGoalSpendPolicy,
+            configuredDefaultBudgetSpendPolicy,
             configuredDefaultSubmissionDepositStrategy,
             DEFAULT_ALLOCATION_MECHANISM_ADMIN,
             DEFAULT_INVALID_ROUND_REWARDS_SINK
@@ -477,6 +484,16 @@ contract DummyContract {}
 contract DummyTerminal {
     function STORE() external pure returns (address) {
         return address(0xB0A1);
+    }
+}
+
+contract MockSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 0;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        return SyncMode.Capped;
     }
 }
 

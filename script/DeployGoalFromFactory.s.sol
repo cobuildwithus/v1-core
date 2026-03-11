@@ -289,10 +289,11 @@ contract DeployGoalFromFactory is DeployScript {
     ) internal view returns (address spendPolicy) {
         if (vm.envExists(spendPolicyEnvKey)) return vm.envAddress(spendPolicyEnvKey);
 
-        string memory option = vm.envOr(spendPolicyOptionEnvKey, string(""));
-        if (bytes(option).length == 0 || keccak256(bytes(option)) == DEFAULT_SPEND_POLICY_OPTION_HASH) {
-            return defaultSpendPolicy;
-        }
+        if (!vm.envExists(spendPolicyOptionEnvKey)) return BURN;
+
+        string memory option = vm.envString(spendPolicyOptionEnvKey);
+        if (bytes(option).length == 0) return BURN;
+        if (keccak256(bytes(option)) == DEFAULT_SPEND_POLICY_OPTION_HASH) return defaultSpendPolicy;
         if (goalPolicy) revert GOAL_SPEND_POLICY_OPTION_INVALID(option);
         revert BUDGET_SPEND_POLICY_OPTION_INVALID(option);
     }

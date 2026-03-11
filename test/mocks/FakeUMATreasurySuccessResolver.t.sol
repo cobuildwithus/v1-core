@@ -14,6 +14,7 @@ import {DeployGoalFactory, GoalFactoryPairDeployer} from "script/DeployGoalFacto
 import {DeployGoalFactoryImplementations} from "script/DeployGoalFactoryImplementations.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
@@ -287,6 +288,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
             address expectedBuybackHookDataHook = vm.parseTomlAddress(latestToml, "$.core.buybackHookDataHook");
             address expectedBuybackHook = vm.parseTomlAddress(latestToml, "$.core.buybackHook");
+            address expectedDefaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
+            address expectedDefaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
             assertEq(expectedBuybackHookDataHook, buybackHookDataHookAddress);
             assertEq(expectedBuybackHook, buybackHookAddress);
 
@@ -319,6 +322,17 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
             assertTrue(_stringContains(artifact, "ERC20VotesArbitratorImpl: 0x"));
             assertTrue(_stringContains(artifact, "BudgetTCRDeployerImpl: 0x"));
+            assertTrue(_stringContains(artifact, "LinearSpendPolicyImpl: 0x"));
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("DefaultGoalSpendPolicy: ", vm.toString(expectedDefaultGoalSpendPolicy))
+                )
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("DefaultBudgetSpendPolicy: ", vm.toString(expectedDefaultBudgetSpendPolicy))
+                )
+            );
             assertTrue(
                 _stringContains(
                     artifact, string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(expectedFakeResolver))
@@ -341,6 +355,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "DefaultGoalSpendPolicy: 0x"));
+            assertTrue(_stringContains(latestArtifact, "DefaultBudgetSpendPolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 
             string memory historyPath = _latestHistoryPathFor("DeployGoalFactoryImplementations", ".txt");
@@ -389,6 +405,34 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(deployedFactory.JB_MULTI_TERMINAL(), expectedJbMultiTerminal);
             assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
             assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
+            string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
+            address linearSpendPolicyImpl = vm.parseTomlAddress(latestToml, "$.implementations.linearSpendPolicy");
+            address defaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
+            address defaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
+            assertEq(
+                deployedFactory.DEFAULT_GOAL_SPEND_POLICY(),
+                defaultGoalSpendPolicy
+            );
+            assertEq(
+                deployedFactory.DEFAULT_BUDGET_SPEND_POLICY(),
+                defaultBudgetSpendPolicy
+            );
+            assertNotEq(defaultGoalSpendPolicy, linearSpendPolicyImpl);
+            assertNotEq(defaultBudgetSpendPolicy, linearSpendPolicyImpl);
+
+            LinearSpendPolicy goalSpendPolicy = LinearSpendPolicy(defaultGoalSpendPolicy);
+            assertFalse(goalSpendPolicy.includeIncomingRate());
+            assertEq(goalSpendPolicy.maxTargetFlowRate(), 0);
+            assertEq(uint8(goalSpendPolicy.syncMode()), uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback));
+
+            LinearSpendPolicy budgetSpendPolicy = LinearSpendPolicy(defaultBudgetSpendPolicy);
+            assertTrue(budgetSpendPolicy.includeIncomingRate());
+            assertEq(budgetSpendPolicy.maxTargetFlowRate(), 0);
+            assertEq(uint8(budgetSpendPolicy.syncMode()), uint8(ISpendPolicy.SyncMode.Capped));
+
+            LinearSpendPolicy spendPolicyImplementation = LinearSpendPolicy(linearSpendPolicyImpl);
+            vm.expectRevert(Initializable.InvalidInitialization.selector);
+            spendPolicyImplementation.initialize(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
 
             address stakeVaultImpl = deployedFactory.STAKE_VAULT_IMPL();
             address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
@@ -539,29 +583,78 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
         DeployGoalFromFactory internal deployScript;
         MockGoalFactoryForScript internal mockFactory;
-        MockScriptSpendPolicy internal goalSpendPolicy;
-        MockScriptSpendPolicy internal budgetSpendPolicy;
+        MockScriptSpendPolicy internal explicitGoalSpendPolicy;
+        MockScriptSpendPolicy internal explicitBudgetSpendPolicy;
+        MockScriptSpendPolicy internal defaultGoalSpendPolicy;
+        MockScriptSpendPolicy internal defaultBudgetSpendPolicy;
         FakeResolverNoop internal successResolver;
         FakeResolverNoop internal budgetSuccessResolver;
 
         function setUp() public {
             deployScript = new DeployGoalFromFactory();
-            mockFactory = new MockGoalFactoryForScript();
-            goalSpendPolicy = new MockScriptSpendPolicy();
-            budgetSpendPolicy = new MockScriptSpendPolicy();
+            explicitGoalSpendPolicy = new MockScriptSpendPolicy();
+            explicitBudgetSpendPolicy = new MockScriptSpendPolicy();
+            defaultGoalSpendPolicy = new MockScriptSpendPolicy();
+            defaultBudgetSpendPolicy = new MockScriptSpendPolicy();
+            mockFactory = new MockGoalFactoryForScript(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
             successResolver = new FakeResolverNoop();
             budgetSuccessResolver = new FakeResolverNoop();
         }
 
         function test_run_wiresGoalSpendPolicyAndRejectsInvalidEnvVariants() public {
-            _setDeployEnv();
+            _setBaseDeployEnv();
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "default");
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "default");
+
+            deployScript.run();
+
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(defaultGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
+
+            _setBaseDeployEnv();
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "weird");
+
+            vm.expectRevert(
+                abi.encodeWithSelector(DeployGoalFromFactory.GOAL_SPEND_POLICY_OPTION_INVALID.selector, "weird")
+            );
+            deployScript.run();
+            vm.stopBroadcast();
+
+            _setBaseDeployEnv();
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "odd");
+
+            vm.expectRevert(
+                abi.encodeWithSelector(DeployGoalFromFactory.BUDGET_SPEND_POLICY_OPTION_INVALID.selector, "odd")
+            );
+            deployScript.run();
+            vm.stopBroadcast();
+
+            _setBaseDeployEnv();
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "");
+
+            vm.expectRevert(DeployGoalFromFactory.GOAL_SPEND_POLICY_REQUIRED.selector);
+            deployScript.run();
+            vm.stopBroadcast();
+
+            _setBaseDeployEnv();
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "");
+
+            vm.expectRevert(DeployGoalFromFactory.BUDGET_SPEND_POLICY_REQUIRED.selector);
+            deployScript.run();
+            vm.stopBroadcast();
+
+            _setBaseDeployEnv();
+            vm.setEnv("GOAL_SPEND_POLICY", vm.toString(address(explicitGoalSpendPolicy)));
+            vm.setEnv("BUDGET_SPEND_POLICY", vm.toString(address(explicitBudgetSpendPolicy)));
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "weird");
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "odd");
 
             address deployer = vm.addr(PRIVATE_KEY);
 
             deployScript.run();
 
-            assertEq(mockFactory.lastGoalSpendPolicy(), address(goalSpendPolicy));
-            assertEq(mockFactory.lastBudgetSpendPolicy(), address(budgetSpendPolicy));
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(explicitGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(explicitBudgetSpendPolicy));
             assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
             assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
             assertEq(mockFactory.lastSuccessLiveness(), SUCCESS_LIVENESS);
@@ -579,11 +672,13 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("GOAL_FACTORY: ", vm.toString(address(mockFactory)))));
             assertTrue(_stringContains(artifact, string.concat("GOAL_OWNER: ", vm.toString(deployer))));
             assertTrue(
-                _stringContains(artifact, string.concat("GOAL_SPEND_POLICY: ", vm.toString(address(goalSpendPolicy))))
+                _stringContains(
+                    artifact, string.concat("GOAL_SPEND_POLICY: ", vm.toString(address(explicitGoalSpendPolicy)))
+                )
             );
             assertTrue(
                 _stringContains(
-                    artifact, string.concat("BUDGET_SPEND_POLICY: ", vm.toString(address(budgetSpendPolicy)))
+                    artifact, string.concat("BUDGET_SPEND_POLICY: ", vm.toString(address(explicitBudgetSpendPolicy)))
                 )
             );
             assertTrue(
@@ -612,13 +707,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
             assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
-            vm.setEnv("GOAL_SPEND_POLICY", vm.toString(BURN));
-
-            vm.expectRevert(DeployGoalFromFactory.GOAL_SPEND_POLICY_REQUIRED.selector);
-            deployScript.run();
-            vm.stopBroadcast();
-
-            _setDeployEnv();
+            _setBaseDeployEnv();
             address invalidPolicy = address(0xBEEF);
             vm.setEnv("GOAL_SPEND_POLICY", vm.toString(invalidPolicy));
 
@@ -628,7 +717,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             deployScript.run();
             vm.stopBroadcast();
 
-            _setDeployEnv();
+            _setBaseDeployEnv();
             ZeroContextOnlyScriptSpendPolicy invalidConfiguredPolicy = new ZeroContextOnlyScriptSpendPolicy();
             vm.setEnv("GOAL_SPEND_POLICY", vm.toString(address(invalidConfiguredPolicy)));
 
@@ -641,11 +730,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.stopBroadcast();
         }
 
-        function _setDeployEnv() internal {
+        function _setBaseDeployEnv() internal {
             vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
             vm.setEnv("GOAL_FACTORY", vm.toString(address(mockFactory)));
-            vm.setEnv("GOAL_SPEND_POLICY", vm.toString(address(goalSpendPolicy)));
-            vm.setEnv("BUDGET_SPEND_POLICY", vm.toString(address(budgetSpendPolicy)));
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "default");
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "default");
             vm.setEnv("SUCCESS_RESOLVER", vm.toString(address(successResolver)));
             vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(address(budgetSuccessResolver)));
             vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
@@ -683,6 +772,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
     }
 
     contract MockGoalFactoryForScript {
+        address public immutable DEFAULT_GOAL_SPEND_POLICY;
+        address public immutable DEFAULT_BUDGET_SPEND_POLICY;
         address public lastGoalSpendPolicy;
         address public lastBudgetSpendPolicy;
         address public lastSuccessResolver;
@@ -693,6 +784,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         bytes32 public lastPolicyHash;
         string public lastFlowTagline;
         string public lastFlowUrl;
+
+        constructor(address defaultGoalSpendPolicy_, address defaultBudgetSpendPolicy_) {
+            DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy_;
+            DEFAULT_BUDGET_SPEND_POLICY = defaultBudgetSpendPolicy_;
+        }
 
         function deployGoal(GoalFactory.DeployParams calldata p)
             external
