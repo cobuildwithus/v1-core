@@ -3,7 +3,6 @@ pragma solidity ^0.8.34;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Test} from "forge-std/Test.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {CobuildSplitHook} from "src/hooks/CobuildSplitHook.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
@@ -27,8 +26,6 @@ import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
 import {CobuildSplitHookMockToken} from "test/hooks/CobuildSplitHook.t.sol";
 
 contract CobuildCommunityTerminalFactoryTest is Test {
-    using MessageHashUtils for bytes32;
-
     uint256 internal constant COMMUNITY_REVNET_ID = 777;
 
     CobuildSplitHook internal splitHookImplementation;
@@ -41,13 +38,10 @@ contract CobuildCommunityTerminalFactoryTest is Test {
     CobuildCommunityTerminalFactoryGoalRegistryMock internal goalRegistry;
     MockTerminalStore internal store;
     CobuildCommunityTerminal internal communityTerminal;
-    uint256 internal ownerPrivateKey;
     address internal owner;
-    uint256 internal registrationDeadline;
 
     function setUp() public {
-        ownerPrivateKey = 0xA11CE;
-        owner = vm.addr(ownerPrivateKey);
+        owner = makeAddr("owner");
         splitHookImplementation = new CobuildSplitHook();
         factory = new CobuildCommunityTerminalFactory(address(splitHookImplementation));
         directory = new CobuildCommunityTerminalFactoryDirectoryMock();
@@ -62,8 +56,9 @@ contract CobuildCommunityTerminalFactoryTest is Test {
             address(communityToken)
         );
         store = new MockTerminalStore(IJBDirectory(address(directory)));
-        communityTerminal = new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)));
-        registrationDeadline = block.timestamp + 1 days;
+        communityTerminal = new CobuildCommunityTerminal(
+            IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(factory)
+        );
 
         tokens.setTokenOf(COMMUNITY_REVNET_ID, address(communityToken));
         directory.setController(COMMUNITY_REVNET_ID, IJBController(address(controller)));
@@ -246,59 +241,19 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         factory.deployFor(config);
     }
 
-    function test_deployFor_revertsWhenRegistrationSignatureMissing() public {
+    function test_deployFor_revertsWhenDirectNativePaymentSourceDoesNotMatchCommunity() public {
         CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(keccak256("hook"));
-        config.registrationSignature = bytes("");
+        config.paymentSourceRevnetId = COMMUNITY_REVNET_ID + 1;
 
-        vm.expectRevert(CobuildCommunityTerminalFactory.REGISTRATION_SIGNATURE_REQUIRED.selector);
-        vm.prank(owner);
-        factory.deployFor(config);
-    }
-
-    function test_deployFor_revertsWhenRegistrationSignatureDoesNotMatchOwner_andLeavesNoCloneDeployed() public {
-        uint256 wrongOwnerPrivateKey = 0xB0B;
-        address wrongOwner = vm.addr(wrongOwnerPrivateKey);
-        bytes32 salt = keccak256("hook");
-        address predictedSplitHook =
-            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
-        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
-        bytes32 digest = communityTerminal.registrationDigestOf(
-            owner,
-            COMMUNITY_REVNET_ID,
-            predictedSplitHook,
-            address(communityToken),
-            COMMUNITY_REVNET_ID,
-            true,
-            registrationDeadline
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongOwnerPrivateKey, digest.toEthSignedMessageHash());
-        config.registrationSignature = abi.encodePacked(r, s, v);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(CobuildCommunityTerminal.INVALID_REGISTRATION_SIGNATURE.selector, owner, wrongOwner)
-        );
-        vm.prank(owner);
-        factory.deployFor(config);
-
-        assertEq(predictedSplitHook.code.length, 0);
-    }
-
-    function test_deployFor_revertsWhenRegistrationDeadlineExpired_andLeavesNoCloneDeployed() public {
-        bytes32 salt = keccak256("hook");
-        address predictedSplitHook =
-            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
-        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
-
-        vm.warp(registrationDeadline + 1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                CobuildCommunityTerminal.REGISTRATION_DEADLINE_EXPIRED.selector, registrationDeadline, block.timestamp
+                CobuildCommunityTerminal.INVALID_DIRECT_NATIVE_PAYMENT_SOURCE.selector,
+                COMMUNITY_REVNET_ID,
+                COMMUNITY_REVNET_ID + 1
             )
         );
         vm.prank(owner);
         factory.deployFor(config);
-
-        assertEq(predictedSplitHook.code.length, 0);
     }
 
     function test_deployFor_revertsWhenCommunityAlreadyRegistered_andLeavesNoSecondCloneDeployed() public {
@@ -320,8 +275,8 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         assertEq(secondPredictedSplitHook.code.length, 0);
     }
 
-    function test_deployFor_allowsEip1271CommunityProjectOwnerSignature() public {
-        CobuildCommunityTerminalFactoryEip1271Owner contractOwner = new CobuildCommunityTerminalFactoryEip1271Owner();
+    function test_deployFor_allowsContractCommunityProjectOwnerWithoutExtraSignature() public {
+        CobuildCommunityTerminalFactoryContractOwner contractOwner = new CobuildCommunityTerminalFactoryContractOwner();
         goalRegistry = new CobuildCommunityTerminalFactoryGoalRegistryMock(
             IJBDirectory(address(directory)),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
@@ -337,16 +292,6 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         controller.setLiveReservedSplit(
             COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
         );
-        bytes32 digest = communityTerminal.registrationDigestOf(
-            address(contractOwner),
-            COMMUNITY_REVNET_ID,
-            predictedSplitHook,
-            address(communityToken),
-            COMMUNITY_REVNET_ID,
-            true,
-            registrationDeadline
-        );
-        config.registrationSignature = contractOwner.signatureFor(digest.toEthSignedMessageHash());
 
         vm.prank(address(contractOwner));
         address splitHookAddress = factory.deployFor(config);
@@ -373,16 +318,6 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         controller.setLiveReservedSplit(
             COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
         );
-        bytes32 digest = communityTerminal.registrationDigestOf(
-            owner,
-            COMMUNITY_REVNET_ID,
-            predictedSplitHook,
-            address(communityToken),
-            COMMUNITY_REVNET_ID,
-            true,
-            registrationDeadline
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, digest.toEthSignedMessageHash());
 
         return CobuildCommunityTerminalFactory.DeployConfig({
             goalRegistry: ICommunityGoalRegistry(address(goalRegistry)),
@@ -390,9 +325,7 @@ contract CobuildCommunityTerminalFactoryTest is Test {
             salt: salt,
             paymentToken: address(communityToken),
             paymentSourceRevnetId: COMMUNITY_REVNET_ID,
-            directNativeAllowed: true,
-            registrationDeadline: registrationDeadline,
-            registrationSignature: abi.encodePacked(r, s, v)
+            directNativeAllowed: true
         });
     }
 }
@@ -574,23 +507,4 @@ contract CobuildCommunityTerminalFactorySplitsMock {
     }
 }
 
-contract CobuildCommunityTerminalFactoryEip1271Owner {
-    bytes4 internal constant MAGIC_VALUE = 0x1626ba7e;
-
-    bytes32 internal _approvedHash;
-    bytes internal _approvedSignature;
-
-    function signatureFor(bytes32 hash) external returns (bytes memory signature) {
-        _approvedHash = hash;
-        _approvedSignature = abi.encode(hash, address(this));
-        return _approvedSignature;
-    }
-
-    function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
-        if (hash == _approvedHash && keccak256(signature) == keccak256(_approvedSignature)) {
-            return MAGIC_VALUE;
-        }
-
-        return bytes4(0);
-    }
-}
+contract CobuildCommunityTerminalFactoryContractOwner {}
