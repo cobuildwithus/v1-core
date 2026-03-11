@@ -51,7 +51,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         stakeVault = new FlowLedgerPropStakeVault();
         address predictedFlow = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        goalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow, address(stakeVault));
+        goalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow);
         ledger = new FlowLedgerPropLedger(address(goalTreasury));
 
         strategy.setStakeVault(address(stakeVault));
@@ -378,16 +378,12 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
     function test_allocate_withSingleAllocatorStrategy_checkpointsAndSyncsUsingControllerIdentity() public {
         address controller = makeAddr("managed-controller");
-        address safe = makeAddr("managed-safe");
 
-        FlowLedgerPropStakeVault managedStakeVault = new FlowLedgerPropStakeVault();
         uint256 nonce = vm.getNonce(address(this));
         address predictedFlow = vm.computeCreateAddress(address(this), nonce + 4);
-        FlowLedgerPropGoalTreasury managedGoalTreasury =
-            new FlowLedgerPropGoalTreasury(predictedFlow, address(managedStakeVault));
+        FlowLedgerPropGoalTreasury managedGoalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow);
         FlowLedgerPropLedger managedLedger = new FlowLedgerPropLedger(address(managedGoalTreasury));
-        SingleAllocatorStrategy managedStrategy =
-            new SingleAllocatorStrategy(safe, address(managedGoalTreasury), controller);
+        SingleAllocatorStrategy managedStrategy = new SingleAllocatorStrategy(address(managedGoalTreasury), controller);
         GoalFlowAllocationLedgerPipeline managedPipeline = new GoalFlowAllocationLedgerPipeline(address(managedLedger));
 
         ICustomFlow managedFlow = ICustomFlow(
@@ -430,6 +426,94 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(managedChildFlow.syncCallCount(), 1);
         assertEq(managedChildFlow.lastStrategy(), address(managedChildStrategy));
         assertEq(managedChildFlow.lastAllocationKey(), uint256(uint160(controller)));
+    }
+
+    function test_allocate_withSingleAllocatorStrategy_skipsCheckpointAndSyncWhenTreasuryResolved() public {
+        address controller = makeAddr("managed-controller");
+
+        uint256 nonce = vm.getNonce(address(this));
+        address predictedFlow = vm.computeCreateAddress(address(this), nonce + 4);
+        FlowLedgerPropGoalTreasury managedGoalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow);
+        FlowLedgerPropLedger managedLedger = new FlowLedgerPropLedger(address(managedGoalTreasury));
+        SingleAllocatorStrategy managedStrategy = new SingleAllocatorStrategy(address(managedGoalTreasury), controller);
+        GoalFlowAllocationLedgerPipeline managedPipeline = new GoalFlowAllocationLedgerPipeline(address(managedLedger));
+
+        ICustomFlow managedFlow = ICustomFlow(
+            address(
+                _deployFlowWithConfig(
+                    owner,
+                    manager,
+                    managerRewardPool,
+                    address(managedPipeline),
+                    address(0),
+                    IAllocationStrategy(address(managedStrategy))
+                )
+            )
+        );
+        assertEq(address(managedFlow), predictedFlow);
+
+        vm.prank(owner);
+        superToken.transfer(address(managedFlow), 500_000e18);
+
+        FlowLedgerPropChildStrategy managedChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow managedChildFlow = new FlowLedgerPropChildFlow(address(managedChildStrategy));
+        FlowLedgerPropPremiumEscrow managedPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropBudgetTreasury managedBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(managedChildFlow), address(managedChildStrategy), address(managedPremiumEscrow)
+        );
+        FlowLedgerPropChildStrategy secondManagedChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondManagedChildFlow =
+            new FlowLedgerPropChildFlow(address(secondManagedChildStrategy));
+        FlowLedgerPropPremiumEscrow secondManagedPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropBudgetTreasury secondManagedBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondManagedChildFlow), address(secondManagedChildStrategy), address(secondManagedPremiumEscrow)
+        );
+
+        vm.startPrank(manager);
+        managedFlow.addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
+        managedFlow.addRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, recipientMetadata);
+        vm.stopPrank();
+        managedLedger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(managedBudgetTreasury));
+        managedLedger.setBudget(SECOND_BUDGET_RECIPIENT_ID, address(secondManagedBudgetTreasury));
+
+        managedChildFlow.setCommit(keccak256("managed-child-commit-1"));
+        secondManagedChildFlow.setCommit(keccak256("managed-child-commit-2"));
+
+        (bytes32[] memory firstRecipientIds, uint32[] memory firstScaled) = _singleParentAllocation();
+        vm.prank(controller);
+        managedFlow.allocate(firstRecipientIds, firstScaled);
+
+        uint256 managedAllocationKey = uint256(uint160(controller));
+        assertEq(managedLedger.checkpointCallCount(), 1);
+        assertEq(managedPremiumEscrow.checkpointCallCount(), 1);
+        assertEq(secondManagedPremiumEscrow.checkpointCallCount(), 0);
+        assertEq(managedChildFlow.syncCallCount(), 1);
+        assertEq(secondManagedChildFlow.syncCallCount(), 0);
+
+        managedGoalTreasury.setResolved(true);
+
+        (bytes32[] memory secondRecipientIds, uint32[] memory secondScaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
+        ICustomFlow.ChildSyncRequirement[] memory reqs =
+            managedFlow.previewChildSyncRequirements(managedAllocationKey, secondRecipientIds, secondScaled);
+        assertEq(reqs.length, 0);
+
+        uint256 checkpointsBefore = managedLedger.checkpointCallCount();
+        uint256 premiumCheckpointsBefore = managedPremiumEscrow.checkpointCallCount();
+
+        vm.prank(controller);
+        managedFlow.allocate(secondRecipientIds, secondScaled);
+
+        assertEq(managedLedger.checkpointCallCount(), checkpointsBefore);
+        assertEq(managedPremiumEscrow.checkpointCallCount(), premiumCheckpointsBefore);
+        assertEq(secondManagedPremiumEscrow.checkpointCallCount(), 0);
+        assertEq(managedChildFlow.syncCallCount(), 1);
+        assertEq(secondManagedChildFlow.syncCallCount(), 0);
+        assertEq(managedFlow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), 0);
+        assertEq(managedFlow.distributionPool().getUnits(SECOND_BUDGET_RECIPIENT), _units(1e24, FULL_SCALED));
+        assertEq(
+            managedFlow.getAllocationCommitment(address(managedStrategy), managedAllocationKey),
+            keccak256(abi.encode(secondRecipientIds, secondScaled))
+        );
     }
 
     function testFuzz_allocate_changedStake_childCommitZeroDoesNotRequirePrevState(
@@ -746,7 +830,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
     }
 
-    function testFuzz_allocate_goalResolved_childCommitNonZero_changedStake_doesNotCheckpointOrRequirePrevState(
+    function testFuzz_allocate_stakeVaultResolved_childCommitNonZero_changedStake_stillCheckpointsAndSyncs(
         uint96 initialStakeSeed,
         uint96 reducedStakeSeed
     ) public {
@@ -763,13 +847,13 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
         ICustomFlow.ChildSyncRequirement[] memory reqs =
             flow.previewChildSyncRequirements(parentKey, recipientIds, scaled);
-        assertEq(reqs.length, 0);
+        assertEq(reqs.length, 1);
 
         uint256 checkpointsBefore = ledger.checkpointCallCount();
         _allocateParentSingleRecipient();
 
-        assertEq(ledger.checkpointCallCount(), checkpointsBefore);
-        assertEq(childFlow.syncCallCount(), 0);
+        assertEq(ledger.checkpointCallCount(), checkpointsBefore + 1);
+        assertEq(childFlow.syncCallCount(), 1);
         assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(reducedStake, FULL_SCALED));
         assertEq(
             flow.getAllocationCommitment(address(strategy), parentKey), keccak256(abi.encode(recipientIds, scaled))
@@ -841,8 +925,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         uint256 nonce = vm.getNonce(address(this));
         address predictedFlow = vm.computeCreateAddress(address(this), nonce + 3);
-        FlowLedgerPropGoalTreasury realGoalTreasury =
-            new FlowLedgerPropGoalTreasury(predictedFlow, address(realStakeVault));
+        FlowLedgerPropGoalTreasury realGoalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow);
         BudgetStakeLedger realLedger = new BudgetStakeLedger(address(realGoalTreasury));
 
         strategy.setStakeVault(address(realStakeVault));
@@ -1017,8 +1100,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         address predictedFlow = vm.computeCreateAddress(address(this), deploymentNonce + 5);
 
         FlowLedgerPropStakeVault benchmarkStakeVault = new FlowLedgerPropStakeVault();
-        FlowLedgerPropGoalTreasury benchmarkGoalTreasury =
-            new FlowLedgerPropGoalTreasury(predictedFlow, address(benchmarkStakeVault));
+        FlowLedgerPropGoalTreasury benchmarkGoalTreasury = new FlowLedgerPropGoalTreasury(predictedFlow);
         FlowLedgerPropLedger benchmarkLedger = new FlowLedgerPropLedger(address(benchmarkGoalTreasury));
         address benchmarkPipeline = includePremiumCheckpoint
             ? address(new GoalFlowAllocationLedgerPipeline(address(benchmarkLedger)))
@@ -1200,12 +1282,10 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
 
 contract FlowLedgerPropGoalTreasury {
     address public flow;
-    address public stakeVault;
     bool public resolved;
 
-    constructor(address flow_, address stakeVault_) {
+    constructor(address flow_) {
         flow = flow_;
-        stakeVault = stakeVault_;
     }
 
     function setResolved(bool resolved_) external {

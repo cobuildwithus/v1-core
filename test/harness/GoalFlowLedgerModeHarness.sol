@@ -28,21 +28,21 @@ contract GoalFlowLedgerModeHarness {
     function validate(
         address ledger,
         address expectedFlow
-    ) external returns (address goalTreasury, address stakeVault) {
+    ) external returns (address goalTreasury) {
         return GoalFlowLedgerMode.validateOrRevert(_strategy, _cache, ledger, expectedFlow);
     }
 
     function validateView(
         address ledger,
         address expectedFlow
-    ) external view returns (address goalTreasury, address stakeVault) {
+    ) external view returns (address goalTreasury) {
         return GoalFlowLedgerMode.validateOrRevertView(_strategy, _cache, ledger, expectedFlow);
     }
 
     function validateForInitializeView(
         address ledger,
         address expectedFlow
-    ) external view returns (address goalTreasury, address stakeVault) {
+    ) external view returns (address goalTreasury) {
         return GoalFlowLedgerMode.validateForInitializeOrRevertView(_strategy, _cache, ledger, expectedFlow);
     }
 

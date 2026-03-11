@@ -37,24 +37,28 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.validate(address(ledger), EXPECTED_FLOW);
         treasury.setFlow(address(0xBEEF));
 
-        (address goalTreasury, address resolvedStakeVault) = harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
-
+        address goalTreasury = harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
         assertEq(goalTreasury, address(treasury));
-        assertEq(resolvedStakeVault, address(stakeVault));
     }
 
-    function test_validateForInitializeView_allowsBootstrapWhenFlowAndStakeVaultAreUnset() public {
+    function test_validateForInitializeView_allowsBootstrapWhenFlowIsUnset() public {
         GoalFlowLedgerModeCoverageGoalTreasury bootstrapTreasury =
             new GoalFlowLedgerModeCoverageGoalTreasury(address(0), address(0));
         GoalFlowLedgerModeCoverageLedger bootstrapLedger =
             new GoalFlowLedgerModeCoverageLedger(address(bootstrapTreasury));
         strategy.setGoalTreasury(address(bootstrapTreasury));
 
-        (address goalTreasury, address resolvedStakeVault) =
-            harness.validateForInitializeView(address(bootstrapLedger), EXPECTED_FLOW);
-
+        address goalTreasury = harness.validateForInitializeView(address(bootstrapLedger), EXPECTED_FLOW);
         assertEq(goalTreasury, address(bootstrapTreasury));
-        assertEq(resolvedStakeVault, address(0));
+    }
+
+    function test_validateForInitializeView_revertsWhenFlowIsNonBootstrapMismatch() public {
+        treasury.setFlow(address(0xBEEF));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IFlow.INVALID_ALLOCATION_LEDGER_FLOW.selector, EXPECTED_FLOW, address(0xBEEF))
+        );
+        harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
     }
 
     function test_validateForInitializeView_revertsWhenFlowProbeReverts() public {
@@ -70,17 +74,11 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
     }
 
-    function test_validateForInitializeView_revertsWhenStakeVaultProbeReverts() public {
+    function test_validateForInitializeView_ignoresStakeVaultProbeRevert() public {
         treasury.setRevertStakeVault(true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY.selector,
-                address(ledger),
-                address(treasury)
-            )
-        );
-        harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
+        address goalTreasury = harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
+        assertEq(goalTreasury, address(treasury));
     }
 
     function test_validateForInitializeView_revertsWhenStrategyAllocationKeyProbeReverts() public {
@@ -131,13 +129,14 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertFalse(shouldCheckpoint);
     }
 
-    function test_prepareCheckpointContext_returnsNoCheckpointWhenGoalResolved() public {
+    function test_prepareCheckpointContext_returnsWeightWhenStakeVaultResolvedButTreasuryActive() public {
+        strategy.setCurrentWeight(123);
         stakeVault.setGoalResolved(true);
 
         (uint256 weight, bool shouldCheckpoint) =
             harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
-        assertEq(weight, 0);
-        assertFalse(shouldCheckpoint);
+        assertEq(weight, 123);
+        assertTrue(shouldCheckpoint);
     }
 
     function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolved() public {
@@ -149,7 +148,9 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertFalse(shouldCheckpoint);
     }
 
-    function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolvedEvenIfGoalResolvedProbeReverts() public {
+    function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolvedEvenIfStakeVaultProbeReverts()
+        public
+    {
         treasury.setResolved(true);
         stakeVault.setRevertGoalResolved(true);
 
@@ -168,7 +169,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         assertFalse(shouldCheckpoint);
     }
 
-    function test_prepareCheckpointContextFromCommittedWeight_returnsNoCheckpointWhenTreasuryResolvedEvenIfGoalResolvedProbeReverts()
+    function test_prepareCheckpointContextFromCommittedWeight_returnsNoCheckpointWhenTreasuryResolvedEvenIfStakeVaultProbeReverts()
         public
     {
         treasury.setResolved(true);
@@ -215,17 +216,14 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
     }
 
-    function test_prepareCheckpointContext_revertsWhenGoalResolvedProbeReverts() public {
+    function test_prepareCheckpointContext_ignoresStakeVaultGoalResolvedProbeRevert() public {
+        strategy.setCurrentWeight(123);
         stakeVault.setRevertGoalResolved(true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
-                address(treasury),
-                address(stakeVault)
-            )
-        );
-        harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        (uint256 weight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        assertEq(weight, 123);
+        assertTrue(shouldCheckpoint);
     }
 
     function test_prepareCheckpointContext_revertsWhenTreasuryResolvedProbeReverts() public {
@@ -254,17 +252,16 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
     }
 
-    function test_prepareCheckpointContextFromCommittedWeight_revertsWhenGoalResolvedProbeReverts() public {
+    function test_prepareCheckpointContextFromCommittedWeight_ignoresStakeVaultGoalResolvedProbeRevert()
+        public
+    {
+        strategy.setCurrentWeight(777);
         stakeVault.setRevertGoalResolved(true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
-                address(treasury),
-                address(stakeVault)
-            )
-        );
-        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
+        (uint256 resolvedWeight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
+        assertEq(resolvedWeight, 777);
+        assertTrue(shouldCheckpoint);
     }
 
     function test_prepareCheckpointContext_revertsWhenWeightProbeReverts() public {
@@ -281,17 +278,14 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
     }
 
-    function test_prepareCheckpointContextView_revertsWhenGoalResolvedProbeReverts() public {
+    function test_prepareCheckpointContextView_ignoresStakeVaultGoalResolvedProbeRevert() public {
+        strategy.setCurrentWeight(123);
         stakeVault.setRevertGoalResolved(true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
-                address(treasury),
-                address(stakeVault)
-            )
-        );
-        harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        (uint256 weight, bool shouldCheckpoint) =
+            harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+        assertEq(weight, 123);
+        assertTrue(shouldCheckpoint);
     }
 
     function test_prepareCheckpointContextView_revertsWhenWeightProbeReverts() public {
@@ -582,43 +576,25 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         harness.validateView(address(ledger), EXPECTED_FLOW);
     }
 
-    function test_validateView_revertsWhenGoalTreasuryStakeVaultCallReverts() public {
+    function test_validateView_ignoresGoalTreasuryStakeVaultCallRevert() public {
         treasury.setRevertStakeVault(true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_GOAL_TREASURY.selector,
-                address(ledger),
-                address(treasury)
-            )
-        );
-        harness.validateView(address(ledger), EXPECTED_FLOW);
+        address goalTreasury = harness.validateView(address(ledger), EXPECTED_FLOW);
+        assertEq(goalTreasury, address(treasury));
     }
 
-    function test_validateView_revertsWhenStakeVaultIsZeroAddress() public {
+    function test_validateView_ignoresZeroStakeVaultAddress() public {
         treasury.setStakeVault(address(0));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
-                address(treasury),
-                address(0)
-            )
-        );
-        harness.validateView(address(ledger), EXPECTED_FLOW);
+        address goalTreasury = harness.validateView(address(ledger), EXPECTED_FLOW);
+        assertEq(goalTreasury, address(treasury));
     }
 
-    function test_validateView_revertsWhenStakeVaultHasNoCode() public {
+    function test_validateView_ignoresStakeVaultWithoutCode() public {
         treasury.setStakeVault(address(0xCAFE));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
-                address(treasury),
-                address(0xCAFE)
-            )
-        );
-        harness.validateView(address(ledger), EXPECTED_FLOW);
+        address goalTreasury = harness.validateView(address(ledger), EXPECTED_FLOW);
+        assertEq(goalTreasury, address(treasury));
     }
 
     function _singleBudget(address budget) internal pure returns (address[] memory budgets) {

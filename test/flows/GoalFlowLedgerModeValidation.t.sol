@@ -14,16 +14,14 @@ contract GoalFlowLedgerModeValidationTest is Test {
 
     GoalFlowLedgerModeHarness internal harness;
     MockAllocationStrategy internal strategy;
-    GoalFlowLedgerModeValidationStakeVault internal stakeVault;
     GoalFlowLedgerModeValidationGoalTreasury internal treasury;
     GoalFlowLedgerModeValidationLedger internal ledger;
 
     function setUp() public {
         harness = new GoalFlowLedgerModeHarness();
         strategy = new MockAllocationStrategy();
-        stakeVault = new GoalFlowLedgerModeValidationStakeVault();
 
-        treasury = new GoalFlowLedgerModeValidationGoalTreasury(EXPECTED_FLOW, address(stakeVault));
+        treasury = new GoalFlowLedgerModeValidationGoalTreasury(EXPECTED_FLOW);
         ledger = new GoalFlowLedgerModeValidationLedger(address(treasury));
 
         strategy.setGoalTreasury(address(treasury));
@@ -32,17 +30,13 @@ contract GoalFlowLedgerModeValidationTest is Test {
     }
 
     function test_validateOrRevertView_succeedsWhenWiringMatches() public {
-        (address goalTreasury, address resolvedStakeVault) = harness.validateView(address(ledger), EXPECTED_FLOW);
-
+        address goalTreasury = harness.validateView(address(ledger), EXPECTED_FLOW);
         assertEq(goalTreasury, address(treasury));
-        assertEq(resolvedStakeVault, address(stakeVault));
     }
 
     function test_validateOrRevert_succeedsWhenWiringMatches() public {
-        (address goalTreasury, address resolvedStakeVault) = harness.validate(address(ledger), EXPECTED_FLOW);
-
+        address goalTreasury = harness.validate(address(ledger), EXPECTED_FLOW);
         assertEq(goalTreasury, address(treasury));
-        assertEq(resolvedStakeVault, address(stakeVault));
     }
 
     function test_validateOrRevertView_revertsWhenLedgerHasNoCode() public {
@@ -52,8 +46,9 @@ contract GoalFlowLedgerModeValidationTest is Test {
     }
 
     function test_validateOrRevertView_revertsWhenTreasuryFlowDoesNotMatch() public {
-        GoalFlowLedgerModeValidationGoalTreasury wrongFlowTreasury =
-            new GoalFlowLedgerModeValidationGoalTreasury(address(0xBEEF), address(stakeVault));
+        GoalFlowLedgerModeValidationGoalTreasury wrongFlowTreasury = new GoalFlowLedgerModeValidationGoalTreasury(
+            address(0xBEEF)
+        );
         GoalFlowLedgerModeValidationLedger wrongFlowLedger =
             new GoalFlowLedgerModeValidationLedger(address(wrongFlowTreasury));
 
@@ -109,8 +104,9 @@ contract GoalFlowLedgerModeValidationTest is Test {
     }
 
     function test_validateForInitializeView_revertsWhenBootstrapStrategyGoalTreasuryDoesNotMatch() public {
-        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury =
-            new GoalFlowLedgerModeValidationGoalTreasury(address(0), address(0));
+        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury = new GoalFlowLedgerModeValidationGoalTreasury(
+            address(0)
+        );
         GoalFlowLedgerModeValidationLedger bootstrapLedger =
             new GoalFlowLedgerModeValidationLedger(address(bootstrapTreasury));
 
@@ -128,8 +124,9 @@ contract GoalFlowLedgerModeValidationTest is Test {
     }
 
     function test_validateForInitializeView_revertsWhenBootstrapStrategyMissingGoalTreasuryCapability() public {
-        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury =
-            new GoalFlowLedgerModeValidationGoalTreasury(address(0), address(0));
+        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury = new GoalFlowLedgerModeValidationGoalTreasury(
+            address(0)
+        );
         GoalFlowLedgerModeValidationLedger bootstrapLedger =
             new GoalFlowLedgerModeValidationLedger(address(bootstrapTreasury));
         GoalFlowLedgerModeValidationNoGoalTreasuryStrategy noGoalTreasuryStrategy =
@@ -190,20 +187,11 @@ contract GoalFlowLedgerModeValidationLedger {
 
 contract GoalFlowLedgerModeValidationGoalTreasury {
     address public flow;
-    address public stakeVault;
-    bool public resolved;
 
-    constructor(address flow_, address stakeVault_) {
+    constructor(address flow_) {
         flow = flow_;
-        stakeVault = stakeVault_;
-    }
-
-    function setResolved(bool resolved_) external {
-        resolved = resolved_;
     }
 }
-
-contract GoalFlowLedgerModeValidationStakeVault {}
 
 contract GoalFlowLedgerModeValidationNoGoalTreasuryStrategy is IAllocationStrategy {
     function allocationKey(address caller, bytes calldata) external pure returns (uint256) {
