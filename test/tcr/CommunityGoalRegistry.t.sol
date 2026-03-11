@@ -10,6 +10,7 @@ import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -198,6 +199,67 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(selectableGoalIds[0], GOAL_ID_TWO);
     }
 
+    function test_isSelectable_falseWhenGoalTreasuryCannotAcceptHookFunding() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        goalTreasuryOne.setCanAcceptHookFunding(false);
+
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        uint256[] memory selectableGoalIds = registry.selectableGoalIds();
+        assertEq(selectableGoalIds.length, 0);
+    }
+
+    function test_pruneTerminalGoal_delistsSucceededGoal() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        goalTreasuryOne.setCanAcceptHookFunding(false);
+        goalTreasuryOne.setGoalState(IGoalTreasury.GoalState.Succeeded);
+
+        registry.pruneTerminalGoal(GOAL_ID_ONE);
+
+        assertFalse(registry.isListed(GOAL_ID_ONE));
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        uint256[] memory listedGoalIds = registry.listedGoalIds();
+        assertEq(listedGoalIds.length, 0);
+
+        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.goalId, GOAL_ID_ONE);
+        assertEq(listing.itemId, bytes32(0));
+        assertEq(bytes(listing.metadataURI).length, 0);
+        assertFalse(listing.selectable);
+    }
+
+    function test_pruneTerminalGoal_delistsBrokenGoalWhenTreasuryCodeIsMissing() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        vm.etch(address(goalTreasuryOne), bytes(""));
+
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        registry.pruneTerminalGoal(GOAL_ID_ONE);
+
+        assertFalse(registry.isListed(GOAL_ID_ONE));
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
+
+        uint256[] memory listedGoalIds = registry.listedGoalIds();
+        assertEq(listedGoalIds.length, 0);
+
+        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.goalId, GOAL_ID_ONE);
+        assertEq(listing.itemId, bytes32(0));
+        assertEq(bytes(listing.metadataURI).length, 0);
+        assertFalse(listing.selectable);
+    }
+
+    function test_pruneTerminalGoal_revertsWhenGoalIsStillLive() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_NOT_PRUNABLE.selector, GOAL_ID_ONE));
+        registry.pruneTerminalGoal(GOAL_ID_ONE);
+    }
+
     function test_removeAndRelistGoal_updatesOnlyMetadata_notCanonicalTreasury() public {
         _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
 
@@ -292,11 +354,10 @@ contract CommunityGoalRegistryTest is Test {
         item = abi.encode(ICommunityGoalRegistry.GoalItemData({goalId: goalId, metadataURI: metadataUri}));
     }
 
-    function _newGoalTreasury(
-        uint256 goalId,
-        uint256 fundingRevnetId,
-        address fundingToken
-    ) internal returns (CommunityGoalRegistryMockGoalTreasury goalTreasury) {
+    function _newGoalTreasury(uint256 goalId, uint256 fundingRevnetId, address fundingToken)
+        internal
+        returns (CommunityGoalRegistryMockGoalTreasury goalTreasury)
+    {
         goalTreasury = new CommunityGoalRegistryMockGoalTreasury(
             goalId, fundingRevnetId, address(new CommunityGoalRegistryMockStakeVault(fundingToken))
         );
@@ -352,11 +413,30 @@ contract CommunityGoalRegistryMockGoalTreasury {
     uint256 public immutable goalRevnetId;
     uint256 public immutable cobuildRevnetId;
     address public immutable stakeVault;
+    IGoalTreasury.GoalState internal _state;
+    bool internal _canAcceptHookFunding = true;
 
     constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
         goalRevnetId = goalRevnetId_;
         cobuildRevnetId = cobuildRevnetId_;
         stakeVault = stakeVault_;
+        _state = IGoalTreasury.GoalState.Funding;
+    }
+
+    function canAcceptHookFunding() external view returns (bool) {
+        return _canAcceptHookFunding;
+    }
+
+    function state() external view returns (IGoalTreasury.GoalState) {
+        return _state;
+    }
+
+    function setCanAcceptHookFunding(bool canAcceptHookFunding_) external {
+        _canAcceptHookFunding = canAcceptHookFunding_;
+    }
+
+    function setGoalState(IGoalTreasury.GoalState state_) external {
+        _state = state_;
     }
 }
 
