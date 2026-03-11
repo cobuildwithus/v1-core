@@ -100,21 +100,25 @@ Durable architecture reference for module boundaries, integration paths, and pro
 Community root routing
 - Canonical deployment of the community split hook is `CobuildPaymentTerminalFactory.deployFor(...)`:
   - the factory deterministically derives the split-hook clone address from caller + goal registry + shared route setter + salt,
-  - deploys only the split hook,
-  - initializes the hook with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`.
-- Community payments can arrive through the shared `CobuildPaymentTerminal` once the community owner calls `registerCommunity(...)`.
-- The shared wrapper accepts native ETH or the registered community payment token:
-  - if `directNativeAllowed`, native ETH is paid directly into the community revnet's native terminal,
+  - deploys the split hook,
+  - initializes the hook with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`,
+  - registers the community on that same terminal in the same transaction via an owner-signed registration payload.
+- Community payments can arrive through the shared `CobuildPaymentTerminal` only after the community binds immutable
+  routing config and points both its native ETH terminal and registered payment-token terminal at that shared terminal.
+- The shared canonical terminal accepts native ETH or the registered community payment token:
+  - if `directNativeAllowed`, native ETH is recorded directly on the community revnet through the shared terminal's JB terminal-store path,
   - otherwise native ETH is first paid into the configured `paymentSourceRevnetId` native terminal to acquire the registered payment token,
-  - direct payment-token pays are forwarded without the intermediate conversion step.
-- The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
+  - if that upstream native terminal is the same shared terminal, the conversion path stays internal and self-source-safe,
+  - direct payment-token pays use that same terminal-store recording path without the intermediate conversion step,
+  - the shared terminal fulfills normal JB payment accounting and pay-hook semantics before it flushes reserved tokens into splits.
+- The shared terminal optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
   - empty metadata means "no explicit route", so any reserved tokens created by the pay are flushed into hook-managed backlog.
-- Before seeding a new route, the wrapper snapshots the community controller's current pending reserved-token balance so
+- Before seeding a new route, the shared terminal snapshots the community controller's current pending reserved-token balance so
   older backlog can be separated from the current pay's newly created reserved-token delta.
-- After the community pay returns, if it created reserved tokens, the wrapper immediately calls
+- After the community pay returns, if it created reserved tokens, the shared terminal immediately calls
   `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
-- If the community pay created no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
+- If the community pay created no reserved tokens, the shared terminal clears the unused pending route instead of leaving stale
   state behind.
 - Direct goal funding uses the shared `CobuildTerminal`, which resolves each goal's payment token and source revnet
   from the registered goal treasury + stake vault before converting native ETH or forwarding direct payment-token pays.
@@ -130,14 +134,14 @@ Community root routing
   - treasury identity is immutable per goal id.
 - `CobuildSplitHook` stores a fixed init-time contract `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
-- During wrapper-routed community pays, reserved-token split delivery is forced synchronously by the wrapper through the
+- During canonical-terminal-routed community pays, reserved-token split delivery is forced synchronously by the terminal through the
   community controller's `sendReservedTokensToSplitsOf(...)` call.
 - `CobuildSplitHook` first applies configured system-goal floor routing on each controller callback and pays those
   slices into canonical goal-treasury beneficiaries.
-- Any remaining discretionary amount from a wrapper-routed pending route is forwarded into registry-selectable child
+- Any remaining discretionary amount from a canonical-terminal-routed pending route is forwarded into registry-selectable child
   goals by paying each goal's primary terminal for the community token, but only for the current pay's newly created
   reserved-token delta.
-- Older controller backlog encountered during a wrapper-routed pay is floor-routed first, then only the discretionary
+- Older controller backlog encountered during a canonical-terminal-routed pay is floor-routed first, then only the discretionary
   remainder is moved into hook-managed historical backlog for later permissionless routing.
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
@@ -147,7 +151,7 @@ Community root routing
 - If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
   routing it inline through the current transaction, after first funding any currently selectable system-goal floor slices.
 - If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
-  retry instead of blocking wrapper-routed mints.
+  retry instead of blocking canonical-terminal-routed mints.
 
 3. Goal treasury funding and resolution
 - Revnet ingress arrives through `GoalRevnetSplitHook.processSplitWith`.
@@ -219,13 +223,13 @@ Community root routing
   - Success-settlement path while treasury state is `Succeeded` and minting remains open (burn path).
   - Closed nonterminal path defers split funds on treasury.
   - Terminal closed path applies treasury terminal settlement policy.
-- `CobuildSplitHook` is controller-gated and wrapper-seeded:
+- `CobuildSplitHook` is controller-gated and terminal-seeded:
   - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route and are the only flows
     that update observed historical volume,
-  - wrapper seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
-  - empty-metadata wrapper pays do not seed any pending route and instead flush any newly created reserved tokens into
+  - terminal seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
+  - empty-metadata canonical-terminal pays do not seed any pending route and instead flush any newly created reserved tokens into
     hook-managed backlog,
-  - wrapper-routed pays snapshot and defer preexisting controller backlog so the selected route stays scoped to the
+  - canonical-terminal-routed pays snapshot and defer preexisting controller backlog so the selected route stays scoped to the
     current payer's new reserved-token delta,
   - goal membership is sourced from fixed init-time `CommunityGoalRegistry` state while treasury beneficiaries are
     sourced from fixed init-time `GoalDeploymentRegistry` state,

@@ -174,6 +174,7 @@ contract GoalFactory {
     );
     error INVALID_COMMUNITY_DIRECTORY(address expected, address actual);
     error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
+    error UNAUTHORIZED(address expected, address actual);
 
     constructor(
         IREVDeployer revDeployer,
@@ -269,15 +270,19 @@ contract GoalFactory {
     ) external returns (DeployedGoalStack memory out) {
         if (address(registry) == address(0)) revert ADDRESS_ZERO();
         if (address(registry).code.length == 0) revert NOT_A_CONTRACT(address(registry));
+        address registryOwner = registry.owner();
+        if (msg.sender != registryOwner) revert UNAUTHORIZED(registryOwner, msg.sender);
 
         IJBDirectory directory = REV_DEPLOYER.DIRECTORY();
-        if (address(registry.directory()) != address(directory)) {
-            revert INVALID_COMMUNITY_DIRECTORY(address(directory), address(registry.directory()));
+        IJBDirectory registryDirectory = registry.directory();
+        if (address(registryDirectory) != address(directory)) {
+            revert INVALID_COMMUNITY_DIRECTORY(address(directory), address(registryDirectory));
         }
-        if (address(registry.goalDeploymentRegistry()) != address(GOAL_DEPLOYMENT_REGISTRY)) {
+        address registryGoalDeploymentRegistry = address(registry.goalDeploymentRegistry());
+        if (registryGoalDeploymentRegistry != address(GOAL_DEPLOYMENT_REGISTRY)) {
             revert INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(
                 address(GOAL_DEPLOYMENT_REGISTRY),
-                address(registry.goalDeploymentRegistry())
+                registryGoalDeploymentRegistry
             );
         }
 

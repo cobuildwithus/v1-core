@@ -12,6 +12,7 @@ import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBProjects} from "@bananapus/core-v5/interfaces/IJBProjects.sol";
 import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
@@ -26,6 +27,7 @@ import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
 
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {RoundTestArbitrator} from "test/rounds/helpers/RoundTestMocks.sol";
@@ -50,6 +52,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
 
     AsyncDirectory internal directory;
     AsyncReservedController internal controller;
+    MockTerminalStore internal terminalStore;
 
     struct WrapperFixture {
         uint256 communityRevnetId;
@@ -87,6 +90,7 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
     function setUp() public {
         directory = new AsyncDirectory();
         controller = new AsyncReservedController(directory);
+        terminalStore = new MockTerminalStore(IJBDirectory(address(directory)));
 
         wrapperFixture = _deployWrapperFixture(HALF_RESERVED_PERCENT);
         manualFixture = _deployManualFixture(FULL_RESERVED_PERCENT);
@@ -242,6 +246,65 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         assertEq(wrapperFixture.goalTerminalTwo.totalReceived(), 30e18);
         assertEq(wrapperFixture.goalTerminalOne.lastBeneficiary(), address(wrapperFixture.goalTreasuryOne));
         assertEq(wrapperFixture.goalTerminalTwo.lastBeneficiary(), address(wrapperFixture.goalTreasuryTwo));
+    }
+
+    function test_sharedTerminal_childNativePay_canUseRootCommunityAsSelfSource() public {
+        CobuildPaymentTerminal sharedTerminal =
+            new CobuildPaymentTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)));
+
+        GoalDeploymentRegistry rootDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
+        (uint256 rootRevnetId, MockVotesToken rootToken) =
+            controller.createProject(multisig, HALF_RESERVED_PERCENT, "Root Community", "ROOT");
+        directory.setPrimaryTerminalOf(rootRevnetId, address(rootToken), IJBTerminal(address(sharedTerminal)));
+        directory.setPrimaryTerminalOf(rootRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sharedTerminal)));
+        vm.startPrank(multisig);
+        controller.setProjectTerminal(rootRevnetId, address(sharedTerminal), true);
+        vm.stopPrank();
+
+        CommunityGoalRegistry rootRegistry =
+            _deployCommunityGoalRegistry(rootRevnetId, address(rootToken), rootDeploymentRegistry);
+        CobuildSplitHook rootHook = _deployHookClone();
+        rootHook.initialize(
+            IJBDirectory(address(directory)), rootRevnetId, address(rootToken), address(sharedTerminal), rootRegistry
+        );
+        vm.startPrank(multisig);
+        sharedTerminal.registerCommunity(rootRevnetId, ICobuildSplitHook(address(rootHook)), address(rootToken), rootRevnetId, true);
+        controller.setReservedSplitHook(rootRevnetId, IJBSplitHook(address(rootHook)));
+        vm.stopPrank();
+
+        GoalDeploymentRegistry childDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
+        (uint256 childRevnetId, MockVotesToken childToken) =
+            controller.createProject(multisig, HALF_RESERVED_PERCENT, "Child Community", "CHILD");
+        directory.setPrimaryTerminalOf(childRevnetId, address(rootToken), IJBTerminal(address(sharedTerminal)));
+        directory.setPrimaryTerminalOf(childRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sharedTerminal)));
+        vm.startPrank(multisig);
+        controller.setProjectTerminal(childRevnetId, address(sharedTerminal), true);
+        vm.stopPrank();
+
+        CommunityGoalRegistry childRegistry =
+            _deployCommunityGoalRegistry(childRevnetId, address(childToken), childDeploymentRegistry);
+        CobuildSplitHook childHook = _deployHookClone();
+        childHook.initialize(
+            IJBDirectory(address(directory)), childRevnetId, address(childToken), address(sharedTerminal), childRegistry
+        );
+        vm.startPrank(multisig);
+        sharedTerminal.registerCommunity(childRevnetId, ICobuildSplitHook(address(childHook)), address(rootToken), rootRevnetId, false);
+        controller.setReservedSplitHook(childRevnetId, IJBSplitHook(address(childHook)));
+        vm.stopPrank();
+
+        vm.deal(payer, DIRECT_PAY_AMOUNT);
+        vm.prank(payer);
+        uint256 beneficiaryTokenCount = sharedTerminal.pay{value: DIRECT_PAY_AMOUNT}(
+            childRevnetId, JBConstants.NATIVE_TOKEN, DIRECT_PAY_AMOUNT, payer, 0, "child-native-pay", bytes("")
+        );
+
+        assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 4);
+        assertEq(rootToken.balanceOf(address(sharedTerminal)), DIRECT_PAY_AMOUNT / 2);
+        assertEq(childToken.balanceOf(payer), DIRECT_PAY_AMOUNT / 4);
+        assertEq(rootHook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT / 2);
+        assertEq(childHook.historicalBacklogAmount(), DIRECT_PAY_AMOUNT / 4);
+        assertEq(controller.pendingReservedTokenBalanceOf(rootRevnetId), 0);
+        assertEq(controller.pendingReservedTokenBalanceOf(childRevnetId), 0);
     }
 
     function test_directCommunityPayWithoutHistoricalRoute_permissionlessControllerFlushDefersBacklog() public {
@@ -400,14 +463,16 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
 
         (fixture.communityRevnetId, fixture.communityToken) =
             controller.createProject(multisig, reservedPercent, "Wrapper Community", "WCOMM");
+        fixture.wrapper =
+            new CobuildPaymentTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)));
         fixture.communityTerminal =
             new AsyncCommunityTerminal(controller, fixture.communityRevnetId, fixture.communityToken);
         directory.setPrimaryTerminalOf(
-            fixture.communityRevnetId, address(fixture.communityToken), IJBTerminal(address(fixture.communityTerminal))
+            fixture.communityRevnetId, address(fixture.communityToken), IJBTerminal(address(fixture.wrapper))
         );
-        directory.setPrimaryTerminalOf(
-            fixture.communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(new NoopNativeTerminal()))
-        );
+        directory.setPrimaryTerminalOf(fixture.communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(fixture.wrapper)));
+        vm.prank(multisig);
+        controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.wrapper), true);
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
@@ -427,7 +492,6 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         }
 
         fixture.hook = _deployHookClone();
-        fixture.wrapper = new CobuildPaymentTerminal(IJBDirectory(address(directory)));
         fixture.hook.initialize(
             IJBDirectory(address(directory)),
             fixture.communityRevnetId,
@@ -814,6 +878,25 @@ contract AsyncReservedController is IERC165 {
         address beneficiary,
         bool useReservedPercent
     ) external returns (uint256 beneficiaryTokenCount) {
+        return _mintTokensOf(projectId, tokenCount, beneficiary, useReservedPercent);
+    }
+
+    function mintTokensOf(
+        uint256 projectId,
+        uint256 tokenCount,
+        address beneficiary,
+        string calldata,
+        bool useReservedPercent
+    ) external returns (uint256 beneficiaryTokenCount) {
+        return _mintTokensOf(projectId, tokenCount, beneficiary, useReservedPercent);
+    }
+
+    function _mintTokensOf(
+        uint256 projectId,
+        uint256 tokenCount,
+        address beneficiary,
+        bool useReservedPercent
+    ) internal returns (uint256 beneficiaryTokenCount) {
         ProjectConfig storage config = _projectConfigOf[projectId];
         if (address(config.token) == address(0)) revert INVALID_PROJECT();
         if (msg.sender != config.owner && !_isProjectTerminal[projectId][msg.sender]) revert UNAUTHORIZED();
@@ -902,6 +985,10 @@ contract AsyncDirectory is IJBDirectory {
     }
 
     function setPrimaryTerminalOf(uint256 projectId, address token, IJBTerminal terminal) public override {
+        if (terminal.accountingContextForTokenOf(projectId, token).token == address(0)) {
+            revert("TOKEN_NOT_ACCEPTED");
+        }
+
         if (!_isTerminalOfProject[projectId][address(terminal)]) {
             _isTerminalOfProject[projectId][address(terminal)] = true;
             _terminalsOfProject[projectId].push(terminal);

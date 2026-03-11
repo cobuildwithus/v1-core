@@ -19,7 +19,7 @@
 - Hook ingress: `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`
 - Shared goal/community payment terminals: `src/juicebox/CobuildTerminal.sol`, `src/juicebox/CobuildPaymentTerminal.sol`, `src/juicebox/CobuildPaymentTerminalFactory.sol`
 - Interfaces: `src/interfaces/IGoalTreasury.sol`, `src/interfaces/IBudgetTreasury.sol`, `src/interfaces/ISpendPolicy.sol`, `src/interfaces/IStakeVault.sol`, `src/interfaces/IBudgetStakeLedger.sol`, `src/interfaces/IPremiumEscrow.sol`, `src/interfaces/IUnderwriterSlasherRouter.sol`, `src/interfaces/ITreasuryAuthority.sol`, `src/interfaces/ICobuildSplitHook.sol`
-- Community-routing boundary: `CommunityGoalRegistry` owns selectable-goal membership plus metadata, `GoalDeploymentRegistry` owns canonical `goalId -> goalTreasury`, `CobuildPaymentTerminalFactory` owns canonical split-hook deployment against a shared route setter, `CobuildPaymentTerminal` owns per-community registration + pay-time routing, `CobuildTerminal` owns per-goal funding-context resolution, and `CobuildSplitHook` remains a thin router that reads both fixed registries plus observed explicit-volume history.
+- Community-routing boundary: `CommunityGoalRegistry` owns selectable-goal membership plus metadata, `GoalDeploymentRegistry` owns canonical `goalId -> goalTreasury`, `CobuildPaymentTerminalFactory` owns canonical split-hook deployment plus same-tx community-terminal registration against a shared route setter, `CobuildPaymentTerminal` owns per-community immutable registration + pay-time routing, `CobuildTerminal` owns per-goal funding-context resolution, and `CobuildSplitHook` remains a thin router that reads both fixed registries plus observed explicit-volume history.
 
 ### TCR/arbitration domain
 

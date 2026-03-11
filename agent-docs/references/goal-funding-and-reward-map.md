@@ -5,15 +5,18 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Community root routing path
 
 1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
-   - `CobuildPaymentTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook` and initializes it with the shared `CobuildPaymentTerminal` as fixed `routeSetter`.
-   - The community owner must call `CobuildPaymentTerminal.registerCommunity(...)` to bind that hook to its `(paymentToken, paymentSourceRevnetId, directNativeAllowed)` config before the wrapper can accept pays for that revnet.
-2. The shared wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
+   - `CobuildPaymentTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildPaymentTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction via an owner-signed payload.
+   - Manual registration remains available through `CobuildPaymentTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal.
+2. The shared canonical terminal seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
    - explicit metadata seeds an explicit per-payment route,
-   - empty metadata means no explicit route, so the wrapper will flush any newly created reserved tokens into backlog.
-   - the wrapper snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
+   - empty metadata means no explicit route, so the terminal will flush any newly created reserved tokens into backlog.
+   - the terminal snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
      delta can use the selected route when an explicit route exists.
-   - native ETH either pays the community's native terminal directly (`directNativeAllowed`) or first buys the
-     registered payment token from `paymentSourceRevnetId`; direct payment-token pays skip the conversion step.
+   - native ETH either records directly on the community through the shared terminal (`directNativeAllowed`) or first
+     buys the registered payment token from `paymentSourceRevnetId`; if that upstream native path is the same shared
+     terminal, the conversion stays internal and self-source-safe; direct payment-token pays skip the conversion step.
+   - canonical community pays go through the JB terminal store, so ruleset pause/weight/base-currency logic and pay
+     hooks still run before reserved-token routing continues.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
@@ -23,11 +26,11 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 5. Direct goal funding uses the shared `CobuildTerminal`.
    - it resolves each goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
    - native ETH funding converts through the resolved source revnet before forwarding to the goal's primary payment-token terminal.
-6. If the wrapper-created community pay minted reserved tokens, the wrapper immediately calls the community controller's
+6. If the terminal-created community pay minted reserved tokens, the terminal immediately calls the community controller's
    `sendReservedTokensToSplitsOf(...)` in the same transaction.
 7. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which first peels off the configured
    system-goal floor slice and routes it into canonical goal-treasury beneficiaries.
-8. If the callback carried a wrapper-seeded pending route, only the discretionary remainder from the current pay's
+8. If the callback carried a terminal-seeded pending route, only the discretionary remainder from the current pay's
    newly created reserved-token delta is forwarded into the selected child goals by paying each goal's primary
    terminal for the community token.
 8. If the callback had no pending route, only the discretionary remainder is deferred into hook-managed backlog.
@@ -39,13 +42,13 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
    discretionary backlog in bounded chunks.
 12. Historical backlog routing is derived only from selectable non-system goals with observed discretionary explicit
    volume and always pays goal-treasury beneficiaries.
-13. If the wrapper-created pay minted no reserved tokens, the wrapper clears the unused pending route instead of leaving
+13. If the terminal-created pay minted no reserved tokens, the terminal clears the unused pending route instead of leaving
    stale routing state behind.
 14. If older backlog was included in that controller flush, `CobuildSplitHook` applies system-floor routing to that
    snapshotted backlog first and parks only the discretionary remainder for later permissionless retry instead of
    routing it through the current payer's selection.
 15. If no usable historical route exists, the split hook keeps that discretionary backlog on-hook for later
-   permissionless historical flush instead of blocking wrapper-routed mints.
+   permissionless historical flush instead of blocking canonical-terminal-routed mints.
 
 ## Goal Funding Path
 

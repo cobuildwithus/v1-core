@@ -18,9 +18,9 @@ import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Community-level split hook that routes reserved community tokens into registry-curated child goals.
-/// @dev A fixed init-time wrapper seeds one-shot explicit routes before the community revnet pay executes. Explicit
-/// routes are the only source of historical market signal. All non-explicit historical routing is deferred into the
-/// paginated backlog flush path.
+/// @dev A fixed init-time canonical community terminal seeds one-shot explicit routes before the community revnet pay
+/// executes. Explicit routes are the only source of historical market signal. All non-explicit historical routing is
+/// deferred into the paginated backlog flush path.
 contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 

@@ -165,6 +165,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         params.funding = GoalFactory.FundingContext({paymentToken: address(wrongToken), paymentRevnetId: 999});
 
         FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
+            address(this),
             IJBDirectory(address(directory)),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
             COBUILD_REVNET_ID,
@@ -176,6 +177,23 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
         assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
+    }
+
+    function test_deployGoalForCommunity_revertsWhenCallerIsNotRegistryOwner() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
+        FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
+            makeAddr("registry-owner"),
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COBUILD_REVNET_ID,
+            address(cobuildToken)
+        );
+
+        address caller = makeAddr("not-owner");
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.UNAUTHORIZED.selector, registry.owner(), caller));
+        vm.prank(caller);
+        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
     }
 
     function test_deployGoal_bubblesInvalidSpendPolicyFromGoalTreasuryInitialization() public {
@@ -513,17 +531,20 @@ contract FactoryDeployMockCobuildTerminal {
 }
 
 contract FactoryDeployMockCommunityGoalRegistry {
+    address public owner;
     IJBDirectory public directory;
     IGoalDeploymentRegistry public goalDeploymentRegistry;
     uint256 public communityRevnetId;
     address public communityToken;
 
     constructor(
+        address owner_,
         IJBDirectory directory_,
         IGoalDeploymentRegistry goalDeploymentRegistry_,
         uint256 communityRevnetId_,
         address communityToken_
     ) {
+        owner = owner_;
         directory = directory_;
         goalDeploymentRegistry = goalDeploymentRegistry_;
         communityRevnetId = communityRevnetId_;

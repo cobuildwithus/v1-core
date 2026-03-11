@@ -58,15 +58,15 @@
 - Parent allocation commits remain live when downstream child-sync calls fail; failures stay observable and permissionlessly repairable.
 - Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
 
-7. Community wrapper/split-hook route handoff mismatch
-- Wrapper-routed community pays must snapshot preexisting pending reserved-token backlog so a user-selected route only
+7. Community terminal/split-hook route handoff mismatch
+- Canonical-terminal-routed community pays must snapshot preexisting pending reserved-token backlog so a user-selected route only
   captures the current pay's newly created reserved-token delta.
 - `CobuildSplitHook` must only receive the full reserved-token split bucket; fractional split callbacks should revert
   instead of being treated as coherent backlog/new-delta accounting input.
-- If a wrapper-routed pay creates reserved tokens, the wrapper must force `sendReservedTokensToSplitsOf(...)` in the
+- If a canonical-terminal-routed pay creates reserved tokens, the terminal must force `sendReservedTokensToSplitsOf(...)` in the
   same transaction and fail closed only if the pending route still is not consumed after routing the current pay's new
   delta.
-- If a wrapper-routed pay creates no reserved tokens, the wrapper should clear the unused pending route instead of
+- If a canonical-terminal-routed pay creates no reserved tokens, the terminal should clear the unused pending route instead of
   leaving stale routing state behind.
 - Community routing must apply configured system-goal floor slices before any explicit/discretionary or backlog logic,
   and those floor slices must use goal-treasury beneficiaries.

@@ -12,10 +12,12 @@ import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {CobuildPaymentTerminal} from "src/juicebox/CobuildPaymentTerminal.sol";
 import {CobuildPaymentTerminalFactory} from "src/juicebox/CobuildPaymentTerminalFactory.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
 
 import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 import {CobuildSplitHookMockToken} from "test/hooks/CobuildSplitHook.t.sol";
@@ -33,6 +35,7 @@ contract CobuildPaymentTerminalFactoryTest is Test {
     CobuildSplitHookMockToken internal communityToken;
     GoalDeploymentRegistry internal goalDeploymentRegistry;
     CobuildPaymentTerminalFactoryGoalRegistryMock internal goalRegistry;
+    MockTerminalStore internal store;
     CobuildPaymentTerminal internal paymentTerminal;
     uint256 internal ownerPrivateKey;
     address internal owner;
@@ -55,7 +58,8 @@ contract CobuildPaymentTerminalFactoryTest is Test {
             COMMUNITY_REVNET_ID,
             address(communityToken)
         );
-        paymentTerminal = new CobuildPaymentTerminal(IJBDirectory(address(directory)));
+        store = new MockTerminalStore(IJBDirectory(address(directory)));
+        paymentTerminal = new CobuildPaymentTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)));
         registrationDeadline = block.timestamp + 1 days;
 
         tokens.setTokenOf(COMMUNITY_REVNET_ID, address(communityToken));
@@ -203,6 +207,39 @@ contract CobuildPaymentTerminalFactoryTest is Test {
         assertEq(secondPredictedSplitHook.code.length, 0);
     }
 
+    function test_deployFor_allowsEip1271RegistryOwnerSignature() public {
+        CobuildPaymentTerminalFactoryEip1271Owner contractOwner = new CobuildPaymentTerminalFactoryEip1271Owner();
+        goalRegistry = new CobuildPaymentTerminalFactoryGoalRegistryMock(
+            address(contractOwner),
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COMMUNITY_REVNET_ID,
+            address(communityToken)
+        );
+
+        bytes32 salt = keccak256("hook-eip1271");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(address(contractOwner), ICommunityGoalRegistry(address(goalRegistry)), address(paymentTerminal), salt);
+        CobuildPaymentTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+        bytes32 digest = paymentTerminal.registrationDigestOf(
+            address(contractOwner),
+            COMMUNITY_REVNET_ID,
+            predictedSplitHook,
+            address(communityToken),
+            COMMUNITY_REVNET_ID,
+            true,
+            registrationDeadline
+        );
+        config.registrationSignature = contractOwner.signatureFor(digest.toEthSignedMessageHash());
+
+        vm.prank(address(contractOwner));
+        address splitHookAddress = factory.deployFor(config);
+
+        assertEq(splitHookAddress, predictedSplitHook);
+        (, , , , bool exists) = paymentTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertTrue(exists);
+    }
+
     function test_predictSplitHookAddress_matchesDeterministicCloneFormula() public view {
         bytes32 salt = keccak256("hook");
         bytes32 splitHookSalt =
@@ -305,5 +342,26 @@ contract CobuildPaymentTerminalFactoryControllerMock {
 
     function TOKENS() external view returns (CobuildPaymentTerminalFactoryTokensMock) {
         return _tokens;
+    }
+}
+
+contract CobuildPaymentTerminalFactoryEip1271Owner {
+    bytes4 internal constant MAGIC_VALUE = 0x1626ba7e;
+
+    bytes32 internal _approvedHash;
+    bytes internal _approvedSignature;
+
+    function signatureFor(bytes32 hash) external returns (bytes memory signature) {
+        _approvedHash = hash;
+        _approvedSignature = abi.encode(hash, address(this));
+        return _approvedSignature;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
+        if (hash == _approvedHash && keccak256(signature) == keccak256(_approvedSignature)) {
+            return MAGIC_VALUE;
+        }
+
+        return bytes4(0);
     }
 }

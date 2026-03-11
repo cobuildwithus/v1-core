@@ -247,6 +247,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_deployGoalForCommunity_revertsWhenRegistryDirectoryMismatch() public {
         MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            address(this),
             IJBDirectory(address(new MockDirectory())),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
             PAYMENT_REVNET_ID,
@@ -264,6 +265,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function test_deployGoalForCommunity_revertsWhenRegistryDeploymentRegistryMismatch() public {
         GoalDeploymentRegistry wrongRegistry = new GoalDeploymentRegistry(address(this), address(0));
         MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            address(this),
             IJBDirectory(address(revnetDirectory)),
             IGoalDeploymentRegistry(address(wrongRegistry)),
             PAYMENT_REVNET_ID,
@@ -277,6 +279,22 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 address(wrongRegistry)
             )
         );
+        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
+    }
+
+    function test_deployGoalForCommunity_revertsWhenCallerIsNotRegistryOwner() public {
+        address registryOwner = makeAddr("registry-owner");
+        MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            registryOwner,
+            IJBDirectory(address(revnetDirectory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            PAYMENT_REVNET_ID,
+            address(paymentToken)
+        );
+        address caller = makeAddr("not-owner");
+
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.UNAUTHORIZED.selector, registryOwner, caller));
         factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
     }
 
@@ -393,17 +411,20 @@ contract MockController {
 }
 
 contract MockCommunityGoalRegistry {
+    address public owner;
     IJBDirectory public directory;
     IGoalDeploymentRegistry public goalDeploymentRegistry;
     uint256 public communityRevnetId;
     address public communityToken;
 
     constructor(
+        address owner_,
         IJBDirectory directory_,
         IGoalDeploymentRegistry goalDeploymentRegistry_,
         uint256 communityRevnetId_,
         address communityToken_
     ) {
+        owner = owner_;
         directory = directory_;
         goalDeploymentRegistry = goalDeploymentRegistry_;
         communityRevnetId = communityRevnetId_;

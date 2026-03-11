@@ -4,9 +4,11 @@ pragma solidity ^0.8.34;
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import { CobuildSplitHook } from "src/hooks/CobuildSplitHook.sol";
+import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import { CobuildPaymentTerminal } from "src/juicebox/CobuildPaymentTerminal.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
-/// @notice Deterministic deployer for community-scoped split hooks that point at a shared payment terminal.
+/// @notice Deterministic deployer for community-scoped split hooks plus same-transaction registration on the shared terminal.
 contract CobuildPaymentTerminalFactory {
     bytes32 internal constant SPLIT_HOOK_SALT_DOMAIN = keccak256("CobuildPaymentTerminalFactory.SplitHook");
 
@@ -15,11 +17,17 @@ contract CobuildPaymentTerminalFactory {
     error ROUTE_SETTER_HAS_NO_CODE(address routeSetter);
     error SPLIT_HOOK_ALREADY_DEPLOYED(address splitHook);
     error UNAUTHORIZED(address expected, address actual);
+    error REGISTRATION_SIGNATURE_REQUIRED();
 
     struct DeployConfig {
         ICommunityGoalRegistry goalRegistry;
         address routeSetter;
         bytes32 salt;
+        address paymentToken;
+        uint256 paymentSourceRevnetId;
+        bool directNativeAllowed;
+        uint256 registrationDeadline;
+        bytes registrationSignature;
     }
 
     event CommunitySplitHookDeployed(
@@ -30,6 +38,9 @@ contract CobuildPaymentTerminalFactory {
         uint256 communityRevnetId,
         address communityToken,
         address goalRegistry,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed,
         bytes32 salt
     );
 
@@ -45,37 +56,58 @@ contract CobuildPaymentTerminalFactory {
     }
 
     function deployFor(DeployConfig calldata config) external returns (address splitHook) {
-        address goalRegistryAddress = address(config.goalRegistry);
+        ICommunityGoalRegistry goalRegistry = config.goalRegistry;
+        address routeSetter = config.routeSetter;
+        address goalRegistryAddress = address(goalRegistry);
         if (goalRegistryAddress == address(0)) revert ADDRESS_ZERO();
         if (goalRegistryAddress.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(goalRegistryAddress);
-        if (config.routeSetter == address(0)) revert ADDRESS_ZERO();
-        if (config.routeSetter.code.length == 0) revert ROUTE_SETTER_HAS_NO_CODE(config.routeSetter);
+        if (routeSetter == address(0)) revert ADDRESS_ZERO();
+        if (routeSetter.code.length == 0) revert ROUTE_SETTER_HAS_NO_CODE(routeSetter);
+        if (config.registrationSignature.length == 0) revert REGISTRATION_SIGNATURE_REQUIRED();
 
-        address registryOwner = config.goalRegistry.owner();
+        address registryOwner = goalRegistry.owner();
         if (msg.sender != registryOwner) revert UNAUTHORIZED(registryOwner, msg.sender);
 
-        bytes32 splitHookSalt = deriveSplitHookSalt(msg.sender, config.goalRegistry, config.routeSetter, config.salt);
+        uint256 communityRevnetId = goalRegistry.communityRevnetId();
+        address communityToken = goalRegistry.communityToken();
+        CobuildPaymentTerminal sharedTerminal = CobuildPaymentTerminal(payable(routeSetter));
+
+        bytes32 splitHookSalt = deriveSplitHookSalt(msg.sender, goalRegistry, routeSetter, config.salt);
         splitHook = Clones.predictDeterministicAddress(splitHookImplementation, splitHookSalt, address(this));
         if (splitHook.code.length != 0) revert SPLIT_HOOK_ALREADY_DEPLOYED(splitHook);
 
         splitHook = Clones.cloneDeterministic(splitHookImplementation, splitHookSalt);
 
         CobuildSplitHook(payable(splitHook)).initialize(
-            config.goalRegistry.directory(),
-            config.goalRegistry.communityRevnetId(),
-            config.goalRegistry.communityToken(),
-            config.routeSetter,
-            config.goalRegistry
+            goalRegistry.directory(),
+            communityRevnetId,
+            communityToken,
+            routeSetter,
+            goalRegistry
+        );
+
+        sharedTerminal.registerCommunityWithSignature(
+            msg.sender,
+            communityRevnetId,
+            ICobuildSplitHook(splitHook),
+            config.paymentToken,
+            config.paymentSourceRevnetId,
+            config.directNativeAllowed,
+            config.registrationDeadline,
+            config.registrationSignature
         );
 
         emit CommunitySplitHookDeployed(
             msg.sender,
             splitHook,
-            config.routeSetter,
-            address(config.goalRegistry.directory()),
-            config.goalRegistry.communityRevnetId(),
-            config.goalRegistry.communityToken(),
+            routeSetter,
+            address(goalRegistry.directory()),
+            communityRevnetId,
+            communityToken,
             goalRegistryAddress,
+            config.paymentToken,
+            config.paymentSourceRevnetId,
+            config.directNativeAllowed,
             config.salt
         );
     }

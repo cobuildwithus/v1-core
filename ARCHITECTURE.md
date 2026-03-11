@@ -139,17 +139,21 @@ cobuild-protocol/
   - If treasury state is `Succeeded` and minting is still open, reserved inflow is processed by the success-settlement burn path.
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
-- Community reserved-token routing is wrapper-seeded and split-driven:
+- Community reserved-token routing is canonical-terminal-seeded and split-driven:
   - `CobuildPaymentTerminalFactory` is the canonical deployment path for the community-scoped `CobuildSplitHook`:
     - it deterministically derives the split-hook clone address from caller + goal-registry + shared route-setter + salt,
-    - deploys only the split hook,
-    - initializes `CobuildSplitHook` with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`.
+    - deploys the split hook,
+    - initializes `CobuildSplitHook` with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`,
+    - completes same-transaction community registration on that terminal via an owner-signed registration payload.
   - `CobuildPaymentTerminal` is a shared community payment terminal:
-    - each community owner registers `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` through `registerCommunity(...)`,
+    - it must be the community revnet's canonical `DIRECTORY` primary terminal for both native ETH and the registered payment token before registration succeeds,
+    - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once through owner-driven registration,
     - `pay(...).metadata` can still carry `abi.encode(uint256[] goalIds, uint32[] weights)` for one-shot explicit routing,
-    - native ETH either pays the community root directly when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
-    - direct payment-token pays are forwarded without the intermediate conversion step,
-    - after the community pay, the wrapper synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created reserved tokens.
+    - native ETH either records a canonical JB pay directly on that terminal when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
+    - if the upstream native terminal is this same shared terminal, the conversion path stays internal instead of re-entering through an external `pay(...)` call,
+    - direct payment-token pays are likewise recorded on the shared terminal without the intermediate conversion step,
+    - community pays are recorded through the JB terminal store so pause/weight/base-currency rules and pay-hook fulfillment stay aligned with standard terminal semantics,
+    - after the community pay, the terminal synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - owner-backed system goals can be pinned/unpinned directly and carry per-goal `floorPpm` metadata,
@@ -169,18 +173,18 @@ cobuild-protocol/
     slices first and routes them to canonical goal-treasury beneficiaries, then applies explicit/discretionary routing
     only to the remaining amount, records observed volume only from discretionary explicit routed pays, and routes
     discretionary backlog only through the paginated permissionless backlog-flush path.
-  - Wrapper-routed community pays snapshot any preexisting controller backlog before the wrapper pay so a user-selected
+  - Canonical-terminal-routed community pays snapshot any preexisting controller backlog before the pay so a user-selected
     route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
     (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because the hook backlog-snapshot
     math assumes one coherent bucket.
-  - If the wrapper pay creates reserved tokens, the wrapper forces same-transaction split delivery; explicit-route
+  - If the canonical-terminal pay creates reserved tokens, the terminal forces same-transaction split delivery; explicit-route
     pending state must be consumed in that same transaction.
-  - If an explicit wrapper pay creates no reserved tokens, the wrapper clears the unused pending route instead of
+  - If an explicit canonical-terminal pay creates no reserved tokens, the terminal clears the unused pending route instead of
     leaving stale routing state behind.
   - If a configured system goal is paused or otherwise not currently selectable, its floor share falls back into the
     discretionary remainder instead of bricking community routing.
-  - Empty-metadata wrapper pays do not seed any pending route. Any reserved tokens created by that pay are flushed into
+  - Empty-metadata canonical-terminal pays do not seed any pending route. Any reserved tokens created by that pay are flushed into
     hook-managed backlog for later permissionless historical routing.
   - Raw direct community pays and all controller callbacks without a pending explicit route defer the full amount into
     hook-managed backlog instead of routing it inline. Backlog flushes use historical explicit-volume weights and pay

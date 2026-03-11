@@ -7,10 +7,12 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {CobuildPaymentTerminal} from "src/juicebox/CobuildPaymentTerminal.sol";
 import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
 
 import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
@@ -26,6 +28,7 @@ contract CobuildPaymentTerminalTest is Test {
     CobuildPaymentTerminalMockSplitHook internal splitHook;
     CobuildPaymentTerminalMockController internal controller;
     CobuildPaymentTerminalMockPaymentSourceTerminal internal sourceTerminal;
+    MockTerminalStore internal store;
     CobuildPaymentTerminal internal paymentTerminal;
 
     function setUp() public {
@@ -38,7 +41,8 @@ contract CobuildPaymentTerminalTest is Test {
         splitHook = new CobuildPaymentTerminalMockSplitHook(COMMUNITY_REVNET_ID, address(paymentToken), address(goalRegistry));
         controller = new CobuildPaymentTerminalMockController(splitHook, tokens);
         sourceTerminal = new CobuildPaymentTerminalMockPaymentSourceTerminal(paymentToken);
-        paymentTerminal = new CobuildPaymentTerminal(IJBDirectory(address(directory)));
+        store = new MockTerminalStore(IJBDirectory(address(directory)));
+        paymentTerminal = new CobuildPaymentTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)));
 
         splitHook.setRouteSetter(address(paymentTerminal));
         tokens.setTokenOf(PAYMENT_SOURCE_REVNET_ID, address(paymentToken));
@@ -254,6 +258,29 @@ contract CobuildPaymentTerminalTest is Test {
         );
 
         assertEq(surplus, 5 ether);
+    }
+
+    function test_pay_usesTerminalStoreRecordedTokenCountInsteadOfRawPaymentAmount() public {
+        _registerCommunity(true);
+        store.setRecordedTokenCount(COMMUNITY_REVNET_ID, 3 ether);
+        controller.setReturnedTokenCount(1.5 ether);
+
+        uint256 beneficiaryTokenCount = paymentTerminal.pay{value: 2 ether}(
+            COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, 2 ether, address(this), 0, "community-pay", bytes("")
+        );
+
+        assertEq(beneficiaryTokenCount, 1.5 ether);
+        assertEq(controller.lastMintTokenCount(), 3 ether);
+    }
+
+    function test_pay_revertsWhenTerminalStorePausesPayments() public {
+        _registerCommunity(false);
+        store.setPaymentsPaused(true);
+        paymentToken.mint(address(this), 1 ether);
+        paymentToken.approve(address(paymentTerminal), 1 ether);
+
+        vm.expectRevert(MockTerminalStore.PAYMENT_PAUSED.selector);
+        paymentTerminal.pay(COMMUNITY_REVNET_ID, address(paymentToken), 1 ether, address(this), 0, "memo", bytes(""));
     }
 
     function test_addToBalanceOf_andMigrateBalanceOf_nativeTransfersHeldBalanceToDestination() public {

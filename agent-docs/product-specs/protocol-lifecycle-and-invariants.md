@@ -67,17 +67,20 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
-- Community root routing is wrapper-seeded and split-driven:
+- Community root routing is canonical-terminal-seeded and split-driven:
   - `CobuildPaymentTerminalFactory` is the canonical deployer for the community-scoped split hook:
     - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
-    - deploys only the split hook,
-    - initializes the hook with the shared wrapper as the fixed `routeSetter`.
+    - deploys the split hook,
+    - initializes the hook with the shared terminal as the fixed `routeSetter`,
+    - completes same-transaction community registration on that terminal via an owner-signed registration payload.
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
     seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays through the registered
     community config, and synchronously flushes reserved-token splits through the community controller when that pay
     created reserved tokens.
   - Community registration is owner-gated per community revnet and must bind the split hook, payment token,
-    payment-source revnet, and direct-native toggle against the registry + directory wiring before the wrapper can pay.
+    payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
+  - Registered communities must point both their native ETH terminal and registered payment-token terminal at the shared
+    `CobuildPaymentTerminal`; sidecar-only directory wiring is invalid.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
@@ -89,26 +92,26 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CobuildTerminal` is the canonical shared goal funding terminal:
     - it resolves the goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
     - native ETH funding must convert through the resolved payment-source revnet before forwarding to the goal's primary payment-token terminal.
-  - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
+  - `CobuildSplitHook` keeps both the terminal contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - `CobuildSplitHook` applies configured system-goal floor routing first on every controller callback and routes those
     slices to canonical goal-treasury beneficiaries.
   - Explicit routed community pays only route the discretionary remainder after that floor-first pass.
   - Only discretionary explicit routed community pays record historical routing volume.
-  - Wrapper-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
+  - Canonical-terminal-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
     pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
     historical flushing so a new user route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks whose split percent is the full reserved-token bucket
     (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because pending-route/backlog
     accounting assumes one coherent callback bucket.
-  - If a wrapper-routed pay creates reserved tokens, the wrapper must force same-transaction split delivery and
+  - If a canonical-terminal-routed pay creates reserved tokens, the terminal must force same-transaction split delivery and
     pending-route consumption for that newly created delta.
-  - If a wrapper-routed pay creates no reserved tokens, the wrapper clears the unused pending route instead of leaving
+  - If a canonical-terminal-routed pay creates no reserved tokens, the terminal clears the unused pending route instead of leaving
     stale routing state behind.
   - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     routes system-floor slices into currently selectable system goals using deployment-registry-provided treasury sinks,
-    only routes discretionary explicit selections into registry-selectable child goals for wrapper-selected routes,
+    only routes discretionary explicit selections into registry-selectable child goals for terminal-selected routes,
     derives backlog flush routing from selectable non-system goals with observed discretionary explicit volume, uses
     each goal's deployment-registry-provided treasury sink for backlog flush beneficiaries, and otherwise defers
     discretionary historical backlog on-hook for later permissionless retry when no usable historical route exists.
