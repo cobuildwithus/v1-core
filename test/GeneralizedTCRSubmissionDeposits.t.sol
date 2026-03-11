@@ -248,17 +248,7 @@ contract GasGriefSubmissionDepositStrategy is ISubmissionDepositStrategy {
             SubmissionDepositsMockTerminal terminal = new SubmissionDepositsMockTerminal();
             GoalDeploymentRegistry goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
-            goalDeploymentRegistry.registerGoal(
-                DEFAULT_GOAL_ID,
-                address(
-                    new SubmissionDepositsMockGoalTreasury(
-                        DEFAULT_GOAL_ID,
-                        COMMUNITY_REVNET_ID,
-                        address(new SubmissionDepositsMockStakeVault(address(votingToken_)))
-                    )
-                )
-            );
-            directory.setPrimaryTerminal(DEFAULT_GOAL_ID, address(votingToken_), IJBTerminal(address(terminal)));
+            _registerConcreteGoalFixture(goalDeploymentRegistry, directory, terminal, votingToken_);
 
             CommunityGoalRegistry tcrImpl = new CommunityGoalRegistry();
             tcr = CommunityGoalRegistry(Clones.clone(address(tcrImpl)));
@@ -293,6 +283,25 @@ contract GasGriefSubmissionDepositStrategy is ISubmissionDepositStrategy {
                     owner: owner
                 })
             );
+        }
+
+        function _registerConcreteGoalFixture(
+            GoalDeploymentRegistry goalDeploymentRegistry,
+            SubmissionDepositsMockDirectory directory,
+            SubmissionDepositsMockTerminal terminal,
+            IVotes votingToken_
+        ) internal {
+            goalDeploymentRegistry.registerGoal(
+                DEFAULT_GOAL_ID,
+                address(
+                    new SubmissionDepositsMockGoalTreasury(
+                        DEFAULT_GOAL_ID,
+                        COMMUNITY_REVNET_ID,
+                        address(new SubmissionDepositsMockStakeVault(address(votingToken_)))
+                    )
+                )
+            );
+            directory.setPrimaryTerminal(DEFAULT_GOAL_ID, address(votingToken_), IJBTerminal(address(terminal)));
         }
 
         function _defaultCommunityGoalItem() internal pure returns (bytes memory item) {

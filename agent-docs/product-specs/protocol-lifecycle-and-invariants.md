@@ -68,14 +68,16 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
 - Community root routing is wrapper-seeded and split-driven:
-  - `CobuildPaymentTerminalFactory` is the canonical deployer for the community-routing pair:
-    - it deterministically derives the wrapper + hook addresses from `(caller, config, salt)`,
-    - deploys the wrapper before hook initialization so `routeSetter` can still be fixed at init time,
-    - initializes the hook with the deployed wrapper as the fixed `routeSetter` in the same transaction.
+  - `CobuildPaymentTerminalFactory` is the canonical deployer for the community-scoped split hook:
+    - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
+    - deploys only the split hook,
+    - initializes the hook with the shared wrapper as the fixed `routeSetter`.
   - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
-    seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays the configured community
-    revnet, and synchronously flushes reserved-token splits through the community controller when that pay created
-    reserved tokens.
+    seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays through the registered
+    community config, and synchronously flushes reserved-token splits through the community controller when that pay
+    created reserved tokens.
+  - Community registration is owner-gated per community revnet and must bind the split hook, payment token,
+    payment-source revnet, and direct-native toggle against the registry + directory wiring before the wrapper can pay.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
@@ -84,6 +86,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
+  - `CobuildTerminal` is the canonical shared goal funding terminal:
+    - it resolves the goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
+    - native ETH funding must convert through the resolved payment-source revnet before forwarding to the goal's primary payment-token terminal.
   - `CobuildSplitHook` keeps both the wrapper contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - `CobuildSplitHook` applies configured system-goal floor routing first on every controller callback and routes those

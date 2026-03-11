@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-10
+Last updated: 2026-03-11
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -50,6 +50,7 @@ cobuild-protocol/
 - Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
+- Shared goal funding terminal: `src/juicebox/CobuildTerminal.sol`.
 - Community reserved-token routing layer: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`, `src/juicebox/CobuildPaymentTerminalFactory.sol`.
 
 ### TCR and arbitration system
@@ -139,14 +140,16 @@ cobuild-protocol/
   - If treasury is terminal and success-settlement mode is closed, reserved inflow is processed through treasury terminal settlement policy.
   - If treasury funding is closed but still nonterminal, reserved inflow is deferred on treasury until terminal settlement is known.
 - Community reserved-token routing is wrapper-seeded and split-driven:
-  - `CobuildPaymentTerminalFactory` is the canonical deployment path for the community-routing pair:
-    - it deterministically predicts both addresses from deployment config + caller salt,
-    - deploys the wrapper before hook initialization,
-    - initializes `CobuildSplitHook` with the deployed wrapper as its fixed `routeSetter` in the same transaction.
-  - `CobuildPaymentTerminal` optionally decodes `abi.encode(uint256[] goalIds, uint32[] weights)` from
-    `pay(...).metadata`, seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays the
-    configured community revnet, and synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)`
-    when that pay created reserved tokens.
+  - `CobuildPaymentTerminalFactory` is the canonical deployment path for the community-scoped `CobuildSplitHook`:
+    - it deterministically derives the split-hook clone address from caller + goal-registry + shared route-setter + salt,
+    - deploys only the split hook,
+    - initializes `CobuildSplitHook` with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`.
+  - `CobuildPaymentTerminal` is a shared community payment terminal:
+    - each community owner registers `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` through `registerCommunity(...)`,
+    - `pay(...).metadata` can still carry `abi.encode(uint256[] goalIds, uint32[] weights)` for one-shot explicit routing,
+    - native ETH either pays the community root directly when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
+    - direct payment-token pays are forwarded without the intermediate conversion step,
+    - after the community pay, the wrapper synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - owner-backed system goals can be pinned/unpinned directly and carry per-goal `floorPpm` metadata,
@@ -156,6 +159,10 @@ cobuild-protocol/
     - `GoalFactory` registers each deployed goal treasury exactly once,
     - owner-authorized future goal-factory versions can register into the same registry over time,
     - treasury identity is immutable per goal id once registered.
+  - `CobuildTerminal` is the shared goal funding terminal:
+    - it resolves each goal's payment token and source revnet from the registered goal treasury + stake vault at pay time,
+    - native ETH pays the resolved source revnet's native terminal to acquire the goal's funding token before forwarding,
+    - direct payment-token funding uses the same resolved token and forwards to the goal's primary terminal for that token.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
     explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, peels off configured system-goal floor

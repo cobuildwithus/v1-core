@@ -5,23 +5,29 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 ## Community root routing path
 
 1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
-   - Canonical deployment of the `CobuildPaymentTerminal` + `CobuildSplitHook` pair is `CobuildPaymentTerminalFactory.deployFor(...)`, which deterministically predicts both addresses and initializes the hook with the deployed wrapper as fixed `routeSetter` in one transaction.
-2. The wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the community revnet's primary terminal:
+   - `CobuildPaymentTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook` and initializes it with the shared `CobuildPaymentTerminal` as fixed `routeSetter`.
+   - The community owner must call `CobuildPaymentTerminal.registerCommunity(...)` to bind that hook to its `(paymentToken, paymentSourceRevnetId, directNativeAllowed)` config before the wrapper can accept pays for that revnet.
+2. The shared wrapper seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
    - explicit metadata seeds an explicit per-payment route,
    - empty metadata means no explicit route, so the wrapper will flush any newly created reserved tokens into backlog.
    - the wrapper snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
      delta can use the selected route when an explicit route exists.
+   - native ETH either pays the community's native terminal directly (`directNativeAllowed`) or first buys the
+     registered payment token from `paymentSourceRevnetId`; direct payment-token pays skip the conversion step.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
    - total configured system-goal floor is capped at `1_000_000` ppm,
    - each listed goal carries metadata plus paused/selectable state, and system goals additionally expose `floorPpm`.
 4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
-5. If the wrapper-created community pay minted reserved tokens, the wrapper immediately calls the community controller's
+5. Direct goal funding uses the shared `CobuildTerminal`.
+   - it resolves each goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
+   - native ETH funding converts through the resolved source revnet before forwarding to the goal's primary payment-token terminal.
+6. If the wrapper-created community pay minted reserved tokens, the wrapper immediately calls the community controller's
    `sendReservedTokensToSplitsOf(...)` in the same transaction.
-6. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which first peels off the configured
+7. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which first peels off the configured
    system-goal floor slice and routes it into canonical goal-treasury beneficiaries.
-7. If the callback carried a wrapper-seeded pending route, only the discretionary remainder from the current pay's
+8. If the callback carried a wrapper-seeded pending route, only the discretionary remainder from the current pay's
    newly created reserved-token delta is forwarded into the selected child goals by paying each goal's primary
    terminal for the community token.
 8. If the callback had no pending route, only the discretionary remainder is deferred into hook-managed backlog.

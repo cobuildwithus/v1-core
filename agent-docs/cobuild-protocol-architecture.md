@@ -98,14 +98,15 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - seat changes hard-remove departed recipients and assign fixed per-seat units directly on the flow runtime.
 
 Community root routing
-- Canonical deployment of the routing pair is `CobuildPaymentTerminalFactory.deployFor(...)`:
-  - the factory deterministically derives the split-hook clone address and wrapper CREATE2 address from caller + config + salt,
-  - deploys the wrapper before calling `CobuildSplitHook.initialize(...)`,
-  - initializes the hook with the deployed wrapper as its fixed `routeSetter` in the same transaction.
-- Community payments can arrive through `CobuildPaymentTerminal`.
-- The wrapper accepts native ETH or COBUILD:
-  - native ETH is first paid into the COBUILD revnet to acquire COBUILD,
-  - direct COBUILD pays are forwarded without the intermediate conversion step.
+- Canonical deployment of the community split hook is `CobuildPaymentTerminalFactory.deployFor(...)`:
+  - the factory deterministically derives the split-hook clone address from caller + goal registry + shared route setter + salt,
+  - deploys only the split hook,
+  - initializes the hook with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`.
+- Community payments can arrive through the shared `CobuildPaymentTerminal` once the community owner calls `registerCommunity(...)`.
+- The shared wrapper accepts native ETH or the registered community payment token:
+  - if `directNativeAllowed`, native ETH is paid directly into the community revnet's native terminal,
+  - otherwise native ETH is first paid into the configured `paymentSourceRevnetId` native terminal to acquire the registered payment token,
+  - direct payment-token pays are forwarded without the intermediate conversion step.
 - The wrapper optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
   - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
   - empty metadata means "no explicit route", so any reserved tokens created by the pay are flushed into hook-managed backlog.
@@ -115,6 +116,8 @@ Community root routing
   `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
 - If the community pay created no reserved tokens, the wrapper clears the unused pending route instead of leaving stale
   state behind.
+- Direct goal funding uses the shared `CobuildTerminal`, which resolves each goal's payment token and source revnet
+  from the registered goal treasury + stake vault before converting native ETH or forwarding direct payment-token pays.
 - `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
