@@ -34,6 +34,10 @@ interface IGoalFundingTerminalConfig {
     function GOAL_DEPLOYMENT_REGISTRY() external view returns (IGoalDeploymentRegistry);
 }
 
+interface IBudgetTcrStackDeployerMetadata {
+    function budgetTreasuryImplementation() external view returns (address);
+}
+
 contract GoalFactory {
     enum GoalPreset {
         Open,
@@ -185,6 +189,8 @@ contract GoalFactory {
     error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
     error MANAGED_SAFE_REQUIRED();
     error MANAGED_SAFE_NOT_CONTRACT(address safe);
+    error MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
+
     constructor(
         IREVDeployer revDeployer,
         ISuperfluid superfluidHost,
@@ -369,6 +375,7 @@ contract GoalFactory {
         if (p.preset == GoalPreset.Managed) {
             if (p.managedSafe == address(0)) revert MANAGED_SAFE_REQUIRED();
             if (p.managedSafe.code.length == 0) revert MANAGED_SAFE_NOT_CONTRACT(p.managedSafe);
+            if (p.budgetTCR.oracleBounds.liveness == 0) revert INVALID_ASSERTION_CONFIG();
         }
         if (p.budgetTCR.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         if (p.budgetTCR.budgetSuccessResolver.code.length == 0) {
@@ -385,6 +392,15 @@ contract GoalFactory {
         }
         if (p.underwriting.budgetSlashPpm != 0 && p.underwriting.budgetPremiumPpm == 0) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(p.underwriting.budgetPremiumPpm, p.underwriting.budgetSlashPpm);
+        }
+        if (
+            p.preset == GoalPreset.Managed &&
+            (p.underwriting.budgetPremiumPpm != 0 || p.underwriting.budgetSlashPpm != 0)
+        ) {
+            revert MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH(
+                p.underwriting.budgetPremiumPpm,
+                p.underwriting.budgetSlashPpm
+            );
         }
 
         (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) = _resolveFundingContext(p.funding);
@@ -407,7 +423,7 @@ contract GoalFactory {
         GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory managedPreset;
 
         if (p.preset == GoalPreset.Managed) {
-            managedPreset = _bootstrapManagedPreset(address(goalTreasury), p.managedSafe);
+            managedPreset = _bootstrapManagedPreset(address(goalTreasury));
             predictedBudgetController = address(managedPreset.budgetController);
             goalAllocatorStrategy = managedPreset.goalAllocatorStrategy;
             jurorSlasherAuthority = predictedBudgetController;
@@ -609,10 +625,12 @@ contract GoalFactory {
     }
 
     function _bootstrapManagedPreset(
-        address goalTreasury,
-        address managedSafe
+        address goalTreasury
     ) private returns (GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory) {
-        return GoalFactoryManagedPresetDeploy.bootstrapManagedPreset(goalTreasury, managedSafe);
+        address budgetTreasuryImplementation = IBudgetTcrStackDeployerMetadata(
+            BUDGET_TCR_FACTORY.stackDeployerImplementation()
+        ).budgetTreasuryImplementation();
+        return GoalFactoryManagedPresetDeploy.bootstrapManagedPreset(goalTreasury, budgetTreasuryImplementation);
     }
 
     function _initializeManagedBudgetController(

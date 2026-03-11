@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -26,6 +27,7 @@ import {JBTerminalConfig} from "@bananapus/core-v5/structs/JBTerminalConfig.sol"
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
+import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
@@ -36,6 +38,7 @@ import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocator
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
+import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
@@ -67,6 +70,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     FactoryDeployMockSuperTokenFactory internal superTokenFactory;
     FactoryDeployMockSuperfluidHost internal superfluidHost;
     FactoryDeployMockBudgetTcrFactory internal budgetTcrFactory;
+    FactoryDeployBudgetTcrStackDeployerMetadataMock internal budgetTcrStackDeployerMetadata;
     FactoryDeployDummyContract internal successResolver;
     GoalDeploymentRegistry internal goalDeploymentRegistry;
 
@@ -80,11 +84,15 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         revDeployer = new FactoryDeployMockRevDeployer(address(directory), address(controller), GOAL_REVNET_ID);
         superTokenFactory = new FactoryDeployMockSuperTokenFactory();
         superfluidHost = new FactoryDeployMockSuperfluidHost(address(superTokenFactory));
-        budgetTcrFactory = new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR);
+        budgetTcrStackDeployerMetadata =
+            new FactoryDeployBudgetTcrStackDeployerMetadataMock(address(new BudgetTreasury()));
+        budgetTcrFactory =
+            new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR, address(budgetTcrStackDeployerMetadata));
         successResolver = new FactoryDeployDummyContract();
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
-        goalTerminal =
-            new FactoryDeployMockGoalTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
+        goalTerminal = new FactoryDeployMockGoalTerminal(
+            IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry))
+        );
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 7 days), 1e18);
@@ -151,7 +159,9 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(deployed.goalAllocatorStrategy, deployed.stakeVault);
         assertEq(deployed.budgetController, PREDICTED_BUDGET_TCR);
         assertEq(deployed.arbitrator, address(0xA11CE));
-        assertEq(FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), address(budgetTcrFactory));
+        assertEq(
+            FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), address(budgetTcrFactory)
+        );
         assertEq(
             FactoryDeployMockUnderwriterSlasherRouter(deployed.underwriterSlasherRouter).budgetController(),
             deployed.budgetController
@@ -219,10 +229,13 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(managedController.budgetPremiumPpm(), params.underwriting.budgetPremiumPpm);
         assertEq(managedController.budgetSlashPpm(), params.underwriting.budgetSlashPpm);
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
+        assertEq(strategy.owner(), deployed.budgetController);
         assertEq(strategy.allocator(), deployed.budgetController);
         assertEq(strategy.goalTreasury(), deployed.goalTreasury);
         assertEq(deployed.arbitrator, address(0));
-        assertEq(FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), deployed.budgetController);
+        assertEq(
+            FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), deployed.budgetController
+        );
         assertEq(
             FactoryDeployMockUnderwriterSlasherRouter(deployed.underwriterSlasherRouter).budgetController(),
             deployed.budgetController
@@ -233,7 +246,112 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
         assertTrue(_sameRuntimeCode(managedController.budgetGatePolicy(), address(new NoopBudgetGatePolicy())));
         assertTrue(_sameRuntimeCode(stackDeployer.premiumEscrowImplementation(), address(new NullPremiumEscrow())));
-        assertTrue(_sameRuntimeCode(deployed.goalAllocatorStrategy, address(new SingleAllocatorStrategy(managedSafe, deployed.goalTreasury, deployed.budgetController))));
+        assertTrue(
+            _sameRuntimeCode(
+                deployed.goalAllocatorStrategy,
+                address(
+                    new SingleAllocatorStrategy(
+                        deployed.budgetController, deployed.goalTreasury, deployed.budgetController
+                    )
+                )
+            )
+        );
+    }
+
+    function test_deployGoal_managedPreset_canCreateMultipleBudgetsAndUpdateWeights() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        address managedSafe = address(new FactoryDeployDummyContract());
+        params.preset = GoalFactory.GoalPreset.Managed;
+        params.managedSafe = managedSafe;
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
+        SingleAllocatorStrategy goalStrategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
+
+        bytes32 itemA = bytes32(uint256(1));
+        bytes32 itemB = bytes32(uint256(2));
+
+        vm.startPrank(managedSafe);
+        (address childFlowA, address treasuryA) =
+            managedController.createBudget(itemA, _managedBudgetConfig("Budget A"));
+        (address childFlowB, address treasuryB) =
+            managedController.createBudget(itemB, _managedBudgetConfig("Budget B"));
+
+        bytes32[] memory itemIDs = new bytes32[](2);
+        itemIDs[0] = itemA;
+        itemIDs[1] = itemB;
+
+        uint32[] memory ppm = new uint32[](2);
+        ppm[0] = 400_000;
+        ppm[1] = 600_000;
+        managedController.setBudgetWeights(itemIDs, ppm);
+        vm.stopPrank();
+
+        assertEq(managedController.activeBudgetCount(), 2);
+        assertEq(managedController.activeBudgetIdAt(0), itemA);
+        assertEq(managedController.activeBudgetIdAt(1), itemB);
+        assertEq(managedController.itemIdForBudgetTreasury(treasuryA), itemA);
+        assertEq(managedController.itemIdForBudgetTreasury(treasuryB), itemB);
+        assertEq(managedController.itemIdForChildFlow(childFlowA), itemA);
+        assertEq(managedController.itemIdForChildFlow(childFlowB), itemB);
+
+        assertEq(IFlow(childFlowA).recipientAdmin(), managedSafe);
+        assertEq(IFlow(childFlowA).flowOperator(), treasuryA);
+        assertEq(IFlow(childFlowA).sweeper(), treasuryA);
+        assertEq(IFlow(childFlowB).recipientAdmin(), managedSafe);
+        assertEq(IFlow(childFlowB).flowOperator(), treasuryB);
+        assertEq(IFlow(childFlowB).sweeper(), treasuryB);
+
+        uint256 controllerKey = goalStrategy.allocationKey(deployed.budgetController, bytes(""));
+        assertEq(
+            IFlow(deployed.goalFlow).getAllocationCommitment(deployed.goalAllocatorStrategy, controllerKey),
+            keccak256(abi.encode(itemIDs, ppm))
+        );
+
+        (uint256 attempted, uint256 succeeded) = managedController.syncBudgetTreasuries(itemIDs);
+        assertEq(attempted, 2);
+        assertEq(succeeded, 2);
+    }
+
+    function test_deployGoal_managedPreset_goalAllocatorIdentityStaysBoundToControllerAcrossAuthorityRotation() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        address managedSafe = address(new FactoryDeployDummyContract());
+        address rotatedSafe = address(new FactoryDeployDummyContract());
+        params.preset = GoalFactory.GoalPreset.Managed;
+        params.managedSafe = managedSafe;
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
+        SingleAllocatorStrategy goalStrategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
+
+        assertEq(goalStrategy.owner(), deployed.budgetController);
+        assertEq(goalStrategy.allocator(), deployed.budgetController);
+
+        vm.prank(managedSafe);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, managedSafe));
+        goalStrategy.changeAllocator(managedSafe);
+
+        vm.prank(managedSafe);
+        managedController.transferAuthority(rotatedSafe);
+
+        vm.prank(rotatedSafe);
+        managedController.acceptAuthority();
+
+        assertEq(managedController.authority(), rotatedSafe);
+        assertEq(goalStrategy.owner(), deployed.budgetController);
+        assertEq(goalStrategy.allocator(), deployed.budgetController);
+
+        vm.prank(managedSafe);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, managedSafe));
+        goalStrategy.changeAllocator(managedSafe);
+
+        vm.prank(rotatedSafe);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rotatedSafe));
+        goalStrategy.changeAllocator(rotatedSafe);
     }
 
     function test_deployGoalForCommunity_overridesCallerFundingContextWithRegistryFundingContext() public {
@@ -321,7 +439,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function _baseDeployParams(address goalSpendPolicy) internal returns (GoalFactory.DeployParams memory p) {
         p.preset = GoalFactory.GoalPreset.Open;
         p.managedSafe = address(0);
-        p.funding = GoalFactory.FundingContext({paymentToken: address(cobuildToken), paymentRevnetId: COBUILD_REVNET_ID});
+        p.funding =
+            GoalFactory.FundingContext({paymentToken: address(cobuildToken), paymentRevnetId: COBUILD_REVNET_ID});
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
             ticker: "GOAL",
@@ -368,7 +487,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
                 maxActivationThreshold: 0,
                 maxRunwayCap: 0
             }),
-            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 0, bondAmount: 0}),
+            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 0}),
             budgetSuccessResolver: address(successResolver),
             budgetSpendPolicy: address(_deployBudgetSpendPolicy()),
             arbitratorParams: IArbitrator.ArbitratorParams({
@@ -381,6 +500,28 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             })
         });
         p.goalSpendPolicy = goalSpendPolicy;
+    }
+
+    function _managedBudgetConfig(string memory title)
+        internal
+        view
+        returns (IManagedBudgetController.BudgetConfig memory config)
+    {
+        config = IManagedBudgetController.BudgetConfig({
+            metadata: FlowTypes.RecipientMetadata({
+                title: title,
+                description: string.concat(title, " description"),
+                image: "ipfs://budget-image",
+                tagline: "managed budget",
+                url: "https://example.com/budget"
+            }),
+            fundingDeadline: uint64(block.timestamp + 7 days),
+            executionDuration: 30 days,
+            activationThreshold: 0,
+            runwayCap: 0,
+            successOracleSpecHash: keccak256(bytes(string.concat(title, "-spec"))),
+            successAssertionPolicyHash: keccak256(bytes(string.concat(title, "-policy")))
+        });
     }
 
     function _sameRuntimeCode(address a, address b) internal view returns (bool) {
@@ -413,11 +554,13 @@ contract FactoryDeployDummyContract {}
 
 contract FactoryDeployMockBudgetTcrFactory {
     address internal immutable _predictedBudgetTcr;
+    address internal immutable _stackDeployerImplementation;
     address public deployedBudgetTcr;
     address public lastBudgetSpendPolicy;
 
-    constructor(address predictedBudgetTcr_) {
+    constructor(address predictedBudgetTcr_, address stackDeployerImplementation_) {
         _predictedBudgetTcr = predictedBudgetTcr_;
+        _stackDeployerImplementation = stackDeployerImplementation_;
         deployedBudgetTcr = predictedBudgetTcr_;
     }
 
@@ -438,6 +581,22 @@ contract FactoryDeployMockBudgetTcrFactory {
         deployed.budgetTCR = deployedBudgetTcr;
         deployed.arbitrator = address(0xA11CE);
         deployed.token = address(0xCAFE);
+    }
+
+    function stackDeployerImplementation() external view returns (address) {
+        return _stackDeployerImplementation;
+    }
+}
+
+contract FactoryDeployBudgetTcrStackDeployerMetadataMock {
+    address internal immutable _budgetTreasuryImplementation;
+
+    constructor(address budgetTreasuryImplementation_) {
+        _budgetTreasuryImplementation = budgetTreasuryImplementation_;
+    }
+
+    function budgetTreasuryImplementation() external view returns (address) {
+        return _budgetTreasuryImplementation;
     }
 }
 
@@ -669,15 +828,19 @@ contract FactoryDeployMockSuperTokenFactory {
     }
 }
 
-contract FactoryDeployMockSuperToken {
+contract FactoryDeployMockSuperToken is ERC20 {
     address private immutable _underlyingToken;
 
-    constructor(address underlyingToken_) {
+    constructor(address underlyingToken_) ERC20("Goal Super Token", "GOALX") {
         _underlyingToken = underlyingToken_;
     }
 
     function getUnderlyingToken() external view returns (address) {
         return _underlyingToken;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
     }
 }
 
@@ -686,12 +849,26 @@ contract FactoryDeployMockSplitHook {
 }
 
 contract FactoryDeployMockFlow {
+    struct RecipientInfo {
+        address recipient;
+        bool isRemoved;
+    }
+
     ISuperToken public superToken;
     address public recipientAdmin;
     address public flowOperator;
     address public sweeper;
     ISuperfluidPool public distributionPool;
+    ISuperfluidPool public managerRewardDistributionPool;
+    address public managerRewardPool;
+    address public allocationPipeline;
+    address public parent;
+    IAllocationStrategy public strategy;
     int96 public targetOutflowRate;
+
+    mapping(bytes32 => RecipientInfo) internal _recipients;
+    mapping(address => int96) internal _memberFlowRate;
+    mapping(address => mapping(uint256 => bytes32)) internal _allocationCommitment;
 
     function initialize(
         address superToken_,
@@ -699,23 +876,99 @@ contract FactoryDeployMockFlow {
         address recipientAdmin_,
         address flowOperator_,
         address sweeper_,
-        address,
-        address,
-        address,
+        address managerRewardPool_,
+        address allocationPipeline_,
+        address parent_,
         IFlow.FlowParams memory,
         FlowTypes.RecipientMetadata memory,
-        IAllocationStrategy
+        IAllocationStrategy strategy_
     ) external {
         superToken = ISuperToken(superToken_);
         recipientAdmin = recipientAdmin_;
         flowOperator = flowOperator_;
         sweeper = sweeper_;
+        managerRewardPool = managerRewardPool_;
+        allocationPipeline = allocationPipeline_;
+        parent = parent_;
+        strategy = strategy_;
         distributionPool = ISuperfluidPool(address(new FactoryDeployMockDistributionPool()));
+        managerRewardDistributionPool = ISuperfluidPool(address(new FactoryDeployMockDistributionPool()));
+    }
+
+    function addFlowRecipient(
+        bytes32 newRecipientId,
+        FlowTypes.RecipientMetadata memory,
+        address recipientAdmin_,
+        address flowOperator_,
+        address sweeper_,
+        address managerRewardPool_,
+        uint32,
+        IAllocationStrategy strategy_
+    ) external returns (bytes32 recipientId, address recipientAddress) {
+        FactoryDeployMockFlow child = FactoryDeployMockFlow(Clones.clone(address(this)));
+        child.initializeChild(
+            address(superToken), recipientAdmin_, flowOperator_, sweeper_, managerRewardPool_, address(this), strategy_
+        );
+        recipientId = newRecipientId;
+        recipientAddress = address(child);
+        _recipients[newRecipientId] = RecipientInfo({recipient: recipientAddress, isRemoved: false});
+        _memberFlowRate[recipientAddress] = 0;
+    }
+
+    function initializeChild(
+        address superToken_,
+        address recipientAdmin_,
+        address flowOperator_,
+        address sweeper_,
+        address managerRewardPool_,
+        address parent_,
+        IAllocationStrategy strategy_
+    ) external {
+        superToken = ISuperToken(superToken_);
+        recipientAdmin = recipientAdmin_;
+        flowOperator = flowOperator_;
+        sweeper = sweeper_;
+        managerRewardPool = managerRewardPool_;
+        parent = parent_;
+        strategy = strategy_;
+        distributionPool = ISuperfluidPool(address(new FactoryDeployMockDistributionPool()));
+        managerRewardDistributionPool = ISuperfluidPool(address(new FactoryDeployMockDistributionPool()));
     }
 
     function setTargetOutflowRate(int96 targetOutflowRate_) external {
         targetOutflowRate = targetOutflowRate_;
     }
+
+    function allocate(bytes32[] calldata recipientIds, uint32[] calldata allocationsPpm) external {
+        _allocationCommitment[address(strategy)][uint256(uint160(msg.sender))] =
+            keccak256(abi.encode(recipientIds, allocationsPpm));
+    }
+
+    function getAllocationCommitment(address strategyAddress, uint256 allocationKey) external view returns (bytes32) {
+        return _allocationCommitment[strategyAddress][allocationKey];
+    }
+
+    function getMemberFlowRate(address member) external view returns (int96) {
+        return _memberFlowRate[member];
+    }
+
+    function getActualFlowRate() external view returns (int96) {
+        return targetOutflowRate;
+    }
+
+    function getNetFlowRate() external view returns (int96) {
+        return -targetOutflowRate;
+    }
+
+    function getMaxSafeFlowRate() external pure returns (int96) {
+        return type(int96).max;
+    }
+
+    function removeRecipient(bytes32 recipientId) external {
+        _recipients[recipientId].isRemoved = true;
+    }
+
+    function setRecipientEnabled(bytes32, bool) external {}
 }
 
 contract FactoryDeployMockDistributionPool {
@@ -750,9 +1003,22 @@ contract FactoryDeployMockStakeVault {
 
 contract FactoryDeployMockBudgetStakeLedger {
     address public goalTreasury;
+    mapping(bytes32 => address) internal _budgetForRecipient;
 
     function initialize(address goalTreasury_) external {
         goalTreasury = goalTreasury_;
+    }
+
+    function registerBudget(bytes32 recipientId, address budget) external {
+        _budgetForRecipient[recipientId] = budget;
+    }
+
+    function removeBudget(bytes32 recipientId) external {
+        delete _budgetForRecipient[recipientId];
+    }
+
+    function budgetForRecipient(bytes32 recipientId) external view returns (address) {
+        return _budgetForRecipient[recipientId];
     }
 }
 

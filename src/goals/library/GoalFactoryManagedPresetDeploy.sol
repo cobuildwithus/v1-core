@@ -36,15 +36,17 @@ library GoalFactoryManagedPresetDeploy {
 
     function bootstrapManagedPreset(
         address goalTreasury,
-        address allocatorStrategyOwner
+        address budgetTreasuryImplementation
     ) external returns (ManagedPresetBundle memory out) {
         ManagedBudgetController budgetControllerImplementation = new ManagedBudgetController();
         address premiumEscrowImplementation = address(new NullPremiumEscrow());
         out.budgetController = ManagedBudgetController(Clones.clone(address(budgetControllerImplementation)));
         out.gatePolicy = address(new NoopBudgetGatePolicy());
-        out.stackDeployer = address(new ManagedBudgetControllerStackDeployer(premiumEscrowImplementation));
+        out.stackDeployer = address(
+            new ManagedBudgetControllerStackDeployer(budgetTreasuryImplementation, premiumEscrowImplementation)
+        );
         out.goalAllocatorStrategy = address(
-            new SingleAllocatorStrategy(allocatorStrategyOwner, goalTreasury, address(out.budgetController))
+            new SingleAllocatorStrategy(address(out.budgetController), goalTreasury, address(out.budgetController))
         );
     }
 

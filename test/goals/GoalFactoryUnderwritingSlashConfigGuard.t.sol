@@ -75,9 +75,13 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredBuybackHook = address(new DummyContract());
 
         revnetTokens.setTokenOf(PAYMENT_REVNET_ID, address(paymentToken));
-        revnetDirectory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(new DummyTerminal())));
+        revnetDirectory.setPrimaryTerminal(
+            PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(new DummyTerminal()))
+        );
         configuredGoalPaymentTerminal = address(
-            new CobuildGoalTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
+            new CobuildGoalTerminal(
+                IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry))
+            )
         );
 
         factory = _newFactory(configuredGoalPaymentTerminal);
@@ -98,7 +102,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function test_constructor_revertsWhenGoalPaymentTerminalDirectoryMismatch() public {
         MockDirectory wrongDirectory = new MockDirectory();
         address mismatchedTerminal = address(
-            new CobuildGoalTerminal(IJBDirectory(address(wrongDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
+            new CobuildGoalTerminal(
+                IJBDirectory(address(wrongDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry))
+            )
         );
 
         vm.expectRevert(
@@ -111,12 +117,17 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_constructor_revertsWhenGoalPaymentTerminalRegistryMismatch() public {
         GoalDeploymentRegistry wrongRegistry = new GoalDeploymentRegistry(address(this), address(0));
-        address mismatchedTerminal =
-            address(new CobuildGoalTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(wrongRegistry))));
+        address mismatchedTerminal = address(
+            new CobuildGoalTerminal(
+                IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(wrongRegistry))
+            )
+        );
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                GoalFactory.INVALID_GOAL_TERMINAL_REGISTRY.selector, address(goalDeploymentRegistry), address(wrongRegistry)
+                GoalFactory.INVALID_GOAL_TERMINAL_REGISTRY.selector,
+                address(goalDeploymentRegistry),
+                address(wrongRegistry)
             )
         );
         _deployFactory(mismatchedTerminal);
@@ -193,6 +204,49 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         p.managedSafe = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.MANAGED_SAFE_NOT_CONTRACT.selector, p.managedSafe));
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_managedPreset_revertsWhenPremiumOrSlashAreNonZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.preset = GoalFactory.GoalPreset.Managed;
+        p.managedSafe = address(new DummyContract());
+        p.underwriting.budgetPremiumPpm = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH.selector,
+                p.underwriting.budgetPremiumPpm,
+                p.underwriting.budgetSlashPpm
+            )
+        );
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_managedPreset_revertsWhenSlashIsNonZeroAndPremiumIsZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.preset = GoalFactory.GoalPreset.Managed;
+        p.managedSafe = address(new DummyContract());
+        p.underwriting.budgetPremiumPpm = 0;
+        p.underwriting.budgetSlashPpm = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
+                p.underwriting.budgetPremiumPpm,
+                p.underwriting.budgetSlashPpm
+            )
+        );
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_managedPreset_revertsWhenBudgetAssertionLivenessIsZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.preset = GoalFactory.GoalPreset.Managed;
+        p.managedSafe = address(new DummyContract());
+        p.budgetTCR.oracleBounds.liveness = 0;
+
+        vm.expectRevert(GoalFactory.INVALID_ASSERTION_CONFIG.selector);
         factory.deployGoal(p);
     }
 
@@ -290,7 +344,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                GoalFactory.INVALID_COMMUNITY_DIRECTORY.selector, address(revnetDirectory), address(registry.directory())
+                GoalFactory.INVALID_COMMUNITY_DIRECTORY.selector,
+                address(revnetDirectory),
+                address(registry.directory())
             )
         );
         factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
@@ -354,7 +410,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {
         p.preset = GoalFactory.GoalPreset.Open;
         p.managedSafe = address(0);
-        p.funding = GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID});
+        p.funding =
+            GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID});
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
             ticker: "GOAL",
@@ -381,6 +438,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         });
         p.budgetTCR.budgetSuccessResolver = configuredSuccessResolver;
         p.budgetTCR.budgetSpendPolicy = configuredGoalSpendPolicy;
+        p.budgetTCR.oracleBounds.liveness = 1 days;
         p.goalSpendPolicy = configuredGoalSpendPolicy;
     }
 
