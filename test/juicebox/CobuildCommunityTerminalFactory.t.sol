@@ -94,6 +94,39 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         assertTrue(exists);
     }
 
+    function test_registerCommunityFromFactory_revertsWhenCallerIsNotApprovedFactory() public {
+        CobuildSplitHook splitHook = new CobuildSplitHook();
+        splitHook.initialize(
+            goalRegistry.directory(),
+            COMMUNITY_REVNET_ID,
+            address(communityToken),
+            address(communityTerminal),
+            ICommunityGoalRegistry(address(goalRegistry))
+        );
+        controller.setLiveReservedSplit(
+            COMMUNITY_REVNET_ID, IJBSplitHook(address(splitHook)), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
+        );
+
+        address attacker = makeAddr("attacker");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.UNAUTHORIZED_FACTORY.selector, address(factory), attacker
+            )
+        );
+        vm.prank(attacker);
+        communityTerminal.registerCommunityFromFactory(
+            owner,
+            COMMUNITY_REVNET_ID,
+            ICobuildSplitHook(address(splitHook)),
+            address(communityToken),
+            COMMUNITY_REVNET_ID,
+            true
+        );
+
+        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertFalse(exists);
+    }
+
     function test_deployFor_revertsWhenLiveReservedSplitGroupOmitsPredictedHook_andLeavesNoCloneDeployed() public {
         bytes32 salt = keccak256("hook");
         bytes32 wrongSalt = keccak256("wrong-hook");
