@@ -38,7 +38,7 @@ contract GoalFactoryRevnetDeployTest is Test {
         uint24 buybackPoolFee = 3_000;
         uint32 buybackTwapWindow = 1 hours;
 
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address jbMultiTerminal = address(new DummyTerminal());
         address goalToken = address(0xABCD);
         uint256 deployedRevnetId = 99;
@@ -50,7 +50,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: cobuildToken,
             cobuildDecimals: cobuildDecimals,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
@@ -78,7 +78,7 @@ contract GoalFactoryRevnetDeployTest is Test {
         assertEq(revDeployer.lastBuybackPoolTwapWindow(), buybackTwapWindow);
 
         assertEq(revDeployer.lastTerminalConfigCount(), 2);
-        assertEq(revDeployer.lastTerminal0(), cobuildTerminal);
+        assertEq(revDeployer.lastTerminal0(), goalPaymentTerminal);
         assertEq(revDeployer.lastTerminal1(), jbMultiTerminal);
 
         assertEq(revDeployer.lastTerminal0ContextToken(), JBConstants.NATIVE_TOKEN);
@@ -101,7 +101,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: address(new DummyTerminal()),
+            goalPaymentTerminal: address(new DummyTerminal()),
             jbMultiTerminal: address(0),
             splitHook: address(0x5157),
             name: "Goal",
@@ -122,12 +122,12 @@ contract GoalFactoryRevnetDeployTest is Test {
         GoalFactoryRevnetDeploy.deployRevnet(request);
     }
 
-    function test_deployRevnet_revertsWhenCobuildTerminalIsZero() public {
+    function test_deployRevnet_revertsWhenGoalPaymentTerminalIsZero() public {
         GoalFactoryRevnetDeploy.RevnetDeploymentRequest memory request = GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: address(0),
+            goalPaymentTerminal: address(0),
             jbMultiTerminal: address(new DummyTerminal()),
             splitHook: address(0x5157),
             name: "Goal",
@@ -150,7 +150,7 @@ contract GoalFactoryRevnetDeployTest is Test {
 
     function test_deployRevnet_revertsWhenGoalTokenMissingAfterDeploy() public {
         uint256 deployedRevnetId = 99;
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address jbMultiTerminal = address(new DummyTerminal());
         revDeployer.setNextRevnetId(deployedRevnetId);
 
@@ -158,7 +158,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: jbMultiTerminal,
             splitHook: address(0x5157),
             name: "Goal",
@@ -181,7 +181,7 @@ contract GoalFactoryRevnetDeployTest is Test {
 
     function test_deployRevnet_saltUsesCallerAndSplitHook() public {
         uint256 deployedRevnetId = 99;
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address splitHook = address(0x5157);
 
         revDeployer.setNextRevnetId(deployedRevnetId);
@@ -191,7 +191,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: address(new DummyTerminal()),
             splitHook: splitHook,
             name: "Goal",
@@ -215,7 +215,7 @@ contract GoalFactoryRevnetDeployTest is Test {
 
     function test_deployRevnet_saltIgnoresExternalInvokerAndUsesCallerContext() public {
         uint256 deployedRevnetId = 99;
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address jbMultiTerminal = address(new DummyTerminal());
         address splitHook = address(0x5157);
         address externalInvoker = address(0xBEEF);
@@ -227,7 +227,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
@@ -255,7 +255,7 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltStableAcrossDistinctInvokersForSameSplitHook() public {
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address jbMultiTerminal = address(new DummyTerminal());
         address splitHook = address(0x5157);
 
@@ -263,7 +263,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: jbMultiTerminal,
             splitHook: splitHook,
             name: "Goal",
@@ -297,7 +297,7 @@ contract GoalFactoryRevnetDeployTest is Test {
     }
 
     function test_deployRevnet_saltVariesAcrossDistinctSplitHooks() public {
-        address cobuildTerminal = address(new DummyTerminal());
+        address goalPaymentTerminal = address(new DummyTerminal());
         address jbMultiTerminal = address(new DummyTerminal());
         address firstSplitHook = address(0x5157);
         address secondSplitHook = address(0x5257);
@@ -308,7 +308,7 @@ contract GoalFactoryRevnetDeployTest is Test {
             revDeployer: IREVDeployer(address(revDeployer)),
             cobuildToken: address(0xC0B1D),
             cobuildDecimals: 18,
-            cobuildTerminal: cobuildTerminal,
+            goalPaymentTerminal: goalPaymentTerminal,
             jbMultiTerminal: jbMultiTerminal,
             splitHook: firstSplitHook,
             name: "Goal",

@@ -307,7 +307,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
             assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
             assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
-            assertTrue(_stringContains(artifact, "COBUILD_TERMINAL: "));
+            assertTrue(_stringContains(artifact, "GOAL_PAYMENT_TERMINAL: "));
             assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
             assertTrue(_stringContains(artifact, "StakeVaultImpl: 0x"));
             assertTrue(_stringContains(artifact, "BudgetStakeLedgerImpl: 0x"));

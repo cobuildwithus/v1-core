@@ -21,7 +21,7 @@ library GoalFactoryRevnetDeploy {
         IREVDeployer revDeployer;
         address cobuildToken;
         uint8 cobuildDecimals;
-        address cobuildTerminal;
+        address goalPaymentTerminal;
         address jbMultiTerminal;
         address splitHook;
         string name;
@@ -102,12 +102,12 @@ library GoalFactoryRevnetDeploy {
         });
 
         IJBDirectory directory = request.revDeployer.DIRECTORY();
-        if (request.cobuildTerminal == address(0)) revert ADDRESS_ZERO();
+        if (request.goalPaymentTerminal == address(0)) revert ADDRESS_ZERO();
         if (request.jbMultiTerminal == address(0)) revert ADDRESS_ZERO();
 
         JBTerminalConfig[] memory terminalConfigs = new JBTerminalConfig[](2);
         terminalConfigs[0] = JBTerminalConfig({
-            terminal: IJBTerminal(request.cobuildTerminal),
+            terminal: IJBTerminal(request.goalPaymentTerminal),
             accountingContextsToAccept: nativeContexts
         });
         terminalConfigs[1] = JBTerminalConfig({

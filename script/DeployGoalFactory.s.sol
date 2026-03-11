@@ -9,7 +9,7 @@ import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositS
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
-import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
+import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
@@ -32,7 +32,7 @@ contract GoalFactoryPairDeployer {
         address goalDeploymentRegistryRegistrarAdmin;
         address cobuildToken;
         uint256 cobuildRevnetId;
-        address cobuildTerminal;
+        address goalPaymentTerminal;
         address jbMultiTerminal;
         address buybackHookDataHook;
         address buybackHook;
@@ -57,9 +57,9 @@ contract GoalFactoryPairDeployer {
 
     constructor(BudgetTcrFactoryConfig memory budgetTcrConfig, GoalFactoryConfig memory goalFactoryConfig) {
         bool deployGoalDeploymentRegistry = goalFactoryConfig.goalDeploymentRegistry == address(0);
-        bool deployGoalPaymentTerminal = goalFactoryConfig.cobuildTerminal == address(0);
+        bool deployGoalPaymentTerminal = goalFactoryConfig.goalPaymentTerminal == address(0);
         // Pair deployer constructor creation order is:
-        // optional GoalDeploymentRegistry, optional CobuildTerminal, BudgetTCRFactory, GoalFactory.
+        // optional GoalDeploymentRegistry, optional CobuildGoalTerminal, BudgetTCRFactory, GoalFactory.
         uint256 goalFactoryCreateNonce =
             2 + (deployGoalDeploymentRegistry ? 1 : 0) + (deployGoalPaymentTerminal ? 1 : 0);
         address predictedGoalFactory = _computeCreateAddress(address(this), goalFactoryCreateNonce);
@@ -71,10 +71,10 @@ contract GoalFactoryPairDeployer {
             goalDeploymentRegistry_ = address(deployedGoalDeploymentRegistry);
         }
 
-        address goalPaymentTerminal_ = goalFactoryConfig.cobuildTerminal;
+        address goalPaymentTerminal_ = goalFactoryConfig.goalPaymentTerminal;
         if (deployGoalPaymentTerminal) {
             goalPaymentTerminal_ = address(
-                new CobuildTerminal(
+                new CobuildGoalTerminal(
                     IREVDeployer(goalFactoryConfig.revDeployer).DIRECTORY(),
                     IGoalDeploymentRegistry(goalDeploymentRegistry_)
                 )
@@ -145,7 +145,7 @@ contract DeployGoalFactory is DeployScript {
     address internal superfluidHostAddressOut;
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
-    address internal cobuildTerminalOut;
+    address internal goalPaymentTerminalOut;
     address internal jbMultiTerminalOut;
     address internal buybackHookDataHookOut;
     address internal buybackHookOut;
@@ -200,9 +200,9 @@ contract DeployGoalFactory is DeployScript {
             "COBUILD_TOKEN", "$.core.cobuildToken", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb)
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
-        cobuildTerminalOut = _resolveAddress("GOAL_PAYMENT_TERMINAL", "$.core.goalPaymentTerminal", address(0));
-        if (cobuildTerminalOut == address(0)) {
-            cobuildTerminalOut = _resolveAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal", address(0));
+        goalPaymentTerminalOut = _resolveAddress("GOAL_PAYMENT_TERMINAL", "$.core.goalPaymentTerminal", address(0));
+        if (goalPaymentTerminalOut == address(0)) {
+            goalPaymentTerminalOut = _resolveAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal", address(0));
         }
         jbMultiTerminalOut = _resolveAddress(
             "JB_MULTI_TERMINAL", "$.core.jbMultiTerminal", address(0x2dB6d704058E552DeFE415753465df8dF0361846)
@@ -267,7 +267,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("SUPERFLUID_HOST:", superfluidHostAddressOut);
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
-        console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
+        console2.log("GOAL_PAYMENT_TERMINAL:", goalPaymentTerminalOut);
         console2.log("JB_MULTI_TERMINAL:", jbMultiTerminalOut);
         console2.log("BUYBACK_HOOK_DATA_HOOK:", buybackHookDataHookOut);
         console2.log("BUYBACK_HOOK:", buybackHookOut);
@@ -305,7 +305,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "SUPERFLUID_HOST", superfluidHostAddressOut);
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
-        _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
+        _writeAddressLine(filePath, "GOAL_PAYMENT_TERMINAL", goalPaymentTerminalOut);
         _writeAddressLine(filePath, "JB_MULTI_TERMINAL", jbMultiTerminalOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK_DATA_HOOK", buybackHookDataHookOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK", buybackHookOut);
@@ -378,7 +378,7 @@ contract DeployGoalFactory is DeployScript {
                 goalDeploymentRegistryRegistrarAdmin: goalDeploymentRegistryRegistrarAdminOut,
                 cobuildToken: cobuildTokenAddressOut,
                 cobuildRevnetId: cobuildRevnetIdOut,
-                cobuildTerminal: cobuildTerminalOut,
+                goalPaymentTerminal: goalPaymentTerminalOut,
                 jbMultiTerminal: jbMultiTerminalOut,
                 buybackHookDataHook: buybackHookDataHookOut,
                 buybackHook: buybackHookOut,

@@ -12,7 +12,7 @@ import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {DeployScript} from "script/DeployScript.s.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
-import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
+import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
@@ -47,7 +47,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal superfluidHostAddressOut;
     address internal cobuildTokenAddressOut;
     uint256 internal cobuildRevnetIdOut;
-    address internal cobuildTerminalOut;
+    address internal goalPaymentTerminalOut;
     address internal buybackHookDataHookOut;
     address internal buybackHookOut;
 
@@ -107,11 +107,11 @@ contract DeployGoalFactoryImplementations is DeployScript {
 
         address goalDeploymentRegistryForTerminal = vm.envOr("GOAL_DEPLOYMENT_REGISTRY", address(0));
         if (goalDeploymentRegistryForTerminal != address(0)) {
-            CobuildTerminal cobuildTerminal = new CobuildTerminal(
+            CobuildGoalTerminal goalTerminal = new CobuildGoalTerminal(
                 IREVDeployer(revDeployerAddressOut).DIRECTORY(),
                 IGoalDeploymentRegistry(goalDeploymentRegistryForTerminal)
             );
-            cobuildTerminalOut = address(cobuildTerminal);
+            goalPaymentTerminalOut = address(goalTerminal);
         }
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
@@ -191,7 +191,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("SUPERFLUID_HOST:", superfluidHostAddressOut);
         console2.log("COBUILD_TOKEN:", cobuildTokenAddressOut);
         console2.log("COBUILD_REVNET_ID:", cobuildRevnetIdOut);
-        console2.log("COBUILD_TERMINAL:", cobuildTerminalOut);
+        console2.log("GOAL_PAYMENT_TERMINAL:", goalPaymentTerminalOut);
         console2.log("BUYBACK_HOOK_DATA_HOOK:", buybackHookDataHookOut);
         console2.log("BUYBACK_HOOK:", buybackHookOut);
         console2.log("--- Impl addresses ---");
@@ -248,7 +248,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "SUPERFLUID_HOST", superfluidHostAddressOut);
         _writeAddressLine(filePath, "COBUILD_TOKEN", cobuildTokenAddressOut);
         _writeUintLine(filePath, "COBUILD_REVNET_ID", cobuildRevnetIdOut);
-        _writeAddressLine(filePath, "COBUILD_TERMINAL", cobuildTerminalOut);
+        _writeAddressLine(filePath, "GOAL_PAYMENT_TERMINAL", goalPaymentTerminalOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK_DATA_HOOK", buybackHookDataHookOut);
         _writeAddressLine(filePath, "BUYBACK_HOOK", buybackHookOut);
 
@@ -385,8 +385,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "cobuildRevnetId = ",
             vm.toString(cobuildRevnetIdOut),
             "\n",
-            "cobuildTerminal = \"",
-            vm.toString(cobuildTerminalOut),
+            "goalPaymentTerminal = \"",
+            vm.toString(goalPaymentTerminalOut),
             "\"\n",
             "buybackHookDataHook = \"",
             vm.toString(buybackHookDataHookOut),

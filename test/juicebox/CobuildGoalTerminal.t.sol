@@ -4,14 +4,14 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
+import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 
-contract CobuildTerminalTest is Test {
+contract CobuildGoalTerminalTest is Test {
     uint256 internal constant PAYMENT_REVNET_ID = 138;
     uint256 internal constant GOAL_REVNET_ID = 777;
 
@@ -22,7 +22,7 @@ contract CobuildTerminalTest is Test {
     MockStakeVault internal stakeVault;
     MockPaymentEthTerminal internal sourceTerminal;
     MockDestinationTerminal internal destinationTerminal;
-    CobuildTerminal internal cobuildTerminal;
+    CobuildGoalTerminal internal goalTerminal;
 
     function setUp() public {
         paymentToken = new MockMintableERC20();
@@ -37,13 +37,13 @@ contract CobuildTerminalTest is Test {
         directory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sourceTerminal)));
         directory.setPrimaryTerminal(GOAL_REVNET_ID, address(paymentToken), IJBTerminal(address(destinationTerminal)));
 
-        cobuildTerminal = new CobuildTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
+        goalTerminal = new CobuildGoalTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
     }
 
     function test_payWithEth_routesThroughResolvedFundingContext() public {
         uint256 ethAmount = 2 ether;
 
-        uint256 beneficiaryTokenCount = cobuildTerminal.pay{value: ethAmount}(
+        uint256 beneficiaryTokenCount = goalTerminal.pay{value: ethAmount}(
             GOAL_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             ethAmount,
@@ -62,9 +62,9 @@ contract CobuildTerminalTest is Test {
     function test_payWithPaymentToken_forwardsDirectPayment() public {
         uint256 paymentAmount = 1234;
         paymentToken.mint(address(this), paymentAmount);
-        paymentToken.approve(address(cobuildTerminal), paymentAmount);
+        paymentToken.approve(address(goalTerminal), paymentAmount);
 
-        uint256 beneficiaryTokenCount = cobuildTerminal.pay(
+        uint256 beneficiaryTokenCount = goalTerminal.pay(
             GOAL_REVNET_ID,
             address(paymentToken),
             paymentAmount,
@@ -82,9 +82,9 @@ contract CobuildTerminalTest is Test {
         uint256 paymentAmount = 5678;
         directory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(0)));
         paymentToken.mint(address(this), paymentAmount);
-        paymentToken.approve(address(cobuildTerminal), paymentAmount);
+        paymentToken.approve(address(goalTerminal), paymentAmount);
 
-        uint256 beneficiaryTokenCount = cobuildTerminal.pay(
+        uint256 beneficiaryTokenCount = goalTerminal.pay(
             GOAL_REVNET_ID,
             address(paymentToken),
             paymentAmount,
@@ -99,15 +99,15 @@ contract CobuildTerminalTest is Test {
     }
 
     function test_payWithEth_revertsWhenGoalIsNotRegistered() public {
-        vm.expectRevert(abi.encodeWithSelector(CobuildTerminal.GOAL_NOT_REGISTERED.selector, 999));
-        cobuildTerminal.pay{value: 1 ether}(999, JBConstants.NATIVE_TOKEN, 1 ether, address(this), 0, "memo", bytes(""));
+        vm.expectRevert(abi.encodeWithSelector(CobuildGoalTerminal.GOAL_NOT_REGISTERED.selector, 999));
+        goalTerminal.pay{value: 1 ether}(999, JBConstants.NATIVE_TOKEN, 1 ether, address(this), 0, "memo", bytes(""));
     }
 
     function test_payWithEth_revertsWhenPaymentEthTerminalMissing() public {
         directory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(0)));
 
-        vm.expectRevert(abi.encodeWithSelector(CobuildTerminal.NO_PAYMENT_ETH_TERMINAL.selector, PAYMENT_REVNET_ID));
-        cobuildTerminal.pay{value: 1 ether}(
+        vm.expectRevert(abi.encodeWithSelector(CobuildGoalTerminal.NO_PAYMENT_ETH_TERMINAL.selector, PAYMENT_REVNET_ID));
+        goalTerminal.pay{value: 1 ether}(
             GOAL_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             1 ether,
@@ -122,8 +122,8 @@ contract CobuildTerminalTest is Test {
         MockPaymentEthTerminalNoMint zeroOutTerminal = new MockPaymentEthTerminalNoMint();
         directory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(zeroOutTerminal)));
 
-        vm.expectRevert(CobuildTerminal.ZERO_PAYMENT_TOKEN_OUT.selector);
-        cobuildTerminal.pay{value: 1 ether}(
+        vm.expectRevert(CobuildGoalTerminal.ZERO_PAYMENT_TOKEN_OUT.selector);
+        goalTerminal.pay{value: 1 ether}(
             GOAL_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             1 ether,
@@ -138,9 +138,9 @@ contract CobuildTerminalTest is Test {
         directory.setPrimaryTerminal(GOAL_REVNET_ID, address(paymentToken), IJBTerminal(address(0)));
 
         vm.expectRevert(
-            abi.encodeWithSelector(CobuildTerminal.NO_DEST_TERMINAL.selector, GOAL_REVNET_ID, address(paymentToken))
+            abi.encodeWithSelector(CobuildGoalTerminal.NO_DEST_TERMINAL.selector, GOAL_REVNET_ID, address(paymentToken))
         );
-        cobuildTerminal.pay{value: 1 ether}(
+        goalTerminal.pay{value: 1 ether}(
             GOAL_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             1 ether,
@@ -152,20 +152,20 @@ contract CobuildTerminalTest is Test {
     }
 
     function test_pay_revertsWhenUnsupportedToken() public {
-        vm.expectRevert(abi.encodeWithSelector(CobuildTerminal.UNSUPPORTED_TOKEN.selector, address(0xBEEF)));
-        cobuildTerminal.pay(GOAL_REVNET_ID, address(0xBEEF), 1, address(this), 0, "memo", bytes(""));
+        vm.expectRevert(abi.encodeWithSelector(CobuildGoalTerminal.UNSUPPORTED_TOKEN.selector, address(0xBEEF)));
+        goalTerminal.pay(GOAL_REVNET_ID, address(0xBEEF), 1, address(this), 0, "memo", bytes(""));
     }
 
     function test_payWithPaymentToken_revertsWhenZeroPaymentTransferred() public {
-        vm.expectRevert(CobuildTerminal.ZERO_PAYMENT_TOKEN_OUT.selector);
-        cobuildTerminal.pay(GOAL_REVNET_ID, address(paymentToken), 0, address(this), 0, "memo", bytes(""));
+        vm.expectRevert(CobuildGoalTerminal.ZERO_PAYMENT_TOKEN_OUT.selector);
+        goalTerminal.pay(GOAL_REVNET_ID, address(paymentToken), 0, address(this), 0, "memo", bytes(""));
     }
 
     function test_payWithEth_revertsWhenDestinationIsSelf() public {
-        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(paymentToken), IJBTerminal(address(cobuildTerminal)));
+        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(paymentToken), IJBTerminal(address(goalTerminal)));
 
-        vm.expectRevert(CobuildTerminal.DEST_TERMINAL_IS_SELF.selector);
-        cobuildTerminal.pay{value: 1 ether}(
+        vm.expectRevert(CobuildGoalTerminal.DEST_TERMINAL_IS_SELF.selector);
+        goalTerminal.pay{value: 1 ether}(
             GOAL_REVNET_ID,
             JBConstants.NATIVE_TOKEN,
             1 ether,
@@ -177,8 +177,8 @@ contract CobuildTerminalTest is Test {
     }
 
     function test_addToBalanceOf_revertsUnsupportedCall() public {
-        vm.expectRevert(CobuildTerminal.UNSUPPORTED_CALL.selector);
-        cobuildTerminal.addToBalanceOf{value: 1}(GOAL_REVNET_ID, JBConstants.NATIVE_TOKEN, 1, false, "memo", bytes(""));
+        vm.expectRevert(CobuildGoalTerminal.UNSUPPORTED_CALL.selector);
+        goalTerminal.addToBalanceOf{value: 1}(GOAL_REVNET_ID, JBConstants.NATIVE_TOKEN, 1, false, "memo", bytes(""));
     }
 }
 

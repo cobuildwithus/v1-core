@@ -17,7 +17,7 @@ import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 /// @notice Shared terminal that routes native ETH into a goal's parent/community token before funding the goal.
 /// @dev The goal's payment denomination is resolved from its registered treasury on each pay call.
-contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
+contract CobuildGoalTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IJBDirectory public immutable DIRECTORY;
