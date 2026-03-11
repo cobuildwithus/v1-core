@@ -2,6 +2,18 @@
 
 ## Core Domain Boundaries
 
+### Planned preset/control-plane boundary
+
+- Neutral substrate stays shared across presets: `Flow`, `CustomFlow`, `GoalFlowAllocationLedgerPipeline`, `GoalTreasury`, `BudgetTreasury`, and `StakeVault` must stay free of hidden `isManaged` runtime branching.
+- Open-goal control plane stays on the current open-market stack: `BudgetTCR`, current credit-cap policy, current premium escrow path, and current mechanism-registry semantics.
+- Managed maintainer-goal control plane is a deployment-time alternative tuple:
+  - controller: `ManagedBudgetController` via generic `IBudgetController`
+  - gate policy: `IBudgetGatePolicy`
+  - goal-scoped allocation strategy: `SingleAllocatorStrategy` via `IGoalScopedAllocationStrategy`
+  - escrow: `NullPremiumEscrow`
+- Boundary rule: controller-owned routing and terminal-prune behavior stay separate from pluggable gate-policy coverage decisions.
+- Boundary rule: `BudgetTreasury` must depend on a generic controller interface, not `IBudgetTCR`.
+
 ### Flow domain
 
 - Contracts: `src/Flow.sol`, `src/flows/CustomFlow.sol`
