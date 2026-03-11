@@ -72,7 +72,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
     - deploys the split hook,
     - initializes the hook with the shared terminal as the fixed `routeSetter`,
-    - fail-closes registration unless the community revnet's live reserved-token split group already resolves to that same hook as the sole full-bucket reserved split for the current ruleset,
+    - fail-closes registration unless the community revnet's live reserved-token split group already contains exactly one nonzero split whose `hook` is that same predicted address for the current ruleset,
     - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
     - completes same-transaction community registration on that terminal via an owner-signed registration payload.
   - `CobuildCommunityTerminal` optionally decodes community pay metadata as
@@ -83,7 +83,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
     payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
   - Community registration must also prove on-chain that the current reserved-token split group will call the registered
-    hook by requiring exactly one live reserved split at 100% whose `hook` matches the registered split hook.
+    hook by requiring exactly one live nonzero split whose `hook` matches the registered split hook.
   - Registered communities must point both their native ETH terminal and registered payment-token terminal at the shared
     `CobuildCommunityTerminal`; sidecar-only directory wiring is invalid.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
@@ -100,16 +100,14 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - native ETH funding must convert through the resolved payment-source revnet before forwarding to the goal's primary payment-token terminal.
   - `CobuildSplitHook` keeps both the terminal contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
-  - `CobuildSplitHook` routes the full explicit amount for terminal-seeded pending routes into the selected registry-selectable goals.
-  - All explicit routed community pays record their full routed volume into historical routing telemetry.
-  - Canonical-terminal-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
-    pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
+  - `CobuildSplitHook` routes only its explicit callback slice for terminal-seeded pending routes into the selected registry-selectable goals.
+  - All explicit routed community pays record the hook-routed amount into per-goal routing scores.
+  - Canonical-terminal-routed community pays snapshot the Cobuild hook's share of any preexisting controller reserved-token backlog, route only the current
+    pay's newly created hook-slice delta through the pending route, and defer the older hook backlog to permissionless
     historical flushing so a new user route cannot capture earlier backlog.
-  - `CobuildSplitHook` only accepts controller callbacks whose split percent is the full reserved-token bucket
-    (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because pending-route/backlog
-    accounting assumes one coherent callback bucket.
+  - Fractional reserved-split configs are valid as long as the live split group contains exactly one nonzero entry pointing at the registered Cobuild hook.
   - If a canonical-terminal-routed pay creates reserved tokens, the terminal must force same-transaction split delivery and
-    pending-route consumption for that newly created delta.
+    pending-route consumption whenever the Cobuild hook's routed slice increased.
   - If a canonical-terminal-routed pay creates no reserved tokens, the terminal clears the unused pending route instead of leaving
     stale routing state behind.
   - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.

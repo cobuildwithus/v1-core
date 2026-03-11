@@ -159,7 +159,7 @@ contract CobuildSplitHookTest is Test {
         );
     }
 
-    function test_processSplitWith_consumesPendingRoute_andRecordsObservedVolume() public {
+    function test_processSplitWith_consumesPendingRoute_andRecordsRoutingScores() public {
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 3));
 
@@ -174,14 +174,13 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
         assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
         assertEq(communityToken.balanceOf(address(hook)), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
-        assertEq(hook.cumulativeObservedVolume(), 100e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 25e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.currentRoutingMass(), 100e18);
     }
 
     function test_processSplitWith_defersDirectPayEvenWhenHistoricalRouteExists() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         communityToken.mint(address(hook), 50e18);
 
@@ -192,8 +191,7 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 60e18);
         assertEq(hook.historicalBacklogAmount(), 50e18);
         assertEq(communityToken.balanceOf(address(hook)), 50e18);
-        assertEq(hook.cumulativeObservedVolume(), 100e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+        assertEq(hook.currentRoutingMass(), 100e18);
     }
 
     function test_processSplitWith_routesOnlyPendingExplicitDelta_andDefersSnapshottedBacklog() public {
@@ -210,9 +208,9 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 45e18);
         assertEq(goalTerminalOne.lastBeneficiary(), beneficiary);
         assertEq(goalTerminalTwo.lastBeneficiary(), beneficiary);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 15e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 45e18);
-        assertEq(hook.cumulativeObservedVolume(), 60e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 15e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 45e18);
+        assertEq(hook.currentRoutingMass(), 60e18);
         assertEq(hook.historicalBacklogAmount(), 40e18);
         assertEq(communityToken.balanceOf(address(hook)), 40e18);
     }
@@ -231,25 +229,23 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 0);
         assertEq(hook.historicalBacklogAmount(), 40e18);
         assertEq(communityToken.balanceOf(address(hook)), 40e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
-        assertEq(hook.cumulativeObservedVolume(), 0);
-        assertEq(hook.currentHistoricalTotalVolume(), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 0);
+        assertEq(hook.currentRoutingMass(), 0);
     }
 
-    function test_observedVolumeOf_decaysByHalfEachSeason() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+    function test_routingScoreOf_decaysByHalfEachSeason() public {
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         vm.warp(block.timestamp + ROUTING_SCORE_HALF_LIFE);
 
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 12_500_000_000_000_000_000);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
-        assertEq(hook.cumulativeObservedVolume(), 50e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 50e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 12_500_000_000_000_000_000);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
+        assertEq(hook.currentRoutingMass(), 50e18);
     }
 
     function test_processSplitWith_addsToDecayedRoutingScore() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         vm.warp(block.timestamp + ROUTING_SCORE_HALF_LIFE);
 
@@ -267,31 +263,43 @@ contract CobuildSplitHookTest is Test {
         vm.prank(controller);
         hook.processSplitWith(_context(20e18));
 
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 32_500_000_000_000_000_000);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
-        assertEq(hook.cumulativeObservedVolume(), 70e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 70e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 32_500_000_000_000_000_000);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
+        assertEq(hook.currentRoutingMass(), 70e18);
     }
 
-    function test_observedVolumeOf_usesElapsedHalfLifeFromLastUpdate_notGlobalEpochBoundary() public {
+    function test_routingScoreOf_decaysAtGlobalSeasonBoundary_evenAfterSameSeasonHeartbeat() public {
+        _seedRoutingScores(120e18, 1, 3, beneficiary);
+
         vm.warp(ROUTING_SCORE_HALF_LIFE - 1);
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = GOAL_ID_ONE;
+
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.prank(routeSetter);
+        hook.beginPendingRoute(beneficiary, beneficiary, 0, goalIds, weights);
+
+        communityToken.mint(address(hook), 2e18);
+
+        vm.prank(controller);
+        hook.processSplitWith(_context(2e18));
+
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 32e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 90e18);
+        assertEq(hook.currentRoutingMass(), 122e18);
 
         vm.warp(ROUTING_SCORE_HALF_LIFE);
 
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
-        assertEq(hook.cumulativeObservedVolume(), 100e18);
-
-        vm.warp((ROUTING_SCORE_HALF_LIFE - 1) + ROUTING_SCORE_HALF_LIFE);
-
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 12_500_000_000_000_000_000);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
-        assertEq(hook.cumulativeObservedVolume(), 50e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 16e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 45e18);
+        assertEq(hook.currentRoutingMass(), 61e18);
     }
 
     function test_flushHistoricalBacklog_routesDeferredBalanceUsingHistoricalGoalTreasuries() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -317,7 +325,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_pagesAcrossGoalsAndTracksProgress() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -354,7 +362,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_resetsPaginationWhenNewBacklogArrives() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -391,7 +399,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_resetsPaginationWhenExplicitHistoryChanges() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -415,8 +423,8 @@ contract CobuildSplitHookTest is Test {
         ICobuildSplitHook.HistoricalBacklogProgressView memory progress = hook.historicalBacklogProgress();
         assertFalse(progress.active);
         assertEq(hook.historicalBacklogAmount(), 24e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 45e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 45e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 75e18);
 
         uint256 restartedPageAmount = hook.flushHistoricalBacklog(1);
 
@@ -433,7 +441,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_usesCurrentDecayedRoutingScores() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         vm.warp(block.timestamp + ROUTING_SCORE_HALF_LIFE);
 
@@ -467,7 +475,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_keepsBacklogWhenAllDecayedRoutingScoresReachZero() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         communityToken.mint(address(hook), 40e18);
 
@@ -479,14 +487,13 @@ contract CobuildSplitHookTest is Test {
 
         vm.warp(block.timestamp + (ROUTING_SCORE_HALF_LIFE * 256));
 
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
-        assertEq(hook.cumulativeObservedVolume(), 0);
-        assertEq(hook.currentHistoricalTotalVolume(), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 0);
+        assertEq(hook.currentRoutingMass(), 0);
 
-        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        (uint256[] memory historicalGoalIds, uint256[] memory routingScores) = hook.historicalRoute();
         assertEq(historicalGoalIds.length, 0);
-        assertEq(historicalVolumes.length, 0);
+        assertEq(routingScores.length, 0);
 
         uint256 routedAmount = hook.flushHistoricalBacklog(2);
 
@@ -502,7 +509,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_flushHistoricalBacklog_revertsWhenPageSizeIsZero() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -541,10 +548,9 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 0);
         assertEq(hook.historicalBacklogAmount(), 0);
         assertEq(communityToken.balanceOf(address(hook)), 100e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
-        assertEq(hook.cumulativeObservedVolume(), 0);
-        assertEq(hook.currentHistoricalTotalVolume(), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 0);
+        assertEq(hook.currentRoutingMass(), 0);
     }
 
     function test_processSplitWith_defersDirectPayWhenNoHistoryExists() public {
@@ -560,7 +566,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_processSplitWith_defersDirectPayWhenHistoricalBacklogAlreadyExists() public {
-        _seedObservedRoute(100e18, 2, 3, beneficiary);
+        _seedRoutingScores(100e18, 2, 3, beneficiary);
 
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -582,7 +588,7 @@ contract CobuildSplitHookTest is Test {
     }
 
     function test_processSplitWith_ignoresGoalsRemovedFromRegistryWhenDerivingHistoricalRoute() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         goalRegistry.removeGoal(GOAL_ID_TWO);
 
@@ -595,96 +601,95 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalTwo.totalReceived(), 75e18);
         assertEq(hook.historicalBacklogAmount(), 40e18);
 
-        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        (uint256[] memory historicalGoalIds, uint256[] memory routingScores) = hook.historicalRoute();
         assertEq(historicalGoalIds.length, 1);
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
-        assertEq(historicalVolumes.length, 1);
-        assertEq(historicalVolumes[0], 25e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+        assertEq(routingScores.length, 1);
+        assertEq(routingScores[0], 25e18);
+        assertEq(hook.currentRoutingMass(), 25e18);
     }
 
     function test_historicalRoute_omitsGoalsWithoutPrimaryTerminal() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(0)));
 
-        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        (uint256[] memory historicalGoalIds, uint256[] memory routingScores) = hook.historicalRoute();
 
         assertEq(historicalGoalIds.length, 1);
         assertEq(historicalGoalIds[0], GOAL_ID_ONE);
-        assertEq(historicalVolumes.length, 1);
-        assertEq(historicalVolumes[0], 25e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+        assertEq(routingScores.length, 1);
+        assertEq(routingScores[0], 25e18);
+        assertEq(hook.currentRoutingMass(), 25e18);
     }
 
-    function test_currentHistoricalRoute_reusesRetainedVolumeWhenGoalTerminalIsRestored() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+    function test_historicalRoute_reusesRetainedRoutingScoreWhenGoalTerminalIsRestored() public {
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(0)));
 
-        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+        assertEq(hook.currentRoutingMass(), 25e18);
 
         directory.setPrimaryTerminal(GOAL_ID_TWO, address(communityToken), IJBTerminal(address(goalTerminalTwo)));
 
-        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        (uint256[] memory historicalGoalIds, uint256[] memory routingScores) = hook.historicalRoute();
 
         assertEq(historicalGoalIds.length, 2);
-        assertEq(historicalVolumes.length, 2);
-        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+        assertEq(routingScores.length, 2);
+        assertEq(hook.currentRoutingMass(), 100e18);
 
-        uint256 goalOneVolume;
-        uint256 goalTwoVolume;
+        uint256 goalOneRoutingScore;
+        uint256 goalTwoRoutingScore;
         for (uint256 i = 0; i < historicalGoalIds.length; i++) {
             if (historicalGoalIds[i] == GOAL_ID_ONE) {
-                goalOneVolume = historicalVolumes[i];
+                goalOneRoutingScore = routingScores[i];
                 continue;
             }
             if (historicalGoalIds[i] == GOAL_ID_TWO) {
-                goalTwoVolume = historicalVolumes[i];
+                goalTwoRoutingScore = routingScores[i];
             }
         }
 
-        assertEq(goalOneVolume, 25e18);
-        assertEq(goalTwoVolume, 75e18);
+        assertEq(goalOneRoutingScore, 25e18);
+        assertEq(goalTwoRoutingScore, 75e18);
     }
 
-    function test_currentHistoricalTotalVolume_excludesUnselectableGoals_andCumulativeObservedVolumeMatchesLiveRoute()
+    function test_currentRoutingMass_excludesUnselectableGoals_andMatchesLiveRoute()
         public
     {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         goalRegistry.removeGoal(GOAL_ID_TWO);
 
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
-        assertEq(hook.cumulativeObservedVolume(), 25e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 25e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 25e18);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.currentRoutingMass(), 25e18);
     }
 
-    function test_currentHistoricalRoute_reusesRetainedVolumeWhenGoalBecomesSelectableAgain() public {
-        _seedObservedRoute(100e18, 1, 3, beneficiary);
+    function test_historicalRoute_reusesRetainedRoutingScoreWhenGoalBecomesSelectableAgain() public {
+        _seedRoutingScores(100e18, 1, 3, beneficiary);
 
         goalRegistry.removeGoal(GOAL_ID_TWO);
         goalRegistry.setGoalSelectable(GOAL_ID_TWO, true);
 
-        (uint256[] memory historicalGoalIds, uint256[] memory historicalVolumes) = hook.historicalRoute();
+        (uint256[] memory historicalGoalIds, uint256[] memory routingScores) = hook.historicalRoute();
 
         assertEq(historicalGoalIds.length, 2);
-        assertEq(historicalVolumes.length, 2);
-        assertEq(hook.currentHistoricalTotalVolume(), 100e18);
+        assertEq(routingScores.length, 2);
+        assertEq(hook.currentRoutingMass(), 100e18);
 
-        uint256 goalOneVolume;
-        uint256 goalTwoVolume;
+        uint256 goalOneRoutingScore;
+        uint256 goalTwoRoutingScore;
         for (uint256 i = 0; i < historicalGoalIds.length; i++) {
             if (historicalGoalIds[i] == GOAL_ID_ONE) {
-                goalOneVolume = historicalVolumes[i];
+                goalOneRoutingScore = routingScores[i];
                 continue;
             }
             if (historicalGoalIds[i] == GOAL_ID_TWO) {
-                goalTwoVolume = historicalVolumes[i];
+                goalTwoRoutingScore = routingScores[i];
             }
         }
 
-        assertEq(goalOneVolume, 25e18);
-        assertEq(goalTwoVolume, 75e18);
+        assertEq(goalOneRoutingScore, 25e18);
+        assertEq(goalTwoRoutingScore, 75e18);
     }
 
     function test_processSplitWith_revertsWhenSelectedGoalHasNoPrimaryTerminal() public {
@@ -706,16 +711,16 @@ contract CobuildSplitHookTest is Test {
         hook.processSplitWith(_context(10e18));
     }
 
-    function test_processSplitWith_revertsWhenReservedSplitPercentIsFractional() public {
+    function test_processSplitWith_acceptsFractionalReservedSplitPercent() public {
         communityToken.mint(address(hook), 10e18);
 
         vm.prank(controller);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CobuildSplitHook.INVALID_SPLIT_PERCENT.selector, JBConstants.SPLITS_TOTAL_PERCENT, uint256(1)
-            )
-        );
         hook.processSplitWith(_contextWithPercent(10e18, 1));
+
+        assertEq(hook.historicalBacklogAmount(), 10e18);
+        assertEq(communityToken.balanceOf(address(hook)), 10e18);
+        assertEq(goalTerminalOne.totalReceived(), 0);
+        assertEq(goalTerminalTwo.totalReceived(), 0);
     }
 
     function test_processSplitWith_revertsWhenSelectedGoalTerminalHasNoCode() public {
@@ -781,9 +786,9 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.totalReceived(), 0);
         assertEq(shortPullTerminal.tokenBalance(), 0);
         assertEq(communityToken.balanceOf(address(hook)), 100e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
-        assertEq(hook.cumulativeObservedVolume(), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_ONE), 0);
+        assertEq(hook.routingScoreOf(GOAL_ID_TWO), 0);
+        assertEq(hook.currentRoutingMass(), 0);
     }
 
     function test_beginPendingRoute_revertsForUnapprovedGoal() public {
@@ -863,7 +868,7 @@ contract CobuildSplitHookTest is Test {
         );
     }
 
-    function _seedObservedRoute(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_)
+    function _seedRoutingScores(uint256 amount, uint32 firstWeight, uint32 secondWeight, address beneficiary_)
         internal
     {
         vm.prank(routeSetter);

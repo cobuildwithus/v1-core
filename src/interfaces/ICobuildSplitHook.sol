@@ -28,11 +28,9 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function goalRegistry() external view returns (address);
 
-    function observedVolumeOf(uint256 goalId) external view returns (uint256);
+    function routingScoreOf(uint256 goalId) external view returns (uint256);
 
-    function cumulativeObservedVolume() external view returns (uint256);
-
-    function currentHistoricalTotalVolume() external view returns (uint256);
+    function currentRoutingMass() external view returns (uint256);
 
     function historicalBacklogAmount() external view returns (uint256);
 
@@ -40,7 +38,7 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function selectableGoalIds() external view returns (uint256[] memory goalIds);
 
-    function historicalRoute() external view returns (uint256[] memory goalIds, uint256[] memory volumes);
+    function historicalRoute() external view returns (uint256[] memory goalIds, uint256[] memory routingScores);
 
     function pendingRoute() external view returns (PendingRouteView memory);
 

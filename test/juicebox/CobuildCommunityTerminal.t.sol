@@ -220,7 +220,7 @@ contract CobuildCommunityTerminalTest is Test {
         );
     }
 
-    function test_registerCommunity_revertsWhenLiveReservedSplitHookDiffersFromRegisteredHook() public {
+    function test_registerCommunity_revertsWhenLiveReservedSplitGroupOmitsRegisteredHook() public {
         CobuildCommunityTerminalMockSplitHook otherHook = new CobuildCommunityTerminalMockSplitHook(
             COMMUNITY_REVNET_ID, address(paymentToken), address(goalRegistry)
         );
@@ -231,7 +231,7 @@ contract CobuildCommunityTerminalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_HOOK.selector, address(splitHook), address(otherHook)
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_COUNT.selector, uint256(1), uint256(0)
             )
         );
         communityTerminal.registerCommunity(
@@ -243,16 +243,9 @@ contract CobuildCommunityTerminalTest is Test {
         );
     }
 
-    function test_registerCommunity_revertsWhenLiveReservedSplitIsNotFullReservedBucket() public {
+    function test_registerCommunity_allowsFractionalLiveReservedSplitForRegisteredHook() public {
         controller.setLiveReservedSplit(COMMUNITY_REVNET_ID, IJBSplitHook(address(splitHook)), 999_999_999);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_PERCENT.selector,
-                JBConstants.SPLITS_TOTAL_PERCENT,
-                uint256(999_999_999)
-            )
-        );
         communityTerminal.registerCommunity(
             COMMUNITY_REVNET_ID,
             ICobuildSplitHook(address(splitHook)),
@@ -260,6 +253,9 @@ contract CobuildCommunityTerminalTest is Test {
             PAYMENT_SOURCE_REVNET_ID,
             false
         );
+
+        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertTrue(exists);
     }
 
     function test_registerCommunity_revertsWhenLiveReservedSplitIsUnset() public {
@@ -279,7 +275,7 @@ contract CobuildCommunityTerminalTest is Test {
         );
     }
 
-    function test_registerCommunity_revertsWhenLiveReservedSplitGroupContainsMultipleSplits() public {
+    function test_registerCommunity_allowsMixedReservedSplitGroupWhenHookAppearsOnce() public {
         CobuildCommunityTerminalMockSplitHook otherHook = new CobuildCommunityTerminalMockSplitHook(
             COMMUNITY_REVNET_ID, address(paymentToken), address(goalRegistry)
         );
@@ -292,6 +288,29 @@ contract CobuildCommunityTerminalTest is Test {
         uint32[] memory percents = new uint32[](2);
         percents[0] = 500_000_000;
         percents[1] = 500_000_000;
+
+        controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
+
+        communityTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID,
+            ICobuildSplitHook(address(splitHook)),
+            address(paymentToken),
+            PAYMENT_SOURCE_REVNET_ID,
+            false
+        );
+
+        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertTrue(exists);
+    }
+
+    function test_registerCommunity_revertsWhenLiveReservedSplitGroupContainsMultipleMatchingHookSplits() public {
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](2);
+        hooks[0] = IJBSplitHook(address(splitHook));
+        hooks[1] = IJBSplitHook(address(splitHook));
+
+        uint32[] memory percents = new uint32[](2);
+        percents[0] = 400_000_000;
+        percents[1] = 600_000_000;
 
         controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
 
@@ -571,6 +590,86 @@ contract CobuildCommunityTerminalTest is Test {
             "community-pay",
             _communityPayMetadata(goalIds, weights, bytes(""))
         );
+    }
+
+    function test_payWithPaymentToken_revertsWhenLiveReservedSplitGroupDriftsAfterRegistration() public {
+        _registerCommunity(false);
+
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](2);
+        hooks[0] = IJBSplitHook(address(splitHook));
+        hooks[1] = IJBSplitHook(address(splitHook));
+
+        uint32[] memory percents = new uint32[](2);
+        percents[0] = 400_000_000;
+        percents[1] = 600_000_000;
+
+        controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
+        paymentToken.mint(address(this), 1 ether);
+        paymentToken.approve(address(communityTerminal), 1 ether);
+
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = 11;
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_COUNT.selector, uint256(1), uint256(2)
+            )
+        );
+        communityTerminal.pay(
+            COMMUNITY_REVNET_ID,
+            address(paymentToken),
+            1 ether,
+            address(this),
+            0,
+            "community-pay",
+            _communityPayMetadata(goalIds, weights, bytes(""))
+        );
+    }
+
+    function test_payWithPaymentToken_cancelsPendingRouteWhenHookSliceRoundsDownToZero() public {
+        CobuildCommunityTerminalMockSplitHook otherHook = new CobuildCommunityTerminalMockSplitHook(
+            COMMUNITY_REVNET_ID, address(paymentToken), address(goalRegistry)
+        );
+
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](2);
+        hooks[0] = IJBSplitHook(address(splitHook));
+        hooks[1] = IJBSplitHook(address(otherHook));
+
+        uint32[] memory percents = new uint32[](2);
+        percents[0] = 1;
+        percents[1] = uint32(JBConstants.SPLITS_TOTAL_PERCENT - 1);
+
+        controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
+        _registerCommunity(false);
+
+        controller.setReturnedTokenCount(0);
+        paymentToken.mint(address(this), 100);
+        paymentToken.approve(address(communityTerminal), 100);
+
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = 11;
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        uint256 beneficiaryTokenCount = communityTerminal.pay(
+            COMMUNITY_REVNET_ID,
+            address(paymentToken),
+            100,
+            address(this),
+            0,
+            "community-pay",
+            _communityPayMetadata(goalIds, weights, bytes(""))
+        );
+
+        assertEq(beneficiaryTokenCount, 0);
+        assertEq(splitHook.beginPendingRouteCallCount(), 1);
+        assertEq(splitHook.lastBacklogTokenCount(), 0);
+        assertEq(splitHook.cancelPendingRouteCallCount(), 1);
+        assertFalse(splitHook.hasPendingRoute());
+        assertEq(controller.sendReservedTokensToSplitsCallCount(), 1);
+        assertEq(controller.pendingReservedTokenBalanceOf(COMMUNITY_REVNET_ID), 0);
     }
 
     function test_payWithPaymentToken_forwardsEmbeddedJbMetadataToTerminalStoreAndPayHook() public {
@@ -1128,8 +1227,22 @@ contract CobuildCommunityTerminalMockController {
         tokenCount = _pendingReservedTokenBalanceOf[projectId];
         _pendingReservedTokenBalanceOf[projectId] = 0;
 
-        if (_consumePendingRouteOnSend && _splitHook.hasPendingRoute()) {
+        if (_consumePendingRouteOnSend && _splitHook.hasPendingRoute() && _hookReservedTokenShareOf(projectId, tokenCount) != 0)
+        {
             _splitHook.consumePendingRoute();
+        }
+    }
+
+    function _hookReservedTokenShareOf(uint256 projectId, uint256 tokenCount) internal view returns (uint256 hookTokenCount) {
+        if (tokenCount == 0) return 0;
+
+        JBSplit[] memory reservedSplits = _splits.splitsOf(projectId, uint256(CURRENT_RULESET_ID), 1);
+
+        for (uint256 i; i < reservedSplits.length; i++) {
+            JBSplit memory reservedSplit = reservedSplits[i];
+            if (address(reservedSplit.hook) != address(_splitHook)) continue;
+
+            hookTokenCount += (tokenCount * reservedSplit.percent) / uint256(JBConstants.SPLITS_TOTAL_PERCENT);
         }
     }
 
@@ -1183,15 +1296,11 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
         return true;
     }
 
-    function observedVolumeOf(uint256) external pure override returns (uint256) {
+    function routingScoreOf(uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function cumulativeObservedVolume() external pure override returns (uint256) {
-        return 0;
-    }
-
-    function currentHistoricalTotalVolume() external pure override returns (uint256) {
+    function currentRoutingMass() external pure override returns (uint256) {
         return 0;
     }
 
@@ -1199,9 +1308,9 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
         goalIds = new uint256[](0);
     }
 
-    function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory volumes) {
+    function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory routingScores) {
         goalIds = new uint256[](0);
-        volumes = new uint256[](0);
+        routingScores = new uint256[](0);
     }
 
     function historicalBacklogProgress()

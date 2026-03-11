@@ -112,7 +112,7 @@ contract CobuildSplitHookGasProfileTest is Test {
         }
 
         _seedRoutingScores(hook, goalCount);
-        assertEq(hook.observedVolumeOf(GOAL_ID_BASE + 1), TOKENS_PER_GOAL);
+        assertEq(hook.routingScoreOf(GOAL_ID_BASE + 1), TOKENS_PER_GOAL);
 
         scenario = Scenario({hook: hook, token: token, controller: controller});
     }

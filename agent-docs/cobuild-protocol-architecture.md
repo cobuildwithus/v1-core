@@ -102,6 +102,7 @@ Community root routing
   - the factory deterministically derives the split-hook clone address from caller + goal registry + shared route setter + salt,
   - deploys the split hook,
   - initializes the hook with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
+  - requires the live reserved split group to already contain exactly one nonzero split that points at that predicted hook address for the current ruleset,
   - requires deployment orchestration to atomically set the live reserved split to that predicted hook address before calling `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
   - registers the community on that same terminal in the same transaction via an owner-signed registration payload.
 - Community payments can arrive through the shared `CobuildCommunityTerminal` only after the community binds immutable
@@ -116,8 +117,8 @@ Community root routing
   - explicit `goalIds`/`weights` seed a one-shot explicit route on `CobuildSplitHook`,
   - embedded `jbMetadata` is forwarded unchanged into terminal-store accounting and pay-hook `payerMetadata`,
   - empty metadata means "no explicit route" plus empty downstream JB metadata, so any reserved tokens created by the pay are flushed into hook-managed backlog.
-- Before seeding a new route, the shared terminal snapshots the community controller's current pending reserved-token balance so
-  older backlog can be separated from the current pay's newly created reserved-token delta.
+- Before seeding a new route, the shared terminal snapshots the Cobuild hook's share of the community controller's current pending reserved-token balance so
+  older hook backlog can be separated from the current pay's newly created hook-slice delta.
 - After the community pay returns, if it created reserved tokens, the shared terminal immediately calls
   `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
 - If the community pay created no reserved tokens, the shared terminal clears the unused pending route instead of leaving stale
@@ -136,15 +137,16 @@ Community root routing
   - treasury identity is immutable per goal id.
 - `CobuildSplitHook` stores a fixed init-time contract `routeSetter`, a fixed init-time `CommunityGoalRegistry` reference for
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
+- The Cobuild hook may own only one slice of the reserved split group; sibling reserved splits can route elsewhere.
 - During canonical-terminal-routed community pays, reserved-token split delivery is forced synchronously by the terminal through the
   community controller's `sendReservedTokensToSplitsOf(...)` call.
-- `CobuildSplitHook` forwards the full canonical-terminal pending-route delta into registry-selectable child goals by paying
+- `CobuildSplitHook` forwards only its canonical-terminal pending-route delta into registry-selectable child goals by paying
   each goal's primary terminal for the community token.
 - Older controller backlog encountered during a canonical-terminal-routed pay is moved into hook-managed historical backlog for
   later permissionless routing.
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
-- All explicit routed payments record observed per-goal volume.
+- All explicit routed payments record per-goal routing score.
 - Historical backlog routing is derived only from selectable goals with non-zero decayed explicit-route score and is
   only executed through the paginated permissionless backlog-flush path.
 - If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
@@ -224,7 +226,7 @@ Community root routing
   - Terminal closed path applies treasury terminal settlement policy.
 - `CobuildSplitHook` is controller-gated and terminal-seeded:
   - explicit routed pays are seeded by `CobuildCommunityTerminal` through a one-shot pending route and are the only flows
-    that update observed historical volume,
+    that update routing scores,
   - terminal seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata canonical-terminal pays do not seed any pending route and instead flush any newly created reserved tokens into
     hook-managed backlog,
