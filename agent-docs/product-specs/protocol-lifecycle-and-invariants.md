@@ -84,7 +84,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - the registry is ownerless and does not expose privileged system goals or pause controls,
-    - each listed goal carries donor-visible metadata only, while selectability is derived from canonical deployment, funding context, and terminal presence.
+    - each listed goal carries donor-visible metadata only, while selectability is derived from canonical deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status,
+    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
@@ -108,7 +109,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only routes explicit selections into registry-selectable child goals for terminal-selected routes,
-    derives backlog flush routing from selectable goals with observed explicit volume, uses
+    derives backlog flush routing from selectable goals with lazily decaying explicit-route scores, uses
     each goal's deployment-registry-provided treasury sink for backlog flush beneficiaries, and otherwise defers
     historical backlog on-hook for later permissionless retry when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:

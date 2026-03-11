@@ -273,6 +273,23 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentHistoricalTotalVolume(), 70e18);
     }
 
+    function test_observedVolumeOf_usesElapsedHalfLifeFromLastUpdate_notGlobalEpochBoundary() public {
+        vm.warp(ROUTING_SCORE_HALF_LIFE - 1);
+        _seedObservedRoute(100e18, 1, 3, beneficiary);
+
+        vm.warp(ROUTING_SCORE_HALF_LIFE);
+
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 25e18);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 75e18);
+        assertEq(hook.cumulativeObservedVolume(), 100e18);
+
+        vm.warp((ROUTING_SCORE_HALF_LIFE - 1) + ROUTING_SCORE_HALF_LIFE);
+
+        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 12_500_000_000_000_000_000);
+        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 37_500_000_000_000_000_000);
+        assertEq(hook.cumulativeObservedVolume(), 50e18);
+    }
+
     function test_flushHistoricalBacklog_routesDeferredBalanceUsingHistoricalGoalTreasuries() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 

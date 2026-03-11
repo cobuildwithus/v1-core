@@ -23,6 +23,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     uint256 private constant RESERVED_TOKENS_GROUP_ID = 1;
+    uint256 private constant ROUTING_SCORE_HALF_LIFE = 30 days;
 
     error ADDRESS_ZERO();
     error NOT_A_CONTRACT(address account);
@@ -67,12 +68,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     event HistoricalBacklogDeferred(uint256 amount, uint256 newBacklogAmount);
     event HistoricalBacklogFlushed(uint256 amount, uint256 remainingBacklogAmount);
     event HistoricalBacklogFlushReset(uint256 indexed epoch, uint256 remainingBacklogAmount);
-    event HistoricalVolumeRecorded(
-        uint256 indexed goalId,
-        uint256 amount,
-        uint256 goalObservedTotal,
-        uint256 cumulativeObservedTotal
-    );
+    event HistoricalVolumeRecorded(uint256 indexed goalId, uint256 amount, uint256 newRoutingScore);
     event GoalRouted(
         address indexed beneficiary,
         uint256 indexed goalId,
@@ -121,9 +117,9 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     address public routeSetter;
     ICommunityGoalRegistry private _goalRegistry;
     IGoalDeploymentRegistry private _goalDeploymentRegistry;
-    // Explicit-route volume is cumulative telemetry. Selectability only gates live historical-route inclusion.
-    mapping(uint256 => uint256) public override observedVolumeOf;
-    uint256 public override cumulativeObservedVolume;
+    // Explicit-route volume sets a lazily decaying routing score. Selectability gates live historical-route inclusion.
+    mapping(uint256 => uint256) private _routingScoreOf;
+    mapping(uint256 => uint256) private _routingScoreUpdatedAt;
     uint256 public override historicalBacklogAmount;
     uint256 public historicalBacklogRoutingEpoch;
 
@@ -201,6 +197,14 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
     function goalRegistry() external view override returns (address) {
         return address(_goalRegistry);
+    }
+
+    function observedVolumeOf(uint256 goalId) public view override returns (uint256) {
+        return _currentRoutingScore(goalId);
+    }
+
+    function cumulativeObservedVolume() external view override returns (uint256 totalObservedVolume) {
+        (, , totalObservedVolume) = _loadHistoricalRouteRuntime();
     }
 
     function selectableGoalIds() external view override returns (uint256[] memory goalIds) {
@@ -404,7 +408,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     function _recordObservedRoute(uint256[] memory goalIds, uint32[] memory weights, uint256 sourceAmount) internal {
         uint256 totalWeight = _sumWeights(weights);
         uint256 remaining = sourceAmount;
-        uint256 updatedCumulativeObservedVolume = cumulativeObservedVolume;
+        bool updated;
 
         for (uint256 i = 0; i < goalIds.length; i++) {
             (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
@@ -419,16 +423,13 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
-            uint256 newGoalObservedTotal = observedVolumeOf[goalId] + amountForGoal;
-            observedVolumeOf[goalId] = newGoalObservedTotal;
-            updatedCumulativeObservedVolume += amountForGoal;
+            uint256 newRoutingScore = _increaseRoutingScore(goalId, amountForGoal);
+            updated = true;
 
-            emit HistoricalVolumeRecorded(goalId, amountForGoal, newGoalObservedTotal, updatedCumulativeObservedVolume);
+            emit HistoricalVolumeRecorded(goalId, amountForGoal, newRoutingScore);
         }
 
-        if (updatedCumulativeObservedVolume == cumulativeObservedVolume) return;
-        cumulativeObservedVolume = updatedCumulativeObservedVolume;
-        _resetHistoricalBacklogProgress();
+        if (updated) _resetHistoricalBacklogProgress();
     }
 
     function _routeHistoricalBacklogPage(IERC20 token, uint256 maxGoalCount) internal returns (uint256 routedAmount) {
@@ -454,7 +455,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             uint256 goalId = selectableIds[i];
             if (_historicalBacklogProcessedAtEpoch[goalId] == epoch) continue;
 
-            uint256 volume = observedVolumeOf[goalId];
+            uint256 volume = _currentRoutingScore(goalId);
             if (volume == 0) continue;
 
             uint256 amountForGoal = remainingGoalCount == 1
@@ -515,7 +516,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 count;
         for (uint256 i = 0; i < selectableLength; i++) {
             uint256 goalId = selectableIds[i];
-            if (observedVolumeOf[goalId] == 0) continue;
+            if (_currentRoutingScore(goalId) == 0) continue;
             count++;
         }
 
@@ -524,7 +525,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 cursor;
         for (uint256 i = 0; i < selectableLength; i++) {
             uint256 goalId = selectableIds[i];
-            uint256 volume = observedVolumeOf[goalId];
+            uint256 volume = _currentRoutingScore(goalId);
             if (volume == 0) continue;
 
             goalIds[cursor] = goalId;
@@ -554,12 +555,42 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             uint256 goalId = selectableIds[i];
             if (_historicalBacklogProcessedAtEpoch[goalId] == epoch) continue;
 
-            uint256 volume = observedVolumeOf[goalId];
+            uint256 volume = _currentRoutingScore(goalId);
             if (volume == 0) continue;
 
             totalRemainingVolume += volume;
             remainingGoalCount += 1;
         }
+    }
+
+    function _currentRoutingScore(uint256 goalId) internal view returns (uint256 score) {
+        score = _routingScoreOf[goalId];
+        if (score == 0) return 0;
+
+        return _decayedRoutingScore(score, _routingScoreUpdatedAt[goalId], block.timestamp);
+    }
+
+    function _increaseRoutingScore(uint256 goalId, uint256 amount) internal returns (uint256 newScore) {
+        uint256 currentTimestamp = block.timestamp;
+        uint256 score = _decayedRoutingScore(_routingScoreOf[goalId], _routingScoreUpdatedAt[goalId], currentTimestamp);
+
+        newScore = score + amount;
+        _routingScoreOf[goalId] = newScore;
+        _routingScoreUpdatedAt[goalId] = currentTimestamp;
+    }
+
+    function _decayedRoutingScore(
+        uint256 score,
+        uint256 lastUpdatedAt,
+        uint256 currentTimestamp
+    ) internal pure returns (uint256) {
+        if (score == 0 || currentTimestamp <= lastUpdatedAt) return score;
+
+        uint256 seasonsElapsed = (currentTimestamp - lastUpdatedAt) / ROUTING_SCORE_HALF_LIFE;
+        if (seasonsElapsed >= 256) return 0;
+        if (seasonsElapsed == 0) return score;
+
+        return score >> seasonsElapsed;
     }
 
     function _allocatedAmountForShare(

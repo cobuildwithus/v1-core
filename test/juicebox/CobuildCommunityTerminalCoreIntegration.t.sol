@@ -22,6 +22,7 @@ import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {CobuildSplitHook} from "src/hooks/CobuildSplitHook.sol";
 import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {CobuildCommunityTerminal} from "src/juicebox/CobuildCommunityTerminal.sol";
 import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
@@ -97,9 +98,8 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
     function test_wrapperExplicitRoute_fundsSelectedGoalsAndMintsCommunityTokensInSameTransaction() public {
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        uint256 beneficiaryTokenCount = _payWrapper(
-            wrapperFixture, payer, DIRECT_PAY_AMOUNT, payer, "pick-goals", abi.encode(goalIds, weights)
-        );
+        uint256 beneficiaryTokenCount =
+            _payWrapper(wrapperFixture, payer, DIRECT_PAY_AMOUNT, payer, "pick-goals", abi.encode(goalIds, weights));
 
         assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.communityToken.balanceOf(payer), DIRECT_PAY_AMOUNT / 2);
@@ -140,7 +140,11 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
     function test_wrapperWithoutExplicitRoute_flushesExistingControllerBacklogIntoHookBacklog() public {
         _seedObservedHistoryForWrapperFixture(wrapperFixture, DIRECT_PAY_AMOUNT);
         _payCommunityDirect(
-            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+            wrapperFixture.communityTerminal,
+            wrapperFixture.communityRevnetId,
+            wrapperFixture.communityToken,
+            payer,
+            DIRECT_PAY_AMOUNT
         );
 
         uint256 goalTerminalOneReceivedBefore = wrapperFixture.goalTerminalOne.totalReceived();
@@ -190,13 +194,18 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
     function test_wrapperExplicitRoute_routesOnlyNewDelta_andDefersOlderBacklogForPermissionlessFlush() public {
         _payCommunityDirect(
-            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+            wrapperFixture.communityTerminal,
+            wrapperFixture.communityRevnetId,
+            wrapperFixture.communityToken,
+            payer,
+            DIRECT_PAY_AMOUNT
         );
 
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        uint256 beneficiaryTokenCount =
-            _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights));
+        uint256 beneficiaryTokenCount = _payWrapper(
+            wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights)
+        );
 
         assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
@@ -222,7 +231,11 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
     function test_wrapperExplicitRoute_permissionlessHistoricalBacklogFlushCanResumeAcrossPages() public {
         _payCommunityDirect(
-            wrapperFixture.communityTerminal, wrapperFixture.communityRevnetId, wrapperFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+            wrapperFixture.communityTerminal,
+            wrapperFixture.communityRevnetId,
+            wrapperFixture.communityToken,
+            payer,
+            DIRECT_PAY_AMOUNT
         );
 
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
@@ -266,7 +279,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             IJBDirectory(address(directory)), rootRevnetId, address(rootToken), address(sharedTerminal), rootRegistry
         );
         vm.startPrank(multisig);
-        sharedTerminal.registerCommunity(rootRevnetId, ICobuildSplitHook(address(rootHook)), address(rootToken), rootRevnetId, true);
+        sharedTerminal.registerCommunity(
+            rootRevnetId, ICobuildSplitHook(address(rootHook)), address(rootToken), rootRevnetId, true
+        );
         controller.setReservedSplitHook(rootRevnetId, IJBSplitHook(address(rootHook)));
         vm.stopPrank();
 
@@ -286,7 +301,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             IJBDirectory(address(directory)), childRevnetId, address(childToken), address(sharedTerminal), childRegistry
         );
         vm.startPrank(multisig);
-        sharedTerminal.registerCommunity(childRevnetId, ICobuildSplitHook(address(childHook)), address(rootToken), rootRevnetId, false);
+        sharedTerminal.registerCommunity(
+            childRevnetId, ICobuildSplitHook(address(childHook)), address(rootToken), rootRevnetId, false
+        );
         controller.setReservedSplitHook(childRevnetId, IJBSplitHook(address(childHook)));
         vm.stopPrank();
 
@@ -307,7 +324,11 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
     function test_directCommunityPayWithoutHistoricalRoute_permissionlessControllerFlushDefersBacklog() public {
         _payCommunityDirect(
-            manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+            manualFixture.communityTerminal,
+            manualFixture.communityRevnetId,
+            manualFixture.communityToken,
+            payer,
+            DIRECT_PAY_AMOUNT
         );
 
         assertFalse(manualFixture.hook.hasPendingRoute());
@@ -349,8 +370,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
         uint256[] memory goalIds = _goalIds(freshFixture.goalIdOne, freshFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        uint256 explicitBeneficiaryTokenCount =
-            _payWrapper(freshFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights));
+        uint256 explicitBeneficiaryTokenCount = _payWrapper(
+            freshFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights)
+        );
 
         assertEq(explicitBeneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(freshFixture.communityToken.balanceOf(payerTwo), DIRECT_PAY_AMOUNT / 2);
@@ -385,7 +407,11 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         uint256 cumulativeObservedBefore = manualFixture.hook.cumulativeObservedVolume();
 
         _payCommunityDirect(
-            manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payer, DIRECT_PAY_AMOUNT
+            manualFixture.communityTerminal,
+            manualFixture.communityRevnetId,
+            manualFixture.communityToken,
+            payer,
+            DIRECT_PAY_AMOUNT
         );
 
         assertEq(controller.pendingReservedTokenBalanceOf(manualFixture.communityRevnetId), DIRECT_PAY_AMOUNT);
@@ -425,9 +451,15 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             manualFixture.goalIdTwo
         );
 
-        _payCommunityDirect(manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payer, 40e18);
         _payCommunityDirect(
-            manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payerTwo, 60e18
+            manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payer, 40e18
+        );
+        _payCommunityDirect(
+            manualFixture.communityTerminal,
+            manualFixture.communityRevnetId,
+            manualFixture.communityToken,
+            payerTwo,
+            60e18
         );
 
         assertEq(controller.pendingReservedTokenBalanceOf(manualFixture.communityRevnetId), 100e18);
@@ -459,14 +491,17 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         directory.setPrimaryTerminalOf(
             fixture.communityRevnetId, address(fixture.communityToken), IJBTerminal(address(fixture.wrapper))
         );
-        directory.setPrimaryTerminalOf(fixture.communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(fixture.wrapper)));
+        directory.setPrimaryTerminalOf(
+            fixture.communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(fixture.wrapper))
+        );
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.wrapper), true);
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
-        fixture.registry =
-            _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
+        fixture.registry = _deployCommunityGoalRegistry(
+            fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry
+        );
 
         (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) = _deployGoal(
             goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Wrapper Goal One"
@@ -474,24 +509,28 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) = _deployGoal(
             goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Wrapper Goal Two"
         );
-        _listGoals(fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo);
+        _listGoals(
+            fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo
+        );
 
         fixture.hook = _deployHookClone();
-        fixture.hook.initialize(
-            IJBDirectory(address(directory)),
-            fixture.communityRevnetId,
-            address(fixture.communityToken),
-            address(fixture.wrapper),
-            fixture.registry
-        );
+        fixture.hook
+            .initialize(
+                IJBDirectory(address(directory)),
+                fixture.communityRevnetId,
+                address(fixture.communityToken),
+                address(fixture.wrapper),
+                fixture.registry
+            );
         vm.prank(multisig);
-        fixture.wrapper.registerCommunity(
-            fixture.communityRevnetId,
-            ICobuildSplitHook(address(fixture.hook)),
-            address(fixture.communityToken),
-            fixture.communityRevnetId,
-            true
-        );
+        fixture.wrapper
+            .registerCommunity(
+                fixture.communityRevnetId,
+                ICobuildSplitHook(address(fixture.hook)),
+                address(fixture.communityToken),
+                fixture.communityRevnetId,
+                true
+            );
 
         vm.prank(multisig);
         controller.setReservedSplitHook(fixture.communityRevnetId, IJBSplitHook(address(fixture.hook)));
@@ -510,8 +549,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
-        fixture.registry =
-            _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
+        fixture.registry = _deployCommunityGoalRegistry(
+            fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry
+        );
 
         (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) = _deployGoal(
             goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Manual Goal One"
@@ -519,17 +559,20 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) = _deployGoal(
             goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Manual Goal Two"
         );
-        _listGoals(fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo);
+        _listGoals(
+            fixture.registry, fixture.communityRevnetId, fixture.communityToken, fixture.goalIdOne, fixture.goalIdTwo
+        );
 
         fixture.routeSetter = address(new RouteSetterStub());
         fixture.hook = _deployHookClone();
-        fixture.hook.initialize(
-            IJBDirectory(address(directory)),
-            fixture.communityRevnetId,
-            address(fixture.communityToken),
-            fixture.routeSetter,
-            fixture.registry
-        );
+        fixture.hook
+            .initialize(
+                IJBDirectory(address(directory)),
+                fixture.communityRevnetId,
+                address(fixture.communityToken),
+                fixture.routeSetter,
+                fixture.registry
+            );
 
         vm.prank(multisig);
         controller.setReservedSplitHook(fixture.communityRevnetId, IJBSplitHook(address(fixture.hook)));
@@ -601,7 +644,13 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             manualFixture.goalIdOne,
             manualFixture.goalIdTwo
         );
-        _payCommunityDirect(manualFixture.communityTerminal, manualFixture.communityRevnetId, manualFixture.communityToken, payer, amount);
+        _payCommunityDirect(
+            manualFixture.communityTerminal,
+            manualFixture.communityRevnetId,
+            manualFixture.communityToken,
+            payer,
+            amount
+        );
         controller.sendReservedTokensToSplitsOf(manualFixture.communityRevnetId);
     }
 
@@ -638,15 +687,8 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
         vm.startPrank(from);
         fixture.communityToken.approve(address(fixture.wrapper), amount);
-        beneficiaryTokenCount = fixture.wrapper.pay(
-            fixture.communityRevnetId,
-            address(fixture.communityToken),
-            amount,
-            beneficiary,
-            0,
-            memo,
-            metadata
-        );
+        beneficiaryTokenCount = fixture.wrapper
+            .pay(fixture.communityRevnetId, address(fixture.communityToken), amount, beneficiary, 0, memo, metadata);
         vm.stopPrank();
     }
 
@@ -665,12 +707,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         vm.stopPrank();
     }
 
-    function _mintCommunityTokens(
-        uint256 projectId,
-        MockVotesToken communityToken,
-        address beneficiary,
-        uint256 amount
-    ) internal {
+    function _mintCommunityTokens(uint256 projectId, MockVotesToken communityToken, address beneficiary, uint256 amount)
+        internal
+    {
         uint256 balanceBefore = communityToken.balanceOf(beneficiary);
 
         vm.prank(multisig);
@@ -721,7 +760,6 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         weights[0] = first;
         weights[1] = second;
     }
-
 }
 
 contract RouteSetterStub {}
@@ -765,17 +803,16 @@ contract AsyncReservedController is IERC165 {
         return interfaceId == type(IERC165).interfaceId;
     }
 
-    function createProject(
-        address owner,
-        uint16 reservedPercent,
-        string memory tokenName,
-        string memory tokenSymbol
-    ) external returns (uint256 projectId, MockVotesToken token) {
+    function createProject(address owner, uint16 reservedPercent, string memory tokenName, string memory tokenSymbol)
+        external
+        returns (uint256 projectId, MockVotesToken token)
+    {
         projectId = ++projectCount;
         token = new MockVotesToken(tokenName, tokenSymbol);
 
-        _projectConfigOf[projectId] =
-            ProjectConfig({owner: owner, token: token, reservedPercent: reservedPercent, reservedSplitHook: IJBSplitHook(address(0))});
+        _projectConfigOf[projectId] = ProjectConfig({
+            owner: owner, token: token, reservedPercent: reservedPercent, reservedSplitHook: IJBSplitHook(address(0))
+        });
         TOKENS.setTokenOf(projectId, token);
         directory.setControllerOf(projectId, IERC165(address(this)));
         directory.setProjectOwner(projectId, owner);
@@ -791,12 +828,10 @@ contract AsyncReservedController is IERC165 {
         _projectConfigOf[projectId].reservedSplitHook = hook;
     }
 
-    function mintTokensOf(
-        uint256 projectId,
-        uint256 tokenCount,
-        address beneficiary,
-        bool useReservedPercent
-    ) external returns (uint256 beneficiaryTokenCount) {
+    function mintTokensOf(uint256 projectId, uint256 tokenCount, address beneficiary, bool useReservedPercent)
+        external
+        returns (uint256 beneficiaryTokenCount)
+    {
         return _mintTokensOf(projectId, tokenCount, beneficiary, useReservedPercent);
     }
 
@@ -810,18 +845,17 @@ contract AsyncReservedController is IERC165 {
         return _mintTokensOf(projectId, tokenCount, beneficiary, useReservedPercent);
     }
 
-    function _mintTokensOf(
-        uint256 projectId,
-        uint256 tokenCount,
-        address beneficiary,
-        bool useReservedPercent
-    ) internal returns (uint256 beneficiaryTokenCount) {
+    function _mintTokensOf(uint256 projectId, uint256 tokenCount, address beneficiary, bool useReservedPercent)
+        internal
+        returns (uint256 beneficiaryTokenCount)
+    {
         ProjectConfig storage config = _projectConfigOf[projectId];
         if (address(config.token) == address(0)) revert INVALID_PROJECT();
         if (msg.sender != config.owner && !_isProjectTerminal[projectId][msg.sender]) revert UNAUTHORIZED();
 
         uint256 reservedPercent = useReservedPercent ? config.reservedPercent : 0;
-        beneficiaryTokenCount = (tokenCount * (JBConstants.MAX_RESERVED_PERCENT - reservedPercent)) / JBConstants.MAX_RESERVED_PERCENT;
+        beneficiaryTokenCount =
+            (tokenCount * (JBConstants.MAX_RESERVED_PERCENT - reservedPercent)) / JBConstants.MAX_RESERVED_PERCENT;
 
         if (beneficiaryTokenCount != 0) {
             config.token.mint(beneficiary, beneficiaryTokenCount);
@@ -844,23 +878,24 @@ contract AsyncReservedController is IERC165 {
         pendingReservedTokenBalanceOf[projectId] = 0;
         config.token.mint(address(config.reservedSplitHook), tokenCount);
 
-        config.reservedSplitHook.processSplitWith(
-            JBSplitHookContext({
-                token: address(config.token),
-                amount: tokenCount,
-                decimals: 18,
-                projectId: projectId,
-                groupId: 1,
-                split: JBSplit({
-                    percent: JBConstants.SPLITS_TOTAL_PERCENT,
-                    projectId: 0,
-                    beneficiary: payable(address(0)),
-                    preferAddToBalance: false,
-                    lockedUntil: 0,
-                    hook: config.reservedSplitHook
+        config.reservedSplitHook
+            .processSplitWith(
+                JBSplitHookContext({
+                    token: address(config.token),
+                    amount: tokenCount,
+                    decimals: 18,
+                    projectId: projectId,
+                    groupId: 1,
+                    split: JBSplit({
+                        percent: JBConstants.SPLITS_TOTAL_PERCENT,
+                        projectId: 0,
+                        beneficiary: payable(address(0)),
+                        preferAddToBalance: false,
+                        lockedUntil: 0,
+                        hook: config.reservedSplitHook
+                    })
                 })
-            })
-        );
+            );
     }
 }
 
@@ -1107,11 +1142,30 @@ contract GoalTreasuryStub {
     uint256 public immutable goalRevnetId;
     uint256 public immutable cobuildRevnetId;
     address public immutable stakeVault;
+    IGoalTreasury.GoalState internal _state;
+    bool internal _canAcceptHookFunding = true;
 
     constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
         goalRevnetId = goalRevnetId_;
         cobuildRevnetId = cobuildRevnetId_;
         stakeVault = stakeVault_;
+        _state = IGoalTreasury.GoalState.Funding;
+    }
+
+    function canAcceptHookFunding() external view returns (bool) {
+        return _canAcceptHookFunding;
+    }
+
+    function state() external view returns (IGoalTreasury.GoalState) {
+        return _state;
+    }
+
+    function setCanAcceptHookFunding(bool canAcceptHookFunding_) external {
+        _canAcceptHookFunding = canAcceptHookFunding_;
+    }
+
+    function setGoalState(IGoalTreasury.GoalState state_) external {
+        _state = state_;
     }
 }
 

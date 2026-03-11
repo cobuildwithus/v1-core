@@ -20,7 +20,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
    - the registry is ownerless and does not expose privileged system goals or pause controls,
-   - each listed goal carries metadata only; selectability is derived from canonical deployment, funding context, and terminal presence.
+   - each listed goal carries metadata only; selectability is derived from canonical deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status.
+   - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
 4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
 5. Direct goal funding uses the shared `CobuildGoalTerminal`.
    - it resolves each goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
@@ -31,10 +32,10 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 8. If the callback carried a terminal-seeded pending route, the full current pay delta is forwarded into the selected
    child goals by paying each goal's primary terminal for the community token.
 9. If the callback had no pending route, the full callback amount is deferred into hook-managed backlog.
-10. All explicit routed payments record observed per-goal volume; backlog flushes do not reinforce the historical signal.
+10. All explicit routed payments record per-goal routing score; that score decays lazily with a 30-day half-life, and backlog flushes do not reinforce it.
 11. Historical backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked
    backlog in bounded chunks.
-12. Historical backlog routing is derived only from selectable goals with observed explicit volume and always pays
+12. Historical backlog routing is derived only from selectable goals with non-zero decayed explicit-route score and always pays
    goal-treasury beneficiaries.
 13. If the terminal-created pay minted no reserved tokens, the terminal clears the unused pending route instead of leaving
    stale routing state behind.

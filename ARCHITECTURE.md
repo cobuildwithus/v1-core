@@ -157,7 +157,8 @@ cobuild-protocol/
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - the registry is ownerless and does not expose privileged system goals or pause controls,
-    - each listing carries donor-visible metadata only; selectability is derived from canonical goal deployment, funding context, and terminal presence.
+    - each listing carries donor-visible metadata only; selectability is derived from canonical goal deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status,
+    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
     - `GoalFactory` registers each deployed goal treasury exactly once,
     - owner-authorized future goal-factory versions can register into the same registry over time,
@@ -169,8 +170,8 @@ cobuild-protocol/
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
     explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes the full explicit amount into the
-    selected goals, records the full routed amount as observed volume, and routes backlog only through the paginated
-    permissionless backlog-flush path.
+    selected goals, records the full routed amount into lazy decaying routing scores (30-day half-life), and routes
+    backlog only through the paginated permissionless backlog-flush path.
   - Canonical-terminal-routed community pays snapshot any preexisting controller backlog before the pay so a user-selected
     route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
@@ -183,9 +184,9 @@ cobuild-protocol/
   - Empty-metadata canonical-terminal pays do not seed any pending route. Any reserved tokens created by that pay are flushed into
     hook-managed backlog for later permissionless historical routing.
   - Raw direct community pays and all controller callbacks without a pending explicit route defer the full amount into
-    hook-managed backlog instead of routing it inline. Backlog flushes use historical explicit-volume weights and pay
-    each child goal terminal with that goal's deployment-registry-provided treasury as beneficiary; backlog flushes do
-    not mutate the historical routing signal.
+    hook-managed backlog instead of routing it inline. Backlog flushes use current decayed explicit-route weights and
+    pay each child goal terminal with that goal's deployment-registry-provided treasury as beneficiary; backlog flushes
+    do not mutate the historical routing signal.
 - Budget finalization is state-first: it commits terminal state, then best-effort attempts residual child-flow settlement back to the parent goal flow.
 - Goal finalization is state-first: it commits terminal state, then best-effort attempts residual goal-flow settlement:
   - `Succeeded`: burn 100% via controller.

@@ -126,7 +126,8 @@ Community root routing
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
   - the registry is ownerless and does not expose privileged system goals or pause controls,
-  - every listed goal carries metadata only; selectability is derived from canonical deployment, funding context, and terminal presence.
+  - every listed goal carries metadata only; selectability is derived from canonical deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status,
+  - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
 - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
   - `GoalFactory` registers each deployed goal treasury exactly once,
   - future owner-authorized goal-factory versions can register into the same registry,
@@ -142,7 +143,7 @@ Community root routing
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
 - All explicit routed payments record observed per-goal volume.
-- Historical backlog routing is derived only from selectable goals with non-zero observed explicit volume and is
+- Historical backlog routing is derived only from selectable goals with non-zero decayed explicit-route score and is
   only executed through the paginated permissionless backlog-flush path.
 - If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
   routing it inline through the current transaction.

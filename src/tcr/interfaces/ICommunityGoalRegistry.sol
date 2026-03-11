@@ -24,6 +24,7 @@ interface ICommunityGoalRegistry is IGeneralizedTCR {
     error GOAL_NOT_DEPLOYED(uint256 goalId);
     error GOAL_TERMINAL_NOT_CONFIGURED(uint256 goalId);
     error GOAL_CANNOT_ROUTE_TO_SELF(uint256 goalId);
+    error GOAL_NOT_PRUNABLE(uint256 goalId);
 
     event GoalListed(bytes32 indexed itemId, uint256 indexed goalId, string metadataURI);
     event GoalDelisted(bytes32 indexed itemId, uint256 indexed goalId);
@@ -38,4 +39,5 @@ interface ICommunityGoalRegistry is IGeneralizedTCR {
     function listingOf(uint256 goalId) external view returns (GoalListingView memory listing);
     function isListed(uint256 goalId) external view returns (bool);
     function isSelectable(uint256 goalId) external view returns (bool);
+    function pruneTerminalGoal(uint256 goalId) external;
 }

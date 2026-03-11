@@ -229,6 +229,9 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(listing.itemId, bytes32(0));
         assertEq(bytes(listing.metadataURI).length, 0);
         assertFalse(listing.selectable);
+
+        (, IGeneralizedTCR.Status itemStatusAfterPrune,) = registry.getItemInfo(bytes32(GOAL_ID_ONE));
+        assertEq(uint256(itemStatusAfterPrune), uint256(IGeneralizedTCR.Status.Absent));
     }
 
     function test_pruneTerminalGoal_delistsBrokenGoalWhenTreasuryCodeIsMissing() public {

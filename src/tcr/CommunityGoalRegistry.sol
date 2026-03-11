@@ -111,6 +111,19 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         return _isSelectableGoal(goalId);
     }
 
+    function pruneTerminalGoal(uint256 goalId) external override {
+        bytes32 itemId = _goalItemId(goalId);
+        if (!_isListedGoal(goalId) || items[itemId].status != Status.Registered || !_isPrunableGoal(goalId)) {
+            revert GOAL_NOT_PRUNABLE(goalId);
+        }
+
+        items[itemId].status = Status.Absent;
+        _removeListedGoal(goalId);
+        delete _goalListings[goalId];
+
+        emit GoalDelisted(itemId, goalId);
+    }
+
     function _constructNewItemID(bytes calldata item) internal pure override returns (bytes32 itemID) {
         GoalItemData memory data = abi.decode(item, (GoalItemData));
         itemID = _goalItemId(data.goalId);
@@ -244,7 +257,37 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (goalId == communityRevnetId) return false;
         if (!_isRegisteredGoal(goalId)) return false;
         if (!_goalMatchesCommunity(goalId)) return false;
-        return _goalHasPrimaryTerminal(goalId);
+        if (!_goalHasPrimaryTerminal(goalId)) return false;
+        return _goalCanAcceptHookFunding(goalId);
+    }
+
+    function _goalCanAcceptHookFunding(uint256 goalId) internal view returns (bool) {
+        address goalTreasuryAddress = _resolvedGoalTreasury(goalId);
+        if (goalTreasuryAddress == address(0)) return false;
+
+        try IGoalTreasury(goalTreasuryAddress).canAcceptHookFunding() returns (bool canAccept) {
+            return canAccept;
+        } catch {
+            return false;
+        }
+    }
+
+    function _isPrunableGoal(uint256 goalId) internal view returns (bool) {
+        if (!_isRegisteredGoal(goalId)) return true;
+
+        address goalTreasuryAddress = _resolvedGoalTreasury(goalId);
+        if (goalTreasuryAddress == address(0)) return true;
+
+        try IGoalTreasury(goalTreasuryAddress).state() returns (IGoalTreasury.GoalState state_) {
+            return state_ == IGoalTreasury.GoalState.Succeeded || state_ == IGoalTreasury.GoalState.Expired;
+        } catch {
+            return false;
+        }
+    }
+
+    function _resolvedGoalTreasury(uint256 goalId) internal view returns (address goalTreasuryAddress) {
+        goalTreasuryAddress = goalDeploymentRegistry.goalTreasuryOf(goalId);
+        if (goalTreasuryAddress == address(0) || goalTreasuryAddress.code.length == 0) return address(0);
     }
 
     function _isListedGoal(uint256 goalId) internal view returns (bool) {
