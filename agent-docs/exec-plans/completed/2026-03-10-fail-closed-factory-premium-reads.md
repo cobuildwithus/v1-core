@@ -40,4 +40,8 @@ Harden two approved paths so trusted deployment probing fails fast and premium r
 - `pnpm -s verify:required`
 - `pnpm -s lint:solidity:warnings`
 - Completion workflow passes: `simplify` -> `test-coverage-audit` -> `task-finish-review`
-Completed: 2026-03-10
+
+## Outcome
+
+- Targeted fail-closed fallout tests now pass for the factory, premium escrow, shared goal-flow harnesses, and dependent deployment/wiring suites.
+- Final repo-wide verification passed after shared-worktree cleanup via `pnpm -s verify:required` and `pnpm -s lint:solidity:warnings`.

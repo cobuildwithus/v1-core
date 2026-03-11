@@ -522,11 +522,11 @@ contract BudgetTCRCreditLineGoalFlow is MockGoalFlowForBudgetTCR {
         MockGoalFlowForBudgetTCR(owner_, recipientAdmin_, managerRewardPool_, superToken_)
     {}
 
-    function setTotalReceivedByMember(address member, uint256 amount) external {
+    function setTotalReceivedByMember(address member, uint256 amount) external override {
         _totalReceivedByMember[member] = amount;
     }
 
-    function getTotalReceivedByMember(address member) external view returns (uint256 totalReceived) {
+    function getTotalReceivedByMember(address member) external view override returns (uint256 totalReceived) {
         return _totalReceivedByMember[member];
     }
 

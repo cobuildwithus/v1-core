@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { RoundFactory } from "src/rounds/RoundFactory.sol";
-import { RoundPrizeVault } from "src/rounds/RoundPrizeVault.sol";
-import { RoundSubmissionTCR } from "src/tcr/RoundSubmissionTCR.sol";
-import { PrizePoolSubmissionDepositStrategy } from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
-import { ERC20VotesArbitrator } from "src/tcr/ERC20VotesArbitrator.sol";
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 
-import { MockVotesToken } from "test/mocks/MockVotesToken.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 import {
     RoundTestSuperToken,
     RoundTestManagedFlow,
@@ -24,9 +24,9 @@ import {
     RoundTestJurorSlasher
 } from "test/rounds/helpers/RoundTestMocks.sol";
 
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 contract RoundTestZeroUnderlyingSuperToken {
     function getUnderlyingToken() external pure returns (address) {
@@ -74,6 +74,10 @@ contract RoundFactoryTest is Test {
     uint256 internal constant ARBITRATION_COST = 1e14;
     bytes32 internal constant DEFAULT_POST_ID = bytes32("post");
 
+    function _expectBudgetContextRevert(RoundFactory.BudgetContextProbe probe, address candidate) internal {
+        vm.expectRevert(abi.encodeWithSelector(RoundFactory.INVALID_BUDGET_CONTEXT.selector, probe, candidate));
+    }
+
     function setUp() public {
         underlying = new MockVotesToken("Goal", "GOAL");
         superToken = new RoundTestSuperToken("SuperGoal", "sGOAL", underlying);
@@ -105,30 +109,30 @@ contract RoundFactoryTest is Test {
         address depositStrategyImpl = address(new PrizePoolSubmissionDepositStrategy());
         address arbitratorImpl = address(new ERC20VotesArbitrator());
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(RoundFactory.ADDRESS_ZERO.selector);
         new RoundFactory(address(0), vaultImpl, depositStrategyImpl, arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(RoundFactory.ADDRESS_ZERO.selector);
         new RoundFactory(submissionImpl, address(0), depositStrategyImpl, arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(RoundFactory.ADDRESS_ZERO.selector);
         new RoundFactory(submissionImpl, vaultImpl, address(0), arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(RoundFactory.ADDRESS_ZERO.selector);
         new RoundFactory(submissionImpl, vaultImpl, depositStrategyImpl, address(0));
 
         address undeployed = makeAddr("undeployed-implementation");
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(abi.encodeWithSelector(RoundFactory.IMPLEMENTATION_HAS_NO_CODE.selector, undeployed));
         new RoundFactory(undeployed, vaultImpl, depositStrategyImpl, arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(abi.encodeWithSelector(RoundFactory.IMPLEMENTATION_HAS_NO_CODE.selector, undeployed));
         new RoundFactory(submissionImpl, undeployed, depositStrategyImpl, arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(abi.encodeWithSelector(RoundFactory.IMPLEMENTATION_HAS_NO_CODE.selector, undeployed));
         new RoundFactory(submissionImpl, vaultImpl, undeployed, arbitratorImpl);
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        vm.expectRevert(abi.encodeWithSelector(RoundFactory.IMPLEMENTATION_HAS_NO_CODE.selector, undeployed));
         new RoundFactory(submissionImpl, vaultImpl, depositStrategyImpl, undeployed);
     }
 
@@ -136,7 +140,7 @@ contract RoundFactoryTest is Test {
         deployed = factory.createRoundForBudget(
             roundId,
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: uint64(block.timestamp - 1), endAt: uint64(block.timestamp + 30 days) }),
+            RoundFactory.RoundTiming({startAt: uint64(block.timestamp - 1), endAt: uint64(block.timestamp + 30 days)}),
             roundOperator,
             IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: "",
@@ -149,10 +153,7 @@ contract RoundFactoryTest is Test {
                 challengePeriodDuration: 1 days
             }),
             RoundFactory.ArbitratorConfig({
-                votingPeriod: 1,
-                votingDelay: 1,
-                revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST
+                votingPeriod: 1, votingDelay: 1, revealPeriod: 1, arbitrationCost: ARBITRATION_COST
             })
         );
     }
@@ -162,7 +163,7 @@ contract RoundFactoryTest is Test {
         factory.createRoundForBudget(
             bytes32("r"),
             address(0),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator,
             _dummyTcrConfig(),
             _dummyArbConfig()
@@ -172,22 +173,100 @@ contract RoundFactoryTest is Test {
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             address(0),
             _dummyTcrConfig(),
             _dummyArbConfig()
         );
     }
 
-    function test_createRoundForBudget_revertsOnInvalidBudgetContext() public {
-        RoundTestManagedFlow badBudgetFlow = new RoundTestManagedFlow(address(0), address(0xB0), address(0x1234), address(0));
+    function test_createRoundForBudget_revertsWhenBudgetTreasuryHasNoCode() public {
+        address missingBudgetTreasury = makeAddr("missing-budget-treasury");
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.BudgetTreasury, missingBudgetTreasury);
+        factory.createRoundForBudget(
+            bytes32("r"),
+            missingBudgetTreasury,
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenGoalFlowHasNoCode() public {
+        address missingGoalFlow = address(0x1234);
+        RoundTestManagedFlow badBudgetFlow =
+            new RoundTestManagedFlow(address(0), address(0xB0), missingGoalFlow, address(0));
         RoundTestBudgetTreasury badBudgetTreasury = new RoundTestBudgetTreasury(address(badBudgetFlow));
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalFlow, missingGoalFlow);
         factory.createRoundForBudget(
             bytes32("r"),
             address(badBudgetTreasury),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenBudgetFlowReadFails() public {
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.BudgetFlowRead, address(stakeVault));
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(stakeVault),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenGoalTreasuryHasNoCode() public {
+        address missingGoalTreasury = makeAddr("missing-goal-treasury");
+        goalFlow.setFlowOperator(missingGoalTreasury);
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalTreasury, missingGoalTreasury);
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenGoalTreasuryFlowReadFails() public {
+        goalFlow.setFlowOperator(address(stakeVault));
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalTreasuryFlowRead, address(stakeVault));
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenGoalTreasuryReportsDifferentFlow() public {
+        goalTreasury.setFlow(address(budgetFlow));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RoundFactory.GOAL_TREASURY_FLOW_MISMATCH.selector,
+                address(goalTreasury),
+                address(goalFlow),
+                address(budgetFlow)
+            )
+        );
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator,
             _dummyTcrConfig(),
             _dummyArbConfig()
@@ -201,15 +280,13 @@ contract RoundFactoryTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                RoundFactory.SUPER_TOKEN_UNDERLYING_MISMATCH.selector,
-                address(underlying),
-                address(otherUnderlying)
+                RoundFactory.SUPER_TOKEN_UNDERLYING_MISMATCH.selector, address(underlying), address(otherUnderlying)
             )
         );
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator,
             _dummyTcrConfig(),
             _dummyArbConfig()
@@ -219,11 +296,11 @@ contract RoundFactoryTest is Test {
     function test_createRoundForBudget_revertsWhenSuperTokenUnderlyingLookupFails() public {
         budgetFlow.setSuperToken(address(goalFlow));
 
-        vm.expectRevert(RoundFactory.INVALID_BUDGET_CONTEXT.selector);
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.SuperTokenUnderlyingRead, address(goalFlow));
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator,
             _dummyTcrConfig(),
             _dummyArbConfig()
@@ -242,7 +319,7 @@ contract RoundFactoryTest is Test {
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: 0, endAt: 0 }),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
             roundOperator,
             _dummyTcrConfig(),
             _dummyArbConfig()
@@ -295,7 +372,7 @@ contract RoundFactoryTest is Test {
         uint64 startAt = uint64(block.timestamp + 5);
         uint64 endAt = uint64(block.timestamp + 45 days);
         RoundFactory.AllocationMechanismConfig memory cfg = RoundFactory.AllocationMechanismConfig({
-            timing: RoundFactory.RoundTiming({ startAt: startAt, endAt: endAt }),
+            timing: RoundFactory.RoundTiming({startAt: startAt, endAt: endAt}),
             roundOperator: roundOperator,
             tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: hex"baddcafe",
@@ -308,10 +385,7 @@ contract RoundFactoryTest is Test {
                 challengePeriodDuration: 2 days
             }),
             arbConfig: RoundFactory.ArbitratorConfig({
-                votingPeriod: 1,
-                votingDelay: 1,
-                revealPeriod: 1,
-                arbitrationCost: ARBITRATION_COST
+                votingPeriod: 1, votingDelay: 1, revealPeriod: 1, arbitrationCost: ARBITRATION_COST
             })
         });
 
@@ -352,7 +426,7 @@ contract RoundFactoryTest is Test {
         uint64 startAt = uint64(block.timestamp + 7);
         uint64 endAt = uint64(block.timestamp + 21 days);
         LegacyAllocationMechanismConfig memory legacyCfg = LegacyAllocationMechanismConfig({
-            timing: RoundFactory.RoundTiming({ startAt: startAt, endAt: endAt }),
+            timing: RoundFactory.RoundTiming({startAt: startAt, endAt: endAt}),
             roundOperator: roundOperator,
             tcrPolicy: IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: hex"feedface",
@@ -391,9 +465,10 @@ contract RoundFactoryTest is Test {
         RoundFactory.DeployedRound memory deployed = _deployRound(keccak256("round-reinitialize-guard"));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        RoundPrizeVault(deployed.prizeVault).initialize(
-            underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(deployed.submissionTCR), roundOperator
-        );
+        RoundPrizeVault(deployed.prizeVault)
+            .initialize(
+                underlying, ISuperToken(address(superToken)), RoundSubmissionTCR(deployed.submissionTCR), roundOperator
+            );
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         PrizePoolSubmissionDepositStrategy(deployed.depositStrategy).initialize(underlying, deployed.prizeVault);
@@ -458,7 +533,7 @@ contract RoundFactoryTest is Test {
         RoundFactory.DeployedRound memory deployed = factory.createRoundForBudget(
             keccak256("round-custom"),
             address(budgetTreasury),
-            RoundFactory.RoundTiming({ startAt: uint64(block.timestamp + 10), endAt: uint64(block.timestamp + 90 days) }),
+            RoundFactory.RoundTiming({startAt: uint64(block.timestamp + 10), endAt: uint64(block.timestamp + 90 days)}),
             roundOperator,
             tcrConfig,
             _dummyArbConfig()
@@ -533,10 +608,7 @@ contract RoundFactoryTest is Test {
 
     function _dummyArbConfig() internal view returns (RoundFactory.ArbitratorConfig memory cfg) {
         cfg = RoundFactory.ArbitratorConfig({
-            votingPeriod: 1,
-            votingDelay: 1,
-            revealPeriod: 1,
-            arbitrationCost: ARBITRATION_COST
+            votingPeriod: 1, votingDelay: 1, revealPeriod: 1, arbitrationCost: ARBITRATION_COST
         });
     }
 }

@@ -57,35 +57,31 @@ contract GoalRevnetSplitHook is IJBSplitHook, ReentrancyGuardUpgradeable {
     function initialize(
         IJBDirectory directory_,
         IGoalTreasury goalTreasury_,
-        IFlow flow_,
         uint256 goalRevnetId_
     ) external initializer {
         __ReentrancyGuard_init();
-        _initialize(directory_, goalTreasury_, flow_, goalRevnetId_);
+        _initialize(directory_, goalTreasury_, goalRevnetId_);
     }
 
-    function _initialize(
-        IJBDirectory directory_,
-        IGoalTreasury goalTreasury_,
-        IFlow flow_,
-        uint256 goalRevnetId_
-    ) internal {
+    function _initialize(IJBDirectory directory_, IGoalTreasury goalTreasury_, uint256 goalRevnetId_) internal {
         address directoryAddress = address(directory_);
         address goalTreasuryAddress = address(goalTreasury_);
-        address flowAddress = address(flow_);
 
-        if (directoryAddress == address(0) || goalTreasuryAddress == address(0) || flowAddress == address(0)) {
+        if (directoryAddress == address(0) || goalTreasuryAddress == address(0)) {
             revert ADDRESS_ZERO();
         }
         if (directoryAddress.code.length == 0) revert NOT_A_CONTRACT(directoryAddress);
         if (goalTreasuryAddress.code.length == 0) revert NOT_A_CONTRACT(goalTreasuryAddress);
-        if (flowAddress.code.length == 0) revert NOT_A_CONTRACT(flowAddress);
         if (goalRevnetId_ == 0) revert INVALID_GOAL_REVNET_ID();
 
         directory = directory_;
         goalTreasury = goalTreasury_;
         goalRevnetId = goalRevnetId_;
-        underlyingToken = flow_.superToken().getUnderlyingToken();
+        ISuperToken treasurySuperToken = goalTreasury_.superToken();
+        address superTokenAddress = address(treasurySuperToken);
+        if (superTokenAddress == address(0)) revert ADDRESS_ZERO();
+        if (superTokenAddress.code.length == 0) revert NOT_A_CONTRACT(superTokenAddress);
+        underlyingToken = treasurySuperToken.getUnderlyingToken();
         if (underlyingToken == address(0)) revert ADDRESS_ZERO();
     }
 

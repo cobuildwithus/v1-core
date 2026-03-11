@@ -209,6 +209,7 @@ contract BudgetStakeLedgerDerivedStateBudgetFlow {
 
 contract BudgetStakeLedgerDerivedStateBudgetTreasury {
     address public flow;
+    address public authority;
     uint64 public resolvedAt;
     uint64 public activatedAt;
     uint64 public executionDuration = 1 days;
@@ -217,6 +218,7 @@ contract BudgetStakeLedgerDerivedStateBudgetTreasury {
 
     constructor(address flow_) {
         flow = flow_;
+        authority = msg.sender;
     }
 }
 

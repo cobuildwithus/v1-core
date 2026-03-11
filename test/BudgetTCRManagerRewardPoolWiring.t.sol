@@ -326,6 +326,10 @@ contract BudgetTCRWiringGoalFlow {
         return flowRate;
     }
 
+    function getTotalReceivedByMember(address) external pure returns (uint256 totalReceived) {
+        return totalReceived;
+    }
+
     function recipientExists(address recipient) external view returns (bool exists) {
         return _activeRecipientRefs[recipient] != 0;
     }

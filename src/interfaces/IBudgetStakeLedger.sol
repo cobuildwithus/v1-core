@@ -2,6 +2,23 @@
 pragma solidity ^0.8.34;
 
 interface IBudgetStakeLedger {
+    enum BudgetTopologyProbe {
+        TopologyRegistryRead,
+        TopologyRegistry,
+        TreasuryAuthorityRead,
+        TreasuryAuthorityMismatch,
+        TopologyLookup,
+        TopologyRecipientIdLookup,
+        TopologyInactive,
+        TopologyRecipientIdMismatch,
+        TopologyBudgetTreasuryMismatch,
+        TopologyChildFlow,
+        TopologyStrategy,
+        TopologyChildFlowMismatch,
+        ChildFlowStrategyRead,
+        ChildFlowStrategyMismatch
+    }
+
     struct BudgetInfoView {
         bool isTracked;
         uint64 removedAt;
@@ -29,8 +46,9 @@ interface IBudgetStakeLedger {
     error ONLY_GOAL_FLOW_OR_PIPELINE();
     error ONLY_BUDGET_REGISTRY_MANAGER();
     error INVALID_CHECKPOINT_DATA();
+    error NOT_SORTED_OR_DUPLICATE();
     error INVALID_BUDGET_NOT_CONTRACT(address budget);
-    error INVALID_BUDGET_TOPOLOGY(address budget);
+    error INVALID_BUDGET_TOPOLOGY(address budget, BudgetTopologyProbe probe);
     error INVALID_BUDGET_FLOW_READ(address budget);
     error INVALID_BUDGET_FLOW(address budget, address budgetFlow);
     error INVALID_BUDGET_PARENT_READ(address budgetFlow);
@@ -66,7 +84,16 @@ interface IBudgetStakeLedger {
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
-    ) external;
+    ) external returns (address[] memory changedBudgetTreasuries);
+
+    function previewChangedBudgetTreasuries(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) external view returns (address[] memory changedBudgetTreasuries);
 
     function registerBudget(bytes32 recipientId, address budget) external;
     function removeBudget(bytes32 recipientId) external;

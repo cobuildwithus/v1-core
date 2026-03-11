@@ -124,7 +124,9 @@ contract PremiumEscrowTest is Test {
                 PremiumEscrow.GOAL_FLOW_BASELINE_READ_FAILED.selector, address(goalFlow), address(budgetFlow)
             )
         );
-        failingEscrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM);
+        failingEscrow.initialize(
+            address(budgetTreasury), address(ledger), address(goalFlow), address(router), SLASH_PPM
+        );
     }
 
     function test_checkpointRevertsWhenGoalFlowReceiptReadFails() public {

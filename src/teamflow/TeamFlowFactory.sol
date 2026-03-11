@@ -7,10 +7,19 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IManagedFlow } from "src/interfaces/IManagedFlow.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
+import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract TeamFlowFactory is IAllocationMechanismFactory {
     using Clones for address;
+
+    enum BudgetContextProbe {
+        BudgetTreasury,
+        BudgetFlowRead,
+        BudgetFlow,
+        SuperTokenRead,
+        SuperToken
+    }
 
     struct AllocationMechanismConfig {
         address manager;
@@ -20,7 +29,7 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
     }
 
     error ADDRESS_ZERO();
-    error INVALID_BUDGET_CONTEXT();
+    error INVALID_BUDGET_CONTEXT(BudgetContextProbe probe, address candidate);
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
 
     event TeamFlowDeployed(
@@ -48,9 +57,9 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
         AllocationMechanismConfig memory cfg = abi.decode(mechanismConfig, (AllocationMechanismConfig));
         if (cfg.manager == address(0)) revert ADDRESS_ZERO();
 
-        _requireDeployedContract(budgetTreasury);
-        address budgetFlow = _requireDeployedContract(IBudgetTreasury(budgetTreasury).flow());
-        address superToken = _requireDeployedContract(address(IManagedFlow(budgetFlow).superToken()));
+        _requireDeployedContract(budgetTreasury, BudgetContextProbe.BudgetTreasury);
+        address budgetFlow = _readBudgetFlow(budgetTreasury);
+        address superToken = _readSuperToken(budgetFlow);
 
         TeamFlow teamFlow = TeamFlow(teamFlowImplementation.clone());
 
@@ -89,8 +98,29 @@ contract TeamFlowFactory is IAllocationMechanismFactory {
         if (implementation.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(implementation);
     }
 
-    function _requireDeployedContract(address candidate) internal view returns (address deployed) {
-        if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT();
+    function _requireDeployedContract(
+        address candidate,
+        BudgetContextProbe probe
+    ) internal view returns (address deployed) {
+        if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT(probe, candidate);
         return candidate;
+    }
+
+    function _readBudgetFlow(address budgetTreasury) internal view returns (address budgetFlow) {
+        try IBudgetTreasury(budgetTreasury).flow() returns (address budgetFlow_) {
+            budgetFlow = budgetFlow_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.BudgetFlowRead, budgetTreasury);
+        }
+        return _requireDeployedContract(budgetFlow, BudgetContextProbe.BudgetFlow);
+    }
+
+    function _readSuperToken(address budgetFlow) internal view returns (address superToken) {
+        try IManagedFlow(budgetFlow).superToken() returns (ISuperToken superToken_) {
+            superToken = address(superToken_);
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.SuperTokenRead, budgetFlow);
+        }
+        return _requireDeployedContract(superToken, BudgetContextProbe.SuperToken);
     }
 }

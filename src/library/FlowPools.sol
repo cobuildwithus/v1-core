@@ -49,10 +49,6 @@ library FlowPools {
         cfg.superToken.distributeFlow(address(this), cfg.managerRewardDistributionPool, newManagerRewardFlowRate);
     }
 
-    function removeFromPools(FlowTypes.Config storage cfg, address recipientAddress) public {
-        updateDistributionMemberUnits(cfg, recipientAddress, 0);
-    }
-
     /**
      * @notice Updates the member units in the Superfluid pool
      * @param cfg The config storage of the Flow contract

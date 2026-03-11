@@ -33,8 +33,26 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 contract RoundFactory is IAllocationMechanismFactory {
     using Clones for address;
 
+    enum BudgetContextProbe {
+        BudgetTreasury,
+        BudgetFlowRead,
+        BudgetFlow,
+        GoalFlowRead,
+        GoalFlow,
+        GoalTreasuryRead,
+        GoalTreasury,
+        GoalTreasuryFlowRead,
+        StakeVaultRead,
+        StakeVault,
+        SuperTokenRead,
+        SuperToken,
+        SuperTokenUnderlyingRead
+    }
+
     error ADDRESS_ZERO();
-    error INVALID_BUDGET_CONTEXT();
+    error IMPLEMENTATION_HAS_NO_CODE(address implementation);
+    error INVALID_BUDGET_CONTEXT(BudgetContextProbe probe, address candidate);
+    error GOAL_TREASURY_FLOW_MISMATCH(address goalTreasury, address expectedGoalFlow, address actualGoalFlow);
     error SUPER_TOKEN_UNDERLYING_MISMATCH(address expectedUnderlying, address actualUnderlying);
 
     event RoundDeployed(
@@ -84,6 +102,17 @@ contract RoundFactory is IAllocationMechanismFactory {
         ArbitratorConfig arbConfig;
     }
 
+    /// @notice Resolved runtime context for a budget-scoped round deployment.
+    struct BudgetRoundContext {
+        address budgetTreasury;
+        address budgetFlow;
+        address goalFlow;
+        address goalTreasury;
+        address stakeVault;
+        IERC20 underlying;
+        ISuperToken superToken;
+    }
+
     /// @dev Clone targets.
     address public immutable roundSubmissionTcrImplementation;
     address public immutable roundPrizeVaultImplementation;
@@ -96,12 +125,12 @@ contract RoundFactory is IAllocationMechanismFactory {
         address prizePoolSubmissionDepositStrategyImplementation_,
         address arbitratorImplementation_
     ) {
-        roundSubmissionTcrImplementation = _requireDeployedContract(roundSubmissionTcrImplementation_);
-        roundPrizeVaultImplementation = _requireDeployedContract(roundPrizeVaultImplementation_);
-        prizePoolSubmissionDepositStrategyImplementation = _requireDeployedContract(
+        roundSubmissionTcrImplementation = _assertImplementationAddress(roundSubmissionTcrImplementation_);
+        roundPrizeVaultImplementation = _assertImplementationAddress(roundPrizeVaultImplementation_);
+        prizePoolSubmissionDepositStrategyImplementation = _assertImplementationAddress(
             prizePoolSubmissionDepositStrategyImplementation_
         );
-        arbitratorImplementation = _requireDeployedContract(arbitratorImplementation_);
+        arbitratorImplementation = _assertImplementationAddress(arbitratorImplementation_);
     }
 
     /// @notice Deploy a full round stack for a given budget.
@@ -119,77 +148,25 @@ contract RoundFactory is IAllocationMechanismFactory {
         IGeneralizedTCRConfig.RegistryPolicy memory tcrPolicy,
         ArbitratorConfig memory arbConfig
     ) public returns (DeployedRound memory out) {
-        if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
-        if (roundOperator == address(0)) revert ADDRESS_ZERO();
-        _requireDeployedContract(budgetTreasury);
+        _validateCreateRoundInputs(budgetTreasury, roundOperator);
+        BudgetRoundContext memory context = _resolveBudgetRoundContext(budgetTreasury);
 
-        // Resolve budget flow -> goal flow -> goal treasury -> stake vault.
-        address budgetFlow = _requireDeployedContract(IBudgetTreasury(budgetTreasury).flow());
-
-        address goalFlow = _requireDeployedContract(IFlow(budgetFlow).parent());
-
-        address goalTreasury = _requireDeployedContract(IFlow(goalFlow).flowOperator());
-
-        // Optional sanity check: the goal treasury should report the same flow.
-        if (IGoalTreasury(goalTreasury).flow() != goalFlow) revert INVALID_BUDGET_CONTEXT();
-
-        address stakeVault = _requireDeployedContract(IGoalTreasury(goalTreasury).stakeVault());
-
-        // Tokens.
-        IERC20 underlying = IStakeVault(stakeVault).goalToken();
-        ISuperToken superTok = IFlow(budgetFlow).superToken();
-        address expectedUnderlying = address(underlying);
-        address superTokenAddress = address(superTok);
-        address superUnderlying = _resolveSuperUnderlying(superTok);
-        if (superUnderlying != expectedUnderlying) {
-            revert SUPER_TOKEN_UNDERLYING_MISMATCH(expectedUnderlying, superUnderlying);
-        }
-
-        // 1) Clone the per-round submission TCR.
         address submissionTcr = roundSubmissionTcrImplementation.clone();
-
-        // 2) Clone + initialize prize vault (receives deposits + super token streams; pays underlying).
-        address prizeVault = roundPrizeVaultImplementation.clone();
-        RoundPrizeVault(prizeVault).initialize(underlying, superTok, RoundSubmissionTCR(submissionTcr), roundOperator);
-
-        // 3) Clone + initialize deposit strategy that routes accepted submission deposits into the prize vault.
-        PrizePoolSubmissionDepositStrategy depositStrategy = PrizePoolSubmissionDepositStrategy(
-            prizePoolSubmissionDepositStrategyImplementation.clone()
+        address prizeVault = _deployRoundPrizeVault(context, submissionTcr, roundOperator);
+        PrizePoolSubmissionDepositStrategy depositStrategy = _deployRoundDepositStrategy(
+            context.underlying,
+            prizeVault
         );
-        depositStrategy.initialize(underlying, prizeVault);
-
-        // 4) Clone + initialize arbitrator (stake-vault voting scoped to this budget).
-        address arbitrator = arbitratorImplementation.clone();
-        IERC20VotesArbitrator(arbitrator).initializeWithConfig(
-            IERC20VotesArbitrator.InitConfig({
-                invalidRoundRewardsSink: prizeVault, // keep unresolved/no-vote rewards in the round pool.
-                votingToken: expectedUnderlying,
-                arbitrable: submissionTcr,
-                votingPeriod: arbConfig.votingPeriod,
-                votingDelay: arbConfig.votingDelay,
-                revealPeriod: arbConfig.revealPeriod,
-                arbitrationCost: arbConfig.arbitrationCost,
-                stakeVault: stakeVault,
-                fixedBudgetTreasury: budgetTreasury,
-                wrongOrMissedSlashBps: 0,
-                slashCallerBountyBps: 0
-            })
-        );
-
-        // 5) Initialize the submission registry.
-        RoundSubmissionTCR(submissionTcr).initialize(
-            RoundSubmissionTCR.RoundConfig({
-                roundId: roundId,
-                startAt: timing.startAt,
-                endAt: timing.endAt,
-                prizeVault: prizeVault
-            }),
-            IGeneralizedTCRConfig.RegistryConfig({
-                arbitrator: IArbitrator(arbitrator),
-                votingToken: IVotes(expectedUnderlying),
-                submissionDepositStrategy: depositStrategy,
-                registryPolicy: tcrPolicy
-            })
+        address arbitrator = _deployRoundArbitrator(context, submissionTcr, prizeVault, arbConfig);
+        _initializeRoundSubmissionRegistry(
+            roundId,
+            timing,
+            tcrPolicy,
+            context.underlying,
+            submissionTcr,
+            prizeVault,
+            arbitrator,
+            depositStrategy
         );
 
         out = DeployedRound({
@@ -197,23 +174,23 @@ contract RoundFactory is IAllocationMechanismFactory {
             submissionTCR: submissionTcr,
             arbitrator: arbitrator,
             depositStrategy: address(depositStrategy),
-            underlyingToken: expectedUnderlying,
-            superToken: superTokenAddress,
-            stakeVault: stakeVault,
-            goalTreasury: goalTreasury,
-            goalFlow: goalFlow,
-            budgetFlow: budgetFlow
+            underlyingToken: address(context.underlying),
+            superToken: address(context.superToken),
+            stakeVault: context.stakeVault,
+            goalTreasury: context.goalTreasury,
+            goalFlow: context.goalFlow,
+            budgetFlow: context.budgetFlow
         });
 
         emit RoundDeployed(
             roundId,
-            budgetTreasury,
+            context.budgetTreasury,
             prizeVault,
             submissionTcr,
             arbitrator,
             address(depositStrategy),
-            expectedUnderlying,
-            superTokenAddress
+            address(context.underlying),
+            address(context.superToken)
         );
     }
 
@@ -241,16 +218,181 @@ contract RoundFactory is IAllocationMechanismFactory {
         });
     }
 
-    function _requireDeployedContract(address candidate) internal view returns (address deployed) {
-        if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT();
+    function _validateCreateRoundInputs(address budgetTreasury, address roundOperator) internal view {
+        if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
+        if (roundOperator == address(0)) revert ADDRESS_ZERO();
+        _requireBudgetContextContract(budgetTreasury, BudgetContextProbe.BudgetTreasury);
+    }
+
+    function _resolveBudgetRoundContext(
+        address budgetTreasury
+    ) internal view returns (BudgetRoundContext memory context) {
+        context.budgetTreasury = budgetTreasury;
+        context.budgetFlow = _readBudgetFlow(budgetTreasury);
+        context.goalFlow = _readGoalFlow(context.budgetFlow);
+        context.goalTreasury = _readGoalTreasury(context.goalFlow);
+        address reportedGoalFlow = _readGoalTreasuryFlow(context.goalTreasury);
+        if (reportedGoalFlow != context.goalFlow) {
+            revert GOAL_TREASURY_FLOW_MISMATCH(context.goalTreasury, context.goalFlow, reportedGoalFlow);
+        }
+
+        context.stakeVault = _readStakeVault(context.goalTreasury);
+        context.underlying = IStakeVault(context.stakeVault).goalToken();
+        context.superToken = _readSuperToken(context.budgetFlow);
+
+        address expectedUnderlying = address(context.underlying);
+        address superUnderlying = _resolveSuperUnderlying(context.superToken);
+        if (superUnderlying != expectedUnderlying) {
+            revert SUPER_TOKEN_UNDERLYING_MISMATCH(expectedUnderlying, superUnderlying);
+        }
+    }
+
+    function _assertImplementationAddress(address implementation) internal view returns (address deployed) {
+        if (implementation == address(0)) revert ADDRESS_ZERO();
+        if (implementation.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(implementation);
+        return implementation;
+    }
+
+    function _requireBudgetContextContract(
+        address candidate,
+        BudgetContextProbe probe
+    ) internal view returns (address deployed) {
+        if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT(probe, candidate);
         return candidate;
+    }
+
+    function _readBudgetFlow(address budgetTreasury) internal view returns (address budgetFlow) {
+        try IBudgetTreasury(budgetTreasury).flow() returns (address budgetFlow_) {
+            budgetFlow = budgetFlow_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.BudgetFlowRead, budgetTreasury);
+        }
+        return _requireBudgetContextContract(budgetFlow, BudgetContextProbe.BudgetFlow);
+    }
+
+    function _readGoalFlow(address budgetFlow) internal view returns (address goalFlow) {
+        try IFlow(budgetFlow).parent() returns (address goalFlow_) {
+            goalFlow = goalFlow_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalFlowRead, budgetFlow);
+        }
+        return _requireBudgetContextContract(goalFlow, BudgetContextProbe.GoalFlow);
+    }
+
+    function _readGoalTreasury(address goalFlow) internal view returns (address goalTreasury) {
+        try IFlow(goalFlow).flowOperator() returns (address goalTreasury_) {
+            goalTreasury = goalTreasury_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalTreasuryRead, goalFlow);
+        }
+        return _requireBudgetContextContract(goalTreasury, BudgetContextProbe.GoalTreasury);
+    }
+
+    function _readGoalTreasuryFlow(address goalTreasury) internal view returns (address goalFlow) {
+        try IGoalTreasury(goalTreasury).flow() returns (address goalFlow_) {
+            return goalFlow_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalTreasuryFlowRead, goalTreasury);
+        }
+    }
+
+    function _readStakeVault(address goalTreasury) internal view returns (address stakeVault) {
+        try IGoalTreasury(goalTreasury).stakeVault() returns (address stakeVault_) {
+            stakeVault = stakeVault_;
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.StakeVaultRead, goalTreasury);
+        }
+        return _requireBudgetContextContract(stakeVault, BudgetContextProbe.StakeVault);
+    }
+
+    function _readSuperToken(address budgetFlow) internal view returns (ISuperToken superTok) {
+        address superTokenAddress;
+        try IFlow(budgetFlow).superToken() returns (ISuperToken superTok_) {
+            superTokenAddress = address(superTok_);
+        } catch {
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.SuperTokenRead, budgetFlow);
+        }
+        _requireBudgetContextContract(superTokenAddress, BudgetContextProbe.SuperToken);
+        return ISuperToken(superTokenAddress);
+    }
+
+    function _deployRoundPrizeVault(
+        BudgetRoundContext memory context,
+        address submissionTcr,
+        address roundOperator
+    ) internal returns (address prizeVault) {
+        prizeVault = roundPrizeVaultImplementation.clone();
+        RoundPrizeVault(prizeVault).initialize(
+            context.underlying,
+            context.superToken,
+            RoundSubmissionTCR(submissionTcr),
+            roundOperator
+        );
+    }
+
+    function _deployRoundDepositStrategy(
+        IERC20 underlying,
+        address prizeVault
+    ) internal returns (PrizePoolSubmissionDepositStrategy depositStrategy) {
+        depositStrategy = PrizePoolSubmissionDepositStrategy(prizePoolSubmissionDepositStrategyImplementation.clone());
+        depositStrategy.initialize(underlying, prizeVault);
+    }
+
+    function _deployRoundArbitrator(
+        BudgetRoundContext memory context,
+        address submissionTcr,
+        address prizeVault,
+        ArbitratorConfig memory arbConfig
+    ) internal returns (address arbitrator) {
+        arbitrator = arbitratorImplementation.clone();
+        IERC20VotesArbitrator(arbitrator).initializeWithConfig(
+            IERC20VotesArbitrator.InitConfig({
+                invalidRoundRewardsSink: prizeVault, // keep unresolved/no-vote rewards in the round pool.
+                votingToken: address(context.underlying),
+                arbitrable: submissionTcr,
+                votingPeriod: arbConfig.votingPeriod,
+                votingDelay: arbConfig.votingDelay,
+                revealPeriod: arbConfig.revealPeriod,
+                arbitrationCost: arbConfig.arbitrationCost,
+                stakeVault: context.stakeVault,
+                fixedBudgetTreasury: context.budgetTreasury,
+                wrongOrMissedSlashBps: 0,
+                slashCallerBountyBps: 0
+            })
+        );
+    }
+
+    function _initializeRoundSubmissionRegistry(
+        bytes32 roundId,
+        RoundTiming memory timing,
+        IGeneralizedTCRConfig.RegistryPolicy memory tcrPolicy,
+        IERC20 underlying,
+        address submissionTcr,
+        address prizeVault,
+        address arbitrator,
+        PrizePoolSubmissionDepositStrategy depositStrategy
+    ) internal {
+        RoundSubmissionTCR(submissionTcr).initialize(
+            RoundSubmissionTCR.RoundConfig({
+                roundId: roundId,
+                startAt: timing.startAt,
+                endAt: timing.endAt,
+                prizeVault: prizeVault
+            }),
+            IGeneralizedTCRConfig.RegistryConfig({
+                arbitrator: IArbitrator(arbitrator),
+                votingToken: IVotes(address(underlying)),
+                submissionDepositStrategy: depositStrategy,
+                registryPolicy: tcrPolicy
+            })
+        );
     }
 
     function _resolveSuperUnderlying(ISuperToken superTok) internal view returns (address underlyingToken) {
         try superTok.getUnderlyingToken() returns (address resolvedUnderlying) {
             return resolvedUnderlying;
         } catch {
-            revert INVALID_BUDGET_CONTEXT();
+            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.SuperTokenUnderlyingRead, address(superTok));
         }
     }
 }

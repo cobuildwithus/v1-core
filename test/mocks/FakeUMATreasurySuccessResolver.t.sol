@@ -346,8 +346,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
 
-            string memory historyPath =
-                _historyPathContainingResolver(expectedFakeResolver, "DeployGoalFactoryImplementations");
+            string memory historyPath = _latestHistoryPathFor("DeployGoalFactoryImplementations", ".txt");
+            assertTrue(vm.isFile(historyPath));
+            assertTrue(_stringContains(historyPath, _historyPrefixFor("DeployGoalFactoryImplementations")));
             string memory historyArtifact = vm.readFile(historyPath);
             assertTrue(
                 _stringContains(
@@ -418,21 +419,19 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             allocationPipeline.initialize(address(0xBEEF));
         }
 
-        function _historyPathContainingResolver(address resolver, string memory deploymentName)
+        function _latestHistoryPathFor(string memory deploymentName, string memory suffix)
             internal
             view
             returns (string memory matchPath)
         {
             Vm.DirEntry[] memory entries = vm.readDir(HISTORY_DIR);
             string memory prefix = _historyPrefixFor(deploymentName);
-            string memory resolverLine = string.concat("FakeUMATreasurySuccessResolver: ", vm.toString(resolver));
 
             uint256 length = entries.length;
             for (uint256 i = 0; i < length; i++) {
                 if (entries[i].isDir) continue;
                 if (!_stringContains(entries[i].path, prefix)) continue;
-                string memory artifact = vm.readFile(entries[i].path);
-                if (!_stringContains(artifact, resolverLine)) continue;
+                if (!_stringContains(entries[i].path, suffix)) continue;
                 if (bytes(matchPath).length == 0 || _isLexicographicallyAfter(entries[i].path, matchPath)) {
                     matchPath = entries[i].path;
                 }

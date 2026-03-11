@@ -3,11 +3,11 @@ pragma solidity ^0.8.34;
 
 import { GoalFlowLedgerMode } from "src/library/GoalFlowLedgerMode.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { ICustomFlow } from "src/interfaces/IFlow.sol";
 
 contract GoalFlowLedgerModeHarness {
     struct DetectParams {
-        uint256 allocationScalePpm;
         address ledger;
         uint256 prevWeight;
         uint256 newWeight;
@@ -47,10 +47,9 @@ contract GoalFlowLedgerModeHarness {
     }
 
     function detectCalldata(DetectParams calldata params) external view returns (address[] memory budgetTreasuries) {
+        if (params.ledger == address(0)) return new address[](0);
         return
-            GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-                params.allocationScalePpm,
-                params.ledger,
+            IBudgetStakeLedger(params.ledger).previewChangedBudgetTreasuries(
                 params.prevWeight,
                 params.prevRecipientIds,
                 params.prevAllocationPpm,

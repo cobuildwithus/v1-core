@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
-import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
+import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
+import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetStakeLedgerCoverageCutoverTest is Test {
     bytes32 internal constant RECIPIENT = bytes32(uint256(1));
@@ -30,6 +30,10 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     BudgetStakeLedgerCoverageStrategy internal strategy;
     BudgetStakeLedger internal ledger;
 
+    function _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe probe, address budget_) internal {
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, budget_, probe));
+    }
+
     function setUp() public {
         manager = new BudgetStakeLedgerCoverageManager();
         goalFlow = new BudgetStakeLedgerCoverageGoalFlow(address(manager), PIPELINE);
@@ -39,7 +43,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         strategy = new BudgetStakeLedgerCoverageStrategy();
         budgetFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(goalFlow));
         budgetFlow.setStrategy(address(strategy));
-        budget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        budget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(RECIPIENT, address(budget), address(budgetFlow), address(strategy), true);
         vm.prank(address(manager));
@@ -90,6 +94,135 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(summaries[0].resolvedOrRemovedAt, 0);
     }
 
+    function test_previewChangedBudgetTreasuries_matchesCheckpointOrdering() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        bytes32[] memory prevRecipientIds = new bytes32[](2);
+        prevRecipientIds[0] = RECIPIENT;
+        prevRecipientIds[1] = SECOND_RECIPIENT;
+
+        uint32[] memory prevAllocationPpm = new uint32[](2);
+        prevAllocationPpm[0] = 300_000;
+        prevAllocationPpm[1] = 700_000;
+
+        bytes32[] memory newRecipientIds = new bytes32[](2);
+        newRecipientIds[0] = RECIPIENT;
+        newRecipientIds[1] = SECOND_RECIPIENT;
+
+        uint32[] memory newAllocationPpm = new uint32[](2);
+        newAllocationPpm[0] = 600_000;
+        newAllocationPpm[1] = 400_000;
+
+        uint256 weight = 100 * UNIT_WEIGHT_SCALE;
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), weight, prevRecipientIds, prevAllocationPpm
+        );
+
+        address[] memory preview = ledger.previewChangedBudgetTreasuries(
+            weight, prevRecipientIds, prevAllocationPpm, weight, newRecipientIds, newAllocationPpm
+        );
+        assertEq(preview.length, 2);
+        assertEq(preview[0], address(secondBudget));
+        assertEq(preview[1], address(budget));
+
+        vm.prank(address(goalFlow));
+        address[] memory changed = ledger.checkpointAllocation(
+            ACCOUNT, weight, prevRecipientIds, prevAllocationPpm, weight, newRecipientIds, newAllocationPpm
+        );
+        assertEq(changed.length, preview.length);
+        assertEq(changed[0], preview[0]);
+        assertEq(changed[1], preview[1]);
+    }
+
+    function testFuzz_previewChangedBudgetTreasuries_matchesCheckpointReturnedDeltas(
+        uint8 oldMaskSeed,
+        uint8 newMaskSeed,
+        uint96 prevWeightSeed,
+        uint96 newWeightSeed,
+        uint32 oldSeedA,
+        uint32 oldSeedB,
+        uint32 oldSeedC,
+        uint32 newSeedA,
+        uint32 newSeedB,
+        uint32 newSeedC
+    ) public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = _newBudgetTreasury(address(budgetFlow));
+
+        _registerBudget(SECOND_RECIPIENT, address(secondBudget));
+        _registerBudget(THIRD_RECIPIENT, address(thirdBudget));
+
+        uint8 oldMask = oldMaskSeed & 0x07;
+        uint8 newMask = newMaskSeed & 0x07;
+        uint256 prevWeight = bound(uint256(prevWeightSeed), 0, 1_000_000 * UNIT_WEIGHT_SCALE);
+        uint256 newWeight = bound(uint256(newWeightSeed), 0, 1_000_000 * UNIT_WEIGHT_SCALE);
+
+        (bytes32[] memory prevRecipientIds, uint32[] memory prevAllocationPpm) =
+            _buildSortedAllocations(oldMask, oldSeedA, oldSeedB, oldSeedC);
+        (bytes32[] memory newRecipientIds, uint32[] memory newAllocationPpm) =
+            _buildSortedAllocations(newMask, newSeedA, newSeedB, newSeedC);
+
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), prevWeight, prevRecipientIds, prevAllocationPpm
+        );
+
+        address[] memory preview = ledger.previewChangedBudgetTreasuries(
+            prevWeight,
+            prevRecipientIds,
+            prevAllocationPpm,
+            newWeight,
+            newRecipientIds,
+            newAllocationPpm
+        );
+
+        vm.prank(address(goalFlow));
+        address[] memory changed = ledger.checkpointAllocation(
+            ACCOUNT, prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm
+        );
+
+        assertEq(changed.length, preview.length);
+        for (uint256 i = 0; i < preview.length; ) {
+            assertEq(changed[i], preview[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function test_checkpointAllocation_revertsWhenRecipientIdsNotSortedOrDuplicate() public {
+        bytes32[] memory newRecipientIds = new bytes32[](2);
+        newRecipientIds[0] = SECOND_RECIPIENT;
+        newRecipientIds[1] = RECIPIENT;
+
+        uint32[] memory newAllocationPpm = new uint32[](2);
+        newAllocationPpm[0] = 500_000;
+        newAllocationPpm[1] = 500_000;
+
+        vm.expectRevert(IBudgetStakeLedger.NOT_SORTED_OR_DUPLICATE.selector);
+        vm.prank(address(goalFlow));
+        ledger.checkpointAllocation(
+            ACCOUNT, 0, new bytes32[](0), new uint32[](0), 10 * UNIT_WEIGHT_SCALE, newRecipientIds, newAllocationPpm
+        );
+    }
+
+    function test_previewChangedBudgetTreasuries_revertsWhenRecipientIdsNotSortedOrDuplicate() public {
+        bytes32[] memory prevRecipientIds = new bytes32[](2);
+        prevRecipientIds[0] = RECIPIENT;
+        prevRecipientIds[1] = RECIPIENT;
+
+        uint32[] memory prevAllocationPpm = new uint32[](2);
+        prevAllocationPpm[0] = 500_000;
+        prevAllocationPpm[1] = 500_000;
+
+        vm.expectRevert(IBudgetStakeLedger.NOT_SORTED_OR_DUPLICATE.selector);
+        ledger.previewChangedBudgetTreasuries(
+            10 * UNIT_WEIGHT_SCALE, prevRecipientIds, prevAllocationPpm, 0, new bytes32[](0), new uint32[](0)
+        );
+    }
+
     function test_removeBudget_marksTerminalRemovalAndUntracksBudget() public {
         budget.setResolvedAt(80);
 
@@ -127,7 +260,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registeredBudgetEnumeration_retainsRemovedBudgets() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         _registerBudget(SECOND_RECIPIENT, address(secondBudget));
 
         vm.prank(address(manager));
@@ -140,7 +273,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registeredBudgetEnumeration_duplicateRegistrationDoesNotAppend() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         vm.startPrank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
@@ -154,7 +287,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_allTrackedBudgetsResolved_ignoresRemovedBudgetsAndRequiresActiveTrackedResolved() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         _registerBudget(SECOND_RECIPIENT, address(secondBudget));
 
         assertFalse(ledger.allTrackedBudgetsResolved());
@@ -170,7 +303,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_afterHistoricalUntrackedAllocation_bootstrapPreventsAllocationDriftDeadlock() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
         // Simulate historical allocation while recipient is still unregistered in ledger.
         _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 0, 10 * UNIT_WEIGHT_SCALE);
@@ -190,7 +323,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_afterHistoricalUntrackedAllocation_withoutBootstrapRevertsAllocationDrift() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         _checkpointSingleForRecipient(ACCOUNT, SECOND_RECIPIENT, 0, 10 * UNIT_WEIGHT_SCALE);
 
         _registerBudget(SECOND_RECIPIENT, address(secondBudget));
@@ -203,22 +336,12 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBudgetStakeLedger.ALLOCATION_DRIFT.selector,
-                ACCOUNT,
-                address(secondBudget),
-                0,
-                10 * UNIT_WEIGHT_SCALE
+                IBudgetStakeLedger.ALLOCATION_DRIFT.selector, ACCOUNT, address(secondBudget), 0, 10 * UNIT_WEIGHT_SCALE
             )
         );
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(
-            ACCOUNT,
-            10 * UNIT_WEIGHT_SCALE,
-            ids,
-            allocationPpm,
-            8 * UNIT_WEIGHT_SCALE,
-            ids,
-            allocationPpm
+            ACCOUNT, 10 * UNIT_WEIGHT_SCALE, ids, allocationPpm, 8 * UNIT_WEIGHT_SCALE, ids, allocationPpm
         );
 
         assertEq(ledger.userAllocatedStakeOnBudget(ACCOUNT, address(secondBudget)), 0);
@@ -234,12 +357,30 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         assertEq(ledger.budgetTotalAllocatedStake(address(budget)), 0);
     }
 
+    function test_previewChangedBudgetTreasuries_noopsAfterGoalResolved() public {
+        goalTreasury.setResolved(true);
+
+        bytes32[] memory prevRecipientIds = new bytes32[](1);
+        prevRecipientIds[0] = RECIPIENT;
+
+        address[] memory changed = ledger.previewChangedBudgetTreasuries(
+            9 * UNIT_WEIGHT_SCALE,
+            prevRecipientIds,
+            new uint32[](0),
+            0,
+            new bytes32[](0),
+            new uint32[](0)
+        );
+
+        assertEq(changed.length, 0);
+    }
+
     function test_registerBudget_revertsWhenGoalTerminal() public {
         assertEq(ledger.trackedBudgetCount(), 1);
         assertEq(ledger.registeredBudgetCount(), 1);
 
         goalTreasury.setResolved(true);
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         vm.expectRevert(IBudgetStakeLedger.GOAL_TERMINAL.selector);
@@ -253,8 +394,8 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_checkpointAllocation_sortedMerge_handlesOldSharedAndNewRecipientsDeterministically() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
-        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         _configureTopology(THIRD_RECIPIENT, address(thirdBudget), address(budgetFlow), address(strategy), true);
@@ -316,8 +457,8 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         uint32 newSeedB,
         uint32 newSeedC
     ) public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
-        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury thirdBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         _configureTopology(THIRD_RECIPIENT, address(thirdBudget), address(budgetFlow), address(strategy), true);
@@ -356,13 +497,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         // If this reverts, SortedRecipientMerge-based traversal introduced a false-positive drift.
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(
-            ACCOUNT,
-            prevWeight,
-            oldRecipientIds,
-            oldAllocationPpm,
-            newWeight,
-            newRecipientIds,
-            newAllocationPpm
+            ACCOUNT, prevWeight, oldRecipientIds, oldAllocationPpm, newWeight, newRecipientIds, newAllocationPpm
         );
 
         uint256 firstAfter = ledger.userAllocatedStakeOnBudget(ACCOUNT, address(budget));
@@ -394,79 +529,184 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenTopologyMissing() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyInactive, address(secondBudget));
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTopologyRegistryReadFails() public {
+        goalTreasury.setFlow(address(new BudgetStakeLedgerCoverageFlowWithoutParent()));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageExposedLedger exposedLedger =
+            new BudgetStakeLedgerCoverageExposedLedger(address(goalTreasury));
+
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyRegistryRead, address(secondBudget));
+        exposedLedger.exposedValidateBudgetForRegistration(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTopologyRegistryHasNoCode() public {
+        address noCodeTopologyRegistry = address(0xBEEF);
+        goalTreasury.setFlow(address(new BudgetStakeLedgerCoverageGoalFlow(noCodeTopologyRegistry, PIPELINE)));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyRegistry, address(secondBudget));
+        vm.prank(noCodeTopologyRegistry);
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTopologyInactive() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), false);
+
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyInactive, address(secondBudget));
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTreasuryAuthorityDoesNotMatchTopologyRegistry() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        secondBudget.setAuthority(address(0xBEEF));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.TreasuryAuthorityMismatch, address(secondBudget)
         );
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
-    function test_registerBudget_revertsWhenTopologyInactive() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
-        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), false);
+    function test_registerBudget_revertsWhenTreasuryAuthorityReadFails() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        secondBudget.setRevertOnAuthorityRead(true);
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TreasuryAuthorityRead, address(secondBudget));
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_usesBudgetTreasuryReverseLookupInsteadOfDirectRecipientTopology() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+        manager.setDirectTopologyOverride(
+            SECOND_RECIPIENT,
+            IBudgetStackTopologyReader.BudgetStackTopology({
+                childFlow: address(0xBEEF),
+                budgetTreasury: address(secondBudget),
+                premiumEscrow: address(0),
+                strategy: address(strategy),
+                allocationMechanism: address(0),
+                allocationMechanismArbitrator: address(0)
+            }),
+            true
+        );
+
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+
+        assertEq(ledger.budgetForRecipient(SECOND_RECIPIENT), address(secondBudget));
+        assertEq(ledger.trackedBudgetCount(), 2);
+    }
+
+    function test_registerBudget_revertsWhenTreasuryReverseLookupDoesNotMatchRecipientId() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+        _configureTopology(THIRD_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.TopologyRecipientIdMismatch, address(secondBudget)
+        );
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenTopologyBudgetTreasuryDoesNotMatchRuntimeBudget() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury mismatchedBudget = _newBudgetTreasury(address(budgetFlow));
+
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+        _configureTopology(SECOND_RECIPIENT, address(mismatchedBudget), address(budgetFlow), address(strategy), true);
+
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.TopologyBudgetTreasuryMismatch, address(secondBudget)
+        );
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetTreasuryTopologyLookupReverts() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+        manager.setRevertBudgetTreasuryTopologyLookup(true);
+
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyLookup, address(secondBudget));
+        vm.prank(address(manager));
+        ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
+    }
+
+    function test_registerBudget_revertsWhenBudgetTreasuryRecipientIdLookupReverts() public {
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
+        manager.setRevertBudgetTreasuryItemIdLookup(true);
+
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.TopologyRecipientIdLookup, address(secondBudget)
         );
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
     function test_registerBudget_revertsWhenTopologyChildFlowHasNoCode() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(0xBEEF), address(strategy), true);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
-        );
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyChildFlow, address(secondBudget));
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
     function test_registerBudget_revertsWhenTopologyStrategyHasNoCode() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(0xBEEF), true);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
-        );
+        _expectBudgetTopologyRevert(IBudgetStakeLedger.BudgetTopologyProbe.TopologyStrategy, address(secondBudget));
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
     function test_registerBudget_revertsWhenTopologyStrategyDoesNotMatchChildFlowStrategy() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         BudgetStakeLedgerCoverageStrategy otherStrategy = new BudgetStakeLedgerCoverageStrategy();
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(otherStrategy), true);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.ChildFlowStrategyMismatch, address(secondBudget)
         );
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
     function test_registerBudget_revertsWhenChildFlowStrategyIsNotConfigured() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         budgetFlow.setStrategy(address(0));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.ChildFlowStrategyMismatch, address(secondBudget)
         );
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
 
     function test_registerBudget_revertsWhenTopologyChildFlowMismatchesRuntimeBudget() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         BudgetStakeLedgerCoverageBudgetFlow mismatchedFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(goalFlow));
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(mismatchedFlow), address(strategy), true);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_TOPOLOGY.selector, address(secondBudget))
+        _expectBudgetTopologyRevert(
+            IBudgetStakeLedger.BudgetTopologyProbe.TopologyChildFlowMismatch, address(secondBudget)
         );
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
@@ -474,7 +714,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
     function test_registerBudget_revertsWhenGoalFlowIsMissing() public {
         goalTreasury.setFlow(address(0));
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
         vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_GOAL_FLOW.selector, address(0)));
@@ -483,7 +723,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenBudgetFlowReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnFlowRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -495,7 +735,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenBudgetFlowIsInvalid() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setFlow(address(0));
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -507,9 +747,8 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenBudgetParentReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(
-            address(new BudgetStakeLedgerCoverageFlowWithoutParent())
-        );
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget =
+            _newBudgetTreasury(address(new BudgetStakeLedgerCoverageFlowWithoutParent()));
 
         _configureTopology(
             SECOND_RECIPIENT, address(secondBudget), address(secondBudget.flow()), address(strategy), true
@@ -523,13 +762,9 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
 
     function test_registerBudget_revertsWhenBudgetParentDoesNotMatchGoalFlow() public {
         BudgetStakeLedgerCoverageBudgetFlow wrongParentFlow = new BudgetStakeLedgerCoverageBudgetFlow(address(0xDEAD));
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(
-            address(wrongParentFlow)
-        );
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(wrongParentFlow));
 
-        _configureTopology(
-            SECOND_RECIPIENT, address(secondBudget), address(wrongParentFlow), address(strategy), true
-        );
+        _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(wrongParentFlow), address(strategy), true);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBudgetStakeLedger.INVALID_BUDGET_PARENT_MISMATCH.selector,
@@ -543,7 +778,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenExecutionDurationInvalid() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setExecutionDuration(0);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -555,7 +790,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenExecutionDurationReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnExecutionDurationRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -567,7 +802,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenFundingDeadlineInvalid() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setFundingDeadline(0);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -579,7 +814,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenFundingDeadlineReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnFundingDeadlineRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -591,7 +826,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenActivatedAtReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnActivatedAtRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -603,7 +838,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenResolvedAtReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnResolvedAtRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
@@ -615,13 +850,11 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
     }
 
     function test_registerBudget_revertsWhenStateReadFails() public {
-        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = new BudgetStakeLedgerCoverageBudgetTreasury(address(budgetFlow));
+        BudgetStakeLedgerCoverageBudgetTreasury secondBudget = _newBudgetTreasury(address(budgetFlow));
         secondBudget.setRevertOnStateRead(true);
 
         _configureTopology(SECOND_RECIPIENT, address(secondBudget), address(budgetFlow), address(strategy), true);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_STATE.selector, address(secondBudget))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IBudgetStakeLedger.INVALID_BUDGET_STATE.selector, address(secondBudget)));
         vm.prank(address(manager));
         ledger.registerBudget(SECOND_RECIPIENT, address(secondBudget));
     }
@@ -646,13 +879,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         );
         vm.prank(address(goalFlow));
         ledger.checkpointAllocation(
-            ACCOUNT,
-            9 * UNIT_WEIGHT_SCALE,
-            ids,
-            allocationPpm,
-            8 * UNIT_WEIGHT_SCALE,
-            ids,
-            allocationPpm
+            ACCOUNT, 9 * UNIT_WEIGHT_SCALE, ids, allocationPpm, 8 * UNIT_WEIGHT_SCALE, ids, allocationPpm
         );
     }
 
@@ -664,6 +891,14 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         _configureTopology(recipientId, budget_, address(budgetFlow), address(strategy), true);
         vm.prank(address(manager));
         ledger.registerBudget(recipientId, budget_);
+    }
+
+    function _newBudgetTreasury(address flow_)
+        internal
+        returns (BudgetStakeLedgerCoverageBudgetTreasury budgetTreasury)
+    {
+        budgetTreasury = new BudgetStakeLedgerCoverageBudgetTreasury(flow_);
+        budgetTreasury.setAuthority(address(manager));
     }
 
     function _configureTopology(
@@ -687,12 +922,9 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         );
     }
 
-    function _checkpointSingleForRecipient(
-        address account,
-        bytes32 recipientId,
-        uint256 prevWeight,
-        uint256 newWeight
-    ) internal {
+    function _checkpointSingleForRecipient(address account, bytes32 recipientId, uint256 prevWeight, uint256 newWeight)
+        internal
+    {
         bytes32[] memory ids = new bytes32[](1);
         ids[0] = recipientId;
 
@@ -703,12 +935,11 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         ledger.checkpointAllocation(account, prevWeight, ids, allocationPpm, newWeight, ids, allocationPpm);
     }
 
-    function _buildSortedAllocations(
-        uint8 mask,
-        uint32 seedA,
-        uint32 seedB,
-        uint32 seedC
-    ) internal pure returns (bytes32[] memory recipientIds, uint32[] memory allocationsPpm) {
+    function _buildSortedAllocations(uint8 mask, uint32 seedA, uint32 seedB, uint32 seedC)
+        internal
+        pure
+        returns (bytes32[] memory recipientIds, uint32[] memory allocationsPpm)
+    {
         uint256 count;
         if ((mask & 0x01) != 0) ++count;
         if ((mask & 0x02) != 0) ++count;
@@ -742,7 +973,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         }
 
         uint256 running;
-        for (uint256 i = 0; i + 1 < count; ) {
+        for (uint256 i = 0; i + 1 < count;) {
             uint256 ppm = (raw[i] * FULL_ALLOCATION_PPM) / rawSum;
             allocationsPpm[i] = uint32(ppm);
             running += ppm;
@@ -759,7 +990,7 @@ contract BudgetStakeLedgerCoverageCutoverTest is Test {
         uint32[] memory allocationsPpm,
         bytes32 recipientId
     ) internal pure returns (uint256 allocated) {
-        for (uint256 i = 0; i < recipientIds.length; ) {
+        for (uint256 i = 0; i < recipientIds.length;) {
             if (recipientIds[i] == recipientId) {
                 uint256 weighted = (weight * allocationsPpm[i]) / FlowProtocolConstants.PPM_SCALE_UINT256;
                 return (weighted / FlowProtocolConstants.UNIT_WEIGHT_SCALE) * FlowProtocolConstants.UNIT_WEIGHT_SCALE;
@@ -815,42 +1046,76 @@ contract BudgetStakeLedgerCoverageManager {
     mapping(bytes32 => bool) private _activeByItemId;
     mapping(address => bytes32) private _itemIdByBudgetTreasury;
     mapping(address => bytes32) private _itemIdByChildFlow;
+    mapping(bytes32 => IBudgetStackTopologyReader.BudgetStackTopology) private _topologyOverrideByItemId;
+    mapping(bytes32 => bool) private _topologyOverrideActiveByItemId;
+    mapping(bytes32 => bool) private _useTopologyOverrideByItemId;
+    bool private _revertBudgetTreasuryTopologyLookup;
+    bool private _revertBudgetTreasuryItemIdLookup;
 
-    function setTopology(
-        bytes32 itemId,
-        IBudgetStackTopologyReader.BudgetStackTopology memory topology,
-        bool active
-    ) external {
+    function setTopology(bytes32 itemId, IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+        external
+    {
         _topologyByItemId[itemId] = topology;
         _activeByItemId[itemId] = active;
         _itemIdByBudgetTreasury[topology.budgetTreasury] = itemId;
         _itemIdByChildFlow[topology.childFlow] = itemId;
     }
 
-    function budgetStackTopology(
-        bytes32 itemId
-    ) external view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+    function setDirectTopologyOverride(
+        bytes32 itemId,
+        IBudgetStackTopologyReader.BudgetStackTopology memory topology,
+        bool active
+    ) external {
+        _topologyOverrideByItemId[itemId] = topology;
+        _topologyOverrideActiveByItemId[itemId] = active;
+        _useTopologyOverrideByItemId[itemId] = true;
+    }
+
+    function setRevertBudgetTreasuryTopologyLookup(bool shouldRevert) external {
+        _revertBudgetTreasuryTopologyLookup = shouldRevert;
+    }
+
+    function setRevertBudgetTreasuryItemIdLookup(bool shouldRevert) external {
+        _revertBudgetTreasuryItemIdLookup = shouldRevert;
+    }
+
+    function budgetStackTopology(bytes32 itemId)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        if (_useTopologyOverrideByItemId[itemId]) {
+            topology = _topologyOverrideByItemId[itemId];
+            active = _topologyOverrideActiveByItemId[itemId];
+            return (topology, active);
+        }
         topology = _topologyByItemId[itemId];
         active = _activeByItemId[itemId];
     }
 
-    function budgetStackTopologyForBudgetTreasury(
-        address budgetTreasury
-    ) external view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+    function budgetStackTopologyForBudgetTreasury(address budgetTreasury)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
+        if (_revertBudgetTreasuryTopologyLookup) revert("BUDGET_TOPOLOGY_LOOKUP_FAILED");
         bytes32 itemId = _itemIdByBudgetTreasury[budgetTreasury];
         topology = _topologyByItemId[itemId];
         active = _activeByItemId[itemId];
     }
 
-    function budgetStackTopologyForChildFlow(
-        address childFlow
-    ) external view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
+    function budgetStackTopologyForChildFlow(address childFlow)
+        external
+        view
+        returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active)
+    {
         bytes32 itemId = _itemIdByChildFlow[childFlow];
         topology = _topologyByItemId[itemId];
         active = _activeByItemId[itemId];
     }
 
     function itemIdForBudgetTreasury(address budgetTreasury) external view returns (bytes32 itemId) {
+        if (_revertBudgetTreasuryItemIdLookup) revert("BUDGET_ITEM_ID_LOOKUP_FAILED");
         itemId = _itemIdByBudgetTreasury[budgetTreasury];
     }
 
@@ -898,8 +1163,21 @@ contract BudgetStakeLedgerCoverageFlowWithoutParent {}
 
 contract BudgetStakeLedgerCoverageStrategy {}
 
+contract BudgetStakeLedgerCoverageExposedLedger is BudgetStakeLedger {
+    constructor(address goalTreasury_) BudgetStakeLedger(goalTreasury_) {}
+
+    function exposedValidateBudgetForRegistration(bytes32 recipientId, address budget)
+        external
+        view
+        returns (uint64 activatedAt)
+    {
+        return _validateBudgetForRegistration(recipientId, budget);
+    }
+}
+
 contract BudgetStakeLedgerCoverageBudgetTreasury {
     address private _flow;
+    address private _authority;
     uint64 private _resolvedAt;
     uint64 private _activatedAt;
     uint64 private _executionDuration = 1 days;
@@ -912,6 +1190,7 @@ contract BudgetStakeLedgerCoverageBudgetTreasury {
     bool private _revertOnActivatedAtRead;
     bool private _revertOnResolvedAtRead;
     bool private _revertOnStateRead;
+    bool private _revertOnAuthorityRead;
 
     constructor(address flow_) {
         _flow = flow_;
@@ -920,6 +1199,11 @@ contract BudgetStakeLedgerCoverageBudgetTreasury {
     function flow() external view returns (address) {
         if (_revertOnFlowRead) revert("FLOW_READ_FAILED");
         return _flow;
+    }
+
+    function authority() external view returns (address) {
+        if (_revertOnAuthorityRead) revert("AUTHORITY_READ_FAILED");
+        return _authority;
     }
 
     function resolvedAt() external view returns (uint64) {
@@ -949,6 +1233,14 @@ contract BudgetStakeLedgerCoverageBudgetTreasury {
 
     function setFlow(address flow_) external {
         _flow = flow_;
+    }
+
+    function setAuthority(address authority_) external {
+        _authority = authority_;
+    }
+
+    function setRevertOnAuthorityRead(bool shouldRevert) external {
+        _revertOnAuthorityRead = shouldRevert;
     }
 
     function setResolvedAt(uint64 resolvedAt_) external {

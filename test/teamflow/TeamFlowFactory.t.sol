@@ -1,25 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { FlowSuperfluidFrameworkDeployer } from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
-import { MockAllocationStrategy } from "test/mocks/MockAllocationStrategy.sol";
+import {FlowSuperfluidFrameworkDeployer} from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
-import { TeamFlow } from "src/teamflow/TeamFlow.sol";
-import { TeamFlowFactory } from "src/teamflow/TeamFlowFactory.sol";
-import { CustomFlow } from "src/flows/CustomFlow.sol";
-import { IAllocationMechanismFactory } from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
-import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { FlowTypes } from "src/storage/FlowStorage.sol";
+import {TeamFlow} from "src/teamflow/TeamFlow.sol";
+import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
+import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {FlowTypes} from "src/storage/FlowStorage.sol";
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { ERC1820RegistryCompiled } from
-    "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
-import { TestToken } from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
-import { SuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {
+    ERC1820RegistryCompiled
+} from "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
+import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/TestToken.sol";
+import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 
 contract TeamFlowBudgetTreasuryMock {
     address public flow;
@@ -57,6 +58,10 @@ contract TeamFlowFactoryTest is Test {
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
     address internal outsider = makeAddr("outsider");
+
+    function _expectBudgetContextRevert(TeamFlowFactory.BudgetContextProbe probe, address candidate) internal {
+        vm.expectRevert(abi.encodeWithSelector(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector, probe, candidate));
+    }
 
     function setUp() public {
         vm.etch(ERC1820RegistryCompiled.at, ERC1820RegistryCompiled.bin);
@@ -104,22 +109,42 @@ contract TeamFlowFactoryTest is Test {
     }
 
     function test_deployForBudget_revertsWhenBudgetTreasuryHasNoCode() public {
-        vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
-        factory.deployForBudget(MECHANISM_ID, makeAddr("no-code-budget"), abi.encode(_defaultConfig(100, 150)));
+        address missingBudgetTreasury = makeAddr("no-code-budget");
+        _expectBudgetContextRevert(TeamFlowFactory.BudgetContextProbe.BudgetTreasury, missingBudgetTreasury);
+        factory.deployForBudget(MECHANISM_ID, missingBudgetTreasury, abi.encode(_defaultConfig(100, 150)));
+    }
+
+    function test_deployForBudget_revertsWhenBudgetTreasuryFlowReadFails() public {
+        TeamFlowManagedFlowMock invalidBudgetTreasury = new TeamFlowManagedFlowMock(address(superToken));
+
+        _expectBudgetContextRevert(
+            TeamFlowFactory.BudgetContextProbe.BudgetFlowRead, address(invalidBudgetTreasury)
+        );
+        factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
     }
 
     function test_deployForBudget_revertsWhenBudgetTreasuryFlowHasNoCode() public {
-        TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(makeAddr("no-code-flow"));
+        address missingBudgetFlow = makeAddr("no-code-flow");
+        TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(missingBudgetFlow);
 
-        vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
+        _expectBudgetContextRevert(TeamFlowFactory.BudgetContextProbe.BudgetFlow, missingBudgetFlow);
+        factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
+    }
+
+    function test_deployForBudget_revertsWhenBudgetFlowSuperTokenReadFails() public {
+        TeamFlowBudgetTreasuryMock invalidBudgetFlow = new TeamFlowBudgetTreasuryMock(address(0));
+        TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(address(invalidBudgetFlow));
+
+        _expectBudgetContextRevert(TeamFlowFactory.BudgetContextProbe.SuperTokenRead, address(invalidBudgetFlow));
         factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
     }
 
     function test_deployForBudget_revertsWhenBudgetFlowSuperTokenHasNoCode() public {
-        TeamFlowManagedFlowMock invalidBudgetFlow = new TeamFlowManagedFlowMock(makeAddr("no-code-super-token"));
+        address missingSuperToken = makeAddr("no-code-super-token");
+        TeamFlowManagedFlowMock invalidBudgetFlow = new TeamFlowManagedFlowMock(missingSuperToken);
         TeamFlowBudgetTreasuryMock invalidBudgetTreasury = new TeamFlowBudgetTreasuryMock(address(invalidBudgetFlow));
 
-        vm.expectRevert(TeamFlowFactory.INVALID_BUDGET_CONTEXT.selector);
+        _expectBudgetContextRevert(TeamFlowFactory.BudgetContextProbe.SuperToken, missingSuperToken);
         factory.deployForBudget(MECHANISM_ID, address(invalidBudgetTreasury), abi.encode(_defaultConfig(100, 150)));
     }
 
@@ -135,17 +160,13 @@ contract TeamFlowFactoryTest is Test {
         TeamFlow teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
         TeamFlow.InitConfig memory initConfig = _teamFlowInitConfig(100, 150);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(0)));
         teamFlow.initialize(initConfig, IAllocationStrategy(address(0)));
 
         teamFlow = TeamFlow(Clones.clone(factory.teamFlowImplementation()));
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(budgetFlowStrategy)
-            )
+            abi.encodeWithSelector(TeamFlow.TEAMFLOW_REQUIRES_SELF_STRATEGY.selector, address(budgetFlowStrategy))
         );
         teamFlow.initialize(initConfig, IAllocationStrategy(address(budgetFlowStrategy)));
     }
@@ -314,19 +335,20 @@ contract TeamFlowFactoryTest is Test {
         address clone = Clones.clone(address(customFlowImplementation));
         IAllocationStrategy strategies = IAllocationStrategy(address(budgetFlowStrategy));
 
-        ICustomFlow(clone).initialize(
-            address(superToken),
-            address(customFlowImplementation),
-            address(this),
-            address(this),
-            address(this),
-            address(0),
-            address(0),
-            address(0),
-            IFlow.FlowParams({ managerRewardPoolFlowRatePpm: 0 }),
-            _recipientMetadata("Budget Flow"),
-            strategies
-        );
+        ICustomFlow(clone)
+            .initialize(
+                address(superToken),
+                address(customFlowImplementation),
+                address(this),
+                address(this),
+                address(this),
+                address(0),
+                address(0),
+                address(0),
+                IFlow.FlowParams({managerRewardPoolFlowRatePpm: 0}),
+                _recipientMetadata("Budget Flow"),
+                strategies
+            );
 
         flow = CustomFlow(clone);
     }
@@ -339,10 +361,11 @@ contract TeamFlowFactoryTest is Test {
         vm.stopPrank();
     }
 
-    function _defaultConfig(
-        uint256 perSeatRate,
-        uint256 maxTotalRate
-    ) internal view returns (TeamFlowFactory.AllocationMechanismConfig memory cfg) {
+    function _defaultConfig(uint256 perSeatRate, uint256 maxTotalRate)
+        internal
+        view
+        returns (TeamFlowFactory.AllocationMechanismConfig memory cfg)
+    {
         cfg = TeamFlowFactory.AllocationMechanismConfig({
             manager: manager,
             perSeatRate: perSeatRate,
@@ -351,10 +374,11 @@ contract TeamFlowFactoryTest is Test {
         });
     }
 
-    function _teamFlowInitConfig(
-        uint256 perSeatRate,
-        uint256 maxTotalRate
-    ) internal view returns (TeamFlow.InitConfig memory cfg) {
+    function _teamFlowInitConfig(uint256 perSeatRate, uint256 maxTotalRate)
+        internal
+        view
+        returns (TeamFlow.InitConfig memory cfg)
+    {
         cfg = TeamFlow.InitConfig({
             mechanismId: MECHANISM_ID,
             manager: manager,
@@ -366,7 +390,11 @@ contract TeamFlowFactoryTest is Test {
         });
     }
 
-    function _recipientMetadata(string memory title) internal pure returns (FlowTypes.RecipientMetadata memory metadata) {
+    function _recipientMetadata(string memory title)
+        internal
+        pure
+        returns (FlowTypes.RecipientMetadata memory metadata)
+    {
         metadata = FlowTypes.RecipientMetadata({
             title: title,
             description: "TeamFlow test metadata",

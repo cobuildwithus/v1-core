@@ -11,8 +11,6 @@ import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { ITreasuryAuthority } from "../interfaces/ITreasuryAuthority.sol";
 import { FlowProtocolConstants } from "./FlowProtocolConstants.sol";
-import { FlowUnitMath } from "./FlowUnitMath.sol";
-import { SortedRecipientMerge } from "./SortedRecipientMerge.sol";
 
 library GoalFlowLedgerMode {
     uint256 private constant _SYNC_GAS_HEADROOM_BPS = 1_000; // Keep 10% of entry gas as headroom.
@@ -133,30 +131,6 @@ library GoalFlowLedgerMode {
 
         stakeVault = result.stakeVault;
         _verifyBudgetStakeLedgerStrategy(strategy, stakeVault);
-    }
-
-    function detectBudgetDeltasCalldata(
-        uint256 allocationScalePpm,
-        address ledger,
-        uint256 prevWeight,
-        bytes32[] calldata prevIds,
-        uint32[] calldata prevAllocationPpm,
-        uint256 newWeight,
-        bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationPpm
-    ) internal view returns (address[] memory budgetTreasuries) {
-        if (ledger == address(0)) return new address[](0);
-        return
-            _detectBudgetDeltaTreasuriesCalldata(
-                allocationScalePpm,
-                IBudgetStakeLedger(ledger),
-                prevWeight,
-                prevIds,
-                prevAllocationPpm,
-                newWeight,
-                newRecipientIds,
-                newAllocationPpm
-            );
     }
 
     function prepareCheckpointContextView(
@@ -346,91 +320,6 @@ library GoalFlowLedgerMode {
             return !goalResolved;
         } catch {
             revert IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT(treasury, stakeVault);
-        }
-    }
-
-    function _detectBudgetDeltaTreasuriesCalldata(
-        uint256 allocationScalePpm,
-        IBudgetStakeLedger ledgerReader,
-        uint256 prevWeight,
-        bytes32[] calldata prevIds,
-        uint32[] calldata prevAllocationPpm,
-        uint256 newWeight,
-        bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationPpm
-    ) private view returns (address[] memory budgetTreasuries) {
-        uint256 oldLen = prevIds.length;
-        uint256 newLen = newRecipientIds.length;
-        if (oldLen == 0 && newLen == 0) return new address[](0);
-
-        address[] memory decreases = new address[](oldLen + newLen);
-        address[] memory increases = new address[](oldLen + newLen);
-        uint256 decreaseCount;
-        uint256 increaseCount;
-        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
-            prevIds,
-            newRecipientIds,
-            SortedRecipientMerge.Precondition.AssumeSorted
-        );
-
-        while (SortedRecipientMerge.hasNext(mergeCursor, oldLen, newLen)) {
-            (
-                SortedRecipientMerge.Step memory step,
-                SortedRecipientMerge.Cursor memory nextCursor
-            ) = SortedRecipientMerge.next(prevIds, newRecipientIds, mergeCursor);
-            mergeCursor = nextCursor;
-
-            bytes32 recipientId = step.recipientId;
-            uint256 oldAllocated;
-            uint256 newAllocated;
-
-            if (step.hasOld) {
-                oldAllocated = FlowUnitMath.effectiveAllocatedStake(
-                    prevWeight,
-                    prevAllocationPpm[step.oldIndex],
-                    allocationScalePpm
-                );
-            }
-
-            if (step.hasNew) {
-                newAllocated = FlowUnitMath.effectiveAllocatedStake(
-                    newWeight,
-                    newAllocationPpm[step.newIndex],
-                    allocationScalePpm
-                );
-            }
-
-            if (oldAllocated == newAllocated) continue;
-
-            address budgetTreasury = ledgerReader.budgetForRecipient(recipientId);
-            if (budgetTreasury == address(0)) continue;
-
-            if (newAllocated < oldAllocated) {
-                decreases[decreaseCount] = budgetTreasury;
-                unchecked {
-                    ++decreaseCount;
-                }
-            } else {
-                increases[increaseCount] = budgetTreasury;
-                unchecked {
-                    ++increaseCount;
-                }
-            }
-        }
-
-        uint256 totalCount = decreaseCount + increaseCount;
-        budgetTreasuries = new address[](totalCount);
-        for (uint256 i = 0; i < decreaseCount; ) {
-            budgetTreasuries[i] = decreases[i];
-            unchecked {
-                ++i;
-            }
-        }
-        for (uint256 i = 0; i < increaseCount; ) {
-            budgetTreasuries[decreaseCount + i] = increases[i];
-            unchecked {
-                ++i;
-            }
         }
     }
 

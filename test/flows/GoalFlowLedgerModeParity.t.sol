@@ -7,6 +7,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { GoalFlowLedgerModeHarness } from "test/harness/GoalFlowLedgerModeHarness.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { FlowUnitMath } from "src/library/FlowUnitMath.sol";
+import { SortedRecipientMerge } from "src/library/SortedRecipientMerge.sol";
 
 contract GoalFlowLedgerModeParityTest is Test {
     uint256 internal constant PPM_SCALE = FlowProtocolConstants.PPM_SCALE_UINT256;
@@ -312,7 +313,6 @@ contract GoalFlowLedgerModeParityTest is Test {
         uint32[] memory newAllocationPpm
     ) internal view returns (address[] memory fromCalldata) {
         GoalFlowLedgerModeHarness.DetectParams memory params = GoalFlowLedgerModeHarness.DetectParams({
-            allocationScalePpm: PPM_SCALE,
             ledger: address(ledger),
             prevWeight: prevWeight,
             newWeight: newWeight,
@@ -509,6 +509,22 @@ contract GoalFlowLedgerModeParityTest is Test {
 }
 
 contract GoalFlowLedgerModeParityLedger {
+    error NOT_SORTED_OR_DUPLICATE();
+
+    uint256 private constant _PPM_SCALE = FlowProtocolConstants.PPM_SCALE_UINT256;
+
+    struct DeltaBuckets {
+        address[] decreases;
+        address[] increases;
+        uint256 decreaseCount;
+        uint256 increaseCount;
+    }
+
+    struct MergeOrderState {
+        bytes32 lastRecipientId;
+        bool hasLastRecipientId;
+    }
+
     mapping(bytes32 => address) internal _budgetByRecipient;
 
     function setBudget(bytes32 recipientId, address budgetTreasury) external {
@@ -517,5 +533,94 @@ contract GoalFlowLedgerModeParityLedger {
 
     function budgetForRecipient(bytes32 recipientId) external view returns (address) {
         return _budgetByRecipient[recipientId];
+    }
+
+    function previewChangedBudgetTreasuries(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) external view returns (address[] memory changedBudgetTreasuries) {
+        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) return new address[](0);
+
+        DeltaBuckets memory buckets = _initBuckets(prevRecipientIds.length + newRecipientIds.length);
+        MergeOrderState memory orderState;
+        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
+            prevRecipientIds,
+            newRecipientIds,
+            SortedRecipientMerge.Precondition.AssumeSorted
+        );
+
+        while (SortedRecipientMerge.hasNext(mergeCursor, prevRecipientIds.length, newRecipientIds.length)) {
+            (
+                SortedRecipientMerge.Step memory step,
+                SortedRecipientMerge.Cursor memory nextCursor
+            ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            mergeCursor = nextCursor;
+            _assertStrictMergedOrder(step.recipientId, orderState);
+            orderState.lastRecipientId = step.recipientId;
+            orderState.hasLastRecipientId = true;
+
+            uint256 oldAllocated = step.hasOld
+                ? FlowUnitMath.effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex], _PPM_SCALE)
+                : 0;
+            uint256 newAllocated = step.hasNew
+                ? FlowUnitMath.effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex], _PPM_SCALE)
+                : 0;
+            if (oldAllocated == newAllocated) continue;
+
+            address budget = _budgetByRecipient[step.recipientId];
+            if (budget == address(0)) continue;
+            _recordDelta(buckets, budget, oldAllocated, newAllocated);
+        }
+
+        return _mergeBuckets(buckets);
+    }
+
+    function _initBuckets(uint256 maxCount) private pure returns (DeltaBuckets memory buckets) {
+        buckets.decreases = new address[](maxCount);
+        buckets.increases = new address[](maxCount);
+    }
+
+    function _assertStrictMergedOrder(bytes32 recipientId, MergeOrderState memory orderState) private pure {
+        if (orderState.hasLastRecipientId && recipientId <= orderState.lastRecipientId) {
+            revert NOT_SORTED_OR_DUPLICATE();
+        }
+    }
+
+    function _recordDelta(DeltaBuckets memory buckets, address budget, uint256 oldAllocated, uint256 newAllocated)
+        private
+        pure
+    {
+        if (newAllocated < oldAllocated) {
+            buckets.decreases[buckets.decreaseCount] = budget;
+            unchecked {
+                ++buckets.decreaseCount;
+            }
+        } else {
+            buckets.increases[buckets.increaseCount] = budget;
+            unchecked {
+                ++buckets.increaseCount;
+            }
+        }
+    }
+
+    function _mergeBuckets(DeltaBuckets memory buckets) private pure returns (address[] memory changedBudgetTreasuries) {
+        uint256 totalCount = buckets.decreaseCount + buckets.increaseCount;
+        changedBudgetTreasuries = new address[](totalCount);
+        for (uint256 i = 0; i < buckets.decreaseCount; ) {
+            changedBudgetTreasuries[i] = buckets.decreases[i];
+            unchecked {
+                ++i;
+            }
+        }
+        for (uint256 i = 0; i < buckets.increaseCount; ) {
+            changedBudgetTreasuries[buckets.decreaseCount + i] = buckets.increases[i];
+            unchecked {
+                ++i;
+            }
+        }
     }
 }

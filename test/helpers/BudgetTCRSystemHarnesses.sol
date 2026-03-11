@@ -214,6 +214,7 @@ contract BudgetTCRGoalFlowHarness {
     mapping(bytes32 => RecipientInfo) public recipients;
     mapping(address => uint256) private _activeRecipientRefs;
     mapping(address => int96) private _memberFlowRates;
+    mapping(address => uint256) private _totalReceivedByMember;
 
     constructor(address owner_, address recipientAdmin_, address managerRewardPool_, ISuperToken superToken_) {
         _owner = owner_;
@@ -257,6 +258,15 @@ contract BudgetTCRGoalFlowHarness {
 
     function getMemberFlowRate(address member) external view returns (int96 flowRate) {
         flowRate = _memberFlowRates[member];
+    }
+
+    function setTotalReceivedByMember(address member, uint256 amount) external virtual {
+        if (msg.sender != _owner && msg.sender != _recipientAdmin) revert NOT_OWNER_OR_RECIPIENT_ADMIN();
+        _totalReceivedByMember[member] = amount;
+    }
+
+    function getTotalReceivedByMember(address member) external view virtual returns (uint256 totalReceived) {
+        return _totalReceivedByMember[member];
     }
 
     function recipientExists(address recipient) external view returns (bool exists) {

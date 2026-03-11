@@ -34,6 +34,18 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         uint64 activatedAt;
     }
 
+    struct BudgetDeltaBuckets {
+        address[] decreases;
+        address[] increases;
+        uint256 decreaseCount;
+        uint256 increaseCount;
+    }
+
+    struct MergeOrderState {
+        bytes32 lastRecipientId;
+        bool hasLastRecipientId;
+    }
+
     address public override goalTreasury;
 
     mapping(address => mapping(address => UserBudgetCheckpoint)) private _userBudgetCheckpoints;
@@ -100,8 +112,8 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         uint256 newWeight,
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
-    ) external override onlyGoalFlowOrPipeline {
-        if (IGoalTreasury(goalTreasury).resolved()) return;
+    ) external override onlyGoalFlowOrPipeline returns (address[] memory changedBudgetTreasuries) {
+        if (IGoalTreasury(goalTreasury).resolved()) return new address[](0);
         if (account == address(0)) revert ADDRESS_ZERO();
         if (prevRecipientIds.length != prevAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
         if (newRecipientIds.length != newAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
@@ -112,7 +124,7 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
                 SafeCast.toUint224(newWeight)
             );
         }
-        _checkpointAllocationCalldata(
+        changedBudgetTreasuries = _checkpointAllocationCalldata(
             account,
             prevWeight,
             prevRecipientIds,
@@ -122,6 +134,30 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
             newAllocationPpm,
             uint64(block.timestamp)
         );
+    }
+
+    function previewChangedBudgetTreasuries(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) external view override returns (address[] memory changedBudgetTreasuries) {
+        if (IGoalTreasury(goalTreasury).resolved()) return new address[](0);
+        if (prevRecipientIds.length != prevAllocationPpm.length) {
+            revert INVALID_CHECKPOINT_DATA();
+        }
+        if (newRecipientIds.length != newAllocationPpm.length) revert INVALID_CHECKPOINT_DATA();
+        return
+            _previewChangedBudgetTreasuriesCalldata(
+                prevWeight,
+                prevRecipientIds,
+                prevAllocationPpm,
+                newWeight,
+                newRecipientIds,
+                newAllocationPpm
+            );
     }
 
     function registerBudget(bytes32 recipientId, address budget) external override onlyBudgetRegistryManager {
@@ -297,9 +333,11 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm,
         uint64 nowTs
-    ) internal {
-        uint256 oldLen = prevRecipientIds.length;
-        uint256 newLen = newRecipientIds.length;
+    ) internal returns (address[] memory changedBudgetTreasuries) {
+        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) return new address[](0);
+
+        BudgetDeltaBuckets memory buckets = _initBudgetDeltaBuckets(prevRecipientIds.length + newRecipientIds.length);
+        MergeOrderState memory orderState;
 
         (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
             prevRecipientIds,
@@ -307,12 +345,15 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
             SortedRecipientMerge.Precondition.AssumeSorted
         );
 
-        while (SortedRecipientMerge.hasNext(mergeCursor, oldLen, newLen)) {
+        while (SortedRecipientMerge.hasNext(mergeCursor, prevRecipientIds.length, newRecipientIds.length)) {
             (
                 SortedRecipientMerge.Step memory step,
                 SortedRecipientMerge.Cursor memory nextCursor
             ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
             mergeCursor = nextCursor;
+            _assertStrictMergedOrder(step.recipientId, orderState);
+            orderState.lastRecipientId = step.recipientId;
+            orderState.hasLastRecipientId = true;
 
             address budget = _budgetByRecipientId[step.recipientId];
             if (budget == address(0)) continue;
@@ -326,6 +367,105 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
             if (oldAllocated == newAllocated) continue;
 
             _checkpointBudgetAllocation(account, budget, oldAllocated, newAllocated, nowTs);
+            _recordBudgetDelta(buckets, budget, oldAllocated, newAllocated);
+        }
+
+        return _mergeBudgetDeltaBuckets(buckets);
+    }
+
+    function _previewChangedBudgetTreasuriesCalldata(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) internal view returns (address[] memory changedBudgetTreasuries) {
+        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) {
+            return new address[](0);
+        }
+
+        BudgetDeltaBuckets memory buckets = _initBudgetDeltaBuckets(prevRecipientIds.length + newRecipientIds.length);
+        MergeOrderState memory orderState;
+
+        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
+            prevRecipientIds,
+            newRecipientIds,
+            SortedRecipientMerge.Precondition.AssumeSorted
+        );
+
+        while (SortedRecipientMerge.hasNext(mergeCursor, prevRecipientIds.length, newRecipientIds.length)) {
+            (
+                SortedRecipientMerge.Step memory step,
+                SortedRecipientMerge.Cursor memory nextCursor
+            ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            mergeCursor = nextCursor;
+            _assertStrictMergedOrder(step.recipientId, orderState);
+            orderState.lastRecipientId = step.recipientId;
+            orderState.hasLastRecipientId = true;
+
+            uint256 oldAllocated = step.hasOld
+                ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex])
+                : 0;
+            uint256 newAllocated = step.hasNew
+                ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex])
+                : 0;
+            if (oldAllocated == newAllocated) continue;
+
+            address budget = _budgetByRecipientId[step.recipientId];
+            if (budget == address(0)) continue;
+            _recordBudgetDelta(buckets, budget, oldAllocated, newAllocated);
+        }
+
+        return _mergeBudgetDeltaBuckets(buckets);
+    }
+
+    function _initBudgetDeltaBuckets(uint256 maxCount) internal pure returns (BudgetDeltaBuckets memory buckets) {
+        buckets.decreases = new address[](maxCount);
+        buckets.increases = new address[](maxCount);
+    }
+
+    function _assertStrictMergedOrder(bytes32 recipientId, MergeOrderState memory orderState) internal pure {
+        if (orderState.hasLastRecipientId && recipientId <= orderState.lastRecipientId) {
+            revert NOT_SORTED_OR_DUPLICATE();
+        }
+    }
+
+    function _recordBudgetDelta(
+        BudgetDeltaBuckets memory buckets,
+        address budget,
+        uint256 oldAllocated,
+        uint256 newAllocated
+    ) internal pure {
+        if (newAllocated < oldAllocated) {
+            buckets.decreases[buckets.decreaseCount] = budget;
+            unchecked {
+                ++buckets.decreaseCount;
+            }
+        } else {
+            buckets.increases[buckets.increaseCount] = budget;
+            unchecked {
+                ++buckets.increaseCount;
+            }
+        }
+    }
+
+    function _mergeBudgetDeltaBuckets(
+        BudgetDeltaBuckets memory buckets
+    ) internal pure returns (address[] memory changedBudgetTreasuries) {
+        uint256 totalCount = buckets.decreaseCount + buckets.increaseCount;
+        changedBudgetTreasuries = new address[](totalCount);
+        for (uint256 i = 0; i < buckets.decreaseCount; ) {
+            changedBudgetTreasuries[i] = buckets.decreases[i];
+            unchecked {
+                ++i;
+            }
+        }
+        for (uint256 i = 0; i < buckets.increaseCount; ) {
+            changedBudgetTreasuries[buckets.decreaseCount + i] = buckets.increases[i];
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -354,32 +494,67 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
     ) internal view returns (uint64 activatedAt) {
         if (budget.code.length == 0) revert INVALID_BUDGET_NOT_CONTRACT(budget);
 
+        address goalFlow = _requireGoalFlow();
+        address topologyRegistry;
+        try IFlow(goalFlow).recipientAdmin() returns (address topologyRegistry_) {
+            topologyRegistry = topologyRegistry_;
+        } catch {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyRegistryRead);
+        }
+        if (topologyRegistry.code.length == 0) {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyRegistry);
+        }
+
+        IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
+        address treasuryAuthority;
+        try budgetTreasury.authority() returns (address authority_) {
+            treasuryAuthority = authority_;
+        } catch {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TreasuryAuthorityRead);
+        }
+        if (treasuryAuthority != topologyRegistry) {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TreasuryAuthorityMismatch);
+        }
+
         IBudgetStackTopologyReader.BudgetStackTopology memory topology;
         bool active;
-        try IBudgetStackTopologyReader(msg.sender).budgetStackTopology(recipientId) returns (
+        try IBudgetStackTopologyReader(topologyRegistry).budgetStackTopologyForBudgetTreasury(budget) returns (
             IBudgetStackTopologyReader.BudgetStackTopology memory topology_,
             bool active_
         ) {
             topology = topology_;
             active = active_;
         } catch {
-            revert INVALID_BUDGET_TOPOLOGY(budget);
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyLookup);
         }
 
-        if (!active) revert INVALID_BUDGET_TOPOLOGY(budget);
-        if (topology.budgetTreasury != budget) revert INVALID_BUDGET_TOPOLOGY(budget);
+        bytes32 topologyRecipientId;
+        try IBudgetStackTopologyReader(topologyRegistry).itemIdForBudgetTreasury(budget) returns (bytes32 itemId_) {
+            topologyRecipientId = itemId_;
+        } catch {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyRecipientIdLookup);
+        }
+
+        if (!active) revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyInactive);
+        if (topologyRecipientId != recipientId) {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyRecipientIdMismatch);
+        }
+        if (topology.budgetTreasury != budget) {
+            revert INVALID_BUDGET_TOPOLOGY(
+                budget,
+                IBudgetStakeLedger.BudgetTopologyProbe.TopologyBudgetTreasuryMismatch
+            );
+        }
         if (topology.childFlow == address(0) || topology.childFlow.code.length == 0) {
-            revert INVALID_BUDGET_TOPOLOGY(budget);
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyChildFlow);
         }
         if (topology.strategy == address(0) || topology.strategy.code.length == 0) {
-            revert INVALID_BUDGET_TOPOLOGY(budget);
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyStrategy);
         }
-
-        address goalFlow = _requireGoalFlow();
-
-        IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
         address budgetFlow = _readBudgetFlow(budgetTreasury, budget);
-        if (budgetFlow != topology.childFlow) revert INVALID_BUDGET_TOPOLOGY(budget);
+        if (budgetFlow != topology.childFlow) {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.TopologyChildFlowMismatch);
+        }
         _requireBudgetFlowParent(goalFlow, budgetFlow);
         _requireChildFlowUsesExpectedStrategy(budgetFlow, topology.strategy, budget);
 
@@ -426,9 +601,11 @@ contract BudgetStakeLedger is IBudgetStakeLedger, Initializable {
         try IFlow(childFlow).strategy() returns (IAllocationStrategy strategy_) {
             configuredStrategy = address(strategy_);
         } catch {
-            revert INVALID_BUDGET_TOPOLOGY(budget);
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.ChildFlowStrategyRead);
         }
-        if (configuredStrategy != expectedStrategy) revert INVALID_BUDGET_TOPOLOGY(budget);
+        if (configuredStrategy != expectedStrategy) {
+            revert INVALID_BUDGET_TOPOLOGY(budget, IBudgetStakeLedger.BudgetTopologyProbe.ChildFlowStrategyMismatch);
+        }
     }
 
     function _readExecutionDuration(

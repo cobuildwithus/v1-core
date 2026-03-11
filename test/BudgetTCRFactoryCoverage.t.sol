@@ -19,6 +19,7 @@ import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { ISubmissionDepositStrategy } from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
+import { ISubmissionDepositStrategyCapabilities } from "src/tcr/interfaces/ISubmissionDepositStrategyCapabilities.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IArbitrable } from "src/tcr/interfaces/IArbitrable.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
@@ -151,7 +152,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
 
         BudgetTCRFactory factory = _realFactory();
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
-            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
+            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new ManualDepositCapabilityStrategy()))
         );
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -175,7 +176,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
 
         BudgetTCRFactory factory = _realFactory();
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
-            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
+            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new ManualDepositCapabilityStrategy()))
         );
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -400,13 +401,23 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
     }
 }
 
-contract WrongRecipientEscrowDetectionStrategy is ISubmissionDepositStrategy {
+contract ManualDepositCapabilityStrategy is ISubmissionDepositStrategyCapabilities {
+    function supportsEscrowBonding() external pure returns (bool) {
+        return false;
+    }
+}
+
+contract WrongRecipientEscrowDetectionStrategy is ISubmissionDepositStrategy, ISubmissionDepositStrategyCapabilities {
     IERC20 internal immutable _token;
     address internal immutable _wrongRecipient;
 
     constructor(IERC20 token_, address wrongRecipient_) {
         _token = token_;
         _wrongRecipient = wrongRecipient_;
+    }
+
+    function supportsEscrowBonding() external pure returns (bool) {
+        return false;
     }
 
     function token() external view returns (IERC20) {
@@ -439,11 +450,15 @@ contract WrongRecipientEscrowDetectionStrategy is ISubmissionDepositStrategy {
     }
 }
 
-contract RevertingDepositStrategy is ISubmissionDepositStrategy {
+contract RevertingDepositStrategy is ISubmissionDepositStrategy, ISubmissionDepositStrategyCapabilities {
     IERC20 internal immutable _token;
 
     constructor(IERC20 token_) {
         _token = token_;
+    }
+
+    function supportsEscrowBonding() external pure returns (bool) {
+        return false;
     }
 
     function token() external view returns (IERC20) {

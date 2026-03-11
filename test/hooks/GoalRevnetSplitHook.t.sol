@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import {GoalRevnetSplitHook} from "src/hooks/GoalRevnetSplitHook.sol";
+import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 
-import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBSplitHook } from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
-import { JBSplit } from "@bananapus/core-v5/structs/JBSplit.sol";
-import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
+import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
+import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
+import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
-import { MockFeeOnTransferVotesToken } from "test/mocks/MockFeeOnTransferVotesToken.sol";
-import { SharedMockUnderlying, SharedMockSuperToken } from "test/goals/helpers/TreasurySharedMocks.sol";
+import {MockFeeOnTransferVotesToken} from "test/mocks/MockFeeOnTransferVotesToken.sol";
+import {SharedMockUnderlying, SharedMockSuperToken} from "test/goals/helpers/TreasurySharedMocks.sol";
 
 contract GoalRevnetSplitHookTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 77;
@@ -26,10 +25,7 @@ contract GoalRevnetSplitHookTest is Test {
     address internal constant BURN_SINK = address(0xB001);
 
     event GoalSuccessSettlementProcessed(
-        uint256 indexed projectId,
-        address indexed sourceToken,
-        uint256 sourceAmount,
-        uint256 burnAmount
+        uint256 indexed projectId, address indexed sourceToken, uint256 sourceAmount, uint256 burnAmount
     );
 
     address internal controller = makeAddr("controller");
@@ -46,14 +42,10 @@ contract GoalRevnetSplitHookTest is Test {
         superToken = new SharedMockSuperToken(address(underlyingToken));
         directory = new GoalRevnetSplitHookMockDirectory();
         flow = new GoalRevnetSplitHookMockFlow(ISuperToken(address(superToken)));
-        goalTreasury = new GoalRevnetSplitHookTreasuryHarness(underlyingToken, superToken, FLOW_SINK, BURN_SINK);
+        goalTreasury =
+            new GoalRevnetSplitHookTreasuryHarness(underlyingToken, superToken, address(flow), FLOW_SINK, BURN_SINK);
 
-        hook = _deployHook(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(goalTreasury)),
-            IFlow(address(flow)),
-            GOAL_REVNET_ID
-        );
+        hook = _deployHook(IJBDirectory(address(directory)), IGoalTreasury(address(goalTreasury)), GOAL_REVNET_ID);
         goalTreasury.setHook(address(hook));
 
         directory.setController(GOAL_REVNET_ID, controller);
@@ -124,19 +116,56 @@ contract GoalRevnetSplitHookTest is Test {
         assertEq(uint256(goalTreasury.lastAction()), uint256(IGoalTreasury.HookSplitAction.TerminalSettled));
     }
 
+    function test_initialize_revertsWhenGoalTreasurySuperTokenIsZero() public {
+        GoalRevnetSplitHookMockTreasury zeroSuperTokenTreasury =
+            new GoalRevnetSplitHookMockTreasury(address(flow), ISuperToken(address(0)));
+        GoalRevnetSplitHook implementation = new GoalRevnetSplitHook();
+        GoalRevnetSplitHook deployedHook = GoalRevnetSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(GoalRevnetSplitHook.ADDRESS_ZERO.selector);
+        deployedHook.initialize(
+            IJBDirectory(address(directory)), IGoalTreasury(address(zeroSuperTokenTreasury)), GOAL_REVNET_ID
+        );
+    }
+
+    function test_initialize_revertsWhenGoalTreasurySuperTokenIsNotContract() public {
+        address nonContractSuperToken = makeAddr("nonContractSuperToken");
+        GoalRevnetSplitHookMockTreasury nonContractSuperTokenTreasury =
+            new GoalRevnetSplitHookMockTreasury(address(flow), ISuperToken(nonContractSuperToken));
+        GoalRevnetSplitHook implementation = new GoalRevnetSplitHook();
+        GoalRevnetSplitHook deployedHook = GoalRevnetSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalRevnetSplitHook.NOT_A_CONTRACT.selector, nonContractSuperToken)
+        );
+        deployedHook.initialize(
+            IJBDirectory(address(directory)), IGoalTreasury(address(nonContractSuperTokenTreasury)), GOAL_REVNET_ID
+        );
+    }
+
+    function test_initialize_revertsWhenGoalTreasurySuperTokenUnderlyingTokenIsZero() public {
+        SharedMockSuperToken zeroUnderlyingSuperToken = new SharedMockSuperToken(address(0));
+        GoalRevnetSplitHookMockTreasury zeroUnderlyingTreasury =
+            new GoalRevnetSplitHookMockTreasury(address(flow), ISuperToken(address(zeroUnderlyingSuperToken)));
+        GoalRevnetSplitHook implementation = new GoalRevnetSplitHook();
+        GoalRevnetSplitHook deployedHook = GoalRevnetSplitHook(payable(Clones.clone(address(implementation))));
+
+        vm.expectRevert(GoalRevnetSplitHook.ADDRESS_ZERO.selector);
+        deployedHook.initialize(
+            IJBDirectory(address(directory)), IGoalTreasury(address(zeroUnderlyingTreasury)), GOAL_REVNET_ID
+        );
+    }
+
     function test_processSplitWith_revertsWhenFeeTokenDeliversLessToTreasury() public {
         MockFeeOnTransferVotesToken feeToken =
             new MockFeeOnTransferVotesToken("Fee", "FEE", 100, makeAddr("feeRecipient"));
         SharedMockSuperToken feeSuperToken = new SharedMockSuperToken(address(feeToken));
         GoalRevnetSplitHookMockFlow feeFlow = new GoalRevnetSplitHookMockFlow(ISuperToken(address(feeSuperToken)));
-        GoalRevnetSplitHookMockTreasury feeTreasury = new GoalRevnetSplitHookMockTreasury();
+        GoalRevnetSplitHookMockTreasury feeTreasury =
+            new GoalRevnetSplitHookMockTreasury(address(feeFlow), ISuperToken(address(feeSuperToken)));
 
-        GoalRevnetSplitHook feeHook = _deployHook(
-            IJBDirectory(address(directory)),
-            IGoalTreasury(address(feeTreasury)),
-            IFlow(address(feeFlow)),
-            GOAL_REVNET_ID
-        );
+        GoalRevnetSplitHook feeHook =
+            _deployHook(IJBDirectory(address(directory)), IGoalTreasury(address(feeTreasury)), GOAL_REVNET_ID);
 
         uint256 amount = 100e18;
         uint256 expectedReceived = amount - ((amount * 100) / 10_000);
@@ -152,15 +181,13 @@ contract GoalRevnetSplitHookTest is Test {
         assertEq(feeTreasury.processHookSplitCallCount(), 0);
     }
 
-    function _deployHook(
-        IJBDirectory directory_,
-        IGoalTreasury goalTreasury_,
-        IFlow flow_,
-        uint256 goalRevnetId_
-    ) internal returns (GoalRevnetSplitHook deployedHook) {
+    function _deployHook(IJBDirectory directory_, IGoalTreasury goalTreasury_, uint256 goalRevnetId_)
+        internal
+        returns (GoalRevnetSplitHook deployedHook)
+    {
         GoalRevnetSplitHook implementation = new GoalRevnetSplitHook();
         deployedHook = GoalRevnetSplitHook(payable(Clones.clone(address(implementation))));
-        deployedHook.initialize(directory_, goalTreasury_, flow_, goalRevnetId_);
+        deployedHook.initialize(directory_, goalTreasury_, goalRevnetId_);
     }
 
     function _context(address token, uint256 amount) internal pure returns (JBSplitHookContext memory context) {
@@ -202,7 +229,7 @@ contract GoalRevnetSplitHookMockFlow {
     }
 
     function superToken() external view returns (ISuperToken) {
-        return _superToken;
+        return ISuperToken(address(_superToken));
     }
 }
 
@@ -212,6 +239,7 @@ contract GoalRevnetSplitHookTreasuryHarness {
 
     IERC20 private immutable _underlyingToken;
     SharedMockSuperToken private immutable _superToken;
+    address private immutable _flow;
     address private immutable _flowSink;
     address private immutable _burnSink;
     address private _hook;
@@ -229,12 +257,27 @@ contract GoalRevnetSplitHookTreasuryHarness {
     uint256 public lastSourceAmount;
     IGoalTreasury.HookSplitAction public lastAction;
 
-    constructor(IERC20 underlyingToken_, SharedMockSuperToken superToken_, address flowSink_, address burnSink_) {
+    constructor(
+        IERC20 underlyingToken_,
+        SharedMockSuperToken superToken_,
+        address flow_,
+        address flowSink_,
+        address burnSink_
+    ) {
         _underlyingToken = underlyingToken_;
         _superToken = superToken_;
+        _flow = flow_;
         _flowSink = flowSink_;
         _burnSink = burnSink_;
         _mintingOpen = true;
+    }
+
+    function flow() external view returns (address) {
+        return _flow;
+    }
+
+    function superToken() external view returns (ISuperToken) {
+        return ISuperToken(address(_superToken));
     }
 
     function setHook(address hook_) external {
@@ -257,10 +300,10 @@ contract GoalRevnetSplitHookTreasuryHarness {
         _mintingOpen = mintingOpen_;
     }
 
-    function processHookSplit(
-        address sourceToken,
-        uint256 sourceAmount
-    ) external returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) {
+    function processHookSplit(address sourceToken, uint256 sourceAmount)
+        external
+        returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
+    {
         if (msg.sender != _hook) revert ONLY_HOOK();
         if (sourceToken != address(_underlyingToken)) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
 
@@ -327,12 +370,27 @@ contract GoalRevnetSplitHookTreasuryHarness {
 }
 
 contract GoalRevnetSplitHookMockTreasury {
+    address private immutable _flow;
+    ISuperToken private immutable _superToken;
     uint256 public processHookSplitCallCount;
 
-    function processHookSplit(
-        address,
-        uint256
-    ) external returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) {
+    constructor(address flow_, ISuperToken superToken_) {
+        _flow = flow_;
+        _superToken = superToken_;
+    }
+
+    function flow() external view returns (address) {
+        return _flow;
+    }
+
+    function superToken() external view returns (ISuperToken) {
+        return _superToken;
+    }
+
+    function processHookSplit(address, uint256)
+        external
+        returns (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount)
+    {
         processHookSplitCallCount += 1;
         return (IGoalTreasury.HookSplitAction.Funded, 0, 0);
     }
