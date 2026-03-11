@@ -201,9 +201,6 @@ contract DeployGoalFactory is DeployScript {
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
         goalPaymentTerminalOut = _resolveAddress("GOAL_PAYMENT_TERMINAL", "$.core.goalPaymentTerminal", address(0));
-        if (goalPaymentTerminalOut == address(0)) {
-            goalPaymentTerminalOut = _resolveAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal", address(0));
-        }
         jbMultiTerminalOut = _resolveAddress(
             "JB_MULTI_TERMINAL", "$.core.jbMultiTerminal", address(0x2dB6d704058E552DeFE415753465df8dF0361846)
         );
