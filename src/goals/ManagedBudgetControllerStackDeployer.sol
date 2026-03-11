@@ -42,7 +42,7 @@ contract ManagedBudgetControllerStackDeployer is IManagedBudgetControllerStackDe
 
         address budgetTreasury = Clones.clone(budgetTreasuryImplementation);
         result = PreparationResult({
-            strategy: address(new BudgetSingleAllocatorStrategy(authority, budgetTreasury, authority)),
+            strategy: address(new BudgetSingleAllocatorStrategy(controller, budgetTreasury, controller)),
             budgetTreasury: budgetTreasury,
             premiumEscrow: Clones.clone(premiumEscrowImplementation)
         });

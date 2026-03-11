@@ -62,6 +62,7 @@ interface IManagedBudgetController is IBudgetController {
         bool terminallyResolved
     );
     event ManagedBudgetWeightsSet(bytes32[] itemIDs, uint32[] ppm);
+    event ManagedBudgetFlowWeightsSet(bytes32 indexed budgetItemID, bytes32[] itemIDs, uint32[] ppm);
 
     function initialize(InitConfig calldata initConfig) external;
 
@@ -91,6 +92,7 @@ interface IManagedBudgetController is IBudgetController {
     function removeBudget(bytes32 itemID) external returns (bool removedFromParent, bool terminallyResolved);
 
     function setBudgetWeights(bytes32[] calldata itemIDs, uint32[] calldata ppm) external;
+    function setBudgetFlowWeights(bytes32 budgetItemID, bytes32[] calldata itemIDs, uint32[] calldata ppm) external;
 
     function transferAuthority(address newAuthority) external;
     function acceptAuthority() external;

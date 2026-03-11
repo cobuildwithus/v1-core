@@ -30,6 +30,7 @@
 - Budget controller / topology registry: `src/goals/ManagedBudgetController.sol`
 - Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses `src/goals/NoopBudgetGatePolicy.sol`)
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
+- Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
 - Premium / risk module: `src/goals/NullPremiumEscrow.sol`
 - Stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass

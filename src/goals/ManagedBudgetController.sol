@@ -273,6 +273,19 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         emit ManagedBudgetWeightsSet(itemIDs, ppm);
     }
 
+    function setBudgetFlowWeights(
+        bytes32 budgetItemID,
+        bytes32[] calldata itemIDs,
+        uint32[] calldata ppm
+    ) external override onlyAuthority nonReentrant {
+        BudgetDeployment storage deployment = _budgetDeployments[budgetItemID];
+        if (deployment.budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
+        if (!deployment.active) revert ITEM_NOT_ACTIVE();
+
+        ICustomFlow(deployment.childFlow).allocate(itemIDs, ppm);
+        emit ManagedBudgetFlowWeightsSet(budgetItemID, itemIDs, ppm);
+    }
+
     function transferAuthority(address newAuthority) external override onlyAuthority {
         if (newAuthority == address(0)) revert ADDRESS_ZERO();
         pendingAuthority = newAuthority;

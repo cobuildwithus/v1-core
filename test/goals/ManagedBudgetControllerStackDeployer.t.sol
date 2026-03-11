@@ -64,9 +64,9 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
         assertTrue(result.premiumEscrow != address(premiumEscrowImplementation));
 
         BudgetSingleAllocatorStrategy strategy = BudgetSingleAllocatorStrategy(result.strategy);
-        assertEq(strategy.owner(), authority);
+        assertEq(strategy.owner(), address(this));
         assertEq(strategy.budgetTreasury(), result.budgetTreasury);
-        assertEq(strategy.allocator(), authority);
+        assertEq(strategy.allocator(), address(this));
     }
 
     function test_prepareBudgetStack_revertsWhenCallerIsNotController() public {

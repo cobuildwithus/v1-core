@@ -57,6 +57,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
 
     IJBDirectory public immutable DIRECTORY;
     IJBTerminalStore public immutable STORE;
+    address public immutable approvedFactory;
 
     mapping(uint256 communityRevnetId => CommunityConfig config) private _communityConfigOf;
 
@@ -84,6 +85,11 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     error ZERO_PAYMENT_OUT();
     error ROUTE_NOT_CONSUMED();
     error NO_CONTROLLER(uint256 communityRevnetId);
+    error UNAUTHORIZED_FACTORY(address expectedFactory, address actualFactory);
+    error INVALID_DIRECT_NATIVE_PAYMENT_SOURCE(
+        uint256 expectedPaymentSourceRevnetId,
+        uint256 actualPaymentSourceRevnetId
+    );
 
     event CommunityRegistered(
         uint256 indexed communityRevnetId,
@@ -95,15 +101,18 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address registrant
     );
 
-    constructor(IJBDirectory directory, IJBTerminalStore store) {
+    constructor(IJBDirectory directory, IJBTerminalStore store, address approvedFactory_) {
         if (address(directory) == address(0)) revert ADDRESS_ZERO();
         if (address(store) == address(0)) revert ADDRESS_ZERO();
         if (address(directory).code.length == 0) revert NOT_A_CONTRACT(address(directory));
         if (address(store).code.length == 0) revert NOT_A_CONTRACT(address(store));
+        if (approvedFactory_ != address(0) && approvedFactory_.code.length == 0)
+            revert NOT_A_CONTRACT(approvedFactory_);
         if (store.DIRECTORY() != directory) revert INVALID_DIRECTORY(address(directory), address(store.DIRECTORY()));
 
         DIRECTORY = directory;
         STORE = store;
+        approvedFactory = approvedFactory_;
     }
 
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
@@ -191,6 +200,27 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         );
     }
 
+    function registerCommunityFromFactory(
+        address registrant,
+        uint256 communityRevnetId,
+        ICobuildSplitHook splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed
+    ) external {
+        address factory = approvedFactory;
+        if (msg.sender != factory) revert UNAUTHORIZED_FACTORY(factory, msg.sender);
+
+        _registerCommunity(
+            registrant,
+            communityRevnetId,
+            splitHook,
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed
+        );
+    }
+
     function registrationDigestOf(
         address registrant,
         uint256 communityRevnetId,
@@ -251,6 +281,9 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         _requireSplitHookConfiguration(splitHook, communityRevnetId);
         _requireLiveReservedSplitHook(splitHook, communityRevnetId);
         _requireCanonicalCommunityTerminals(communityRevnetId, paymentToken);
+        if (directNativeAllowed && paymentSourceRevnetId != communityRevnetId) {
+            revert INVALID_DIRECT_NATIVE_PAYMENT_SOURCE(communityRevnetId, paymentSourceRevnetId);
+        }
         _requirePaymentSource(paymentSourceRevnetId, paymentToken, !directNativeAllowed);
 
         _communityConfigOf[communityRevnetId] = CommunityConfig({

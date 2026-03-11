@@ -74,7 +74,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - initializes the hook with the shared terminal as the fixed `routeSetter`,
     - fail-closes registration unless the community revnet's live reserved-token split group already contains exactly one nonzero split whose `hook` is that same predicted address for the current ruleset,
     - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
-    - completes same-transaction community registration on that terminal via an owner-signed registration payload.
+    - completes same-transaction community registration on that terminal through the terminal's approved-factory path instead of requiring a redundant second owner signature.
   - `CobuildCommunityTerminal` optionally decodes community pay metadata as
     `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`,
     seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, forwards `jbMetadata` unchanged
@@ -82,6 +82,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     synchronously flushes reserved-token splits through the community controller when that pay created reserved tokens.
   - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
     payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
+  - If `directNativeAllowed`, community registration must pin `paymentSourceRevnetId == communityRevnetId`.
   - Community registration must also prove on-chain that the current reserved-token split group will call the registered
     hook by requiring exactly one live nonzero split whose `hook` matches the registered split hook.
   - Registered communities must point both their native ETH terminal and registered payment-token terminal at the shared

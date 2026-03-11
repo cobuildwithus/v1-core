@@ -363,7 +363,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
     function test_sharedTerminal_childNativePay_canUseRootCommunityAsSelfSource() public {
         CobuildCommunityTerminal sharedTerminal =
-            new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)));
+            new CobuildCommunityTerminal(
+                IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)), address(0)
+            );
 
         GoalDeploymentRegistry rootDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
         (uint256 rootRevnetId, MockVotesToken rootToken) =
@@ -592,7 +594,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         (fixture.communityRevnetId, fixture.communityToken) =
             controller.createProject(multisig, reservedPercent, "Wrapper Community", "WCOMM");
         fixture.wrapper =
-            new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)));
+            new CobuildCommunityTerminal(
+                IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)), address(0)
+            );
         fixture.communityTerminal =
             new AsyncCommunityTerminal(controller, fixture.communityRevnetId, fixture.communityToken);
         directory.setPrimaryTerminalOf(

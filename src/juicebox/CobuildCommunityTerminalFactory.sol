@@ -17,7 +17,6 @@ contract CobuildCommunityTerminalFactory {
     error ROUTE_SETTER_HAS_NO_CODE(address routeSetter);
     error SPLIT_HOOK_ALREADY_DEPLOYED(address splitHook);
     error UNAUTHORIZED(address expected, address actual);
-    error REGISTRATION_SIGNATURE_REQUIRED();
 
     struct DeployConfig {
         ICommunityGoalRegistry goalRegistry;
@@ -26,8 +25,6 @@ contract CobuildCommunityTerminalFactory {
         address paymentToken;
         uint256 paymentSourceRevnetId;
         bool directNativeAllowed;
-        uint256 registrationDeadline;
-        bytes registrationSignature;
     }
 
     event CommunitySplitHookDeployed(
@@ -67,7 +64,6 @@ contract CobuildCommunityTerminalFactory {
         if (goalRegistryAddress.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(goalRegistryAddress);
         if (routeSetter == address(0)) revert ADDRESS_ZERO();
         if (routeSetter.code.length == 0) revert ROUTE_SETTER_HAS_NO_CODE(routeSetter);
-        if (config.registrationSignature.length == 0) revert REGISTRATION_SIGNATURE_REQUIRED();
 
         uint256 communityRevnetId = goalRegistry.communityRevnetId();
         address projectOwner = goalRegistry.directory().PROJECTS().ownerOf(communityRevnetId);
@@ -89,15 +85,13 @@ contract CobuildCommunityTerminalFactory {
             goalRegistry
         );
 
-        sharedTerminal.registerCommunityWithSignature(
+        sharedTerminal.registerCommunityFromFactory(
             msg.sender,
             communityRevnetId,
             ICobuildSplitHook(splitHook),
             config.paymentToken,
             config.paymentSourceRevnetId,
-            config.directNativeAllowed,
-            config.registrationDeadline,
-            config.registrationSignature
+            config.directNativeAllowed
         );
 
         emit CommunitySplitHookDeployed(

@@ -31,7 +31,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
     address internal safe = makeAddr("safe");
     address internal newSafe = makeAddr("new-safe");
-    address internal strategyOwner = makeAddr("strategy-owner");
     address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
     address internal underwriterSlasherRouter = makeAddr("underwriter-slasher-router");
 
@@ -58,7 +57,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         stackDeployer = new ManagedBudgetControllerMockStackDeployer();
         spendPolicy = new ManagedBudgetControllerMockSpendPolicy();
 
-        goalStrategy = new SingleAllocatorStrategy(strategyOwner, address(goalTreasury), address(controller));
+        goalStrategy = new SingleAllocatorStrategy(address(controller), address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
             address(
                 _deployFlowWithConfigAndRoles(
@@ -170,6 +169,43 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         vm.expectRevert(IManagedBudgetController.INVALID_ITEM_ID.selector);
         vm.prank(safe);
         controller.createBudget(bytes32(0), _defaultBudgetConfig("Budget Zero"));
+    }
+
+    function test_setBudgetFlowWeights_revertsWhenCallerIsNotAuthority() public {
+        bytes32 itemID = bytes32(uint256(1));
+        _createBudget(itemID, "Budget A");
+
+        bytes32[] memory childItemIDs = new bytes32[](1);
+        childItemIDs[0] = bytes32(uint256(11));
+
+        uint32[] memory ppm = new uint32[](1);
+        ppm[0] = 1_000_000;
+
+        vm.expectRevert(IManagedBudgetController.ONLY_AUTHORITY.selector);
+        vm.prank(makeAddr("not-authority"));
+        controller.setBudgetFlowWeights(itemID, childItemIDs, ppm);
+    }
+
+    function test_setBudgetFlowWeights_revertsWhenBudgetIsInactive() public {
+        bytes32 itemID = bytes32(uint256(1));
+        (address childFlow, address treasury) = _createBudget(itemID, "Budget A");
+        ManagedBudgetControllerMockBudgetTreasury(treasury).setActivatedAt(uint64(block.timestamp));
+
+        vm.prank(safe);
+        controller.removeBudget(itemID);
+
+        bytes32[] memory childItemIDs = new bytes32[](1);
+        childItemIDs[0] = bytes32(uint256(11));
+
+        uint32[] memory ppm = new uint32[](1);
+        ppm[0] = 1_000_000;
+
+        vm.expectRevert(IManagedBudgetController.ITEM_NOT_ACTIVE.selector);
+        vm.prank(safe);
+        controller.setBudgetFlowWeights(itemID, childItemIDs, ppm);
+
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(controller.itemIdForChildFlow(childFlow), itemID);
     }
 
     function test_safeRotationChangesAuthorityButNotAllocatorIdentity() public {
@@ -377,7 +413,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
     uint256 internal constant SUCCESS_ASSERTION_BOND = 10e18;
 
     address internal safe = address(new ManagedBudgetControllerDummyContract());
-    address internal strategyOwner = makeAddr("strategy-owner");
     address internal budgetSuccessResolver = address(new ManagedBudgetControllerDummyContract());
     address internal underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
 
@@ -405,7 +440,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
             new ManagedBudgetControllerStackDeployer(address(new BudgetTreasury()), address(new NullPremiumEscrow()));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
-        goalStrategy = new SingleAllocatorStrategy(strategyOwner, address(goalTreasury), address(controller));
+        goalStrategy = new SingleAllocatorStrategy(address(controller), address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
             address(
                 _deployFlowWithConfigAndRoles(
@@ -478,14 +513,15 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         uint256 safeKey = childStrategy.allocationKey(safe, bytes(""));
         uint256 controllerKey = childStrategy.allocationKey(address(controller), bytes(""));
 
-        assertEq(childStrategy.owner(), safe);
+        assertEq(childStrategy.owner(), address(controller));
         assertEq(childStrategy.budgetTreasury(), budgetTreasury);
-        assertEq(childStrategy.allocator(), safe);
-        assertEq(childStrategy.currentWeight(childFlow, safeKey), childStrategy.VIRTUAL_WEIGHT());
-        assertEq(childStrategy.currentWeight(address(goalFlow), safeKey), 0);
-        assertTrue(child.canAllocate(safeKey, safe));
-        assertFalse(child.canAllocate(safeKey, address(controller)));
+        assertEq(childStrategy.allocator(), address(controller));
+        assertEq(childStrategy.currentWeight(childFlow, controllerKey), childStrategy.VIRTUAL_WEIGHT());
+        assertEq(childStrategy.currentWeight(childFlow, safeKey), 0);
+        assertEq(childStrategy.currentWeight(address(goalFlow), controllerKey), 0);
+        assertTrue(child.canAllocate(controllerKey, address(controller)));
         assertFalse(child.canAllocate(controllerKey, safe));
+        assertFalse(child.canAllocate(safeKey, safe));
 
         BudgetTreasury treasury = BudgetTreasury(budgetTreasury);
         assertEq(treasury.controller(), address(controller));
@@ -510,6 +546,52 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(premiumEscrow.budgetSlashPpm(), 0);
     }
 
+    function test_authorityRotation_keepsBudgetChildAllocatorIdentityOnControllerAndAllowsChildFlowAllocation() public {
+        bytes32 budgetItemID = bytes32(uint256(1));
+        vm.prank(safe);
+        (address childFlow, ) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+
+        bytes32 childRecipientId = bytes32(uint256(11));
+        vm.prank(safe);
+        TestableCustomFlow(childFlow).addRecipient(
+            childRecipientId, makeAddr("budget-recipient"), _childRecipientMetadata("Budget Recipient")
+        );
+
+        BudgetSingleAllocatorStrategy childStrategy = BudgetSingleAllocatorStrategy(address(ICustomFlow(childFlow).strategy()));
+        uint256 controllerKey = childStrategy.allocationKey(address(controller), bytes(""));
+        uint256 safeKey = childStrategy.allocationKey(safe, bytes(""));
+        address rotatedSafe = makeAddr("rotated-safe");
+        uint256 newSafeKey = childStrategy.allocationKey(rotatedSafe, bytes(""));
+
+        assertEq(childStrategy.owner(), address(controller));
+        assertEq(childStrategy.allocator(), address(controller));
+        assertTrue(ICustomFlow(childFlow).canAllocate(controllerKey, address(controller)));
+        assertFalse(ICustomFlow(childFlow).canAllocate(safeKey, safe));
+
+        vm.prank(safe);
+        controller.transferAuthority(rotatedSafe);
+
+        vm.prank(rotatedSafe);
+        controller.acceptAuthority();
+
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = childRecipientId;
+
+        uint32[] memory ppm = new uint32[](1);
+        ppm[0] = 1_000_000;
+
+        vm.prank(rotatedSafe);
+        controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
+
+        assertEq(
+            IFlow(childFlow).getAllocationCommitment(address(childStrategy), controllerKey),
+            keccak256(abi.encode(recipientIds, ppm))
+        );
+        assertTrue(ICustomFlow(childFlow).canAllocate(controllerKey, address(controller)));
+        assertFalse(ICustomFlow(childFlow).canAllocate(safeKey, safe));
+        assertFalse(ICustomFlow(childFlow).canAllocate(newSafeKey, rotatedSafe));
+    }
+
     function _defaultBudgetConfig(string memory title)
         internal
         view
@@ -528,6 +610,20 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         config.runwayCap = 500e18;
         config.successOracleSpecHash = keccak256(abi.encodePacked(title, "-oracle"));
         config.successAssertionPolicyHash = keccak256(abi.encodePacked(title, "-policy"));
+    }
+
+    function _childRecipientMetadata(string memory title)
+        internal
+        pure
+        returns (FlowTypes.RecipientMetadata memory metadata)
+    {
+        metadata = FlowTypes.RecipientMetadata({
+            title: title,
+            description: string(abi.encodePacked(title, " description")),
+            image: "ipfs://managed-child",
+            tagline: "managed-child",
+            url: "https://managed-child.test"
+        });
     }
 }
 

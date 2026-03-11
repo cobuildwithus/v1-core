@@ -20,7 +20,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 ## Community Root Routing Path
 
 1. A payer routes an evergreen community revnet payment through `CobuildCommunityTerminal`.
-2. `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction through an owner-signed payload.
+2. `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction through the terminal's approved-factory path.
 3. Registration fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook for the current ruleset.
 4. `CommunityGoalRegistry` remains the canonical onchain source of donor-visible goals.
 5. `GoalDeploymentRegistry` remains the canonical onchain source of `goalId -> goalTreasury`.
@@ -62,10 +62,10 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 3. `ManagedBudgetControllerStackDeployer` prepares each managed budget stack with:
    - cloned `BudgetTreasury`
    - cloned `NullPremiumEscrow`
-   - `BudgetSingleAllocatorStrategy`
+   - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
 4. Managed child-flow `recipientAdmin` is the Safe directly in v1.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
-6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`.
+6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`, and authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
 
 ## Budget Lifecycle and Risk Modules
 

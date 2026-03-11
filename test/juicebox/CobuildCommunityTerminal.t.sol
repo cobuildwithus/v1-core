@@ -52,7 +52,7 @@ contract CobuildCommunityTerminalTest is Test {
         sourceTerminal = new CobuildCommunityTerminalMockPaymentSourceTerminal(paymentToken);
         store = new MockTerminalStore(IJBDirectory(address(directory)));
         communityTerminal =
-            new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)));
+            new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(0));
 
         splitHook.setRouteSetter(address(communityTerminal));
         tokens.setTokenOf(PAYMENT_SOURCE_REVNET_ID, address(paymentToken));
@@ -72,6 +72,15 @@ contract CobuildCommunityTerminalTest is Test {
         );
         directory.setPrimaryTerminal(
             COMMUNITY_REVNET_ID, address(paymentToken), IJBTerminal(address(communityTerminal))
+        );
+    }
+
+    function test_constructor_revertsWhenApprovedFactoryIsNotContract() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildCommunityTerminal.NOT_A_CONTRACT.selector, address(0xBEEF))
+        );
+        new CobuildCommunityTerminal(
+            IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(0xBEEF)
         );
     }
 
@@ -97,6 +106,23 @@ contract CobuildCommunityTerminalTest is Test {
         assertEq(storedPaymentSourceRevnetId, PAYMENT_SOURCE_REVNET_ID);
         assertFalse(directNativeAllowed);
         assertTrue(exists);
+    }
+
+    function test_registerCommunity_revertsWhenDirectNativePaymentSourceDoesNotMatchCommunity() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_DIRECT_NATIVE_PAYMENT_SOURCE.selector,
+                COMMUNITY_REVNET_ID,
+                PAYMENT_SOURCE_REVNET_ID
+            )
+        );
+        communityTerminal.registerCommunity(
+            COMMUNITY_REVNET_ID,
+            ICobuildSplitHook(address(splitHook)),
+            address(paymentToken),
+            PAYMENT_SOURCE_REVNET_ID,
+            true
+        );
     }
 
     function test_registerCommunity_revertsWhenCallerIsNotCommunityProjectOwner() public {
@@ -884,7 +910,7 @@ contract CobuildCommunityTerminalTest is Test {
             COMMUNITY_REVNET_ID,
             ICobuildSplitHook(address(splitHook)),
             address(paymentToken),
-            PAYMENT_SOURCE_REVNET_ID,
+            directNativeAllowed ? COMMUNITY_REVNET_ID : PAYMENT_SOURCE_REVNET_ID,
             directNativeAllowed
         );
     }

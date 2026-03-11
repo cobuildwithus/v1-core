@@ -95,7 +95,7 @@ contract CobuildCommunityTerminalFactoryTest is Test {
     }
 
     function test_registerCommunityFromFactory_revertsWhenCallerIsNotApprovedFactory() public {
-        CobuildSplitHook splitHook = new CobuildSplitHook();
+        CobuildSplitHook splitHook = CobuildSplitHook(payable(Clones.clone(address(splitHookImplementation))));
         splitHook.initialize(
             goalRegistry.directory(),
             COMMUNITY_REVNET_ID,

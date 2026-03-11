@@ -88,8 +88,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget controller / topology registry: `ManagedBudgetController`
 - Budget gate policy: current preset wiring uses `NoopBudgetGatePolicy`
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
+- Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: `NullPremiumEscrow`
-- Budget child `recipientAdmin`: Safe-direct in v1
+- Budget child `recipientAdmin`: Safe-direct in v1; the Safe is not the allocator identity
 - No advisory TCR and no managed mechanism controller in this pass
 
 ## Key Interaction Paths
@@ -137,10 +138,11 @@ Community root routing
   - initializes the hook with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
   - requires the live reserved split group to already contain exactly one nonzero split that points at that predicted hook address for the current ruleset,
   - requires deployment orchestration to atomically set the live reserved split to that predicted hook address before calling `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
-  - registers the community on that same terminal in the same transaction via an owner-signed registration payload.
+  - registers the community on that same terminal in the same transaction through the terminal's approved-factory path, so the project owner does not need to supply a redundant second signature.
 - Community payments can arrive through the shared `CobuildCommunityTerminal` only after the community binds immutable
   routing config and points both its native ETH terminal and registered payment-token terminal at that shared terminal.
 - The shared canonical terminal accepts native ETH or the registered community payment token:
+  - if `directNativeAllowed`, registration requires `paymentSourceRevnetId == communityRevnetId`,
   - if `directNativeAllowed`, native ETH is recorded directly on the community revnet through the shared terminal's JB terminal-store path,
   - otherwise native ETH is first paid into the configured `paymentSourceRevnetId` native terminal to acquire the registered payment token,
   - if that upstream native terminal is the same shared terminal, the conversion path stays internal and self-source-safe,
@@ -317,6 +319,7 @@ Community root routing
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
 - Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
 - Managed preset budget creations deploy child flow + budget treasury + `NullPremiumEscrow` stack through `ManagedBudgetControllerStackDeployer` and use per-budget `BudgetSingleAllocatorStrategy`.
+- Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:
   - open preset registry: `BudgetTCR`
   - managed preset registry: `ManagedBudgetController`
