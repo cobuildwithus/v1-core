@@ -362,6 +362,28 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(controller.itemIdForChildFlow(childFlowA), itemA);
     }
 
+    function test_removeBudget_preActivation_usesStrictFailurePathWithoutFailRemovedBudget() public {
+        bytes32 itemID = bytes32(uint256(1));
+        (address childFlow, address treasury) = _createBudget(itemID, "Budget A");
+
+        vm.prank(safe);
+        (bool removedFromParent, bool terminallyResolved) = controller.removeBudget(itemID);
+
+        assertTrue(removedFromParent);
+        assertTrue(terminallyResolved);
+        assertEq(controller.activeBudgetCount(), 0);
+        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(controller.itemIdForChildFlow(childFlow), itemID);
+
+        ManagedBudgetControllerMockBudgetTreasury removedTreasury = ManagedBudgetControllerMockBudgetTreasury(treasury);
+        assertEq(removedTreasury.failRemovedBudgetCallCount(), 0);
+        assertEq(removedTreasury.forceFlowRateToZeroCallCount(), 1);
+        assertEq(removedTreasury.disableSuccessResolutionCallCount(), 1);
+        assertEq(removedTreasury.resolveFailureCallCount(), 1);
+        assertTrue(removedTreasury.resolved());
+    }
+
     function test_terminalBudgetPruningWorksThroughGenericControllerInterface() public {
         bytes32 itemID = bytes32(uint256(1));
         (address childFlow, address treasury) = _createBudget(itemID, "Budget A");
@@ -876,6 +898,7 @@ contract ManagedBudgetControllerMockBudgetTreasury {
     uint256 public forceFlowRateToZeroCallCount;
     uint256 public failRemovedBudgetCallCount;
     uint256 public disableSuccessResolutionCallCount;
+    uint256 public resolveFailureCallCount;
 
     function configure(address controller_, address flow_, address premiumEscrow_) external {
         controller = controller_;
@@ -906,6 +929,11 @@ contract ManagedBudgetControllerMockBudgetTreasury {
 
     function disableSuccessResolution() external {
         disableSuccessResolutionCallCount += 1;
+    }
+
+    function resolveFailure() external {
+        resolveFailureCallCount += 1;
+        resolved = true;
     }
 
     function sync() external {
