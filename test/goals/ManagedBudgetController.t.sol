@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
+import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
@@ -12,6 +13,7 @@ import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {IManagedBudgetControllerStackDeployer} from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
@@ -32,7 +34,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
     address internal safe = makeAddr("safe");
     address internal newSafe = makeAddr("new-safe");
     address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
-    address internal underwriterSlasherRouter = makeAddr("underwriter-slasher-router");
+    address internal underwriterSlasherRouter;
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
@@ -49,6 +51,8 @@ contract ManagedBudgetControllerTest is FlowTestBase {
     function setUp() public override {
         super.setUp();
 
+        underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
+
         ManagedBudgetController controllerImplementation = new ManagedBudgetController();
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
@@ -57,7 +61,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         stackDeployer = new ManagedBudgetControllerMockStackDeployer();
         spendPolicy = new ManagedBudgetControllerMockSpendPolicy();
 
-        goalStrategy = new SingleAllocatorStrategy(address(controller), address(goalTreasury), address(controller));
+        goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
             address(
                 _deployFlowWithConfigAndRoles(
@@ -130,10 +134,10 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(uint8(recipientA.recipientType), uint8(FlowTypes.RecipientType.FlowContract));
         assertEq(uint8(recipientB.recipientType), uint8(FlowTypes.RecipientType.FlowContract));
 
-        assertEq(IFlow(childFlowA).recipientAdmin(), safe);
+        assertEq(IFlow(childFlowA).recipientAdmin(), address(controller));
         assertEq(IFlow(childFlowA).flowOperator(), treasuryA);
         assertEq(IFlow(childFlowA).sweeper(), treasuryA);
-        assertEq(IFlow(childFlowB).recipientAdmin(), safe);
+        assertEq(IFlow(childFlowB).recipientAdmin(), address(controller));
         assertEq(IFlow(childFlowB).flowOperator(), treasuryB);
         assertEq(IFlow(childFlowB).sweeper(), treasuryB);
     }
@@ -239,6 +243,71 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         );
     }
 
+    function test_budgetChildRecipientLifecycle_routesThroughControllerAdmin() public {
+        bytes32 budgetItemID = bytes32(uint256(1));
+        (address childFlow,) = _createBudget(budgetItemID, "Budget A");
+        bytes32 childRecipientId = bytes32(uint256(11));
+        address childRecipient = makeAddr("budget-recipient");
+
+        vm.prank(safe);
+        vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
+        TestableCustomFlow(childFlow)
+            .addRecipient(childRecipientId, childRecipient, _childRecipientMetadata("Budget Recipient"));
+
+        vm.prank(safe);
+        controller.addBudgetFlowRecipient(
+            budgetItemID, childRecipientId, childRecipient, _childRecipientMetadata("Budget Recipient")
+        );
+
+        FlowTypes.FlowRecipient memory recipient = TestableCustomFlow(childFlow).getRecipientById(childRecipientId);
+        assertEq(recipient.recipient, childRecipient);
+        assertFalse(recipient.isRemoved);
+        assertTrue(IFlow(childFlow).isRecipientEnabled(childRecipientId));
+
+        vm.prank(safe);
+        controller.setBudgetFlowRecipientEnabled(budgetItemID, childRecipientId, false);
+        assertFalse(IFlow(childFlow).isRecipientEnabled(childRecipientId));
+
+        vm.prank(safe);
+        controller.removeBudgetFlowRecipient(budgetItemID, childRecipientId);
+        assertTrue(TestableCustomFlow(childFlow).getRecipientById(childRecipientId).isRemoved);
+    }
+
+    function test_budgetChildAdminWrappers_revertWhenBudgetInactive() public {
+        bytes32 budgetItemID = bytes32(uint256(1));
+        (, address treasury) = _createBudget(budgetItemID, "Budget A");
+        bytes32 childRecipientId = bytes32(uint256(11));
+        address childRecipient = makeAddr("budget-recipient");
+
+        vm.prank(safe);
+        controller.addBudgetFlowRecipient(
+            budgetItemID, childRecipientId, childRecipient, _childRecipientMetadata("Budget Recipient")
+        );
+
+        ManagedBudgetControllerMockBudgetTreasury(treasury).setActivatedAt(uint64(block.timestamp));
+
+        vm.prank(safe);
+        controller.removeBudget(budgetItemID);
+
+        vm.startPrank(safe);
+
+        vm.expectRevert(IManagedBudgetController.ITEM_NOT_ACTIVE.selector);
+        controller.addBudgetFlowRecipient(
+            budgetItemID,
+            bytes32(uint256(12)),
+            makeAddr("budget-recipient-2"),
+            _childRecipientMetadata("Budget Recipient 2")
+        );
+
+        vm.expectRevert(IManagedBudgetController.ITEM_NOT_ACTIVE.selector);
+        controller.setBudgetFlowRecipientEnabled(budgetItemID, childRecipientId, false);
+
+        vm.expectRevert(IManagedBudgetController.ITEM_NOT_ACTIVE.selector);
+        controller.removeBudgetFlowRecipient(budgetItemID, childRecipientId);
+
+        vm.stopPrank();
+    }
+
     function test_removeBudget_keepsTopologyDiscoverableAndCompactsActiveSetForLiveBudget() public {
         bytes32 itemA = bytes32(uint256(1));
         bytes32 itemB = bytes32(uint256(2));
@@ -251,7 +320,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         (bool removedFromParent, bool terminallyResolved) = controller.removeBudget(itemA);
 
         assertTrue(removedFromParent);
-        assertFalse(terminallyResolved);
+        assertTrue(terminallyResolved);
 
         assertEq(controller.activeBudgetCount(), 1);
         assertEq(controller.activeBudgetIdAt(0), itemB);
@@ -266,8 +335,10 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertFalse(survivingRecipient.isRemoved);
 
         ManagedBudgetControllerMockBudgetTreasury removedTreasury = ManagedBudgetControllerMockBudgetTreasury(treasuryA);
-        assertEq(removedTreasury.forceFlowRateToZeroCallCount(), 1);
+        assertEq(removedTreasury.failRemovedBudgetCallCount(), 1);
+        assertEq(removedTreasury.forceFlowRateToZeroCallCount(), 0);
         assertEq(removedTreasury.disableSuccessResolutionCallCount(), 0);
+        assertTrue(removedTreasury.resolved());
 
         (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
             controller.budgetStackTopology(itemA);
@@ -404,6 +475,87 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         config.successOracleSpecHash = keccak256(abi.encodePacked(title, "-oracle"));
         config.successAssertionPolicyHash = keccak256(abi.encodePacked(title, "-policy"));
     }
+
+    function _childRecipientMetadata(string memory title)
+        internal
+        pure
+        returns (FlowTypes.RecipientMetadata memory metadata)
+    {
+        metadata = FlowTypes.RecipientMetadata({
+            title: title,
+            description: string(abi.encodePacked(title, " description")),
+            image: "ipfs://managed-child",
+            tagline: "managed-child",
+            url: "https://managed-child.test"
+        });
+    }
+}
+
+contract ManagedBudgetControllerInitializeValidationTest is Test {
+    ManagedBudgetController internal controller;
+    address internal authority = makeAddr("safe");
+    address internal goalTreasury = address(new ManagedBudgetControllerDummyContract());
+    address internal goalFlow = address(new ManagedBudgetControllerDummyContract());
+    address internal budgetAllocationLedger = address(new ManagedBudgetControllerDummyContract());
+    address internal stackDeployer = address(new ManagedBudgetControllerDummyContract());
+    address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
+    address internal budgetSpendPolicy = address(new ManagedBudgetControllerDummyContract());
+    address internal underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
+
+    function setUp() public {
+        ManagedBudgetController implementation = new ManagedBudgetController();
+        controller = ManagedBudgetController(Clones.clone(address(implementation)));
+    }
+
+    function test_initialize_revertsOnZeroBudgetAllocationLedger() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetAllocationLedger = address(0);
+
+        vm.expectRevert(IManagedBudgetController.ADDRESS_ZERO.selector);
+        controller.initialize(config);
+    }
+
+    function test_initialize_revertsOnNonContractBudgetAllocationLedger() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetAllocationLedger = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.NOT_A_CONTRACT.selector, address(0xBEEF)));
+        controller.initialize(config);
+    }
+
+    function test_initialize_revertsOnZeroUnderwriterSlasherRouter() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.underwriterSlasherRouter = address(0);
+
+        vm.expectRevert(IManagedBudgetController.ADDRESS_ZERO.selector);
+        controller.initialize(config);
+    }
+
+    function test_initialize_revertsOnNonContractUnderwriterSlasherRouter() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.underwriterSlasherRouter = address(0xCAFE);
+
+        vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.NOT_A_CONTRACT.selector, address(0xCAFE)));
+        controller.initialize(config);
+    }
+
+    function _baseInitConfig() internal view returns (IManagedBudgetController.InitConfig memory config) {
+        config = IManagedBudgetController.InitConfig({
+            authority: authority,
+            goalTreasury: goalTreasury,
+            goalFlow: goalFlow,
+            budgetAllocationLedger: budgetAllocationLedger,
+            stackDeployer: stackDeployer,
+            budgetGatePolicy: address(0),
+            budgetSuccessResolver: budgetSuccessResolver,
+            budgetSpendPolicy: budgetSpendPolicy,
+            underwriterSlasherRouter: underwriterSlasherRouter,
+            successAssertionLiveness: 1 days,
+            successAssertionBond: 10e18,
+            budgetPremiumPpm: 0,
+            budgetSlashPpm: 0
+        });
+    }
 }
 
 contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUtils {
@@ -440,7 +592,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
             new ManagedBudgetControllerStackDeployer(address(new BudgetTreasury()), address(new NullPremiumEscrow()));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
-        goalStrategy = new SingleAllocatorStrategy(address(controller), address(goalTreasury), address(controller));
+        goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
             address(
                 _deployFlowWithConfigAndRoles(
@@ -504,7 +656,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
         ICustomFlow child = ICustomFlow(childFlow);
         assertEq(child.parent(), address(goalFlow));
-        assertEq(child.recipientAdmin(), safe);
+        assertEq(child.recipientAdmin(), address(controller));
         assertEq(child.flowOperator(), budgetTreasury);
         assertEq(child.sweeper(), budgetTreasury);
         assertEq(address(child.strategy()), topology.strategy);
@@ -546,18 +698,62 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(premiumEscrow.budgetSlashPpm(), 0);
     }
 
+    function test_removeBudget_realStackFailClosesActivatedBudgetAndKeepsSyncTerminal() public {
+        bytes32 itemID = bytes32(uint256(1));
+
+        vm.prank(safe);
+        (address childFlow, address budgetTreasury) = controller.createBudget(itemID, _defaultBudgetConfig("Budget A"));
+
+        BudgetTreasury treasury = BudgetTreasury(budgetTreasury);
+        _mintAndUpgrade(owner, treasury.activationThreshold());
+        vm.prank(owner);
+        superToken.transfer(childFlow, treasury.activationThreshold());
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Active));
+        assertGt(treasury.activatedAt(), 0);
+        assertGt(IFlow(childFlow).targetOutflowRate(), 0);
+
+        vm.prank(safe);
+        (bool removedFromParent, bool terminallyResolved) = controller.removeBudget(itemID);
+
+        assertTrue(removedFromParent);
+        assertTrue(terminallyResolved);
+        assertEq(controller.activeBudgetCount(), 0);
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertTrue(treasury.successResolutionDisabled());
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+
+        _mintAndUpgrade(owner, 50e18);
+        vm.prank(owner);
+        superToken.transfer(childFlow, 50e18);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+    }
+
     function test_authorityRotation_keepsBudgetChildAllocatorIdentityOnControllerAndAllowsChildFlowAllocation() public {
         bytes32 budgetItemID = bytes32(uint256(1));
         vm.prank(safe);
-        (address childFlow, ) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+        (address childFlow,) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
 
         bytes32 childRecipientId = bytes32(uint256(11));
         vm.prank(safe);
-        TestableCustomFlow(childFlow).addRecipient(
-            childRecipientId, makeAddr("budget-recipient"), _childRecipientMetadata("Budget Recipient")
+        vm.expectRevert(IFlow.NOT_RECIPIENT_ADMIN.selector);
+        TestableCustomFlow(childFlow)
+            .addRecipient(childRecipientId, makeAddr("budget-recipient"), _childRecipientMetadata("Budget Recipient"));
+
+        vm.prank(safe);
+        controller.addBudgetFlowRecipient(
+            budgetItemID, childRecipientId, makeAddr("budget-recipient"), _childRecipientMetadata("Budget Recipient")
         );
 
-        BudgetSingleAllocatorStrategy childStrategy = BudgetSingleAllocatorStrategy(address(ICustomFlow(childFlow).strategy()));
+        BudgetSingleAllocatorStrategy childStrategy =
+            BudgetSingleAllocatorStrategy(address(ICustomFlow(childFlow).strategy()));
         uint256 controllerKey = childStrategy.allocationKey(address(controller), bytes(""));
         uint256 safeKey = childStrategy.allocationKey(safe, bytes(""));
         address rotatedSafe = makeAddr("rotated-safe");
@@ -664,6 +860,7 @@ contract ManagedBudgetControllerMockBudgetTreasury {
     bool public shouldRevertSync;
     uint256 public syncCallCount;
     uint256 public forceFlowRateToZeroCallCount;
+    uint256 public failRemovedBudgetCallCount;
     uint256 public disableSuccessResolutionCallCount;
 
     function configure(address controller_, address flow_, address premiumEscrow_) external {
@@ -688,6 +885,11 @@ contract ManagedBudgetControllerMockBudgetTreasury {
         forceFlowRateToZeroCallCount += 1;
     }
 
+    function failRemovedBudget() external {
+        failRemovedBudgetCallCount += 1;
+        resolved = true;
+    }
+
     function disableSuccessResolution() external {
         disableSuccessResolutionCallCount += 1;
     }
@@ -699,7 +901,7 @@ contract ManagedBudgetControllerMockBudgetTreasury {
 }
 
 contract ManagedBudgetControllerMockStackDeployer is IManagedBudgetControllerStackDeployer {
-    function prepareBudgetStack(address, address, address, address, address)
+    function prepareBudgetStack(address, address, address, address)
         external
         override
         returns (PreparationResult memory result)
