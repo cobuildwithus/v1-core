@@ -23,12 +23,12 @@ contract GoalFlowLedgerModeValidationTest is Test {
         strategy = new MockAllocationStrategy();
         stakeVault = new GoalFlowLedgerModeValidationStakeVault();
 
-        strategy.setStakeVault(address(stakeVault));
-
-        harness.setStrategy(address(strategy));
-
         treasury = new GoalFlowLedgerModeValidationGoalTreasury(EXPECTED_FLOW, address(stakeVault));
         ledger = new GoalFlowLedgerModeValidationLedger(address(treasury));
+
+        strategy.setGoalTreasury(address(treasury));
+
+        harness.setStrategy(address(strategy));
     }
 
     function test_validateOrRevertView_succeedsWhenWiringMatches() public {
@@ -70,39 +70,93 @@ contract GoalFlowLedgerModeValidationTest is Test {
             abi.encodeWithSelector(
                 GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
                 address(0),
-                address(stakeVault),
+                address(treasury),
                 address(0)
             )
         );
         harness.validateView(address(ledger), EXPECTED_FLOW);
     }
 
-    function test_validateOrRevertView_revertsWhenStrategyStakeVaultDoesNotMatch() public {
-        strategy.setStakeVault(address(0x1234));
+    function test_validateOrRevertView_revertsWhenStrategyGoalTreasuryDoesNotMatch() public {
+        strategy.setGoalTreasury(address(0x1234));
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
                 address(strategy),
-                address(stakeVault),
+                address(treasury),
                 address(0x1234)
             )
         );
         harness.validateView(address(ledger), EXPECTED_FLOW);
     }
 
-    function test_validateOrRevertView_revertsWhenStrategyMissingStakeVaultCapability() public {
-        GoalFlowLedgerModeValidationNoStakeVaultStrategy noStakeVaultStrategy =
-            new GoalFlowLedgerModeValidationNoStakeVaultStrategy();
+    function test_validateOrRevertView_revertsWhenStrategyMissingGoalTreasuryCapability() public {
+        GoalFlowLedgerModeValidationNoGoalTreasuryStrategy noGoalTreasuryStrategy =
+            new GoalFlowLedgerModeValidationNoGoalTreasuryStrategy();
 
-        harness.setStrategy(address(noStakeVaultStrategy));
+        harness.setStrategy(address(noGoalTreasuryStrategy));
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
-                address(noStakeVaultStrategy),
-                address(stakeVault),
+                address(noGoalTreasuryStrategy),
+                address(treasury),
                 address(0)
+            )
+        );
+        harness.validateView(address(ledger), EXPECTED_FLOW);
+    }
+
+    function test_validateForInitializeView_revertsWhenBootstrapStrategyGoalTreasuryDoesNotMatch() public {
+        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury =
+            new GoalFlowLedgerModeValidationGoalTreasury(address(0), address(0));
+        GoalFlowLedgerModeValidationLedger bootstrapLedger =
+            new GoalFlowLedgerModeValidationLedger(address(bootstrapTreasury));
+
+        strategy.setGoalTreasury(address(0x1234));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(strategy),
+                address(bootstrapTreasury),
+                address(0x1234)
+            )
+        );
+        harness.validateForInitializeView(address(bootstrapLedger), EXPECTED_FLOW);
+    }
+
+    function test_validateForInitializeView_revertsWhenBootstrapStrategyMissingGoalTreasuryCapability() public {
+        GoalFlowLedgerModeValidationGoalTreasury bootstrapTreasury =
+            new GoalFlowLedgerModeValidationGoalTreasury(address(0), address(0));
+        GoalFlowLedgerModeValidationLedger bootstrapLedger =
+            new GoalFlowLedgerModeValidationLedger(address(bootstrapTreasury));
+        GoalFlowLedgerModeValidationNoGoalTreasuryStrategy noGoalTreasuryStrategy =
+            new GoalFlowLedgerModeValidationNoGoalTreasuryStrategy();
+
+        harness.setStrategy(address(noGoalTreasuryStrategy));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(noGoalTreasuryStrategy),
+                address(bootstrapTreasury),
+                address(0)
+            )
+        );
+        harness.validateForInitializeView(address(bootstrapLedger), EXPECTED_FLOW);
+    }
+
+    function test_validateOrRevertView_revertsWhenStrategyAccountResolverDoesNotRoundTrip() public {
+        GoalFlowLedgerModeValidationBadResolverStrategy badResolverStrategy =
+            new GoalFlowLedgerModeValidationBadResolverStrategy(address(treasury));
+
+        harness.setStrategy(address(badResolverStrategy));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER.selector, address(badResolverStrategy)
             )
         );
         harness.validateView(address(ledger), EXPECTED_FLOW);
@@ -110,7 +164,7 @@ contract GoalFlowLedgerModeValidationTest is Test {
 
     function test_validateOrRevert_revalidatesAfterSetStrategiesCacheReset() public {
         harness.validate(address(ledger), EXPECTED_FLOW);
-        strategy.setStakeVault(address(0x1234));
+        strategy.setGoalTreasury(address(0x1234));
 
         harness.setStrategy(address(strategy));
 
@@ -118,7 +172,7 @@ contract GoalFlowLedgerModeValidationTest is Test {
             abi.encodeWithSelector(
                 GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
                 address(strategy),
-                address(stakeVault),
+                address(treasury),
                 address(0x1234)
             )
         );
@@ -151,7 +205,7 @@ contract GoalFlowLedgerModeValidationGoalTreasury {
 
 contract GoalFlowLedgerModeValidationStakeVault {}
 
-contract GoalFlowLedgerModeValidationNoStakeVaultStrategy is IAllocationStrategy {
+contract GoalFlowLedgerModeValidationNoGoalTreasuryStrategy is IAllocationStrategy {
     function allocationKey(address caller, bytes calldata) external pure returns (uint256) {
         return uint256(uint160(caller));
     }
@@ -169,6 +223,34 @@ contract GoalFlowLedgerModeValidationNoStakeVaultStrategy is IAllocationStrategy
     }
 
     function strategyKey() external pure returns (string memory) {
-        return "no-stake-vault";
+        return "no-goal-treasury";
+    }
+}
+
+contract GoalFlowLedgerModeValidationBadResolverStrategy is IAllocationStrategy {
+    address public goalTreasury;
+
+    constructor(address goalTreasury_) {
+        goalTreasury = goalTreasury_;
+    }
+
+    function allocationKey(address caller, bytes calldata) external pure returns (uint256) {
+        return uint256(uint160(caller));
+    }
+
+    function accountForAllocationKey(uint256) external pure returns (address) {
+        return address(0xBEEF);
+    }
+
+    function currentWeight(address, uint256) external pure returns (uint256) {
+        return 1;
+    }
+
+    function canAllocate(address, uint256, address) external pure returns (bool) {
+        return true;
+    }
+
+    function strategyKey() external pure returns (string memory) {
+        return "bad-resolver";
     }
 }

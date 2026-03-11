@@ -16,6 +16,7 @@ import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowLedgerMode} from "src/library/GoalFlowLedgerMode.sol";
 import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
 import {SortedRecipientMerge} from "src/library/SortedRecipientMerge.sol";
+import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
@@ -54,6 +55,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         ledger = new FlowLedgerPropLedger(address(goalTreasury));
 
         strategy.setStakeVault(address(stakeVault));
+        strategy.setGoalTreasury(address(goalTreasury));
         strategy.setCanAllocate(parentKey, allocator, true);
 
         allocationPipeline = new GoalFlowAllocationLedgerPipeline(address(ledger));
@@ -372,6 +374,62 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(ledger.checkpointCallCount(), 2);
         assertEq(premiumEscrow.checkpointCallCount(), 1);
         assertEq(childFlow.syncCallCount(), 0);
+    }
+
+    function test_allocate_withSingleAllocatorStrategy_checkpointsAndSyncsUsingControllerIdentity() public {
+        address controller = makeAddr("managed-controller");
+        address safe = makeAddr("managed-safe");
+
+        FlowLedgerPropStakeVault managedStakeVault = new FlowLedgerPropStakeVault();
+        uint256 nonce = vm.getNonce(address(this));
+        address predictedFlow = vm.computeCreateAddress(address(this), nonce + 4);
+        FlowLedgerPropGoalTreasury managedGoalTreasury =
+            new FlowLedgerPropGoalTreasury(predictedFlow, address(managedStakeVault));
+        FlowLedgerPropLedger managedLedger = new FlowLedgerPropLedger(address(managedGoalTreasury));
+        SingleAllocatorStrategy managedStrategy =
+            new SingleAllocatorStrategy(safe, address(managedGoalTreasury), controller);
+        GoalFlowAllocationLedgerPipeline managedPipeline = new GoalFlowAllocationLedgerPipeline(address(managedLedger));
+
+        ICustomFlow managedFlow = ICustomFlow(
+            address(
+                _deployFlowWithConfig(
+                    owner,
+                    manager,
+                    managerRewardPool,
+                    address(managedPipeline),
+                    address(0),
+                    IAllocationStrategy(address(managedStrategy))
+                )
+            )
+        );
+        assertEq(address(managedFlow), predictedFlow);
+
+        vm.prank(owner);
+        superToken.transfer(address(managedFlow), 500_000e18);
+
+        FlowLedgerPropChildStrategy managedChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow managedChildFlow = new FlowLedgerPropChildFlow(address(managedChildStrategy));
+        FlowLedgerPropPremiumEscrow managedPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropBudgetTreasury managedBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(managedChildFlow), address(managedChildStrategy), address(managedPremiumEscrow)
+        );
+
+        vm.prank(manager);
+        managedFlow.addRecipient(PARENT_BUDGET_RECIPIENT_ID, PARENT_BUDGET_RECIPIENT, recipientMetadata);
+        managedLedger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(managedBudgetTreasury));
+
+        managedChildFlow.setCommit(keccak256("managed-child-commit"));
+
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+        vm.prank(controller);
+        managedFlow.allocate(recipientIds, scaled);
+
+        assertEq(managedLedger.checkpointCallCount(), 1);
+        assertEq(managedPremiumEscrow.checkpointCallCount(), 1);
+        assertEq(managedPremiumEscrow.lastCheckpointAccount(), controller);
+        assertEq(managedChildFlow.syncCallCount(), 1);
+        assertEq(managedChildFlow.lastStrategy(), address(managedChildStrategy));
+        assertEq(managedChildFlow.lastAllocationKey(), uint256(uint160(controller)));
     }
 
     function testFuzz_allocate_changedStake_childCommitZeroDoesNotRequirePrevState(
@@ -788,6 +846,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         BudgetStakeLedger realLedger = new BudgetStakeLedger(address(realGoalTreasury));
 
         strategy.setStakeVault(address(realStakeVault));
+        strategy.setGoalTreasury(address(realGoalTreasury));
         strategy.setCanAllocate(parentKey, allocator, true);
         strategy.setCanAccountAllocate(allocator, true);
 
@@ -968,6 +1027,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         MockAllocationStrategy benchmarkStrategy = new MockAllocationStrategy();
         benchmarkStrategy.setUseAuxAsKey(true);
         benchmarkStrategy.setStakeVault(address(benchmarkStakeVault));
+        benchmarkStrategy.setGoalTreasury(address(benchmarkGoalTreasury));
 
         uint256 benchmarkKey = benchmarkStrategy.allocationKey(allocator, bytes(""));
         benchmarkStrategy.setCanAllocate(benchmarkKey, allocator, true);

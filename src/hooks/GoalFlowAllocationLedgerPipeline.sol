@@ -230,16 +230,13 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         uint256 committedWeight
     ) private returns (address account, uint256 resolvedWeight, bool shouldCheckpoint) {
         GoalFlowLedgerMode.ValidationCache storage cache = _validationCacheByFlow[flow];
-        IAllocationStrategy configuredStrategy;
-        if (cache.validatedLedger != ledger) {
-            configuredStrategy = IFlow(flow).strategy();
-        }
-
         account = _accountForAllocationKey(strategy, allocationKey);
         (resolvedWeight, shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextFromCommittedWeight(
-            configuredStrategy,
+            IAllocationStrategy(strategy),
             cache,
             ledger,
+            account,
+            allocationKey,
             committedWeight,
             flow
         );
@@ -294,17 +291,13 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         if (ledger == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
 
         GoalFlowLedgerMode.ValidationCache storage cache = _validationCacheByFlow[flow];
-        IAllocationStrategy configuredStrategy;
-        if (cache.validatedLedger != ledger) {
-            configuredStrategy = IFlow(flow).strategy();
-        }
-
         address account = _accountForAllocationKey(strategy, allocationKey);
         (uint256 resolvedWeight, bool shouldCheckpoint) = GoalFlowLedgerMode.prepareCheckpointContextView(
-            configuredStrategy,
+            IAllocationStrategy(strategy),
             cache,
             ledger,
             account,
+            allocationKey,
             flow
         );
         if (!shouldCheckpoint) return new ICustomFlow.ChildSyncRequirement[](0);

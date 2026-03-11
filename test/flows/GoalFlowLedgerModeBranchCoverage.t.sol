@@ -27,8 +27,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         treasury = new GoalFlowLedgerModeCoverageGoalTreasury(EXPECTED_FLOW, address(stakeVault));
         ledger = new GoalFlowLedgerModeCoverageLedger(address(treasury));
 
-        strategy.setStakeVault(address(stakeVault));
-        strategy.setKey(uint256(uint160(ACCOUNT)));
+        strategy.setGoalTreasury(address(treasury));
+        strategy.setCurrentWeight(1);
 
         harness.setStrategy(address(strategy));
     }
@@ -48,6 +48,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
             new GoalFlowLedgerModeCoverageGoalTreasury(address(0), address(0));
         GoalFlowLedgerModeCoverageLedger bootstrapLedger =
             new GoalFlowLedgerModeCoverageLedger(address(bootstrapTreasury));
+        strategy.setGoalTreasury(address(bootstrapTreasury));
 
         (address goalTreasury, address resolvedStakeVault) =
             harness.validateForInitializeView(address(bootstrapLedger), EXPECTED_FLOW);
@@ -89,8 +90,8 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
             abi.encodeWithSelector(
                 GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
                 address(strategy),
-                address(stakeVault),
-                address(stakeVault)
+                address(treasury),
+                address(treasury)
             )
         );
         harness.validateForInitializeView(address(ledger), EXPECTED_FLOW);
@@ -125,7 +126,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_prepareCheckpointContextFromCommittedWeight_returnsNoCheckpointWhenLedgerIsZero() public {
         (uint256 resolvedWeight, bool shouldCheckpoint) =
-            harness.prepareCheckpointContextFromCommittedWeight(address(0), 777, EXPECTED_FLOW);
+            harness.prepareCheckpointContextFromCommittedWeight(address(0), ACCOUNT, 777, EXPECTED_FLOW);
         assertEq(resolvedWeight, 0);
         assertFalse(shouldCheckpoint);
     }
@@ -141,7 +142,6 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
 
     function test_prepareCheckpointContext_returnsNoCheckpointWhenTreasuryResolved() public {
         treasury.setResolved(true);
-        stakeVault.setWeight(ACCOUNT, 123);
 
         (uint256 weight, bool shouldCheckpoint) =
             harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
@@ -163,7 +163,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         treasury.setResolved(true);
 
         (uint256 resolvedWeight, bool shouldCheckpoint) =
-            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
         assertEq(resolvedWeight, 0);
         assertFalse(shouldCheckpoint);
     }
@@ -175,13 +175,13 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
         stakeVault.setRevertGoalResolved(true);
 
         (uint256 resolvedWeight, bool shouldCheckpoint) =
-            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
         assertEq(resolvedWeight, 0);
         assertFalse(shouldCheckpoint);
     }
 
     function test_prepareCheckpointContext_returnsWeightWhenGoalActive() public {
-        stakeVault.setWeight(ACCOUNT, 123);
+        strategy.setCurrentWeight(123);
 
         (uint256 weight, bool shouldCheckpoint) =
             harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
@@ -190,10 +190,29 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
     }
 
     function test_prepareCheckpointContextFromCommittedWeight_returnsCommittedWeightWhenGoalActive() public {
+        strategy.setCurrentWeight(777);
+
         (uint256 resolvedWeight, bool shouldCheckpoint) =
-            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+            harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
         assertEq(resolvedWeight, 777);
         assertTrue(shouldCheckpoint);
+    }
+
+    function test_prepareCheckpointContextFromCommittedWeight_revertsWhenCurrentWeightDriftsAfterCacheValidation()
+        public
+    {
+        harness.validate(address(ledger), EXPECTED_FLOW);
+        strategy.setCurrentWeight(123);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(strategy),
+                address(treasury),
+                address(treasury)
+            )
+        );
+        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
     }
 
     function test_prepareCheckpointContext_revertsWhenGoalResolvedProbeReverts() public {
@@ -232,7 +251,7 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
                 address(treasury)
             )
         );
-        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
     }
 
     function test_prepareCheckpointContextFromCommittedWeight_revertsWhenGoalResolvedProbeReverts() public {
@@ -245,17 +264,18 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
                 address(stakeVault)
             )
         );
-        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), 777, EXPECTED_FLOW);
+        harness.prepareCheckpointContextFromCommittedWeight(address(ledger), ACCOUNT, 777, EXPECTED_FLOW);
     }
 
     function test_prepareCheckpointContext_revertsWhenWeightProbeReverts() public {
-        stakeVault.setRevertWeightOf(true);
+        strategy.setRevertCurrentWeight(true);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(strategy),
                 address(treasury),
-                address(stakeVault)
+                address(treasury)
             )
         );
         harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
@@ -275,13 +295,26 @@ contract GoalFlowLedgerModeBranchCoverageTest is Test {
     }
 
     function test_prepareCheckpointContextView_revertsWhenWeightProbeReverts() public {
-        stakeVault.setRevertWeightOf(true);
+        strategy.setRevertCurrentWeight(true);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IFlow.INVALID_ALLOCATION_LEDGER_STAKE_VAULT.selector,
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_STRATEGY.selector,
+                address(strategy),
                 address(treasury),
-                address(stakeVault)
+                address(treasury)
+            )
+        );
+        harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
+    }
+
+    function test_prepareCheckpointContextView_revertsWhenResolverDriftsAfterCacheValidation() public {
+        harness.validate(address(ledger), EXPECTED_FLOW);
+        strategy.setResolvedAccountOverride(address(0xDEAD));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFlowLedgerMode.INVALID_ALLOCATION_LEDGER_ACCOUNT_RESOLVER.selector, address(strategy)
             )
         );
         harness.prepareCheckpointContextView(address(ledger), ACCOUNT, EXPECTED_FLOW);
@@ -670,14 +703,8 @@ contract GoalFlowLedgerModeCoverageGoalTreasury {
 }
 
 contract GoalFlowLedgerModeCoverageStakeVault {
-    mapping(address => uint256) private _weights;
     bool private _goalResolved;
     bool private _revertGoalResolved;
-    bool private _revertWeightOf;
-
-    function setWeight(address account, uint256 weight) external {
-        _weights[account] = weight;
-    }
 
     function setGoalResolved(bool resolved) external {
         _goalResolved = resolved;
@@ -687,18 +714,9 @@ contract GoalFlowLedgerModeCoverageStakeVault {
         _revertGoalResolved = shouldRevert;
     }
 
-    function setRevertWeightOf(bool shouldRevert) external {
-        _revertWeightOf = shouldRevert;
-    }
-
     function goalResolved() external view returns (bool) {
         if (_revertGoalResolved) revert("goalResolved");
         return _goalResolved;
-    }
-
-    function weightOf(address account) external view returns (uint256) {
-        if (_revertWeightOf) revert("weightOf");
-        return _weights[account];
     }
 }
 
@@ -800,19 +818,30 @@ contract GoalFlowLedgerModeCoverageChildFlow {
 }
 
 contract GoalFlowLedgerModeCoverageStrategy is IAllocationStrategy, IAllocationKeyAccountResolver {
-    address private _stakeVault;
+    address private _goalTreasury;
+    uint256 private _currentWeight;
     uint256 private _key;
+    bool private _revertGoalTreasury;
     bool private _revertAllocationKey;
     bool private _revertAccountResolver;
+    bool private _revertCurrentWeight;
     bool private _useResolvedAccountOverride;
     address private _resolvedAccountOverride;
 
-    function setStakeVault(address stakeVault_) external {
-        _stakeVault = stakeVault_;
+    function setGoalTreasury(address goalTreasury_) external {
+        _goalTreasury = goalTreasury_;
+    }
+
+    function setCurrentWeight(uint256 currentWeight_) external {
+        _currentWeight = currentWeight_;
     }
 
     function setKey(uint256 key_) external {
         _key = key_;
+    }
+
+    function setRevertGoalTreasury(bool shouldRevert) external {
+        _revertGoalTreasury = shouldRevert;
     }
 
     function setRevertAllocationKey(bool shouldRevert) external {
@@ -823,13 +852,18 @@ contract GoalFlowLedgerModeCoverageStrategy is IAllocationStrategy, IAllocationK
         _revertAccountResolver = shouldRevert;
     }
 
+    function setRevertCurrentWeight(bool shouldRevert) external {
+        _revertCurrentWeight = shouldRevert;
+    }
+
     function setResolvedAccountOverride(address account) external {
         _useResolvedAccountOverride = true;
         _resolvedAccountOverride = account;
     }
 
-    function stakeVault() external view returns (address) {
-        return _stakeVault;
+    function goalTreasury() external view returns (address) {
+        if (_revertGoalTreasury) revert("goalTreasury");
+        return _goalTreasury;
     }
 
     function allocationKey(address caller, bytes calldata) external view returns (uint256) {
@@ -844,8 +878,9 @@ contract GoalFlowLedgerModeCoverageStrategy is IAllocationStrategy, IAllocationK
         return address(uint160(key));
     }
 
-    function currentWeight(address, uint256) external pure returns (uint256) {
-        return 1;
+    function currentWeight(address, uint256) external view returns (uint256) {
+        if (_revertCurrentWeight) revert("currentWeight");
+        return _currentWeight;
     }
 
     function canAllocate(address, uint256, address) external pure returns (bool) {

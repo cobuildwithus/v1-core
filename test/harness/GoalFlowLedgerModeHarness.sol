@@ -64,19 +64,31 @@ contract GoalFlowLedgerModeHarness {
         address account,
         address expectedFlow
     ) external view returns (uint256 newWeight, bool shouldCheckpoint) {
-        return GoalFlowLedgerMode.prepareCheckpointContextView(_strategy, _cache, ledger, account, expectedFlow);
+        uint256 allocationKey = _strategy.allocationKey(account, bytes(""));
+        return GoalFlowLedgerMode.prepareCheckpointContextView(
+            _strategy,
+            _cache,
+            ledger,
+            account,
+            allocationKey,
+            expectedFlow
+        );
     }
 
     function prepareCheckpointContextFromCommittedWeight(
         address ledger,
+        address account,
         uint256 committedWeight,
         address expectedFlow
     ) external returns (uint256 resolvedWeight, bool shouldCheckpoint) {
+        uint256 allocationKey = _strategy.allocationKey(account, bytes(""));
         return
             GoalFlowLedgerMode.prepareCheckpointContextFromCommittedWeight(
                 _strategy,
                 _cache,
                 ledger,
+                account,
+                allocationKey,
                 committedWeight,
                 expectedFlow
             );

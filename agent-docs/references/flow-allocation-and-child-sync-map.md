@@ -43,8 +43,9 @@
 20. Child-sync target discovery is registry-backed and fail-closed:
     - `GoalFlowLedgerMode` resolves `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
     - the stored target is accepted only when the live child flow's configured `strategy()` still matches registry state.
-21. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol` and is used by
-    `GoalFlowLedgerMode` as the validation capability surface.
+21. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalScopedAllocationStrategy.sol`
+    (`src/interfaces/IGoalLedgerStrategy.sol` remains a legacy alias) and is used by `GoalFlowLedgerMode`
+    as the validation capability surface.
 
 ## Child Flow Sync Path
 

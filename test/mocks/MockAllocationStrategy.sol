@@ -10,6 +10,7 @@ contract MockAllocationStrategy is IAllocationStrategy {
 
     bool public useAuxAsKey = true;
     address public requiredFlow;
+    address public goalTreasury;
     address public stakeVault;
     string public constant KEY = "MockStrategy";
 
@@ -31,6 +32,10 @@ contract MockAllocationStrategy is IAllocationStrategy {
 
     function setStakeVault(address stakeVault_) external {
         stakeVault = stakeVault_;
+    }
+
+    function setGoalTreasury(address goalTreasury_) external {
+        goalTreasury = goalTreasury_;
     }
 
     function setRequiredFlow(address requiredFlow_) external {

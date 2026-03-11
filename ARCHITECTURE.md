@@ -46,6 +46,7 @@ cobuild-protocol/
 - Goal/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/slash math modules).
 - Allocation strategies:
   - `src/goals/StakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
+  - `src/allocation-strategies/SingleAllocatorStrategy.sol` (goal-scoped managed-goal allocator identity with virtual managed weight).
   - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution).
 - Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
@@ -144,11 +145,14 @@ cobuild-protocol/
     - it deterministically derives the split-hook clone address from caller + goal-registry + shared route-setter + salt,
     - deploys the split hook,
     - initializes `CobuildSplitHook` with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
+    - fail-closes registration unless the community revnet's live reserved-token split group already resolves to that same hook as the sole full-bucket reserved split for the current ruleset,
+    - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
     - completes same-transaction community registration on that terminal via an owner-signed registration payload.
   - `CobuildCommunityTerminal` is a shared community payment terminal:
     - it must be the community revnet's canonical `DIRECTORY` primary terminal for both native ETH and the registered payment token before registration succeeds,
+    - it must also prove on-chain that `controller.sendReservedTokensToSplitsOf(communityRevnetId)` will hit the registered hook by validating the current reserved split group against the same hook address and full reserved-bucket percent,
     - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once through community-project-owner-driven registration,
-    - `pay(...).metadata` can still carry `abi.encode(uint256[] goalIds, uint32[] weights)` for one-shot explicit routing,
+    - `pay(...).metadata` now carries `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)` so one-shot explicit routing and downstream JB payer metadata travel together,
     - native ETH either records a canonical JB pay directly on that terminal when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
     - if the upstream native terminal is this same shared terminal, the conversion path stays internal instead of re-entering through an external `pay(...)` call,
     - direct payment-token pays are likewise recorded on the shared terminal without the intermediate conversion step,
@@ -158,7 +162,8 @@ cobuild-protocol/
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
     - the registry is ownerless and does not expose privileged system goals or pause controls,
     - each listing carries donor-visible metadata only; selectability is derived from canonical goal deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status,
-    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
+    - add-item validation best-effort calls `goal.sync()` before lifecycle checks and rejects terminal/prunable goals,
+    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`, which also best-effort calls `goal.sync()` before deciding prunability.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
     - `GoalFactory` registers each deployed goal treasury exactly once,
     - owner-authorized future goal-factory versions can register into the same registry over time,
@@ -170,8 +175,8 @@ cobuild-protocol/
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
     explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes the full explicit amount into the
-    selected goals, records the full routed amount into lazy decaying routing scores (30-day half-life), and routes
-    backlog only through the paginated permissionless backlog-flush path.
+    selected goals, records the full routed amount into lazy decaying routing scores whose half-life is enforced on
+    global 30-day season boundaries, and routes backlog only through the paginated permissionless backlog-flush path.
   - Canonical-terminal-routed community pays snapshot any preexisting controller backlog before the pay so a user-selected
     route cannot capture earlier backlog.
   - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
@@ -236,8 +241,8 @@ cobuild-protocol/
   - changed-budget ordering remains decreases first, then increases, stable within each bucket.
 - Budget stake-ledger checkpointing fails closed on stored-vs-expected allocation drift (no silent reconciliation/clamping).
 - `allocationPipeline` is configured at flow initialization and validated fail-fast during init.
-- Goal-flow allocation-ledger validation (goal treasury wiring + strategy compatibility, including
-  empty-aux `allocationKey(account, "")` probing) is owned by `GoalFlowAllocationLedgerPipeline` via `GoalFlowLedgerMode`.
+- Goal-flow allocation-ledger validation (goal treasury wiring + goal-scoped strategy compatibility, including
+  empty-aux `allocationKey(account, "")` round-trip probing) is owned by `GoalFlowAllocationLedgerPipeline` via `GoalFlowLedgerMode`.
 - `BudgetTCR` is the canonical budget-stack topology registry:
   - activation records per-item `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism,
     and mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
@@ -257,8 +262,9 @@ cobuild-protocol/
   - subsequent composition-changing allocation commits for that account revert with
     `ACCOUNT_HAS_CHILD_SYNC_DEBT` until debt is cleared by successful sync or
     permissionless `repairChildSyncDebt(account, budgetTreasury)`.
-- Goal-ledger strategy capability is explicit via `src/interfaces/IGoalLedgerStrategy.sol`
-  (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `IHasStakeVault`).
+- Goal-ledger strategy capability is explicit via `src/interfaces/IGoalScopedAllocationStrategy.sol`;
+  `src/interfaces/IGoalLedgerStrategy.sol` remains a legacy alias for that goal-scoped boundary
+  (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `goalTreasury()`).
 - Goal allocation pipeline underwriting hook:
   - after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
     budget's `PremiumEscrow` for the allocating account,
