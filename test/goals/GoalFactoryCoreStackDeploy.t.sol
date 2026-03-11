@@ -66,19 +66,24 @@ contract GoalFactoryCoreStackDeployTest is Test {
 
     function test_initializeCoreStack_forwardsGoalSpendPolicyIntoGoalTreasuryConfig() public {
         address goalSpendPolicy = address(0xBEEF);
-        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(goalSpendPolicy);
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core = GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
 
-        GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+        GoalFactoryCoreStackDeploy.finalizeCoreStack(core, _baseFinalizeRequest(goalSpendPolicy, address(core.stakeVault)));
 
         assertEq(goalTreasury.lastSpendPolicy(), goalSpendPolicy);
     }
 
     function test_initializeCoreStack_initializesSplitHookWithDirectoryGoalTreasuryAndRevnetId() public {
         uint256 goalRevnetId = 77;
-        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(address(0xBEEF));
-        request.goalRevnetId = goalRevnetId;
+        GoalFactoryCoreStackDeploy.CoreBaseRequest memory baseRequest = _baseBaseRequest();
+        baseRequest.goalRevnetId = goalRevnetId;
 
-        GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core = GoalFactoryCoreStackDeploy.deployCoreBase(baseRequest);
+        GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory finalizeRequest =
+            _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault));
+        finalizeRequest.goalRevnetId = goalRevnetId;
+
+        GoalFactoryCoreStackDeploy.finalizeCoreStack(core, finalizeRequest);
 
         assertEq(splitHook.initializeCallCount(), 1);
         assertEq(splitHook.lastDirectory(), address(directory));
@@ -88,41 +93,55 @@ contract GoalFactoryCoreStackDeployTest is Test {
         assertEq(splitHook.lastGoalRevnetId(), goalRevnetId);
     }
 
-    function test_initializeCoreStack_forwardsClonedStakeVaultAsGoalFlowStrategy() public {
-        GoalFactoryCoreStackDeploy.CoreStackRequest memory request = _baseRequest(address(0xBEEF));
+    function test_finalizeCoreStack_usesExplicitGoalFlowStrategy() public {
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core = GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        MockGoalFactoryExplicitStrategy explicitStrategy = new MockGoalFactoryExplicitStrategy();
 
-        GoalFactoryCoreStackDeploy.CoreStackResult memory out = GoalFactoryCoreStackDeploy.initializeCoreStack(request);
+        GoalFactoryCoreStackDeploy.finalizeCoreStack(core, _baseFinalizeRequest(address(0xBEEF), address(explicitStrategy)));
 
-        assertTrue(address(out.stakeVault) != address(0));
-        assertEq(goalFlow.lastStrategy(), address(out.stakeVault));
+        assertTrue(address(core.stakeVault) != address(0));
+        assertEq(goalFlow.lastStrategy(), address(explicitStrategy));
     }
 
-    function _baseRequest(address goalSpendPolicy)
+    function _baseBaseRequest()
         internal
         view
-        returns (GoalFactoryCoreStackDeploy.CoreStackRequest memory request)
+        returns (GoalFactoryCoreStackDeploy.CoreBaseRequest memory request)
     {
-        request = GoalFactoryCoreStackDeploy.CoreStackRequest({
+        request = GoalFactoryCoreStackDeploy.CoreBaseRequest({
             goalTreasury: GoalTreasury(address(goalTreasury)),
             splitHook: GoalRevnetSplitHook(payable(address(splitHook))),
             goalFlow: CustomFlow(payable(address(goalFlow))),
             stakeVaultImpl: address(stakeVaultImpl),
-            jurorSlasherRouterImpl: address(jurorSlasherRouterImpl),
-            flowImpl: address(0xF10F),
             superfluidHost: ISuperfluid(address(superfluidHost)),
-            budgetTcrFactory: address(0xB6D6E7),
-            underwriterSlasherRouterImpl: address(underwriterSlasherRouterImpl),
             budgetStakeLedgerImpl: address(budgetStakeLedgerImpl),
             goalFlowAllocationLedgerPipelineImpl: address(allocationPipelineImpl),
             cobuildToken: address(cobuildToken),
             cobuildDecimals: 18,
             goalRevnetId: 1,
             goalToken: address(goalToken),
-            predictedBudgetTcr: address(0xB6D9E7),
+            rulesets: IJBRulesets(address(rulesets)),
+            revnetName: "Goal",
+            revnetTicker: "GOAL"
+        });
+    }
+
+    function _baseFinalizeRequest(
+        address goalSpendPolicy,
+        address goalAllocatorStrategy
+    ) internal view returns (GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request) {
+        request = GoalFactoryCoreStackDeploy.CoreFinalizeRequest({
+            goalAllocatorStrategy: goalAllocatorStrategy,
+            budgetController: address(0xB6D9E7),
+            jurorSlasherAuthority: address(0xB6D6E7),
+            jurorSlasherRouterImpl: address(jurorSlasherRouterImpl),
+            underwriterSlasherRouterImpl: address(underwriterSlasherRouterImpl),
+            flowImpl: address(0xF10F),
+            goalToken: address(goalToken),
+            cobuildToken: address(cobuildToken),
+            goalRevnetId: 1,
             rulesets: IJBRulesets(address(rulesets)),
             directory: IJBDirectory(address(directory)),
-            revnetName: "Goal",
-            revnetTicker: "GOAL",
             flowTitle: "Flow",
             flowDescription: "Goal flow",
             flowImage: "ipfs://image",
@@ -141,6 +160,8 @@ contract GoalFactoryCoreStackDeployTest is Test {
         });
     }
 }
+
+contract MockGoalFactoryExplicitStrategy {}
 
 contract MockGoalToken is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}

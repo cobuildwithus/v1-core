@@ -22,11 +22,12 @@ contract DeployGoalFromFactory is DeployScript {
     address internal goalSuperTokenOut;
     address internal goalTreasuryOut;
     address internal goalFlowOut;
+    address internal goalAllocatorStrategyOut;
     address internal goalFlowAllocationLedgerPipelineOut;
     address internal stakeVaultOut;
     address internal budgetStakeLedgerOut;
     address internal splitHookOut;
-    address internal budgetTcrOut;
+    address internal budgetControllerOut;
     address internal arbitratorOut;
 
     function deploy() internal override {
@@ -34,6 +35,8 @@ contract DeployGoalFromFactory is DeployScript {
         goalFactoryAddressOut = address(factory);
 
         address goalOwner = vm.envOr("GOAL_OWNER", deployerAddress);
+        GoalFactory.GoalPreset preset = GoalFactory.GoalPreset(vm.envOr("GOAL_PRESET", uint256(0)));
+        address managedSafe = vm.envOr("MANAGED_SAFE", address(0));
         string memory goalName = vm.envOr("GOAL_NAME", string("Test Goal"));
         string memory goalTicker = vm.envOr("GOAL_TICKER", string("TGOAL"));
         string memory goalUri = vm.envOr("GOAL_URI", string("ipfs://TEST"));
@@ -120,6 +123,8 @@ contract DeployGoalFromFactory is DeployScript {
         });
 
         GoalFactory.DeployParams memory params = GoalFactory.DeployParams({
+            preset: preset,
+            managedSafe: managedSafe,
             funding: GoalFactory.FundingContext({paymentToken: paymentToken, paymentRevnetId: paymentRevnetId}),
             revnet: GoalFactory.RevnetParams({
                 name: goalName,
@@ -178,11 +183,12 @@ contract DeployGoalFromFactory is DeployScript {
         goalSuperTokenOut = out.goalSuperToken;
         goalTreasuryOut = out.goalTreasury;
         goalFlowOut = out.goalFlow;
+        goalAllocatorStrategyOut = out.goalAllocatorStrategy;
         goalFlowAllocationLedgerPipelineOut = out.goalFlowAllocationLedgerPipeline;
         stakeVaultOut = out.stakeVault;
         budgetStakeLedgerOut = out.budgetStakeLedger;
         splitHookOut = out.splitHook;
-        budgetTcrOut = out.budgetTCR;
+        budgetControllerOut = out.budgetController;
         arbitratorOut = out.arbitrator;
 
         console2.log("Goal deployed by:", deployerAddress);
@@ -195,11 +201,12 @@ contract DeployGoalFromFactory is DeployScript {
         console2.log("goalSuperToken:", goalSuperTokenOut);
         console2.log("goalTreasury:", goalTreasuryOut);
         console2.log("goalFlow:", goalFlowOut);
+        console2.log("goalAllocatorStrategy:", goalAllocatorStrategyOut);
         console2.log("goalFlowAllocationLedgerPipeline:", goalFlowAllocationLedgerPipelineOut);
         console2.log("stakeVault:", stakeVaultOut);
         console2.log("budgetStakeLedger:", budgetStakeLedgerOut);
         console2.log("splitHook:", splitHookOut);
-        console2.log("budgetTCR:", budgetTcrOut);
+        console2.log("budgetController:", budgetControllerOut);
         console2.log("arbitrator:", arbitratorOut);
     }
 
@@ -220,11 +227,12 @@ contract DeployGoalFromFactory is DeployScript {
         _writeAddressLine(filePath, "goalSuperToken", goalSuperTokenOut);
         _writeAddressLine(filePath, "goalTreasury", goalTreasuryOut);
         _writeAddressLine(filePath, "goalFlow", goalFlowOut);
+        _writeAddressLine(filePath, "goalAllocatorStrategy", goalAllocatorStrategyOut);
         _writeAddressLine(filePath, "goalFlowAllocationLedgerPipeline", goalFlowAllocationLedgerPipelineOut);
         _writeAddressLine(filePath, "stakeVault", stakeVaultOut);
         _writeAddressLine(filePath, "budgetStakeLedger", budgetStakeLedgerOut);
         _writeAddressLine(filePath, "splitHook", splitHookOut);
-        _writeAddressLine(filePath, "budgetTCR", budgetTcrOut);
+        _writeAddressLine(filePath, "budgetController", budgetControllerOut);
         _writeAddressLine(filePath, "arbitrator", arbitratorOut);
     }
 

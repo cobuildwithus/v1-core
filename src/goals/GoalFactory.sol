@@ -25,6 +25,7 @@ import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistr
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
+import { GoalFactoryManagedPresetDeploy } from "src/goals/library/GoalFactoryManagedPresetDeploy.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
@@ -34,6 +35,11 @@ interface IGoalFundingTerminalConfig {
 }
 
 contract GoalFactory {
+    enum GoalPreset {
+        Open,
+        Managed
+    }
+
     IREVDeployer public immutable REV_DEPLOYER;
     BudgetTCRFactory public immutable BUDGET_TCR_FACTORY;
     ISuperfluid public immutable SUPERFLUID_HOST;
@@ -123,6 +129,8 @@ contract GoalFactory {
     }
 
     struct DeployParams {
+        GoalPreset preset;
+        address managedSafe;
         FundingContext funding;
         RevnetParams revnet;
         GoalTimingParams timing;
@@ -139,6 +147,7 @@ contract GoalFactory {
         address goalSuperToken;
         address goalTreasury;
         address goalFlow;
+        address goalAllocatorStrategy;
         address goalFlowAllocationLedgerPipeline;
         address stakeVault;
         address budgetStakeLedger;
@@ -146,7 +155,7 @@ contract GoalFactory {
         address jurorSlasherRouter;
         address underwriterSlasherRouter;
         address successResolver;
-        address budgetTCR;
+        address budgetController;
         address arbitrator;
     }
 
@@ -161,7 +170,7 @@ contract GoalFactory {
     error INVALID_SCALE();
     error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
-    error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
+    error BUDGET_CONTROLLER_ADDRESS_MISMATCH(address predicted, address deployed);
     error INVALID_GOAL_TERMINAL_DIRECTORY(address expected, address actual);
     error INVALID_GOAL_TERMINAL_REGISTRY(address expected, address actual);
     error INVALID_PAYMENT_REVNET_TOKEN(address expected, address actual, uint256 revnetId);
@@ -174,6 +183,8 @@ contract GoalFactory {
     );
     error INVALID_COMMUNITY_DIRECTORY(address expected, address actual);
     error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
+    error MANAGED_SAFE_REQUIRED();
+    error MANAGED_SAFE_NOT_CONTRACT(address safe);
     constructor(
         IREVDeployer revDeployer,
         ISuperfluid superfluidHost,
@@ -355,6 +366,14 @@ contract GoalFactory {
         }
         if (p.goalSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (p.goalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.goalSpendPolicy);
+        if (p.preset == GoalPreset.Managed) {
+            if (p.managedSafe == address(0)) revert MANAGED_SAFE_REQUIRED();
+            if (p.managedSafe.code.length == 0) revert MANAGED_SAFE_NOT_CONTRACT(p.managedSafe);
+        }
+        if (p.budgetTCR.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
+        if (p.budgetTCR.budgetSuccessResolver.code.length == 0) {
+            revert NOT_A_CONTRACT(p.budgetTCR.budgetSuccessResolver);
+        }
         if (p.budgetTCR.budgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (p.budgetTCR.budgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.budgetTCR.budgetSpendPolicy);
 
@@ -381,40 +400,75 @@ contract GoalFactory {
             paymentTokenDecimals
         );
 
-        address predictedBudgetTCR = BUDGET_TCR_FACTORY.predictBudgetTCRAddress(
-            address(this),
-            address(goalFlow),
-            address(goalTreasury),
-            revnet.goalRevnetId,
-            paymentToken
-        );
+        address predictedBudgetController;
+        address goalAllocatorStrategy;
+        address jurorSlasherAuthority;
+        address arbitrator;
+        GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory managedPreset;
+
+        if (p.preset == GoalPreset.Managed) {
+            managedPreset = _bootstrapManagedPreset(address(goalTreasury), p.managedSafe);
+            predictedBudgetController = address(managedPreset.budgetController);
+            goalAllocatorStrategy = managedPreset.goalAllocatorStrategy;
+            jurorSlasherAuthority = predictedBudgetController;
+        } else {
+            predictedBudgetController = BUDGET_TCR_FACTORY.predictBudgetTCRAddress(
+                address(this),
+                address(goalFlow),
+                address(goalTreasury),
+                revnet.goalRevnetId,
+                paymentToken
+            );
+            jurorSlasherAuthority = address(BUDGET_TCR_FACTORY);
+        }
 
         uint32 minRaiseWindow = _resolveMinRaiseWindow(p.revnet.durationSeconds, p.timing.minRaiseDurationSeconds);
         uint64 minRaiseDeadline = uint64(block.timestamp + minRaiseWindow);
 
-        GoalFactoryCoreStackDeploy.CoreStackResult memory core = _initializeCoreStack(
-            p,
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core = _deployCoreBase(
             goalTreasury,
             splitHook,
             goalFlow,
             revnet,
-            predictedBudgetTCR,
-            minRaiseDeadline,
+            p,
             paymentToken,
             paymentTokenDecimals
         );
 
-        BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(
+        if (p.preset == GoalPreset.Open) {
+            goalAllocatorStrategy = address(core.stakeVault);
+        }
+
+        core = _finalizeCoreStack(
             p,
             core,
             revnet,
-            predictedBudgetTCR,
-            paymentToken,
-            paymentTokenDecimals
+            predictedBudgetController,
+            goalAllocatorStrategy,
+            jurorSlasherAuthority,
+            minRaiseDeadline,
+            paymentToken
         );
-        if (tcrStack.budgetTCR != predictedBudgetTCR) {
-            revert BUDGET_TCR_ADDRESS_MISMATCH(predictedBudgetTCR, tcrStack.budgetTCR);
+
+        address budgetController = predictedBudgetController;
+        if (p.preset == GoalPreset.Managed) {
+            _initializeManagedBudgetController(p, core, managedPreset);
+        } else {
+            BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(
+                p,
+                core,
+                revnet,
+                predictedBudgetController,
+                paymentToken,
+                paymentTokenDecimals
+            );
+            if (tcrStack.budgetTCR != predictedBudgetController) {
+                revert BUDGET_CONTROLLER_ADDRESS_MISMATCH(predictedBudgetController, tcrStack.budgetTCR);
+            }
+            budgetController = tcrStack.budgetTCR;
+            arbitrator = tcrStack.arbitrator;
         }
+
         GOAL_DEPLOYMENT_REGISTRY.registerGoal(revnet.goalRevnetId, address(core.goalTreasury));
 
         uint256 actualPaymentRevnetId = core.goalTreasury.cobuildRevnetId();
@@ -434,6 +488,7 @@ contract GoalFactory {
             goalSuperToken: address(core.goalSuperToken),
             goalTreasury: address(core.goalTreasury),
             goalFlow: address(core.goalFlow),
+            goalAllocatorStrategy: goalAllocatorStrategy,
             goalFlowAllocationLedgerPipeline: core.goalFlowAllocationLedgerPipeline,
             stakeVault: address(core.stakeVault),
             budgetStakeLedger: address(core.budgetStakeLedger),
@@ -441,8 +496,8 @@ contract GoalFactory {
             jurorSlasherRouter: core.jurorSlasherRouter,
             underwriterSlasherRouter: core.underwriterSlasherRouter,
             successResolver: p.success.successResolver,
-            budgetTCR: tcrStack.budgetTCR,
-            arbitrator: tcrStack.arbitrator
+            budgetController: budgetController,
+            arbitrator: arbitrator
         });
 
         emit GoalDeployed(msg.sender, revnet.goalRevnetId, out);
@@ -479,40 +534,61 @@ contract GoalFactory {
             );
     }
 
-    function _initializeCoreStack(
-        DeployParams memory p,
+    function _deployCoreBase(
         GoalTreasury goalTreasury,
         GoalRevnetSplitHook splitHook,
         CustomFlow goalFlow,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
-        address predictedBudgetTCR,
-        uint64 minRaiseDeadline,
+        DeployParams memory p,
         address paymentToken,
         uint8 paymentTokenDecimals
     ) private returns (GoalFactoryCoreStackDeploy.CoreStackResult memory) {
         return
-            GoalFactoryCoreStackDeploy.initializeCoreStack(
-                GoalFactoryCoreStackDeploy.CoreStackRequest({
+            GoalFactoryCoreStackDeploy.deployCoreBase(
+                GoalFactoryCoreStackDeploy.CoreBaseRequest({
                     goalTreasury: goalTreasury,
                     splitHook: splitHook,
                     goalFlow: goalFlow,
                     stakeVaultImpl: STAKE_VAULT_IMPL,
-                    jurorSlasherRouterImpl: JUROR_SLASHER_ROUTER_IMPL,
-                    flowImpl: FLOW_IMPL,
                     superfluidHost: SUPERFLUID_HOST,
-                    budgetTcrFactory: address(BUDGET_TCR_FACTORY),
-                    underwriterSlasherRouterImpl: UNDERWRITER_SLASHER_ROUTER_IMPL,
                     budgetStakeLedgerImpl: BUDGET_STAKE_LEDGER_IMPL,
                     goalFlowAllocationLedgerPipelineImpl: GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
                     goalRevnetId: revnet.goalRevnetId,
                     goalToken: revnet.goalToken,
-                    predictedBudgetTcr: predictedBudgetTCR,
+                    rulesets: revnet.rulesets,
+                    revnetName: p.revnet.name,
+                    revnetTicker: p.revnet.ticker
+                })
+            );
+    }
+
+    function _finalizeCoreStack(
+        DeployParams memory p,
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core,
+        GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
+        address budgetController,
+        address goalAllocatorStrategy,
+        address jurorSlasherAuthority,
+        uint64 minRaiseDeadline,
+        address paymentToken
+    ) private returns (GoalFactoryCoreStackDeploy.CoreStackResult memory) {
+        return
+            GoalFactoryCoreStackDeploy.finalizeCoreStack(
+                core,
+                GoalFactoryCoreStackDeploy.CoreFinalizeRequest({
+                    goalAllocatorStrategy: goalAllocatorStrategy,
+                    budgetController: budgetController,
+                    jurorSlasherAuthority: jurorSlasherAuthority,
+                    jurorSlasherRouterImpl: JUROR_SLASHER_ROUTER_IMPL,
+                    underwriterSlasherRouterImpl: UNDERWRITER_SLASHER_ROUTER_IMPL,
+                    flowImpl: FLOW_IMPL,
+                    goalToken: revnet.goalToken,
+                    cobuildToken: paymentToken,
+                    goalRevnetId: revnet.goalRevnetId,
                     rulesets: revnet.rulesets,
                     directory: revnet.directory,
-                    revnetName: p.revnet.name,
-                    revnetTicker: p.revnet.ticker,
                     flowTitle: p.flowMetadata.title,
                     flowDescription: p.flowMetadata.description,
                     flowImage: p.flowMetadata.image,
@@ -530,6 +606,38 @@ contract GoalFactory {
                     goalSpendPolicy: p.goalSpendPolicy
                 })
             );
+    }
+
+    function _bootstrapManagedPreset(
+        address goalTreasury,
+        address managedSafe
+    ) private returns (GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory) {
+        return GoalFactoryManagedPresetDeploy.bootstrapManagedPreset(goalTreasury, managedSafe);
+    }
+
+    function _initializeManagedBudgetController(
+        DeployParams memory p,
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core,
+        GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory managedPreset
+    ) private {
+        GoalFactoryManagedPresetDeploy.initializeManagedController(
+            managedPreset.budgetController,
+            GoalFactoryManagedPresetDeploy.ManagedControllerInitRequest({
+                authority: p.managedSafe,
+                goalTreasury: address(core.goalTreasury),
+                goalFlow: address(core.goalFlow),
+                budgetAllocationLedger: address(core.budgetStakeLedger),
+                stackDeployer: managedPreset.stackDeployer,
+                budgetGatePolicy: managedPreset.gatePolicy,
+                budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
+                budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
+                underwriterSlasherRouter: core.underwriterSlasherRouter,
+                successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
+                successAssertionBond: p.budgetTCR.oracleBounds.bondAmount,
+                budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
+                budgetSlashPpm: p.underwriting.budgetSlashPpm
+            })
+        );
     }
 
     function _deployBudgetTcr(

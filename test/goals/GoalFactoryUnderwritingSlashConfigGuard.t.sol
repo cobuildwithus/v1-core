@@ -178,6 +178,40 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
+    function test_deployGoal_managedPreset_revertsWhenManagedSafeIsZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.preset = GoalFactory.GoalPreset.Managed;
+        p.managedSafe = address(0);
+
+        vm.expectRevert(GoalFactory.MANAGED_SAFE_REQUIRED.selector);
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_managedPreset_revertsWhenManagedSafeHasNoCode() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.preset = GoalFactory.GoalPreset.Managed;
+        p.managedSafe = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.MANAGED_SAFE_NOT_CONTRACT.selector, p.managedSafe));
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenBudgetSuccessResolverIsZero() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.budgetTCR.budgetSuccessResolver = address(0);
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenBudgetSuccessResolverHasNoCode() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.budgetTCR.budgetSuccessResolver = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetTCR.budgetSuccessResolver));
+        factory.deployGoal(p);
+    }
+
     function test_deployGoal_revertsWhenGoalSpendPolicyIsZero() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
         p.goalSpendPolicy = address(0);
@@ -318,6 +352,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     }
 
     function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {
+        p.preset = GoalFactory.GoalPreset.Open;
+        p.managedSafe = address(0);
         p.funding = GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID});
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
@@ -343,6 +379,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             tagline: "tagline",
             url: "https://example.com"
         });
+        p.budgetTCR.budgetSuccessResolver = configuredSuccessResolver;
         p.budgetTCR.budgetSpendPolicy = configuredGoalSpendPolicy;
         p.goalSpendPolicy = configuredGoalSpendPolicy;
     }

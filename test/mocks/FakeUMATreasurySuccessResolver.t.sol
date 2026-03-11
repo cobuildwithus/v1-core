@@ -601,9 +601,10 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("goalFlow: ", vm.toString(address(0x4)))));
             assertTrue(_stringContains(artifact, string.concat("stakeVault: ", vm.toString(address(0x5)))));
             assertFalse(_stringContains(artifact, "goalStakeVault:"));
+            assertTrue(_stringContains(artifact, string.concat("goalAllocatorStrategy: ", vm.toString(address(0x11)))));
             assertTrue(_stringContains(artifact, string.concat("budgetStakeLedger: ", vm.toString(address(0x6)))));
             assertTrue(_stringContains(artifact, string.concat("splitHook: ", vm.toString(address(0x8)))));
-            assertTrue(_stringContains(artifact, string.concat("budgetTCR: ", vm.toString(address(0x9)))));
+            assertTrue(_stringContains(artifact, string.concat("budgetController: ", vm.toString(address(0x9)))));
             assertTrue(_stringContains(artifact, string.concat("arbitrator: ", vm.toString(address(0x10)))));
             vm.setEnv("FLOW_MANAGER_REWARD_POOL_FLOW_RATE_PPM", vm.toString(DEPRECATED_FLOW_MANAGER_REWARD_PPM));
 
@@ -713,11 +714,12 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             out.goalSuperToken = address(0x2);
             out.goalTreasury = address(0x3);
             out.goalFlow = address(0x4);
+            out.goalAllocatorStrategy = address(0x11);
             out.goalFlowAllocationLedgerPipeline = address(0x7);
             out.stakeVault = address(0x5);
             out.budgetStakeLedger = address(0x6);
             out.splitHook = address(0x8);
-            out.budgetTCR = address(0x9);
+            out.budgetController = address(0x9);
             out.arbitrator = address(0x10);
         }
     }
