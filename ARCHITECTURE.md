@@ -145,12 +145,12 @@ cobuild-protocol/
     - it deterministically derives the split-hook clone address from caller + goal-registry + shared route-setter + salt,
     - deploys the split hook,
     - initializes `CobuildSplitHook` with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
-    - fail-closes registration unless the community revnet's live reserved-token split group already resolves to that same hook as the sole full-bucket reserved split for the current ruleset,
+    - fail-closes registration unless the community revnet's live reserved-token split group already contains exactly one nonzero split whose `hook` is that same predicted address for the current ruleset,
     - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
     - completes same-transaction community registration on that terminal via an owner-signed registration payload.
   - `CobuildCommunityTerminal` is a shared community payment terminal:
     - it must be the community revnet's canonical `DIRECTORY` primary terminal for both native ETH and the registered payment token before registration succeeds,
-    - it must also prove on-chain that `controller.sendReservedTokensToSplitsOf(communityRevnetId)` will hit the registered hook by validating the current reserved split group against the same hook address and full reserved-bucket percent,
+    - it must also prove on-chain that `controller.sendReservedTokensToSplitsOf(communityRevnetId)` will hit the registered hook by validating that the current reserved split group contains exactly one nonzero split for that hook,
     - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once through community-project-owner-driven registration,
     - `pay(...).metadata` now carries `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)` so one-shot explicit routing and downstream JB payer metadata travel together,
     - native ETH either records a canonical JB pay directly on that terminal when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
@@ -174,16 +174,15 @@ cobuild-protocol/
     - direct payment-token funding uses the same resolved token and forwards to the goal's primary terminal for that token.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
-    explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes the full explicit amount into the
-    selected goals, records the full routed amount into lazy decaying routing scores whose half-life is enforced on
+    explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes only its explicit callback slice into the
+    selected goals, records the routed slice into lazy decaying routing scores whose half-life is enforced on
     global 30-day season boundaries, and routes backlog only through the paginated permissionless backlog-flush path.
-  - Canonical-terminal-routed community pays snapshot any preexisting controller backlog before the pay so a user-selected
-    route cannot capture earlier backlog.
-  - `CobuildSplitHook` only accepts controller callbacks where its split percent is the full reserved-token bucket
-    (`JBConstants.SPLITS_TOTAL_PERCENT`); fractional reserved-split configs are invalid because the hook backlog-snapshot
-    math assumes one coherent bucket.
+  - Canonical-terminal-routed community pays snapshot the Cobuild hook's share of any preexisting controller backlog before
+    the pay so a user-selected route cannot capture earlier backlog.
+  - The Cobuild hook can coexist with sibling reserved splits. Fractional reserved-split configs are valid as long as the
+    live split group contains exactly one nonzero split pointing at the registered hook.
   - If the canonical-terminal pay creates reserved tokens, the terminal forces same-transaction split delivery; explicit-route
-    pending state must be consumed in that same transaction.
+    pending state must be consumed in that same transaction whenever the Cobuild hook's slice increased.
   - If an explicit canonical-terminal pay creates no reserved tokens, the terminal clears the unused pending route instead of
     leaving stale routing state behind.
   - Empty-metadata canonical-terminal pays do not seed any pending route. Any reserved tokens created by that pay are flushed into

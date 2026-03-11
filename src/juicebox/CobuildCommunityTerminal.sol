@@ -76,7 +76,6 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     error INVALID_NATIVE_TERMINAL(address expectedTerminal, address actualTerminal);
     error INVALID_PAYMENT_TERMINAL(address expectedTerminal, address actualTerminal);
     error INVALID_RESERVED_SPLIT_COUNT(uint256 expectedCount, uint256 actualCount);
-    error INVALID_RESERVED_SPLIT_HOOK(address expectedHook, address actualHook);
     error INVALID_RESERVED_SPLIT_PERCENT(uint256 expectedPercent, uint256 actualPercent);
     error INVALID_REGISTRATION_SIGNATURE(address expectedSigner, address actualSigner);
     error REGISTRATION_DEADLINE_EXPIRED(uint256 deadline, uint256 currentTimestamp);
@@ -545,14 +544,12 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         string calldata memo,
         CommunityPayMetadata memory payMetadata
     ) internal returns (uint256 beneficiaryTokenCount) {
-        (IJBController controller, uint256 backlogTokenCount) = _beginRoute(
-            config,
-            communityRevnetId,
-            payer,
-            beneficiary,
-            payMetadata.goalIds,
-            payMetadata.weights
-        );
+        (
+            IJBController controller,
+            uint256 pendingReservedTokenBalance,
+            uint256 hookBacklogTokenCount,
+            uint256 hookSplitPercent
+        ) = _beginRoute(config, communityRevnetId, payer, beneficiary, payMetadata.goalIds, payMetadata.weights);
 
         bytes memory jbMetadata = payMetadata.jbMetadata;
         JBTokenAmount memory tokenAmount = _tokenAmountFrom(config, accountingToken, paymentAmount);
@@ -590,7 +587,14 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             );
         }
 
-        _finishRoute(config.splitHook, controller, communityRevnetId, backlogTokenCount);
+        _finishRoute(
+            config.splitHook,
+            controller,
+            communityRevnetId,
+            pendingReservedTokenBalance,
+            hookBacklogTokenCount,
+            hookSplitPercent
+        );
     }
 
     function _beginRoute(
@@ -600,14 +604,24 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address beneficiary,
         uint256[] memory goalIds,
         uint32[] memory weights
-    ) internal returns (IJBController controller, uint256 backlogTokenCount) {
+    )
+        internal
+        returns (
+            IJBController controller,
+            uint256 pendingReservedTokenBalance,
+            uint256 hookBacklogTokenCount,
+            uint256 hookSplitPercent
+        )
+    {
         _requireSplitHookConfiguration(config.splitHook, communityRevnetId);
 
         controller = _controllerOf(communityRevnetId);
-        backlogTokenCount = controller.pendingReservedTokenBalanceOf(communityRevnetId);
+        hookSplitPercent = _requireLiveReservedSplitHook(config.splitHook, communityRevnetId);
+        pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(communityRevnetId);
+        hookBacklogTokenCount = _reservedTokenShareOf(pendingReservedTokenBalance, hookSplitPercent);
 
         if (goalIds.length != 0) {
-            config.splitHook.beginPendingRoute(payer, beneficiary, backlogTokenCount, goalIds, weights);
+            config.splitHook.beginPendingRoute(payer, beneficiary, hookBacklogTokenCount, goalIds, weights);
         }
     }
 
@@ -615,12 +629,27 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         ICobuildSplitHook splitHook,
         IJBController controller,
         uint256 communityRevnetId,
-        uint256 backlogTokenCount
+        uint256 pendingReservedTokenBalanceBeforePay,
+        uint256 hookBacklogTokenCount,
+        uint256 hookSplitPercent
     ) internal {
         uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(communityRevnetId);
-        if (pendingReservedTokenBalance <= backlogTokenCount) {
+        if (pendingReservedTokenBalance <= pendingReservedTokenBalanceBeforePay) {
             if (splitHook.hasPendingRoute()) splitHook.cancelPendingRoute();
             return;
+        }
+
+        uint256 liveHookSplitPercent = _requireLiveReservedSplitHook(splitHook, communityRevnetId);
+        if (liveHookSplitPercent != hookSplitPercent) {
+            revert INVALID_RESERVED_SPLIT_PERCENT(hookSplitPercent, liveHookSplitPercent);
+        }
+
+        uint256 hookPendingReservedTokenBalance = _reservedTokenShareOf(
+            pendingReservedTokenBalance,
+            liveHookSplitPercent
+        );
+        if (hookPendingReservedTokenBalance <= hookBacklogTokenCount && splitHook.hasPendingRoute()) {
+            splitHook.cancelPendingRoute();
         }
 
         controller.sendReservedTokensToSplitsOf(communityRevnetId);
@@ -647,7 +676,10 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         }
     }
 
-    function _requireLiveReservedSplitHook(ICobuildSplitHook splitHook, uint256 communityRevnetId) internal view {
+    function _requireLiveReservedSplitHook(
+        ICobuildSplitHook splitHook,
+        uint256 communityRevnetId
+    ) internal view returns (uint256 hookSplitPercent) {
         IJBController controller = _controllerOf(communityRevnetId);
         (JBRuleset memory ruleset, ) = controller.currentRulesetOf(communityRevnetId);
         JBSplit[] memory reservedSplits = controller.SPLITS().splitsOf(
@@ -656,17 +688,22 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             RESERVED_TOKENS_GROUP_ID
         );
 
-        if (reservedSplits.length != 1) revert INVALID_RESERVED_SPLIT_COUNT(1, reservedSplits.length);
+        uint256 matchingSplitCount;
+        for (uint256 i; i < reservedSplits.length; i++) {
+            JBSplit memory reservedSplit = reservedSplits[i];
+            if (reservedSplit.percent == 0) continue;
+            if (address(reservedSplit.hook) != address(splitHook)) continue;
 
-        JBSplit memory reservedSplit = reservedSplits[0];
-        if (reservedSplit.percent != JBConstants.SPLITS_TOTAL_PERCENT) {
-            revert INVALID_RESERVED_SPLIT_PERCENT(JBConstants.SPLITS_TOTAL_PERCENT, reservedSplit.percent);
+            matchingSplitCount += 1;
+            hookSplitPercent = reservedSplit.percent;
         }
 
-        address actualHook = address(reservedSplit.hook);
-        if (actualHook != address(splitHook)) {
-            revert INVALID_RESERVED_SPLIT_HOOK(address(splitHook), actualHook);
-        }
+        if (matchingSplitCount != 1) revert INVALID_RESERVED_SPLIT_COUNT(1, matchingSplitCount);
+    }
+
+    function _reservedTokenShareOf(uint256 reservedTokenBalance, uint256 splitPercent) internal pure returns (uint256) {
+        if (reservedTokenBalance == 0 || splitPercent == 0) return 0;
+        return (reservedTokenBalance * splitPercent) / uint256(JBConstants.SPLITS_TOTAL_PERCENT);
     }
 
     function _requireCanonicalCommunityTerminals(uint256 communityRevnetId, address paymentToken) internal view {

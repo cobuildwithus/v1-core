@@ -99,7 +99,7 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         assertTrue(exists);
     }
 
-    function test_deployFor_revertsWhenLiveReservedSplitHookDoesNotMatchPredictedHook_andLeavesNoCloneDeployed() public {
+    function test_deployFor_revertsWhenLiveReservedSplitGroupOmitsPredictedHook_andLeavesNoCloneDeployed() public {
         bytes32 salt = keccak256("hook");
         bytes32 wrongSalt = keccak256("wrong-hook");
         address predictedSplitHook =
@@ -113,9 +113,7 @@ contract CobuildCommunityTerminalFactoryTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_HOOK.selector,
-                predictedSplitHook,
-                wrongPredictedSplitHook
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_COUNT.selector, uint256(1), uint256(0)
             )
         );
         vm.prank(owner);
@@ -142,27 +140,22 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         assertEq(predictedSplitHook.code.length, 0);
     }
 
-    function test_deployFor_revertsWhenLiveReservedSplitIsNotFullReservedBucket_andLeavesNoCloneDeployed() public {
+    function test_deployFor_allowsFractionalLiveReservedSplitForPredictedHook() public {
         bytes32 salt = keccak256("hook");
         address predictedSplitHook =
             factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
         CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
         controller.setLiveReservedSplit(COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), 999_999_999);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_PERCENT.selector,
-                JBConstants.SPLITS_TOTAL_PERCENT,
-                uint256(999_999_999)
-            )
-        );
         vm.prank(owner);
-        factory.deployFor(config);
+        address splitHookAddress = factory.deployFor(config);
 
-        assertEq(predictedSplitHook.code.length, 0);
+        assertEq(splitHookAddress, predictedSplitHook);
+        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertTrue(exists);
     }
 
-    function test_deployFor_revertsWhenLiveReservedSplitGroupContainsMultipleSplits_andLeavesNoCloneDeployed() public {
+    function test_deployFor_allowsMixedReservedSplitGroupWhenPredictedHookAppearsOnce() public {
         bytes32 salt = keccak256("hook");
         address predictedSplitHook =
             factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
@@ -177,6 +170,30 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         uint32[] memory percents = new uint32[](2);
         percents[0] = 500_000_000;
         percents[1] = 500_000_000;
+
+        controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
+
+        vm.prank(owner);
+        address splitHookAddress = factory.deployFor(config);
+
+        assertEq(splitHookAddress, predictedSplitHook);
+        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        assertTrue(exists);
+    }
+
+    function test_deployFor_revertsWhenLiveReservedSplitGroupContainsMultipleMatchingPredictedHooks() public {
+        bytes32 salt = keccak256("hook");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](2);
+        hooks[0] = IJBSplitHook(predictedSplitHook);
+        hooks[1] = IJBSplitHook(predictedSplitHook);
+
+        uint32[] memory percents = new uint32[](2);
+        percents[0] = 400_000_000;
+        percents[1] = 600_000_000;
 
         controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
 

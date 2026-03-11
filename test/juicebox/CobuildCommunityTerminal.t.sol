@@ -699,6 +699,40 @@ contract CobuildCommunityTerminalTest is Test {
         assertEq(payHook.lastForwardedAmount(), 0.25 ether);
     }
 
+    function test_payWithPaymentToken_revertsWhenHookSplitPercentDriftsMidPay() public {
+        _registerCommunity(false);
+        controller.setReturnedTokenCount(0.5 ether);
+
+        CobuildCommunityTerminalMockSplitMutatingPayHook payHook =
+            new CobuildCommunityTerminalMockSplitMutatingPayHook(controller, COMMUNITY_REVNET_ID, splitHook, 500_000_000);
+        store.setPayHookSpecification(COMMUNITY_REVNET_ID, IJBPayHook(address(payHook)), 1, bytes("hook-metadata"));
+
+        paymentToken.mint(address(this), 1 ether);
+        paymentToken.approve(address(communityTerminal), 1 ether);
+
+        uint256[] memory goalIds = new uint256[](1);
+        goalIds[0] = 11;
+        uint32[] memory weights = new uint32[](1);
+        weights[0] = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_PERCENT.selector,
+                uint256(JBConstants.SPLITS_TOTAL_PERCENT),
+                uint256(500_000_000)
+            )
+        );
+        communityTerminal.pay(
+            COMMUNITY_REVNET_ID,
+            address(paymentToken),
+            1 ether,
+            address(this),
+            0,
+            "community-pay",
+            _communityPayMetadata(goalIds, weights, bytes(""))
+        );
+    }
+
     function test_payWithDirectNative_forwardsEmbeddedJbMetadataToTerminalStoreAndPayHook() public {
         _registerCommunity(true);
 
@@ -1443,5 +1477,32 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
 
         function lastForwardedAmount() external view returns (uint256) {
             return _lastForwardedAmount;
+        }
+    }
+
+    contract CobuildCommunityTerminalMockSplitMutatingPayHook is IJBPayHook {
+        CobuildCommunityTerminalMockController internal immutable _controller;
+        uint256 internal immutable _projectId;
+        CobuildCommunityTerminalMockSplitHook internal immutable _splitHook;
+        uint32 internal immutable _newPercent;
+
+        constructor(
+            CobuildCommunityTerminalMockController controller_,
+            uint256 projectId_,
+            CobuildCommunityTerminalMockSplitHook splitHook_,
+            uint32 newPercent_
+        ) {
+            _controller = controller_;
+            _projectId = projectId_;
+            _splitHook = splitHook_;
+            _newPercent = newPercent_;
+        }
+
+        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+            return interfaceId == type(IJBPayHook).interfaceId;
+        }
+
+        function afterPayRecordedWith(JBAfterPayRecordedContext calldata) external payable override {
+            _controller.setLiveReservedSplit(_projectId, IJBSplitHook(address(_splitHook)), _newPercent);
         }
     }
