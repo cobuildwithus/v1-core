@@ -6,10 +6,14 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 
 1. A payer can route an evergreen community revnet payment through `CobuildCommunityTerminal`.
    - `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction via an owner-signed payload.
-   - Manual registration remains available through `CobuildCommunityTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal.
+   - That registration now fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook as the sole full-bucket reserved split for the current ruleset.
+   - Deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`; leaving a gap lets permissionless reserved-token flushes mint into the predicted address before code exists.
+   - Manual registration remains available through `CobuildCommunityTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal and must already have the live reserved split group pointed at the same hook.
 2. The shared canonical terminal seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
-   - explicit metadata seeds an explicit per-payment route,
-   - empty metadata means no explicit route, so the terminal will flush any newly created reserved tokens into backlog.
+   - community pay metadata is `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`,
+   - explicit `goalIds`/`weights` seed an explicit per-payment route,
+   - embedded `jbMetadata` is forwarded unchanged into terminal-store accounting and pay-hook `payerMetadata`,
+   - empty metadata means no explicit route and empty downstream JB metadata, so the terminal will flush any newly created reserved tokens into backlog.
    - the terminal snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
      delta can use the selected route when an explicit route exists.
    - native ETH either records directly on the community through the shared terminal (`directNativeAllowed`) or first

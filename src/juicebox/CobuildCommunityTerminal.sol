@@ -19,6 +19,7 @@ import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingCont
 import { JBAfterPayRecordedContext } from "@bananapus/core-v5/structs/JBAfterPayRecordedContext.sol";
 import { JBPayHookSpecification } from "@bananapus/core-v5/structs/JBPayHookSpecification.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
+import { JBSplit } from "@bananapus/core-v5/structs/JBSplit.sol";
 import { JBTokenAmount } from "@bananapus/core-v5/structs/JBTokenAmount.sol";
 import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
@@ -32,6 +33,8 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using MessageHashUtils for bytes32;
 
+    uint256 private constant RESERVED_TOKENS_GROUP_ID = 1;
+
     bytes32 private constant REGISTER_COMMUNITY_TYPEHASH =
         keccak256(
             "RegisterCommunity(address registrant,uint256 communityRevnetId,address splitHook,address paymentToken,uint256 paymentSourceRevnetId,bool directNativeAllowed,uint256 deadline,address terminal,uint256 chainId)"
@@ -44,6 +47,12 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         uint256 paymentSourceRevnetId;
         bool directNativeAllowed;
         bool exists;
+    }
+
+    struct CommunityPayMetadata {
+        uint256[] goalIds;
+        uint32[] weights;
+        bytes jbMetadata;
     }
 
     IJBDirectory public immutable DIRECTORY;
@@ -66,6 +75,9 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     error INVALID_PAYMENT_SOURCE(uint256 paymentSourceRevnetId, address expectedToken, address actualToken);
     error INVALID_NATIVE_TERMINAL(address expectedTerminal, address actualTerminal);
     error INVALID_PAYMENT_TERMINAL(address expectedTerminal, address actualTerminal);
+    error INVALID_RESERVED_SPLIT_COUNT(uint256 expectedCount, uint256 actualCount);
+    error INVALID_RESERVED_SPLIT_HOOK(address expectedHook, address actualHook);
+    error INVALID_RESERVED_SPLIT_PERCENT(uint256 expectedPercent, uint256 actualPercent);
     error INVALID_REGISTRATION_SIGNATURE(address expectedSigner, address actualSigner);
     error REGISTRATION_DEADLINE_EXPIRED(uint256 deadline, uint256 currentTimestamp);
     error NO_PAYMENT_ETH_TERMINAL(uint256 paymentSourceRevnetId);
@@ -149,7 +161,9 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         uint256 deadline,
         bytes calldata signature
     ) external {
-        if (block.timestamp > deadline) revert REGISTRATION_DEADLINE_EXPIRED(deadline, block.timestamp);
+        if (block.timestamp > deadline) {
+            revert REGISTRATION_DEADLINE_EXPIRED(deadline, block.timestamp);
+        }
 
         bytes32 signedDigest = _registrationDigestOf(
             registrant,
@@ -236,6 +250,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         }
 
         _requireSplitHookConfiguration(splitHook, communityRevnetId);
+        _requireLiveReservedSplitHook(splitHook, communityRevnetId);
         _requireCanonicalCommunityTerminals(communityRevnetId, paymentToken);
         _requirePaymentSource(paymentSourceRevnetId, paymentToken, !directNativeAllowed);
 
@@ -271,7 +286,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         CommunityConfig storage config = _communityConfigOf[projectId];
         if (!config.exists) revert COMMUNITY_NOT_REGISTERED(projectId);
 
-        (uint256[] memory goalIds, uint32[] memory weights) = _decodeRoutingMetadata(metadata);
+        CommunityPayMetadata memory payMetadata = _decodePayMetadata(metadata);
         if (token == JBConstants.NATIVE_TOKEN) {
             if (msg.value == 0) revert NO_VALUE();
             if (msg.value != amount) revert INCORRECT_VALUE();
@@ -285,8 +300,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                     beneficiary,
                     minReturnedTokens,
                     memo,
-                    goalIds,
-                    weights
+                    payMetadata
                 );
         }
 
@@ -302,8 +316,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                     beneficiary,
                     minReturnedTokens,
                     memo,
-                    goalIds,
-                    weights
+                    payMetadata
                 );
         }
 
@@ -411,8 +424,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address beneficiary,
         uint256 minReturnedTokens,
         string calldata memo,
-        uint256[] memory goalIds,
-        uint32[] memory weights
+        CommunityPayMetadata memory payMetadata
     ) internal returns (uint256 beneficiaryTokenCount) {
         if (config.directNativeAllowed) {
             return
@@ -426,8 +438,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                     beneficiary,
                     minReturnedTokens,
                     memo,
-                    goalIds,
-                    weights
+                    payMetadata
                 );
         }
 
@@ -443,8 +454,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                 beneficiary,
                 minReturnedTokens,
                 memo,
-                goalIds,
-                weights
+                payMetadata
             );
     }
 
@@ -474,8 +484,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                 address(this),
                 1,
                 memo,
-                new uint256[](0),
-                new uint32[](0)
+                _emptyPayMetadata()
             );
         } else {
             paymentEthTerminal.pay{ value: amount }(
@@ -502,8 +511,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address beneficiary,
         uint256 minReturnedTokens,
         string calldata memo,
-        uint256[] memory goalIds,
-        uint32[] memory weights
+        CommunityPayMetadata memory payMetadata
     ) internal returns (uint256 beneficiaryTokenCount) {
         IERC20 paymentTokenRef = IERC20(config.paymentToken);
         uint256 paymentBalanceBefore = paymentTokenRef.balanceOf(address(this));
@@ -521,8 +529,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             beneficiary,
             minReturnedTokens,
             memo,
-            goalIds,
-            weights
+            payMetadata
         );
     }
 
@@ -536,21 +543,21 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address beneficiary,
         uint256 minReturnedTokens,
         string calldata memo,
-        uint256[] memory goalIds,
-        uint32[] memory weights
+        CommunityPayMetadata memory payMetadata
     ) internal returns (uint256 beneficiaryTokenCount) {
         (IJBController controller, uint256 backlogTokenCount) = _beginRoute(
             config,
             communityRevnetId,
             payer,
             beneficiary,
-            goalIds,
-            weights
+            payMetadata.goalIds,
+            payMetadata.weights
         );
 
+        bytes memory jbMetadata = payMetadata.jbMetadata;
         JBTokenAmount memory tokenAmount = _tokenAmountFrom(config, accountingToken, paymentAmount);
         (JBRuleset memory ruleset, uint256 tokenCount, JBPayHookSpecification[] memory hookSpecifications) = STORE
-            .recordPaymentFrom(payer, tokenAmount, communityRevnetId, beneficiary, bytes(""));
+            .recordPaymentFrom(payer, tokenAmount, communityRevnetId, beneficiary, jbMetadata);
         if (tokenCount != 0) {
             beneficiaryTokenCount = controller.mintTokensOf(communityRevnetId, tokenCount, beneficiary, "", true);
         }
@@ -565,7 +572,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             paymentAmount,
             beneficiaryTokenCount,
             memo,
-            bytes(""),
+            jbMetadata,
             caller
         );
 
@@ -578,7 +585,8 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
                 caller,
                 ruleset,
                 beneficiary,
-                beneficiaryTokenCount
+                beneficiaryTokenCount,
+                jbMetadata
             );
         }
 
@@ -598,8 +606,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         controller = _controllerOf(communityRevnetId);
         backlogTokenCount = controller.pendingReservedTokenBalanceOf(communityRevnetId);
 
-        bool hasExplicitRoute = goalIds.length != 0;
-        if (hasExplicitRoute) {
+        if (goalIds.length != 0) {
             config.splitHook.beginPendingRoute(payer, beneficiary, backlogTokenCount, goalIds, weights);
         }
     }
@@ -640,6 +647,28 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         }
     }
 
+    function _requireLiveReservedSplitHook(ICobuildSplitHook splitHook, uint256 communityRevnetId) internal view {
+        IJBController controller = _controllerOf(communityRevnetId);
+        (JBRuleset memory ruleset, ) = controller.currentRulesetOf(communityRevnetId);
+        JBSplit[] memory reservedSplits = controller.SPLITS().splitsOf(
+            communityRevnetId,
+            ruleset.id,
+            RESERVED_TOKENS_GROUP_ID
+        );
+
+        if (reservedSplits.length != 1) revert INVALID_RESERVED_SPLIT_COUNT(1, reservedSplits.length);
+
+        JBSplit memory reservedSplit = reservedSplits[0];
+        if (reservedSplit.percent != JBConstants.SPLITS_TOTAL_PERCENT) {
+            revert INVALID_RESERVED_SPLIT_PERCENT(JBConstants.SPLITS_TOTAL_PERCENT, reservedSplit.percent);
+        }
+
+        address actualHook = address(reservedSplit.hook);
+        if (actualHook != address(splitHook)) {
+            revert INVALID_RESERVED_SPLIT_HOOK(address(splitHook), actualHook);
+        }
+    }
+
     function _requireCanonicalCommunityTerminals(uint256 communityRevnetId, address paymentToken) internal view {
         address actualNativeTerminal = address(
             DIRECTORY.primaryTerminalOf(communityRevnetId, JBConstants.NATIVE_TOKEN)
@@ -668,16 +697,28 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         IJBTerminal paymentEthTerminal = DIRECTORY.primaryTerminalOf(paymentSourceRevnetId, JBConstants.NATIVE_TOKEN);
         if (address(paymentEthTerminal) == address(0)) revert NO_PAYMENT_ETH_TERMINAL(paymentSourceRevnetId);
         if (requireRegisteredIfSelf && address(paymentEthTerminal) == address(this)) {
-            if (!_communityConfigOf[paymentSourceRevnetId].exists)
+            if (!_communityConfigOf[paymentSourceRevnetId].exists) {
                 revert PAYMENT_SOURCE_NOT_REGISTERED(paymentSourceRevnetId);
+            }
         }
     }
 
-    function _decodeRoutingMetadata(
+    function _decodePayMetadata(
         bytes calldata metadata
-    ) internal pure returns (uint256[] memory goalIds, uint32[] memory weights) {
-        if (metadata.length == 0) return (new uint256[](0), new uint32[](0));
-        return abi.decode(metadata, (uint256[], uint32[]));
+    ) internal pure returns (CommunityPayMetadata memory payMetadata) {
+        if (metadata.length == 0) return _emptyPayMetadata();
+        (payMetadata.goalIds, payMetadata.weights, payMetadata.jbMetadata) = abi.decode(
+            metadata,
+            (uint256[], uint32[], bytes)
+        );
+    }
+
+    function _emptyPayMetadata() internal pure returns (CommunityPayMetadata memory payMetadata) {
+        payMetadata = CommunityPayMetadata({
+            goalIds: new uint256[](0),
+            weights: new uint32[](0),
+            jbMetadata: bytes("")
+        });
     }
 
     function _nativeAccountingContext() internal pure returns (JBAccountingContext memory) {
@@ -764,7 +805,8 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address caller,
         JBRuleset memory ruleset,
         address beneficiary,
-        uint256 newlyIssuedTokenCount
+        uint256 newlyIssuedTokenCount,
+        bytes memory payerMetadata
     ) internal {
         JBAfterPayRecordedContext memory context = JBAfterPayRecordedContext({
             payer: payer,
@@ -776,7 +818,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             newlyIssuedTokenCount: newlyIssuedTokenCount,
             beneficiary: beneficiary,
             hookMetadata: bytes(""),
-            payerMetadata: bytes("")
+            payerMetadata: payerMetadata
         });
 
         uint256 specificationsLength = specifications.length;
@@ -792,6 +834,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
 
             uint256 payValue = _beforeTransferTo(address(specification.hook), tokenAmount.token, specification.amount);
             specification.hook.afterPayRecordedWith{ value: payValue }(context);
+            _afterTransferTo(address(specification.hook), tokenAmount.token);
 
             emit HookAfterRecordPay(IJBPayHook(specification.hook), context, specification.amount, caller);
         }
@@ -802,6 +845,12 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
 
         IERC20(token).safeIncreaseAllowance(to, amount);
         return 0;
+    }
+
+    function _afterTransferTo(address to, address token) internal {
+        if (token == JBConstants.NATIVE_TOKEN) return;
+
+        IERC20(token).forceApprove(to, 0);
     }
 
     function _registrationDigestOf(

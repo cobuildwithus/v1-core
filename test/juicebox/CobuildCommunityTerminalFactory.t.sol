@@ -16,9 +16,13 @@ import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
 
 import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {JBRulesetMetadata} from "@bananapus/core-v5/structs/JBRulesetMetadata.sol";
+import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
 
 import {CobuildSplitHookMockToken} from "test/hooks/CobuildSplitHook.t.sol";
 
@@ -93,6 +97,98 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         assertEq(paymentSourceRevnetId, COMMUNITY_REVNET_ID);
         assertTrue(directNativeAllowed);
         assertTrue(exists);
+    }
+
+    function test_deployFor_revertsWhenLiveReservedSplitHookDoesNotMatchPredictedHook_andLeavesNoCloneDeployed() public {
+        bytes32 salt = keccak256("hook");
+        bytes32 wrongSalt = keccak256("wrong-hook");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        address wrongPredictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), wrongSalt);
+        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+        controller.setLiveReservedSplit(
+            COMMUNITY_REVNET_ID, IJBSplitHook(wrongPredictedSplitHook), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_HOOK.selector,
+                predictedSplitHook,
+                wrongPredictedSplitHook
+            )
+        );
+        vm.prank(owner);
+        factory.deployFor(config);
+
+        assertEq(predictedSplitHook.code.length, 0);
+    }
+
+    function test_deployFor_revertsWhenLiveReservedSplitIsUnset_andLeavesNoCloneDeployed() public {
+        bytes32 salt = keccak256("hook");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+        controller.clearLiveReservedSplit(COMMUNITY_REVNET_ID);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_COUNT.selector, uint256(1), uint256(0)
+            )
+        );
+        vm.prank(owner);
+        factory.deployFor(config);
+
+        assertEq(predictedSplitHook.code.length, 0);
+    }
+
+    function test_deployFor_revertsWhenLiveReservedSplitIsNotFullReservedBucket_andLeavesNoCloneDeployed() public {
+        bytes32 salt = keccak256("hook");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+        controller.setLiveReservedSplit(COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), 999_999_999);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_PERCENT.selector,
+                JBConstants.SPLITS_TOTAL_PERCENT,
+                uint256(999_999_999)
+            )
+        );
+        vm.prank(owner);
+        factory.deployFor(config);
+
+        assertEq(predictedSplitHook.code.length, 0);
+    }
+
+    function test_deployFor_revertsWhenLiveReservedSplitGroupContainsMultipleSplits_andLeavesNoCloneDeployed() public {
+        bytes32 salt = keccak256("hook");
+        address predictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        address otherPredictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), keccak256("hook-two"));
+        CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](2);
+        hooks[0] = IJBSplitHook(predictedSplitHook);
+        hooks[1] = IJBSplitHook(otherPredictedSplitHook);
+
+        uint32[] memory percents = new uint32[](2);
+        percents[0] = 500_000_000;
+        percents[1] = 500_000_000;
+
+        controller.setLiveReservedSplits(COMMUNITY_REVNET_ID, hooks, percents);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INVALID_RESERVED_SPLIT_COUNT.selector, uint256(1), uint256(2)
+            )
+        );
+        vm.prank(owner);
+        factory.deployFor(config);
+
+        assertEq(predictedSplitHook.code.length, 0);
     }
 
     function test_deployFor_revertsWhenCallerIsNotCommunityProjectOwner() public {
@@ -221,6 +317,9 @@ contract CobuildCommunityTerminalFactoryTest is Test {
         address predictedSplitHook =
             factory.predictSplitHookAddress(address(contractOwner), ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
         CobuildCommunityTerminalFactory.DeployConfig memory config = _deployConfig(salt);
+        controller.setLiveReservedSplit(
+            COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
+        );
         bytes32 digest = communityTerminal.registrationDigestOf(
             address(contractOwner),
             COMMUNITY_REVNET_ID,
@@ -254,6 +353,9 @@ contract CobuildCommunityTerminalFactoryTest is Test {
     function _deployConfig(bytes32 salt) internal returns (CobuildCommunityTerminalFactory.DeployConfig memory) {
         address predictedSplitHook =
             factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(communityTerminal), salt);
+        controller.setLiveReservedSplit(
+            COMMUNITY_REVNET_ID, IJBSplitHook(predictedSplitHook), uint32(JBConstants.SPLITS_TOTAL_PERCENT)
+        );
         bytes32 digest = communityTerminal.registrationDigestOf(
             owner,
             COMMUNITY_REVNET_ID,
@@ -352,14 +454,106 @@ contract CobuildCommunityTerminalFactoryTokensMock {
 }
 
 contract CobuildCommunityTerminalFactoryControllerMock {
+    uint48 internal constant CURRENT_RULESET_ID = 1;
+
     CobuildCommunityTerminalFactoryTokensMock internal immutable _tokens;
+    CobuildCommunityTerminalFactorySplitsMock internal immutable _splits;
 
     constructor(CobuildCommunityTerminalFactoryTokensMock tokens_) {
         _tokens = tokens_;
+        _splits = new CobuildCommunityTerminalFactorySplitsMock();
     }
 
     function TOKENS() external view returns (CobuildCommunityTerminalFactoryTokensMock) {
         return _tokens;
+    }
+
+    function SPLITS() external view returns (CobuildCommunityTerminalFactorySplitsMock) {
+        return _splits;
+    }
+
+    function currentRulesetOf(uint256) external view returns (JBRuleset memory ruleset, JBRulesetMetadata memory) {
+        ruleset.id = CURRENT_RULESET_ID;
+        ruleset.cycleNumber = uint48(CURRENT_RULESET_ID);
+        ruleset.start = uint48(block.timestamp);
+    }
+
+    function setLiveReservedSplit(uint256 projectId, IJBSplitHook hook, uint32 percent) external {
+        _splits.setReservedSplit(projectId, uint256(CURRENT_RULESET_ID), hook, percent);
+    }
+
+    function setLiveReservedSplits(uint256 projectId, IJBSplitHook[] memory hooks, uint32[] memory percents) external {
+        _splits.setReservedSplits(projectId, uint256(CURRENT_RULESET_ID), hooks, percents);
+    }
+
+    function clearLiveReservedSplit(uint256 projectId) external {
+        _splits.clearReservedSplits(projectId, uint256(CURRENT_RULESET_ID));
+    }
+}
+
+contract CobuildCommunityTerminalFactorySplitsMock {
+    uint256 internal constant FALLBACK_RULESET_ID = 0;
+    uint256 internal constant RESERVED_TOKENS_GROUP_ID = 1;
+
+    mapping(uint256 projectId => mapping(uint256 rulesetId => JBSplit[])) internal _reservedSplitsOf;
+
+    function setReservedSplit(uint256 projectId, uint256 rulesetId, IJBSplitHook hook, uint32 percent) external {
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](1);
+        hooks[0] = hook;
+
+        uint32[] memory percents = new uint32[](1);
+        percents[0] = percent;
+
+        this.setReservedSplits(projectId, rulesetId, hooks, percents);
+    }
+
+    function setReservedSplits(uint256 projectId, uint256 rulesetId, IJBSplitHook[] memory hooks, uint32[] memory percents)
+        external
+    {
+        require(hooks.length == percents.length, "LENGTH_MISMATCH");
+
+        delete _reservedSplitsOf[projectId][rulesetId];
+
+        for (uint256 i; i < hooks.length; i++) {
+            _reservedSplitsOf[projectId][rulesetId].push(
+                JBSplit({
+                    percent: percents[i],
+                    projectId: 0,
+                    beneficiary: payable(address(0)),
+                    preferAddToBalance: false,
+                    lockedUntil: 0,
+                    hook: hooks[i]
+                })
+            );
+        }
+    }
+
+    function clearReservedSplits(uint256 projectId, uint256 rulesetId) external {
+        delete _reservedSplitsOf[projectId][rulesetId];
+    }
+
+    function splitsOf(uint256 projectId, uint256 rulesetId, uint256 groupId)
+        external
+        view
+        returns (JBSplit[] memory splits)
+    {
+        if (groupId != RESERVED_TOKENS_GROUP_ID) return new JBSplit[](0);
+
+        splits = _copyReservedSplits(projectId, rulesetId);
+
+        if (splits.length == 0 && rulesetId != FALLBACK_RULESET_ID) {
+            splits = _copyReservedSplits(projectId, FALLBACK_RULESET_ID);
+        }
+    }
+
+    function _copyReservedSplits(uint256 projectId, uint256 rulesetId) internal view returns (JBSplit[] memory splits) {
+        JBSplit[] storage storedSplits = _reservedSplitsOf[projectId][rulesetId];
+        uint256 splitCount = storedSplits.length;
+        splits = new JBSplit[](splitCount);
+
+        for (uint256 i; i < splitCount; i++) {
+            splits[i] = storedSplits[i];
+        }
     }
 }
 

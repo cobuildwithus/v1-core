@@ -55,6 +55,10 @@ contract CobuildCommunityTerminalFactory {
         splitHookImplementation = splitHookImplementation_;
     }
 
+    /// @notice Deploy a deterministic community split hook and register it on the shared terminal.
+    /// @dev Deployment orchestration must atomically update the community revnet's live reserved-token split to the
+    /// predicted hook address and call this function, otherwise permissionless reserved-token flushes can mint into the
+    /// predicted address before the clone exists.
     function deployFor(DeployConfig calldata config) external returns (address splitHook) {
         ICommunityGoalRegistry goalRegistry = config.goalRegistry;
         address routeSetter = config.routeSetter;

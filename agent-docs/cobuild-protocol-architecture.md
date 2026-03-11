@@ -102,6 +102,7 @@ Community root routing
   - the factory deterministically derives the split-hook clone address from caller + goal registry + shared route setter + salt,
   - deploys the split hook,
   - initializes the hook with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
+  - requires deployment orchestration to atomically set the live reserved split to that predicted hook address before calling `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
   - registers the community on that same terminal in the same transaction via an owner-signed registration payload.
 - Community payments can arrive through the shared `CobuildCommunityTerminal` only after the community binds immutable
   routing config and points both its native ETH terminal and registered payment-token terminal at that shared terminal.
@@ -111,9 +112,10 @@ Community root routing
   - if that upstream native terminal is the same shared terminal, the conversion path stays internal and self-source-safe,
   - direct payment-token pays use that same terminal-store recording path without the intermediate conversion step,
   - the shared terminal fulfills normal JB payment accounting and pay-hook semantics before it flushes reserved tokens into splits.
-- The shared terminal optionally decodes route metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`:
-  - explicit metadata seeds a one-shot explicit route on `CobuildSplitHook`,
-  - empty metadata means "no explicit route", so any reserved tokens created by the pay are flushed into hook-managed backlog.
+- The shared terminal optionally decodes community pay metadata as `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`:
+  - explicit `goalIds`/`weights` seed a one-shot explicit route on `CobuildSplitHook`,
+  - embedded `jbMetadata` is forwarded unchanged into terminal-store accounting and pay-hook `payerMetadata`,
+  - empty metadata means "no explicit route" plus empty downstream JB metadata, so any reserved tokens created by the pay are flushed into hook-managed backlog.
 - Before seeding a new route, the shared terminal snapshots the community controller's current pending reserved-token balance so
   older backlog can be separated from the current pay's newly created reserved-token delta.
 - After the community pay returns, if it created reserved tokens, the shared terminal immediately calls

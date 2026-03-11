@@ -15,6 +15,8 @@ import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {JBRulesetMetadata} from "@bananapus/core-v5/structs/JBRulesetMetadata.sol";
 import {JBSplit} from "@bananapus/core-v5/structs/JBSplit.sol";
 import {JBSplitHookContext} from "@bananapus/core-v5/structs/JBSplitHookContext.sol";
 
@@ -98,11 +100,19 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
     function test_wrapperExplicitRoute_fundsSelectedGoalsAndMintsCommunityTokensInSameTransaction() public {
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        uint256 beneficiaryTokenCount =
-            _payWrapper(wrapperFixture, payer, DIRECT_PAY_AMOUNT, payer, "pick-goals", abi.encode(goalIds, weights));
+        bytes memory jbMetadata = abi.encodePacked("payer-metadata");
+        uint256 beneficiaryTokenCount = _payWrapper(
+            wrapperFixture,
+            payer,
+            DIRECT_PAY_AMOUNT,
+            payer,
+            "pick-goals",
+            _communityPayMetadata(goalIds, weights, jbMetadata)
+        );
 
         assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
         assertEq(wrapperFixture.communityToken.balanceOf(payer), DIRECT_PAY_AMOUNT / 2);
+        assertEq(keccak256(terminalStore.lastMetadata()), keccak256(jbMetadata));
         assertFalse(wrapperFixture.hook.hasPendingRoute());
         assertEq(controller.pendingReservedTokenBalanceOf(wrapperFixture.communityRevnetId), 0);
         assertEq(wrapperFixture.goalTerminalOne.totalReceived(), 5e18);
@@ -204,7 +214,12 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
         uint256 beneficiaryTokenCount = _payWrapper(
-            wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights)
+            wrapperFixture,
+            payerTwo,
+            DIRECT_PAY_AMOUNT,
+            payerTwo,
+            "pick-goals",
+            _communityPayMetadata(goalIds, weights, bytes(""))
         );
 
         assertEq(beneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
@@ -240,7 +255,14 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
 
         uint256[] memory goalIds = _goalIds(wrapperFixture.goalIdOne, wrapperFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        _payWrapper(wrapperFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights));
+        _payWrapper(
+            wrapperFixture,
+            payerTwo,
+            DIRECT_PAY_AMOUNT,
+            payerTwo,
+            "pick-goals",
+            _communityPayMetadata(goalIds, weights, bytes(""))
+        );
 
         uint256 firstPageAmount = wrapperFixture.hook.flushHistoricalBacklog(1);
 
@@ -279,10 +301,10 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             IJBDirectory(address(directory)), rootRevnetId, address(rootToken), address(sharedTerminal), rootRegistry
         );
         vm.startPrank(multisig);
+        controller.setReservedSplitHook(rootRevnetId, IJBSplitHook(address(rootHook)));
         sharedTerminal.registerCommunity(
             rootRevnetId, ICobuildSplitHook(address(rootHook)), address(rootToken), rootRevnetId, true
         );
-        controller.setReservedSplitHook(rootRevnetId, IJBSplitHook(address(rootHook)));
         vm.stopPrank();
 
         GoalDeploymentRegistry childDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
@@ -301,10 +323,10 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
             IJBDirectory(address(directory)), childRevnetId, address(childToken), address(sharedTerminal), childRegistry
         );
         vm.startPrank(multisig);
+        controller.setReservedSplitHook(childRevnetId, IJBSplitHook(address(childHook)));
         sharedTerminal.registerCommunity(
             childRevnetId, ICobuildSplitHook(address(childHook)), address(rootToken), rootRevnetId, false
         );
-        controller.setReservedSplitHook(childRevnetId, IJBSplitHook(address(childHook)));
         vm.stopPrank();
 
         vm.deal(payer, DIRECT_PAY_AMOUNT);
@@ -371,7 +393,12 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         uint256[] memory goalIds = _goalIds(freshFixture.goalIdOne, freshFixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
         uint256 explicitBeneficiaryTokenCount = _payWrapper(
-            freshFixture, payerTwo, DIRECT_PAY_AMOUNT, payerTwo, "pick-goals", abi.encode(goalIds, weights)
+            freshFixture,
+            payerTwo,
+            DIRECT_PAY_AMOUNT,
+            payerTwo,
+            "pick-goals",
+            _communityPayMetadata(goalIds, weights, bytes(""))
         );
 
         assertEq(explicitBeneficiaryTokenCount, DIRECT_PAY_AMOUNT / 2);
@@ -523,6 +550,8 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
                 fixture.registry
             );
         vm.prank(multisig);
+        controller.setReservedSplitHook(fixture.communityRevnetId, IJBSplitHook(address(fixture.hook)));
+        vm.prank(multisig);
         fixture.wrapper
             .registerCommunity(
                 fixture.communityRevnetId,
@@ -531,9 +560,6 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
                 fixture.communityRevnetId,
                 true
             );
-
-        vm.prank(multisig);
-        controller.setReservedSplitHook(fixture.communityRevnetId, IJBSplitHook(address(fixture.hook)));
     }
 
     function _deployManualFixture(uint16 reservedPercent) internal returns (ManualFixture memory fixture) {
@@ -657,7 +683,9 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
     function _seedObservedHistoryForWrapperFixture(WrapperFixture memory fixture, uint256 amount) internal {
         uint256[] memory goalIds = _goalIds(fixture.goalIdOne, fixture.goalIdTwo);
         uint32[] memory weights = _weights(1, 3);
-        _payWrapper(fixture, payer, amount, routeBeneficiary, "seed-history", abi.encode(goalIds, weights));
+        _payWrapper(
+            fixture, payer, amount, routeBeneficiary, "seed-history", _communityPayMetadata(goalIds, weights, bytes(""))
+        );
     }
 
     function _beginPendingRoute(
@@ -760,6 +788,14 @@ contract CobuildCommunityTerminalCoreIntegrationTest is Test {
         weights[0] = first;
         weights[1] = second;
     }
+
+    function _communityPayMetadata(uint256[] memory goalIds, uint32[] memory weights, bytes memory jbMetadata)
+        internal
+        pure
+        returns (bytes memory metadata)
+    {
+        metadata = abi.encode(goalIds, weights, jbMetadata);
+    }
 }
 
 contract RouteSetterStub {}
@@ -772,7 +808,76 @@ contract AsyncTokens {
     }
 }
 
+contract AsyncSplits {
+    uint256 internal constant FALLBACK_RULESET_ID = 0;
+    uint256 internal constant RESERVED_TOKENS_GROUP_ID = 1;
+
+    mapping(uint256 projectId => mapping(uint256 rulesetId => JBSplit[])) internal _reservedSplitsOf;
+
+    function setReservedSplitHook(uint256 projectId, uint256 rulesetId, IJBSplitHook hook) external {
+        if (address(hook) == address(0)) {
+            delete _reservedSplitsOf[projectId][rulesetId];
+            return;
+        }
+
+        IJBSplitHook[] memory hooks = new IJBSplitHook[](1);
+        hooks[0] = hook;
+
+        uint32[] memory percents = new uint32[](1);
+        percents[0] = uint32(JBConstants.SPLITS_TOTAL_PERCENT);
+
+        this.setReservedSplits(projectId, rulesetId, hooks, percents);
+    }
+
+    function setReservedSplits(uint256 projectId, uint256 rulesetId, IJBSplitHook[] memory hooks, uint32[] memory percents)
+        external
+    {
+        require(hooks.length == percents.length, "LENGTH_MISMATCH");
+
+        delete _reservedSplitsOf[projectId][rulesetId];
+
+        for (uint256 i; i < hooks.length; i++) {
+            _reservedSplitsOf[projectId][rulesetId].push(
+                JBSplit({
+                    percent: percents[i],
+                    projectId: 0,
+                    beneficiary: payable(address(0)),
+                    preferAddToBalance: false,
+                    lockedUntil: 0,
+                    hook: hooks[i]
+                })
+            );
+        }
+    }
+
+    function splitsOf(uint256 projectId, uint256 rulesetId, uint256 groupId)
+        external
+        view
+        returns (JBSplit[] memory splits)
+    {
+        if (groupId != RESERVED_TOKENS_GROUP_ID) return new JBSplit[](0);
+
+        splits = _copyReservedSplits(projectId, rulesetId);
+
+        if (splits.length == 0 && rulesetId != FALLBACK_RULESET_ID) {
+            splits = _copyReservedSplits(projectId, FALLBACK_RULESET_ID);
+        }
+    }
+
+    function _copyReservedSplits(uint256 projectId, uint256 rulesetId) internal view returns (JBSplit[] memory splits) {
+        JBSplit[] storage storedSplits = _reservedSplitsOf[projectId][rulesetId];
+        uint256 splitCount = storedSplits.length;
+        splits = new JBSplit[](splitCount);
+
+        for (uint256 i; i < splitCount; i++) {
+            splits[i] = storedSplits[i];
+        }
+    }
+}
+
 contract AsyncReservedController is IERC165 {
+    uint48 internal constant CURRENT_RULESET_ID = 1;
+
     error UNAUTHORIZED();
     error INVALID_PROJECT();
     error NO_RESERVED_TOKENS();
@@ -782,11 +887,11 @@ contract AsyncReservedController is IERC165 {
         address owner;
         MockVotesToken token;
         uint16 reservedPercent;
-        IJBSplitHook reservedSplitHook;
     }
 
     AsyncDirectory public immutable directory;
     AsyncTokens public immutable TOKENS;
+    AsyncSplits public immutable SPLITS;
 
     uint256 public projectCount;
     mapping(uint256 projectId => uint256) public pendingReservedTokenBalanceOf;
@@ -797,6 +902,7 @@ contract AsyncReservedController is IERC165 {
     constructor(AsyncDirectory directory_) {
         directory = directory_;
         TOKENS = new AsyncTokens();
+        SPLITS = new AsyncSplits();
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
@@ -810,9 +916,7 @@ contract AsyncReservedController is IERC165 {
         projectId = ++projectCount;
         token = new MockVotesToken(tokenName, tokenSymbol);
 
-        _projectConfigOf[projectId] = ProjectConfig({
-            owner: owner, token: token, reservedPercent: reservedPercent, reservedSplitHook: IJBSplitHook(address(0))
-        });
+        _projectConfigOf[projectId] = ProjectConfig({owner: owner, token: token, reservedPercent: reservedPercent});
         TOKENS.setTokenOf(projectId, token);
         directory.setControllerOf(projectId, IERC165(address(this)));
         directory.setProjectOwner(projectId, owner);
@@ -825,7 +929,19 @@ contract AsyncReservedController is IERC165 {
 
     function setReservedSplitHook(uint256 projectId, IJBSplitHook hook) external {
         if (msg.sender != _projectConfigOf[projectId].owner) revert UNAUTHORIZED();
-        _projectConfigOf[projectId].reservedSplitHook = hook;
+        SPLITS.setReservedSplitHook(projectId, uint256(CURRENT_RULESET_ID), hook);
+    }
+
+    function currentRulesetOf(uint256 projectId)
+        external
+        view
+        returns (JBRuleset memory ruleset, JBRulesetMetadata memory)
+    {
+        if (address(_projectConfigOf[projectId].token) == address(0)) revert INVALID_PROJECT();
+
+        ruleset.id = CURRENT_RULESET_ID;
+        ruleset.cycleNumber = uint48(CURRENT_RULESET_ID);
+        ruleset.start = uint48(block.timestamp);
     }
 
     function mintTokensOf(uint256 projectId, uint256 tokenCount, address beneficiary, bool useReservedPercent)
@@ -873,29 +989,34 @@ contract AsyncReservedController is IERC165 {
 
         tokenCount = pendingReservedTokenBalanceOf[projectId];
         if (tokenCount == 0) revert NO_RESERVED_TOKENS();
-        if (address(config.reservedSplitHook) == address(0)) revert NO_RESERVED_SPLIT_HOOK();
+
+        JBSplit[] memory reservedSplits = SPLITS.splitsOf(projectId, uint256(CURRENT_RULESET_ID), 1);
+        if (reservedSplits.length == 0 || address(reservedSplits[0].hook) == address(0)) {
+            revert NO_RESERVED_SPLIT_HOOK();
+        }
 
         pendingReservedTokenBalanceOf[projectId] = 0;
-        config.token.mint(address(config.reservedSplitHook), tokenCount);
 
-        config.reservedSplitHook
-            .processSplitWith(
+        uint256 splitCount = reservedSplits.length;
+        for (uint256 i; i < splitCount; i++) {
+            JBSplit memory reservedSplit = reservedSplits[i];
+            uint256 splitTokenCount =
+                (tokenCount * reservedSplit.percent) / uint256(JBConstants.SPLITS_TOTAL_PERCENT);
+            if (splitTokenCount == 0 || address(reservedSplit.hook) == address(0)) continue;
+
+            config.token.mint(address(reservedSplit.hook), splitTokenCount);
+
+            reservedSplit.hook.processSplitWith(
                 JBSplitHookContext({
                     token: address(config.token),
-                    amount: tokenCount,
+                    amount: splitTokenCount,
                     decimals: 18,
                     projectId: projectId,
                     groupId: 1,
-                    split: JBSplit({
-                        percent: JBConstants.SPLITS_TOTAL_PERCENT,
-                        projectId: 0,
-                        beneficiary: payable(address(0)),
-                        preferAddToBalance: false,
-                        lockedUntil: 0,
-                        hook: config.reservedSplitHook
-                    })
+                    split: reservedSplit
                 })
             );
+        }
     }
 }
 
@@ -965,274 +1086,277 @@ contract AsyncDirectory is IJBDirectory {
     }
 }
 
-contract AsyncProjects {
-    mapping(uint256 projectId => address owner) internal _ownerOf;
+    contract AsyncProjects {
+        mapping(uint256 projectId => address owner) internal _ownerOf;
 
-    function ownerOf(uint256 projectId) external view returns (address) {
-        return _ownerOf[projectId];
-    }
-
-    function setOwner(uint256 projectId, address owner) external {
-        _ownerOf[projectId] = owner;
-    }
-}
-
-contract AsyncCommunityTerminal is IJBTerminal {
-    using SafeERC20 for IERC20;
-
-    AsyncReservedController public immutable controller;
-    uint256 public immutable projectId;
-    MockVotesToken public immutable acceptedToken;
-
-    constructor(AsyncReservedController controller_, uint256 projectId_, MockVotesToken acceptedToken_) {
-        controller = controller_;
-        projectId = projectId_;
-        acceptedToken = acceptedToken_;
-    }
-
-    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
-    }
-
-    function accountingContextForTokenOf(
-        uint256 projectId_,
-        address token
-    ) external view override returns (JBAccountingContext memory context) {
-        if (projectId_ != projectId || token != address(acceptedToken)) {
-            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        function ownerOf(uint256 projectId) external view returns (address) {
+            return _ownerOf[projectId];
         }
 
-        return JBAccountingContext({token: address(acceptedToken), decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        function setOwner(uint256 projectId, address owner) external {
+            _ownerOf[projectId] = owner;
+        }
     }
 
-    function accountingContextsOf(uint256 projectId_) external view override returns (JBAccountingContext[] memory contexts) {
-        if (projectId_ != projectId) return new JBAccountingContext[](0);
+    contract AsyncCommunityTerminal is IJBTerminal {
+        using SafeERC20 for IERC20;
 
-        contexts = new JBAccountingContext[](1);
-        contexts[0] =
-            JBAccountingContext({token: address(acceptedToken), decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
-    }
+        AsyncReservedController public immutable controller;
+        uint256 public immutable projectId;
+        MockVotesToken public immutable acceptedToken;
 
-    function currentSurplusOf(
-        uint256,
-        JBAccountingContext[] memory,
-        uint256,
-        uint256
-    ) external pure override returns (uint256) {
-        return 0;
-    }
-
-    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
-
-    function addToBalanceOf(
-        uint256,
-        address,
-        uint256,
-        bool,
-        string calldata,
-        bytes calldata
-    ) external payable override {
-        revert("UNSUPPORTED");
-    }
-
-    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
-        return 0;
-    }
-
-    function pay(
-        uint256 projectId_,
-        address token,
-        uint256 amount,
-        address beneficiary,
-        uint256,
-        string calldata,
-        bytes calldata
-    ) external payable override returns (uint256 beneficiaryTokenCount) {
-        if (projectId_ != projectId || token != address(acceptedToken)) revert("INVALID_PAY");
-
-        IERC20(address(acceptedToken)).safeTransferFrom(msg.sender, address(this), amount);
-        return controller.mintTokensOf(projectId, amount, beneficiary, true);
-    }
-}
-
-contract GoalRecordingTerminal is IJBTerminal {
-    using SafeERC20 for IERC20;
-
-    address public immutable acceptedToken;
-
-    uint256 public totalReceived;
-    uint256 public lastAmount;
-    uint256 public lastProjectId;
-    address public lastBeneficiary;
-    bytes public lastMetadata;
-    mapping(address beneficiary => uint256 amount) public receivedByBeneficiary;
-
-    constructor(address acceptedToken_) {
-        acceptedToken = acceptedToken_;
-    }
-
-    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
-    }
-
-    function accountingContextForTokenOf(
-        uint256,
-        address token
-    ) external view override returns (JBAccountingContext memory context) {
-        if (token != acceptedToken) {
-            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        constructor(AsyncReservedController controller_, uint256 projectId_, MockVotesToken acceptedToken_) {
+            controller = controller_;
+            projectId = projectId_;
+            acceptedToken = acceptedToken_;
         }
 
-        return JBAccountingContext({token: acceptedToken, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
-    }
-
-    function accountingContextsOf(uint256) external view override returns (JBAccountingContext[] memory contexts) {
-        contexts = new JBAccountingContext[](1);
-        contexts[0] = JBAccountingContext({token: acceptedToken, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
-    }
-
-    function currentSurplusOf(
-        uint256,
-        JBAccountingContext[] memory,
-        uint256,
-        uint256
-    ) external pure override returns (uint256) {
-        return 0;
-    }
-
-    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
-
-    function addToBalanceOf(
-        uint256,
-        address,
-        uint256,
-        bool,
-        string calldata,
-        bytes calldata
-    ) external payable override {
-        revert("UNSUPPORTED");
-    }
-
-    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
-        return 0;
-    }
-
-    function pay(
-        uint256 projectId,
-        address token,
-        uint256 amount,
-        address beneficiary,
-        uint256,
-        string calldata,
-        bytes calldata metadata
-    ) external payable override returns (uint256 beneficiaryTokenCount) {
-        if (token != acceptedToken) revert("INVALID_TOKEN");
-
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        totalReceived += amount;
-        lastAmount = amount;
-        lastProjectId = projectId;
-        lastBeneficiary = beneficiary;
-        lastMetadata = metadata;
-        receivedByBeneficiary[beneficiary] += amount;
-    }
-}
-
-contract GoalTreasuryStub {
-    uint256 public immutable goalRevnetId;
-    uint256 public immutable cobuildRevnetId;
-    address public immutable stakeVault;
-    IGoalTreasury.GoalState internal _state;
-    bool internal _canAcceptHookFunding = true;
-
-    constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
-        goalRevnetId = goalRevnetId_;
-        cobuildRevnetId = cobuildRevnetId_;
-        stakeVault = stakeVault_;
-        _state = IGoalTreasury.GoalState.Funding;
-    }
-
-    function canAcceptHookFunding() external view returns (bool) {
-        return _canAcceptHookFunding;
-    }
-
-    function state() external view returns (IGoalTreasury.GoalState) {
-        return _state;
-    }
-
-    function setCanAcceptHookFunding(bool canAcceptHookFunding_) external {
-        _canAcceptHookFunding = canAcceptHookFunding_;
-    }
-
-    function setGoalState(IGoalTreasury.GoalState state_) external {
-        _state = state_;
-    }
-}
-
-contract StakeVaultStub {
-    IERC20 public immutable cobuildToken;
-
-    constructor(address cobuildToken_) {
-        cobuildToken = IERC20(cobuildToken_);
-    }
-}
-
-contract NoopNativeTerminal is IJBTerminal {
-    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
-    }
-
-    function accountingContextForTokenOf(
-        uint256,
-        address token
-    ) external pure override returns (JBAccountingContext memory context) {
-        if (token != JBConstants.NATIVE_TOKEN) {
-            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+            return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
         }
 
-        return JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        function accountingContextForTokenOf(uint256 projectId_, address token)
+            external
+            view
+            override
+            returns (JBAccountingContext memory context)
+        {
+            if (projectId_ != projectId || token != address(acceptedToken)) {
+                return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+            }
+
+            return JBAccountingContext({
+                token: address(acceptedToken), decimals: 18, currency: TEST_ACCOUNTING_CURRENCY
+            });
+        }
+
+        function accountingContextsOf(uint256 projectId_)
+            external
+            view
+            override
+            returns (JBAccountingContext[] memory contexts)
+        {
+            if (projectId_ != projectId) return new JBAccountingContext[](0);
+
+            contexts = new JBAccountingContext[](1);
+            contexts[0] =
+                JBAccountingContext({token: address(acceptedToken), decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        }
+
+        function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256, uint256)
+            external
+            pure
+            override
+            returns (uint256)
+        {
+            return 0;
+        }
+
+        function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+        function addToBalanceOf(uint256, address, uint256, bool, string calldata, bytes calldata)
+            external
+            payable
+            override
+        {
+            revert("UNSUPPORTED");
+        }
+
+        function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
+            return 0;
+        }
+
+        function pay(
+            uint256 projectId_,
+            address token,
+            uint256 amount,
+            address beneficiary,
+            uint256,
+            string calldata,
+            bytes calldata
+        ) external payable override returns (uint256 beneficiaryTokenCount) {
+            if (projectId_ != projectId || token != address(acceptedToken)) revert("INVALID_PAY");
+
+            IERC20(address(acceptedToken)).safeTransferFrom(msg.sender, address(this), amount);
+            return controller.mintTokensOf(projectId, amount, beneficiary, true);
+        }
     }
 
-    function accountingContextsOf(uint256) external pure override returns (JBAccountingContext[] memory contexts) {
-        contexts = new JBAccountingContext[](1);
-        contexts[0] =
-            JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+    contract GoalRecordingTerminal is IJBTerminal {
+        using SafeERC20 for IERC20;
+
+        address public immutable acceptedToken;
+
+        uint256 public totalReceived;
+        uint256 public lastAmount;
+        uint256 public lastProjectId;
+        address public lastBeneficiary;
+        bytes public lastMetadata;
+        mapping(address beneficiary => uint256 amount) public receivedByBeneficiary;
+
+        constructor(address acceptedToken_) {
+            acceptedToken = acceptedToken_;
+        }
+
+        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+            return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
+        }
+
+        function accountingContextForTokenOf(uint256, address token)
+            external
+            view
+            override
+            returns (JBAccountingContext memory context)
+        {
+            if (token != acceptedToken) {
+                return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+            }
+
+            return JBAccountingContext({token: acceptedToken, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        }
+
+        function accountingContextsOf(uint256) external view override returns (JBAccountingContext[] memory contexts) {
+            contexts = new JBAccountingContext[](1);
+            contexts[0] = JBAccountingContext({token: acceptedToken, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        }
+
+        function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256, uint256)
+            external
+            pure
+            override
+            returns (uint256)
+        {
+            return 0;
+        }
+
+        function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+        function addToBalanceOf(uint256, address, uint256, bool, string calldata, bytes calldata)
+            external
+            payable
+            override
+        {
+            revert("UNSUPPORTED");
+        }
+
+        function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
+            return 0;
+        }
+
+        function pay(
+            uint256 projectId,
+            address token,
+            uint256 amount,
+            address beneficiary,
+            uint256,
+            string calldata,
+            bytes calldata metadata
+        ) external payable override returns (uint256 beneficiaryTokenCount) {
+            if (token != acceptedToken) revert("INVALID_TOKEN");
+
+            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+            totalReceived += amount;
+            lastAmount = amount;
+            lastProjectId = projectId;
+            lastBeneficiary = beneficiary;
+            lastMetadata = metadata;
+            receivedByBeneficiary[beneficiary] += amount;
+        }
     }
 
-    function currentSurplusOf(
-        uint256,
-        JBAccountingContext[] memory,
-        uint256,
-        uint256
-    ) external pure override returns (uint256) {
-        return 0;
+    contract GoalTreasuryStub {
+        uint256 public immutable goalRevnetId;
+        uint256 public immutable cobuildRevnetId;
+        address public immutable stakeVault;
+        IGoalTreasury.GoalState internal _state;
+        bool internal _canAcceptHookFunding = true;
+
+        constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
+            goalRevnetId = goalRevnetId_;
+            cobuildRevnetId = cobuildRevnetId_;
+            stakeVault = stakeVault_;
+            _state = IGoalTreasury.GoalState.Funding;
+        }
+
+        function canAcceptHookFunding() external view returns (bool) {
+            return _canAcceptHookFunding;
+        }
+
+        function state() external view returns (IGoalTreasury.GoalState) {
+            return _state;
+        }
+
+        function setCanAcceptHookFunding(bool canAcceptHookFunding_) external {
+            _canAcceptHookFunding = canAcceptHookFunding_;
+        }
+
+        function setGoalState(IGoalTreasury.GoalState state_) external {
+            _state = state_;
+        }
     }
 
-    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+    contract StakeVaultStub {
+        IERC20 public immutable cobuildToken;
 
-    function addToBalanceOf(
-        uint256,
-        address,
-        uint256,
-        bool,
-        string calldata,
-        bytes calldata
-    ) external payable override {}
-
-    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
-        return 0;
+        constructor(address cobuildToken_) {
+            cobuildToken = IERC20(cobuildToken_);
+        }
     }
 
-    function pay(
-        uint256,
-        address token,
-        uint256 amount,
-        address,
-        uint256,
-        string calldata,
-        bytes calldata
-    ) external payable override returns (uint256) {
-        if (token != JBConstants.NATIVE_TOKEN || msg.value != amount) revert("INVALID_PAY");
-        return amount;
+    contract NoopNativeTerminal is IJBTerminal {
+        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+            return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
+        }
+
+        function accountingContextForTokenOf(uint256, address token)
+            external
+            pure
+            override
+            returns (JBAccountingContext memory context)
+        {
+            if (token != JBConstants.NATIVE_TOKEN) {
+                return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+            }
+
+            return JBAccountingContext({
+                token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY
+            });
+        }
+
+        function accountingContextsOf(uint256) external pure override returns (JBAccountingContext[] memory contexts) {
+            contexts = new JBAccountingContext[](1);
+            contexts[0] =
+                JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+        }
+
+        function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256, uint256)
+            external
+            pure
+            override
+            returns (uint256)
+        {
+            return 0;
+        }
+
+        function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+        function addToBalanceOf(uint256, address, uint256, bool, string calldata, bytes calldata)
+            external
+            payable
+            override
+        {}
+
+        function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
+            return 0;
+        }
+
+        function pay(uint256, address token, uint256 amount, address, uint256, string calldata, bytes calldata)
+            external
+            payable
+            override
+            returns (uint256)
+        {
+            if (token != JBConstants.NATIVE_TOKEN || msg.value != amount) revert("INVALID_PAY");
+            return amount;
+        }
     }
-}

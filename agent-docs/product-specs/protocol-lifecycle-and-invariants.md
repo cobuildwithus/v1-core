@@ -72,20 +72,26 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
     - deploys the split hook,
     - initializes the hook with the shared terminal as the fixed `routeSetter`,
+    - fail-closes registration unless the community revnet's live reserved-token split group already resolves to that same hook as the sole full-bucket reserved split for the current ruleset,
+    - deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`, otherwise permissionless reserved-token flushes can mint into the predicted address before code exists,
     - completes same-transaction community registration on that terminal via an owner-signed registration payload.
-  - `CobuildCommunityTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
-    seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays through the registered
-    community config, and synchronously flushes reserved-token splits through the community controller when that pay
-    created reserved tokens.
+  - `CobuildCommunityTerminal` optionally decodes community pay metadata as
+    `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`,
+    seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, forwards `jbMetadata` unchanged
+    into terminal-store accounting and pay-hook `payerMetadata`, pays through the registered community config, and
+    synchronously flushes reserved-token splits through the community controller when that pay created reserved tokens.
   - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
     payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
+  - Community registration must also prove on-chain that the current reserved-token split group will call the registered
+    hook by requiring exactly one live reserved split at 100% whose `hook` matches the registered split hook.
   - Registered communities must point both their native ETH terminal and registered payment-token terminal at the shared
     `CobuildCommunityTerminal`; sidecar-only directory wiring is invalid.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
     - the registry is ownerless and does not expose privileged system goals or pause controls,
     - each listed goal carries donor-visible metadata only, while selectability is derived from canonical deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status,
-    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
+    - add-item validation best-effort calls `goal.sync()` before lifecycle checks and rejects terminal/prunable goals,
+    - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`, which also best-effort calls `goal.sync()` before deciding prunability.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
@@ -109,7 +115,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
     only routes explicit selections into registry-selectable child goals for terminal-selected routes,
-    derives backlog flush routing from selectable goals with lazily decaying explicit-route scores, uses
+    derives backlog flush routing from selectable goals with lazily decaying explicit-route scores whose half-life is
+    enforced on global 30-day season boundaries, uses
     each goal's deployment-registry-provided treasury sink for backlog flush beneficiaries, and otherwise defers
     historical backlog on-hook for later permissionless retry when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:

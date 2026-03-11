@@ -59,6 +59,11 @@
 - Premium-checkpoint failures are fail-closed and must revert allocation commits to preserve underwriting accounting integrity.
 
 7. Community terminal/split-hook route handoff mismatch
+- Community registration/deployment must fail closed unless the live reserved-token split group already resolves to the
+  same hook the terminal will seed, as one full-bucket reserved split for the current ruleset.
+- Deployment orchestration must atomically set that live reserved split to the predicted hook address and call
+  `CobuildCommunityTerminalFactory.deployFor(...)`; otherwise permissionless reserved-token flushes can mint into the
+  predicted address before the hook code exists.
 - Canonical-terminal-routed community pays must snapshot preexisting pending reserved-token backlog so a user-selected route only
   captures the current pay's newly created reserved-token delta.
 - `CobuildSplitHook` must only receive the full reserved-token split bucket; fractional split callbacks should revert
