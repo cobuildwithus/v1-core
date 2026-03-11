@@ -184,6 +184,25 @@ contract CobuildPaymentTerminalFactoryTest is Test {
         assertEq(predictedSplitHook.code.length, 0);
     }
 
+    function test_deployFor_revertsWhenCommunityAlreadyRegistered_andLeavesNoSecondCloneDeployed() public {
+        CobuildPaymentTerminalFactory.DeployConfig memory firstConfig = _deployConfig(keccak256("hook-one"));
+        vm.prank(owner);
+        factory.deployFor(firstConfig);
+
+        bytes32 secondSalt = keccak256("hook-two");
+        address secondPredictedSplitHook =
+            factory.predictSplitHookAddress(owner, ICommunityGoalRegistry(address(goalRegistry)), address(paymentTerminal), secondSalt);
+        CobuildPaymentTerminalFactory.DeployConfig memory secondConfig = _deployConfig(secondSalt);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildPaymentTerminal.COMMUNITY_ALREADY_REGISTERED.selector, COMMUNITY_REVNET_ID)
+        );
+        vm.prank(owner);
+        factory.deployFor(secondConfig);
+
+        assertEq(secondPredictedSplitHook.code.length, 0);
+    }
+
     function test_predictSplitHookAddress_matchesDeterministicCloneFormula() public view {
         bytes32 salt = keccak256("hook");
         bytes32 splitHookSalt =

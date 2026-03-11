@@ -46,6 +46,7 @@ contract CobuildPaymentTerminalTest is Test {
 
         directory.setController(PAYMENT_SOURCE_REVNET_ID, IJBController(address(controller)));
         directory.setController(COMMUNITY_REVNET_ID, IJBController(address(controller)));
+        directory.setProjectOwner(COMMUNITY_REVNET_ID, address(this));
         directory.setPrimaryTerminal(
             PAYMENT_SOURCE_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sourceTerminal))
         );
@@ -187,6 +188,21 @@ contract CobuildPaymentTerminalTest is Test {
         );
     }
 
+    function test_accountingContextForTokenOf_acceptsNativeAndErc20BeforeRegistration() public view {
+        JBAccountingContext memory nativeContext =
+            paymentTerminal.accountingContextForTokenOf(COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN);
+        JBAccountingContext memory paymentContext =
+            paymentTerminal.accountingContextForTokenOf(COMMUNITY_REVNET_ID, address(paymentToken));
+
+        assertEq(nativeContext.token, JBConstants.NATIVE_TOKEN);
+        assertEq(nativeContext.decimals, 18);
+        assertEq(nativeContext.currency, uint32(uint160(JBConstants.NATIVE_TOKEN)));
+
+        assertEq(paymentContext.token, address(paymentToken));
+        assertEq(paymentContext.decimals, paymentToken.decimals());
+        assertEq(paymentContext.currency, uint32(uint160(address(paymentToken))));
+    }
+
     function test_accountingContexts_returnNativeAndPaymentTokenContextsAfterRegistration() public {
         _registerCommunity(false);
 
@@ -209,6 +225,107 @@ contract CobuildPaymentTerminalTest is Test {
         assertEq(contexts[1].token, paymentContext.token);
         assertEq(contexts[1].decimals, paymentContext.decimals);
         assertEq(contexts[1].currency, paymentContext.currency);
+    }
+
+    function test_currentSurplusOf_tracksHeldNativeBalanceAfterDirectNativePay() public {
+        _registerCommunity(true);
+        controller.setReturnedTokenCount(1 ether);
+
+        paymentTerminal.pay{value: 2 ether}(
+            COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, 2 ether, address(this), 0, "community-pay", bytes("")
+        );
+
+        uint256 surplus = paymentTerminal.currentSurplusOf(
+            COMMUNITY_REVNET_ID, new JBAccountingContext[](0), 18, uint32(uint160(JBConstants.NATIVE_TOKEN))
+        );
+
+        assertEq(surplus, 2 ether);
+    }
+
+    function test_currentSurplusOf_tracksHeldPaymentTokenBalanceAfterTokenPay() public {
+        _registerCommunity(false);
+        paymentToken.mint(address(this), 5 ether);
+        paymentToken.approve(address(paymentTerminal), 5 ether);
+
+        paymentTerminal.pay(COMMUNITY_REVNET_ID, address(paymentToken), 5 ether, address(this), 0, "memo", bytes(""));
+
+        uint256 surplus = paymentTerminal.currentSurplusOf(
+            COMMUNITY_REVNET_ID, new JBAccountingContext[](0), paymentToken.decimals(), uint32(uint160(address(paymentToken)))
+        );
+
+        assertEq(surplus, 5 ether);
+    }
+
+    function test_addToBalanceOf_andMigrateBalanceOf_nativeTransfersHeldBalanceToDestination() public {
+        _registerCommunity(true);
+        CobuildPaymentTerminalMockBalanceDestination destination =
+            new CobuildPaymentTerminalMockBalanceDestination(JBConstants.NATIVE_TOKEN);
+
+        paymentTerminal.addToBalanceOf{value: 3 ether}(
+            COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, 3 ether, false, "top-up", bytes("")
+        );
+
+        assertEq(
+            paymentTerminal.currentSurplusOf(
+                COMMUNITY_REVNET_ID, new JBAccountingContext[](0), 18, uint32(uint160(JBConstants.NATIVE_TOKEN))
+            ),
+            3 ether
+        );
+
+        uint256 migrated =
+            paymentTerminal.migrateBalanceOf(COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(destination)));
+
+        assertEq(migrated, 3 ether);
+        assertEq(
+            paymentTerminal.currentSurplusOf(
+                COMMUNITY_REVNET_ID, new JBAccountingContext[](0), 18, uint32(uint160(JBConstants.NATIVE_TOKEN))
+            ),
+            0
+        );
+        assertEq(destination.lastProjectId(), COMMUNITY_REVNET_ID);
+        assertEq(destination.lastToken(), JBConstants.NATIVE_TOKEN);
+        assertEq(destination.lastAmount(), 3 ether);
+        assertEq(destination.lastValue(), 3 ether);
+    }
+
+    function test_addToBalanceOf_andMigrateBalanceOf_paymentTokenTransfersHeldBalanceToDestination() public {
+        _registerCommunity(false);
+        CobuildPaymentTerminalMockBalanceDestination destination =
+            new CobuildPaymentTerminalMockBalanceDestination(address(paymentToken));
+        paymentToken.mint(address(this), 7 ether);
+        paymentToken.approve(address(paymentTerminal), 7 ether);
+
+        paymentTerminal.addToBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), 7 ether, false, "top-up", bytes(""));
+
+        assertEq(
+            paymentTerminal.currentSurplusOf(
+                COMMUNITY_REVNET_ID,
+                new JBAccountingContext[](0),
+                paymentToken.decimals(),
+                uint32(uint160(address(paymentToken)))
+            ),
+            7 ether
+        );
+
+        uint256 migrated =
+            paymentTerminal.migrateBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), IJBTerminal(address(destination)));
+
+        assertEq(migrated, 7 ether);
+        assertEq(
+            paymentTerminal.currentSurplusOf(
+                COMMUNITY_REVNET_ID,
+                new JBAccountingContext[](0),
+                paymentToken.decimals(),
+                uint32(uint160(address(paymentToken)))
+            ),
+            0
+        );
+        assertEq(paymentToken.balanceOf(address(paymentTerminal)), 0);
+        assertEq(paymentToken.balanceOf(address(destination)), 7 ether);
+        assertEq(destination.lastProjectId(), COMMUNITY_REVNET_ID);
+        assertEq(destination.lastToken(), address(paymentToken));
+        assertEq(destination.lastAmount(), 7 ether);
+        assertEq(destination.lastValue(), 0);
     }
 
     function test_payWithEth_routesThroughPaymentSourceAndFlushesReservedTokens() public {
@@ -353,6 +470,11 @@ contract CobuildPaymentTerminalTest is Test {
 contract CobuildPaymentTerminalMockDirectory {
     mapping(uint256 => mapping(address => IJBTerminal)) internal _primaryTerminalOf;
     mapping(uint256 => IJBController) internal _controllerOf;
+    CobuildPaymentTerminalMockProjects internal _projects = new CobuildPaymentTerminalMockProjects();
+
+    function PROJECTS() external view returns (CobuildPaymentTerminalMockProjects) {
+        return _projects;
+    }
 
     function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
         _primaryTerminalOf[projectId][token] = terminal;
@@ -368,6 +490,22 @@ contract CobuildPaymentTerminalMockDirectory {
 
     function controllerOf(uint256 projectId) external view returns (IJBController) {
         return _controllerOf[projectId];
+    }
+
+    function setProjectOwner(uint256 projectId, address owner) external {
+        _projects.setOwner(projectId, owner);
+    }
+}
+
+contract CobuildPaymentTerminalMockProjects {
+    mapping(uint256 => address) internal _ownerOf;
+
+    function setOwner(uint256 projectId, address owner) external {
+        _ownerOf[projectId] = owner;
+    }
+
+    function ownerOf(uint256 projectId) external view returns (address) {
+        return _ownerOf[projectId];
     }
 }
 
@@ -438,6 +576,84 @@ contract CobuildPaymentTerminalMockPaymentSourceTerminal {
 
     function lastMinReturnedTokens() external view returns (uint256) {
         return _lastMinReturnedTokens;
+    }
+}
+
+contract CobuildPaymentTerminalMockBalanceDestination is IJBTerminal {
+    address public immutable acceptedToken;
+
+    uint256 public lastProjectId;
+    address public lastToken;
+    uint256 public lastAmount;
+    uint256 public lastValue;
+
+    constructor(address acceptedToken_) {
+        acceptedToken = acceptedToken_;
+    }
+
+    function supportsInterface(bytes4) external pure override returns (bool) {
+        return true;
+    }
+
+    function accountingContextForTokenOf(
+        uint256,
+        address token
+    ) external view override returns (JBAccountingContext memory context) {
+        if (token != acceptedToken) {
+            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        }
+
+        return JBAccountingContext({token: acceptedToken, decimals: 18, currency: uint32(uint160(acceptedToken))});
+    }
+
+    function accountingContextsOf(uint256) external view override returns (JBAccountingContext[] memory contexts) {
+        contexts = new JBAccountingContext[](1);
+        contexts[0] = JBAccountingContext({token: acceptedToken, decimals: 18, currency: uint32(uint160(acceptedToken))});
+    }
+
+    function currentSurplusOf(
+        uint256,
+        JBAccountingContext[] memory,
+        uint256,
+        uint256
+    ) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+    function addToBalanceOf(
+        uint256 projectId,
+        address token,
+        uint256 amount,
+        bool,
+        string calldata,
+        bytes calldata
+    ) external payable override {
+        lastProjectId = projectId;
+        lastToken = token;
+        lastAmount = amount;
+        lastValue = msg.value;
+
+        if (token == JBConstants.NATIVE_TOKEN) return;
+
+        require(ERC20(token).transferFrom(msg.sender, address(this), amount), "TRANSFER_FROM_FAILED");
+    }
+
+    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function pay(
+        uint256,
+        address,
+        uint256 amount,
+        address,
+        uint256,
+        string calldata,
+        bytes calldata
+    ) external payable override returns (uint256) {
+        return amount;
     }
 }
 
