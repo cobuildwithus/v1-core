@@ -56,21 +56,23 @@ library BudgetTCRStackActions {
 
         IFlow goalFlow = budgetStore.goalFlow();
         IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(budgetStore.stackDeployer());
+        address underwriterSlasherRouter = budgetStore.underwriterSlasherRouter();
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
             address(goalFlow),
-            budgetStore.underwriterSlasherRouter()
+            underwriterSlasherRouter
         );
 
         address budgetTreasury = prepared.budgetTreasury;
         address premiumEscrow = prepared.premiumEscrow;
-        address allocationMechanism = Clones.clone(deployer.allocationMechanismTcrImplementation());
+        address allocationMechanism = prepared.allocationMechanism;
+        bool hasAllocationMechanism = allocationMechanism != address(0);
 
         (, address childFlow) = goalFlow.addFlowRecipient(
             itemID,
             listing.metadata,
-            allocationMechanism,
+            prepared.childFlowRecipientAdmin,
             budgetTreasury,
             budgetTreasury,
             premiumEscrow,
@@ -90,7 +92,7 @@ library BudgetTCRStackActions {
             childFlow,
             budgetStakeLedger,
             address(goalFlow),
-            budgetStore.underwriterSlasherRouter(),
+            underwriterSlasherRouter,
             budgetStore.budgetSlashPpm(),
             listing,
             budgetStore.budgetSuccessResolver(),
@@ -108,14 +110,17 @@ library BudgetTCRStackActions {
             revert BUDGET_TREASURY_MISMATCH();
         }
 
-        address allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
-            deployer,
-            allocationMechanism,
-            budgetTreasury,
-            goalTreasury,
-            budgetStore,
-            tcrStore
-        );
+        address allocationMechanismArbitrator;
+        if (hasAllocationMechanism) {
+            allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
+                deployer,
+                allocationMechanism,
+                budgetTreasury,
+                goalTreasury,
+                budgetStore,
+                tcrStore
+            );
+        }
 
         _recordBudgetStackTopology(
             budgetDeployments,
@@ -133,22 +138,21 @@ library BudgetTCRStackActions {
         );
 
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
-        IUnderwriterSlasherRouter(budgetStore.underwriterSlasherRouter()).setAuthorizedPremiumEscrow(
-            premiumEscrow,
-            true
-        );
-        emit BudgetAllocationMechanismDeployed(
-            itemID,
-            allocationMechanism,
-            allocationMechanismArbitrator,
-            deployer.roundFactory()
-        );
-        deployer.emitBudgetAllocationMechanismDeployed(
-            itemID,
-            allocationMechanism,
-            allocationMechanismArbitrator,
-            deployer.roundFactory()
-        );
+        IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
+        if (hasAllocationMechanism) {
+            emit BudgetAllocationMechanismDeployed(
+                itemID,
+                allocationMechanism,
+                allocationMechanismArbitrator,
+                deployer.roundFactory()
+            );
+            deployer.emitBudgetAllocationMechanismDeployed(
+                itemID,
+                allocationMechanism,
+                allocationMechanismArbitrator,
+                deployer.roundFactory()
+            );
+        }
     }
 
     function _initializeBudgetAllocationMechanism(

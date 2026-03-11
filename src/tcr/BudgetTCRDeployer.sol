@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
+import { IBudgetTCRChildFlowStrategyFactory } from "./interfaces/IBudgetTCRChildFlowStrategyFactory.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import { IBudgetTCRFactoryDiscoveryEmitter } from "./interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
@@ -16,6 +17,10 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public override budgetTCR;
     address public premiumEscrowImplementation;
     address public discoveryEmitter;
+    ChildFlowStrategyMode public childFlowStrategyMode;
+    address public childFlowStrategyTarget;
+    MechanismLayerMode public mechanismLayerMode;
+    address public childFlowRecipientAdmin;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable teamFlowFactory;
@@ -27,6 +32,8 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     error BUDGET_STAKE_LEDGER_MISMATCH(address expectedLedger, address providedLedger);
     error SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
     error IMPLEMENTATION_HAS_NO_CODE(address implementation);
+    error INVALID_STACK_MODULE_CONFIG();
+    error INVALID_CHILD_FLOW_STRATEGY(address strategy);
 
     modifier onlyBudgetTCR() {
         if (msg.sender != budgetTCR) revert ONLY_BUDGET_TCR();
@@ -62,19 +69,51 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         address premiumEscrowImplementation_,
         address discoveryEmitter_
     ) external initializer {
-        _initialize(budgetTCR_, premiumEscrowImplementation_, discoveryEmitter_);
+        _initializeOpenPreset(budgetTCR_, premiumEscrowImplementation_, discoveryEmitter_);
     }
 
-    function _initialize(address budgetTCR_, address premiumEscrowImplementation_, address discoveryEmitter_) internal {
+    function initializeWithConfig(
+        address budgetTCR_,
+        StackModuleConfig calldata stackModuleConfig_,
+        address discoveryEmitter_
+    ) external initializer {
+        _initializeWithConfig(budgetTCR_, stackModuleConfig_, discoveryEmitter_);
+    }
+
+    function _initializeOpenPreset(
+        address budgetTCR_,
+        address premiumEscrowImplementation_,
+        address discoveryEmitter_
+    ) internal {
+        _initializeWithConfig(
+            budgetTCR_,
+            StackModuleConfig({
+                childFlowStrategyMode: ChildFlowStrategyMode.SharedBudgetFlowRouter,
+                childFlowStrategyTarget: address(0),
+                mechanismLayerMode: MechanismLayerMode.AllocationMechanismTCR,
+                childFlowRecipientAdmin: address(0),
+                premiumEscrowImplementation: premiumEscrowImplementation_
+            }),
+            discoveryEmitter_
+        );
+    }
+
+    function _initializeWithConfig(
+        address budgetTCR_,
+        StackModuleConfig memory stackModuleConfig_,
+        address discoveryEmitter_
+    ) internal {
         if (budgetTCR_ == address(0)) revert ADDRESS_ZERO();
-        if (premiumEscrowImplementation_ == address(0) || premiumEscrowImplementation_.code.length == 0) {
-            revert ADDRESS_ZERO();
-        }
         if (discoveryEmitter_ != address(0) && discoveryEmitter_.code.length == 0) revert ADDRESS_ZERO();
+        _validateStackModuleConfig(stackModuleConfig_);
 
         budgetTCR = budgetTCR_;
-        premiumEscrowImplementation = premiumEscrowImplementation_;
+        premiumEscrowImplementation = stackModuleConfig_.premiumEscrowImplementation;
         discoveryEmitter = discoveryEmitter_;
+        childFlowStrategyMode = stackModuleConfig_.childFlowStrategyMode;
+        childFlowStrategyTarget = stackModuleConfig_.childFlowStrategyTarget;
+        mechanismLayerMode = stackModuleConfig_.mechanismLayerMode;
+        childFlowRecipientAdmin = stackModuleConfig_.childFlowRecipientAdmin;
     }
 
     function prepareBudgetStack(
@@ -86,24 +125,16 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         if (goalFlow == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouter == address(0)) revert ADDRESS_ZERO();
 
-        address strategy = sharedBudgetFlowStrategy;
-        if (strategy == address(0)) {
-            strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
-            BudgetFlowRouterStrategy(strategy).initialize(budgetStakeLedger, address(this));
-            sharedBudgetFlowStrategy = strategy;
-        } else {
-            address strategyLedger = _sharedBudgetFlowStrategyLedger(strategy);
-            if (strategyLedger != budgetStakeLedger) {
-                revert BUDGET_STAKE_LEDGER_MISMATCH(strategyLedger, budgetStakeLedger);
-            }
-        }
-
+        address strategy = _prepareChildFlowStrategy(budgetStakeLedger, goalFlow);
         address treasuryAnchor = Clones.clone(budgetTreasuryImplementation);
         address premiumEscrow = Clones.clone(premiumEscrowImplementation);
+        (address allocationMechanism, address recipientAdmin) = _prepareMechanismLayer();
         result = PreparationResult({
             strategy: strategy,
             budgetTreasury: treasuryAnchor,
-            premiumEscrow: premiumEscrow
+            premiumEscrow: premiumEscrow,
+            childFlowRecipientAdmin: recipientAdmin,
+            allocationMechanism: allocationMechanism
         });
     }
 
@@ -139,6 +170,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external onlyBudgetTCR {
+        if (childFlowStrategyMode != ChildFlowStrategyMode.SharedBudgetFlowRouter) return;
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) revert SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
         IBudgetFlowRouterStrategy(strategy).registerFlowRecipient(childFlow, recipientId);
@@ -178,7 +210,21 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         );
     }
 
+    function stackModuleConfig() external view returns (StackModuleConfig memory config) {
+        config = StackModuleConfig({
+            childFlowStrategyMode: childFlowStrategyMode,
+            childFlowStrategyTarget: childFlowStrategyTarget,
+            mechanismLayerMode: mechanismLayerMode,
+            childFlowRecipientAdmin: childFlowRecipientAdmin,
+            premiumEscrowImplementation: premiumEscrowImplementation
+        });
+    }
+
     function initialMechanismFactories() external view override returns (address[] memory factories) {
+        if (mechanismLayerMode == MechanismLayerMode.None) {
+            return new address[](0);
+        }
+
         address roundFactory_ = roundFactory;
         address teamFlowFactory_ = teamFlowFactory;
 
@@ -197,9 +243,75 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         ledger = _sharedBudgetFlowStrategyLedger(sharedBudgetFlowStrategy);
     }
 
+    function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
+        if (
+            stackModuleConfig_.premiumEscrowImplementation == address(0) ||
+            stackModuleConfig_.premiumEscrowImplementation.code.length == 0
+        ) {
+            revert ADDRESS_ZERO();
+        }
+
+        if (stackModuleConfig_.childFlowStrategyMode == ChildFlowStrategyMode.SharedBudgetFlowRouter) {
+            if (stackModuleConfig_.childFlowStrategyTarget != address(0)) revert INVALID_STACK_MODULE_CONFIG();
+        } else {
+            _assertImplementationAddress(stackModuleConfig_.childFlowStrategyTarget);
+        }
+
+        if (stackModuleConfig_.mechanismLayerMode == MechanismLayerMode.AllocationMechanismTCR) {
+            if (stackModuleConfig_.childFlowRecipientAdmin != address(0)) revert INVALID_STACK_MODULE_CONFIG();
+            return;
+        }
+
+        if (stackModuleConfig_.childFlowRecipientAdmin == address(0)) revert INVALID_STACK_MODULE_CONFIG();
+    }
+
     function _assertImplementationAddress(address implementation) internal view {
         if (implementation == address(0)) revert ADDRESS_ZERO();
         if (implementation.code.length == 0) revert IMPLEMENTATION_HAS_NO_CODE(implementation);
+    }
+
+    function _prepareChildFlowStrategy(
+        address budgetStakeLedger,
+        address goalFlow
+    ) internal returns (address strategy) {
+        ChildFlowStrategyMode strategyMode = childFlowStrategyMode;
+        address strategyTarget = childFlowStrategyTarget;
+
+        if (strategyMode == ChildFlowStrategyMode.SharedBudgetFlowRouter) {
+            strategy = sharedBudgetFlowStrategy;
+            if (strategy == address(0)) {
+                strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
+                BudgetFlowRouterStrategy(strategy).initialize(budgetStakeLedger, address(this));
+                sharedBudgetFlowStrategy = strategy;
+            } else {
+                address strategyLedger = _sharedBudgetFlowStrategyLedger(strategy);
+                if (strategyLedger != budgetStakeLedger) {
+                    revert BUDGET_STAKE_LEDGER_MISMATCH(strategyLedger, budgetStakeLedger);
+                }
+            }
+            return strategy;
+        }
+
+        if (strategyMode == ChildFlowStrategyMode.Fixed) {
+            return strategyTarget;
+        }
+
+        strategy = IBudgetTCRChildFlowStrategyFactory(strategyTarget).prepareChildFlowStrategy(
+            budgetStakeLedger,
+            goalFlow,
+            address(this)
+        );
+        if (strategy == address(0) || strategy.code.length == 0) revert INVALID_CHILD_FLOW_STRATEGY(strategy);
+    }
+
+    function _prepareMechanismLayer() internal returns (address allocationMechanism, address recipientAdmin) {
+        recipientAdmin = childFlowRecipientAdmin;
+        if (mechanismLayerMode != MechanismLayerMode.AllocationMechanismTCR) {
+            return (address(0), recipientAdmin);
+        }
+
+        allocationMechanism = Clones.clone(allocationMechanismTcrImplementation);
+        recipientAdmin = allocationMechanism;
     }
 
     function _sharedBudgetFlowStrategyLedger(address strategy) internal view returns (address ledger) {
