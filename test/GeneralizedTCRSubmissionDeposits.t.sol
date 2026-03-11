@@ -249,7 +249,14 @@ contract GasGriefSubmissionDepositStrategy is ISubmissionDepositStrategy {
             GoalDeploymentRegistry goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
             goalDeploymentRegistry.registerGoal(
-                DEFAULT_GOAL_ID, address(new SubmissionDepositsMockGoalTreasury(DEFAULT_GOAL_ID))
+                DEFAULT_GOAL_ID,
+                address(
+                    new SubmissionDepositsMockGoalTreasury(
+                        DEFAULT_GOAL_ID,
+                        COMMUNITY_REVNET_ID,
+                        address(new SubmissionDepositsMockStakeVault(address(votingToken_)))
+                    )
+                )
             );
             directory.setPrimaryTerminal(DEFAULT_GOAL_ID, address(votingToken_), IJBTerminal(address(terminal)));
 
@@ -402,8 +409,20 @@ contract GasGriefSubmissionDepositStrategy is ISubmissionDepositStrategy {
 
     contract SubmissionDepositsMockGoalTreasury {
         uint256 public immutable goalRevnetId;
+        uint256 public immutable cobuildRevnetId;
+        address public immutable stakeVault;
 
-        constructor(uint256 goalRevnetId_) {
+        constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
             goalRevnetId = goalRevnetId_;
+            cobuildRevnetId = cobuildRevnetId_;
+            stakeVault = stakeVault_;
+        }
+    }
+
+    contract SubmissionDepositsMockStakeVault {
+        IERC20 public immutable cobuildToken;
+
+        constructor(address cobuildToken_) {
+            cobuildToken = IERC20(cobuildToken_);
         }
     }
