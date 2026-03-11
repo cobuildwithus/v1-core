@@ -5,11 +5,17 @@ import { IAllocationKeyAccountResolver } from "./IAllocationKeyAccountResolver.s
 import { IAllocationStrategy } from "./IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "./IBudgetStakeLedger.sol";
 
-/// @notice Shared per-goal budget-flow strategy using caller-flow context to resolve budget recipient routing.
-/// @dev Inherited `IAllocationStrategy` views (`currentWeight`, `canAllocate`, `canAccountAllocate`,
-///      `accountAllocationWeight`) are sender-context hooks for in-flow runtime calls where `msg.sender` is the flow.
-///      Off-chain callers should use the explicit `*ForFlow` views below.
+/// @notice Shared per-goal budget-flow strategy using explicit flow context to resolve budget recipient routing.
 interface IBudgetFlowRouterStrategy is IAllocationStrategy, IAllocationKeyAccountResolver {
+    enum FlowBudgetStatus {
+        Active,
+        FlowNotRegistered,
+        MissingBudgetTreasury,
+        InvalidBudgetTreasury,
+        BudgetProbeFailed,
+        BudgetResolved
+    }
+
     error ONLY_REGISTRAR(address caller, address registrar);
     error FLOW_ALREADY_REGISTERED(address flow);
     error INVALID_FLOW(address flow);
@@ -24,15 +30,12 @@ interface IBudgetFlowRouterStrategy is IAllocationStrategy, IAllocationKeyAccoun
 
     function recipientIdForFlow(address flow) external view returns (bytes32 recipientId, bool registered);
 
-    /// @notice Returns live weight for `key` scoped to the provided flow.
-    function currentWeightForFlow(address flow, uint256 key) external view returns (uint256);
-
-    /// @notice Returns whether `caller` can allocate for `key` scoped to the provided flow.
-    function canAllocateForFlow(address flow, uint256 key, address caller) external view returns (bool);
+    /// @notice Returns budget resolution status for the provided flow.
+    function flowBudgetStatus(address flow) external view returns (address budgetTreasury, FlowBudgetStatus status);
 
     /// @notice Returns whether `account` has positive allocation weight scoped to the provided flow.
-    function canAccountAllocateForFlow(address flow, address account) external view returns (bool);
+    function canAccountAllocate(address flow, address account) external view returns (bool);
 
     /// @notice Returns current allocation weight for `account` scoped to the provided flow.
-    function accountAllocationWeightForFlow(address flow, address account) external view returns (uint256);
+    function accountAllocationWeight(address flow, address account) external view returns (uint256);
 }

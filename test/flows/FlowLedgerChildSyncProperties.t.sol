@@ -5,7 +5,7 @@ import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ICustomFlow} from "src/interfaces/IFlow.sol";
+import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IAllocationPipeline} from "src/interfaces/IAllocationPipeline.sol";
 import {IAllocationKeyAccountResolver} from "src/interfaces/IAllocationKeyAccountResolver.sol";
@@ -15,6 +15,7 @@ import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedg
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowLedgerMode} from "src/library/GoalFlowLedgerMode.sol";
 import {FlowProtocolConstants} from "src/library/FlowProtocolConstants.sol";
+import {SortedRecipientMerge} from "src/library/SortedRecipientMerge.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
 contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
@@ -809,7 +810,10 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
             new FlowLedgerPropBudgetFlowRegistrable(realFlow, address(strategy));
         FlowLedgerPropPremiumEscrow registrablePremiumEscrow = new FlowLedgerPropPremiumEscrow();
         FlowLedgerPropBudgetTreasuryRegistrable registrableBudgetTreasury = new FlowLedgerPropBudgetTreasuryRegistrable(
-            address(registrableBudgetFlow), address(registrablePremiumEscrow), uint64(block.timestamp)
+            address(registrableBudgetFlow),
+            address(registrablePremiumEscrow),
+            uint64(block.timestamp),
+            address(budgetRegistryManager)
         );
 
         budgetRegistryManager.setTopology(
@@ -897,6 +901,39 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(childFlow.syncCallCount(), 1);
         assertEq(childFlow.lastAllocationKey(), parentKey);
         assertEq(childFlow.lastStrategy(), address(childStrategy));
+    }
+
+    function test_previewChildSyncRequirements_directPipelineCall_usesExplicitFlowContext() public {
+        uint256 initialStake = 80e18;
+        uint256 reducedStake = 40e18;
+        bytes32 childCommit = keccak256("child-commit");
+
+        _setWeights(initialStake);
+        _allocateParentSingleRecipient();
+        childFlow.setCommit(childCommit);
+
+        _setWeights(reducedStake);
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        ICustomFlow.ChildSyncRequirement[] memory reqs = allocationPipeline.previewChildSyncRequirements(
+            address(flow), address(strategy), parentKey, initialStake, recipientIds, scaled, recipientIds, scaled
+        );
+
+        assertEq(reqs.length, 1);
+        assertEq(reqs[0].budgetTreasury, address(budgetTreasury));
+        assertEq(reqs[0].childFlow, address(childFlow));
+        assertEq(reqs[0].childStrategy, address(childStrategy));
+        assertEq(reqs[0].allocationKey, parentKey);
+        assertEq(reqs[0].expectedCommit, childCommit);
+
+        FlowLedgerPropBudgetFlowRegistrable wrongFlow =
+            new FlowLedgerPropBudgetFlowRegistrable(address(0), address(strategy));
+        vm.expectRevert(
+            abi.encodeWithSelector(IFlow.INVALID_ALLOCATION_LEDGER_FLOW.selector, address(wrongFlow), address(flow))
+        );
+        allocationPipeline.previewChildSyncRequirements(
+            address(wrongFlow), address(strategy), parentKey, initialStake, recipientIds, scaled, recipientIds, scaled
+        );
     }
 
     function test_gas_allocate_withLedgerPremiumCheckpoint_overheadUnderTwentyPercent() public {
@@ -1071,14 +1108,8 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
         address account = IAllocationKeyAccountResolver(strategy).accountForAllocationKey(allocationKey);
         if (account == address(0)) revert INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(strategy, allocationKey);
 
-        IBudgetStakeLedger(ledger)
-            .checkpointAllocation(
-                account, prevWeight, prevRecipientIds, prevAllocationsPpm, newWeight, newRecipientIds, newAllocationsPpm
-            );
-
-        address[] memory changedBudgetTreasuries = GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-            FlowProtocolConstants.PPM_SCALE_UINT256,
-            ledger,
+        address[] memory changedBudgetTreasuries = IBudgetStakeLedger(ledger).checkpointAllocation(
+            account,
             prevWeight,
             prevRecipientIds,
             prevAllocationsPpm,
@@ -1094,6 +1125,7 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
     }
 
     function previewChildSyncRequirements(
+        address,
         address,
         uint256,
         uint256,
@@ -1122,6 +1154,23 @@ contract FlowLedgerPropGoalTreasury {
 }
 
 contract FlowLedgerPropLedger {
+    error NOT_SORTED_OR_DUPLICATE();
+
+    uint256 private constant _PPM_SCALE = FlowProtocolConstants.PPM_SCALE_UINT256;
+    uint256 private constant _UNIT_WEIGHT_SCALE = 1e15;
+
+    struct DeltaBuckets {
+        address[] decreases;
+        address[] increases;
+        uint256 decreaseCount;
+        uint256 increaseCount;
+    }
+
+    struct MergeOrderState {
+        bytes32 lastRecipientId;
+        bool hasLastRecipientId;
+    }
+
     address public goalTreasury;
     uint256 public checkpointCallCount;
 
@@ -1141,14 +1190,135 @@ contract FlowLedgerPropLedger {
 
     function checkpointAllocation(
         address,
-        uint256,
-        bytes32[] calldata,
-        uint32[] calldata,
-        uint256,
-        bytes32[] calldata,
-        uint32[] calldata
-    ) external {
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) external returns (address[] memory changedBudgetTreasuries) {
         checkpointCallCount += 1;
+        return
+            _changedBudgets(
+                prevWeight,
+                prevRecipientIds,
+                prevAllocationPpm,
+                newWeight,
+                newRecipientIds,
+                newAllocationPpm
+            );
+    }
+
+    function previewChangedBudgetTreasuries(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) external view returns (address[] memory changedBudgetTreasuries) {
+        return
+            _changedBudgets(
+                prevWeight,
+                prevRecipientIds,
+                prevAllocationPpm,
+                newWeight,
+                newRecipientIds,
+                newAllocationPpm
+            );
+    }
+
+    function _changedBudgets(
+        uint256 prevWeight,
+        bytes32[] calldata prevRecipientIds,
+        uint32[] calldata prevAllocationPpm,
+        uint256 newWeight,
+        bytes32[] calldata newRecipientIds,
+        uint32[] calldata newAllocationPpm
+    ) internal view returns (address[] memory changedBudgetTreasuries) {
+        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) return new address[](0);
+
+        DeltaBuckets memory buckets = _initBuckets(prevRecipientIds.length + newRecipientIds.length);
+        MergeOrderState memory orderState;
+        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
+            prevRecipientIds,
+            newRecipientIds,
+            SortedRecipientMerge.Precondition.AssumeSorted
+        );
+
+        while (SortedRecipientMerge.hasNext(mergeCursor, prevRecipientIds.length, newRecipientIds.length)) {
+            (
+                SortedRecipientMerge.Step memory step,
+                SortedRecipientMerge.Cursor memory nextCursor
+            ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            mergeCursor = nextCursor;
+            _assertStrictMergedOrder(step.recipientId, orderState);
+            orderState.lastRecipientId = step.recipientId;
+            orderState.hasLastRecipientId = true;
+
+            uint256 oldAllocated = step.hasOld
+                ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex])
+                : 0;
+            uint256 newAllocated = step.hasNew
+                ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex])
+                : 0;
+            if (oldAllocated == newAllocated) continue;
+
+            address budget = _budgetByRecipient[step.recipientId];
+            if (budget == address(0)) continue;
+            _recordDelta(buckets, budget, oldAllocated, newAllocated);
+        }
+
+        return _mergeBuckets(buckets);
+    }
+
+    function _initBuckets(uint256 maxCount) private pure returns (DeltaBuckets memory buckets) {
+        buckets.decreases = new address[](maxCount);
+        buckets.increases = new address[](maxCount);
+    }
+
+    function _assertStrictMergedOrder(bytes32 recipientId, MergeOrderState memory orderState) private pure {
+        if (orderState.hasLastRecipientId && recipientId <= orderState.lastRecipientId) {
+            revert NOT_SORTED_OR_DUPLICATE();
+        }
+    }
+
+    function _recordDelta(DeltaBuckets memory buckets, address budget, uint256 oldAllocated, uint256 newAllocated)
+        private
+        pure
+    {
+        if (newAllocated < oldAllocated) {
+            buckets.decreases[buckets.decreaseCount] = budget;
+            unchecked {
+                ++buckets.decreaseCount;
+            }
+        } else {
+            buckets.increases[buckets.increaseCount] = budget;
+            unchecked {
+                ++buckets.increaseCount;
+            }
+        }
+    }
+
+    function _mergeBuckets(DeltaBuckets memory buckets) private pure returns (address[] memory changedBudgetTreasuries) {
+        uint256 totalCount = buckets.decreaseCount + buckets.increaseCount;
+        changedBudgetTreasuries = new address[](totalCount);
+        for (uint256 i = 0; i < buckets.decreaseCount; ) {
+            changedBudgetTreasuries[i] = buckets.decreases[i];
+            unchecked {
+                ++i;
+            }
+        }
+        for (uint256 i = 0; i < buckets.increaseCount; ) {
+            changedBudgetTreasuries[buckets.decreaseCount + i] = buckets.increases[i];
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _effectiveAllocatedStake(uint256 weight, uint32 allocationPpm) internal pure returns (uint256) {
+        return (weight * allocationPpm / _PPM_SCALE) / _UNIT_WEIGHT_SCALE * _UNIT_WEIGHT_SCALE;
     }
 }
 
@@ -1331,20 +1501,12 @@ contract FlowLedgerPropChildStrategy is IAllocationStrategy {
         return address(uint160(key));
     }
 
-    function currentWeight(uint256) external pure returns (uint256) {
+    function currentWeight(address, uint256) external pure returns (uint256) {
         return 0;
     }
 
-    function canAllocate(uint256, address) external pure returns (bool) {
+    function canAllocate(address, uint256, address) external pure returns (bool) {
         return false;
-    }
-
-    function canAccountAllocate(address) external pure returns (bool) {
-        return false;
-    }
-
-    function accountAllocationWeight(address) external pure returns (uint256) {
-        return 0;
     }
 
     function strategyKey() external pure returns (string memory) {
@@ -1407,6 +1569,7 @@ contract FlowLedgerPropBudgetFlowRegistrable {
 
 contract FlowLedgerPropBudgetTreasuryRegistrable {
     address public flow;
+    address public authority;
     address public premiumEscrow;
     uint64 public resolvedAt;
     uint64 public activatedAt;
@@ -1414,8 +1577,9 @@ contract FlowLedgerPropBudgetTreasuryRegistrable {
     uint64 public fundingDeadline = type(uint64).max;
     uint8 public state;
 
-    constructor(address flow_, address premiumEscrow_, uint64 activatedAt_) {
+    constructor(address flow_, address premiumEscrow_, uint64 activatedAt_, address authority_) {
         flow = flow_;
+        authority = authority_;
         premiumEscrow = premiumEscrow_;
         activatedAt = activatedAt_;
     }

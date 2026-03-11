@@ -3,6 +3,9 @@ pragma solidity ^0.8.34;
 
 import {FlowAllocationsBase} from "test/flows/FlowAllocations.t.sol";
 import {IFlow, ICustomFlow} from "src/interfaces/IFlow.sol";
+import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 
 contract FlowAllocationsValidationTest is FlowAllocationsBase {
     struct LegacyAllocationAction {
@@ -29,6 +32,64 @@ contract FlowAllocationsValidationTest is FlowAllocationsBase {
         vm.prank(allocator);
         flow.allocate(ids, scaled);
         assertEq(flow.getAllocationCommitment(address(strategy), allocatorKey), keccak256(abi.encode(ids, scaled)));
+    }
+
+    function test_defaultAllocationReadHelpers_useFlowOwnedContext() public {
+        bytes32 id = bytes32(uint256(1));
+        _addRecipient(id, address(0x111));
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        vm.prank(allocator);
+        flow.allocate(ids, scaled);
+
+        uint256 allocatorKey = _allocatorKey();
+        assertEq(flow.allocationKeyOf(allocator), allocatorKey);
+        assertEq(flow.currentWeight(allocatorKey), DEFAULT_WEIGHT);
+        assertTrue(flow.canAllocate(allocatorKey, allocator));
+        assertFalse(flow.canAllocate(allocatorKey, other));
+        assertEq(flow.accountAllocationWeight(allocator), DEFAULT_WEIGHT);
+        assertTrue(flow.canAccountAllocate(allocator));
+        assertFalse(flow.canAccountAllocate(other));
+    }
+
+    function test_allocateAndDefaultReadHelpers_forwardExplicitFlowContext() public {
+        MockAllocationStrategy flowSensitiveStrategy = new MockAllocationStrategy();
+        flowSensitiveStrategy.setUseAuxAsKey(true);
+
+        uint256 allocatorKey = flowSensitiveStrategy.allocationKey(allocator, bytes(""));
+        flowSensitiveStrategy.setWeight(allocatorKey, DEFAULT_WEIGHT);
+        flowSensitiveStrategy.setCanAllocate(allocatorKey, allocator, true);
+        flowSensitiveStrategy.setCanAccountAllocate(allocator, true);
+
+        CustomFlow scopedFlow = _deployFlowWithStrategies(IAllocationStrategy(address(flowSensitiveStrategy)));
+        flowSensitiveStrategy.setRequiredFlow(address(scopedFlow));
+
+        bytes32 id = bytes32(uint256(1));
+        vm.prank(manager);
+        scopedFlow.addRecipient(id, address(0x111), recipientMetadata);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id;
+        uint32[] memory scaled = new uint32[](1);
+        scaled[0] = 1_000_000;
+
+        vm.prank(allocator);
+        scopedFlow.allocate(ids, scaled);
+
+        assertEq(scopedFlow.currentWeight(allocatorKey), DEFAULT_WEIGHT);
+        assertTrue(scopedFlow.canAllocate(allocatorKey, allocator));
+        assertTrue(scopedFlow.canAccountAllocate(allocator));
+        assertEq(scopedFlow.accountAllocationWeight(allocator), DEFAULT_WEIGHT);
+
+        address wrongFlow = address(0xBEEF);
+        assertEq(flowSensitiveStrategy.currentWeight(wrongFlow, allocatorKey), 0);
+        assertFalse(flowSensitiveStrategy.canAllocate(wrongFlow, allocatorKey, allocator));
+        assertEq(flowSensitiveStrategy.currentWeight(address(scopedFlow), allocatorKey), DEFAULT_WEIGHT);
+        assertTrue(flowSensitiveStrategy.canAllocate(address(scopedFlow), allocatorKey, allocator));
     }
 
     function test_allocate_defaultStrategyEntryPoint_ignoresLegacyPrevStateConcept() public {

@@ -48,7 +48,7 @@ contract TestableCustomFlow is CustomFlow {
     ) external {
         bytes32[] memory ids = prevIds;
         uint32[] memory allocationPpm = prevAllocationPpm;
-        uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(allocationKey);
+        uint256 currentWeight = IAllocationStrategy(strategy).currentWeight(address(this), allocationKey);
         CustomFlowAllocationEngine.applyAllocationEditWithPipeline(
             _cfgStorage(),
             _recipientsStorage(),
@@ -80,6 +80,7 @@ contract TestableCustomFlow is CustomFlow {
             _recipientsStorage(),
             _allocStorage(),
             _pipelineStorage(),
+            address(this),
             _defaultStrategyOrRevert(),
             msg.sender,
             FlowAllocations.AllocationVector({ recipientIds: ids, allocationsPpm: allocationPpm })

@@ -53,7 +53,9 @@ contract FlowAllocationsPrevStateTest is FlowAllocationsBase {
         bytes32 commitBefore = flow.getAllocationCommitment(address(strategy), key);
 
         vm.expectCall(
-            address(strategy), abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key), uint64(1)
+            address(strategy),
+            abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, address(flow), key),
+            uint64(1)
         );
         vm.prank(allocator);
         flow.allocate(ids, scaled);

@@ -40,6 +40,7 @@ interface IAllocationPipeline {
      * @notice Read-only preview of child-sync requirements for an allocation delta.
      */
     function previewChildSyncRequirements(
+        address flow,
         address strategy,
         uint256 allocationKey,
         uint256 prevWeight,

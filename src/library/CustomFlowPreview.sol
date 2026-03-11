@@ -13,6 +13,7 @@ library CustomFlowPreview {
         FlowTypes.RecipientsState storage recipients,
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
+        address flow,
         address strategy,
         uint256 allocationKey,
         bytes32[] calldata newRecipientIds,
@@ -28,6 +29,7 @@ library CustomFlowPreview {
 
         return
             IAllocationPipeline(pipeline).previewChildSyncRequirements(
+                flow,
                 strategy,
                 allocationKey,
                 prevWeight,

@@ -603,12 +603,12 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
         return AddressKeyAllocation.accountForKey(key);
     }
 
-    function currentWeight(uint256 key) external view override returns (uint256) {
+    function currentWeight(address, uint256 key) external view override returns (uint256) {
         if (_allocationFrozen()) return 0;
         return _stakeWeightOf(_accountForKey(key));
     }
 
-    function canAllocate(uint256 key, address caller) external view override returns (bool) {
+    function canAllocate(address, uint256 key, address caller) external view override returns (bool) {
         if (_allocationFrozen()) return false;
         address allocator = _accountForKey(key);
         return caller == allocator && _stakeWeightOf(allocator) > 0;

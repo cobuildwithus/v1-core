@@ -111,9 +111,9 @@ contract StakeVaultTest is Test {
     }
 
     function _assertAllocationFrozen(StakeVault targetVault, uint256 key, address account) internal {
-        assertEq(targetVault.currentWeight(key), 0);
+        assertEq(targetVault.currentWeight(address(0), key), 0);
         assertEq(targetVault.accountAllocationWeight(account), 0);
-        assertFalse(targetVault.canAllocate(key, account));
+        assertFalse(targetVault.canAllocate(address(0), key, account));
         assertFalse(targetVault.canAccountAllocate(account));
     }
 
@@ -158,14 +158,14 @@ contract StakeVaultTest is Test {
         vault.accountForAllocationKey(aliasedKey);
 
         vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_ALLOCATION_KEY.selector, aliasedKey));
-        vault.currentWeight(aliasedKey);
+        vault.currentWeight(address(0), aliasedKey);
 
         vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_ALLOCATION_KEY.selector, aliasedKey));
-        vault.canAllocate(aliasedKey, alice);
+        vault.canAllocate(address(0), aliasedKey, alice);
 
-        assertEq(vault.currentWeight(canonicalKey), 10e18);
-        assertTrue(vault.canAllocate(canonicalKey, alice));
-        assertFalse(vault.canAllocate(canonicalKey, bob));
+        assertEq(vault.currentWeight(address(0), canonicalKey), 10e18);
+        assertTrue(vault.canAllocate(address(0), canonicalKey, alice));
+        assertFalse(vault.canAllocate(address(0), canonicalKey, bob));
     }
 
     function test_strategyKey_constant() public view {
@@ -183,10 +183,10 @@ contract StakeVaultTest is Test {
         vault.depositCobuild(5e18);
 
         uint256 key = uint256(uint160(alice));
-        assertEq(vault.currentWeight(key), 15e18);
+        assertEq(vault.currentWeight(address(0), key), 15e18);
         assertEq(vault.accountAllocationWeight(alice), 15e18);
-        assertTrue(vault.canAllocate(key, alice));
-        assertFalse(vault.canAllocate(key, bob));
+        assertTrue(vault.canAllocate(address(0), key, alice));
+        assertFalse(vault.canAllocate(address(0), key, bob));
         assertTrue(vault.canAccountAllocate(alice));
         assertFalse(vault.canAccountAllocate(bob));
     }
@@ -196,8 +196,8 @@ contract StakeVaultTest is Test {
         vault.depositGoal(20e18);
 
         uint256 key = uint256(uint160(alice));
-        assertEq(vault.currentWeight(key), 10e18);
-        assertTrue(vault.canAllocate(key, alice));
+        assertEq(vault.currentWeight(address(0), key), 10e18);
+        assertTrue(vault.canAllocate(address(0), key, alice));
         assertTrue(vault.canAccountAllocate(alice));
 
         vault.markGoalResolved();
@@ -225,9 +225,9 @@ contract StakeVaultTest is Test {
         vm.stopPrank();
 
         uint256 key = uint256(uint160(alice));
-        assertEq(signalVault.currentWeight(key), 15e18);
+        assertEq(signalVault.currentWeight(address(0), key), 15e18);
         assertEq(signalVault.accountAllocationWeight(alice), 15e18);
-        assertTrue(signalVault.canAllocate(key, alice));
+        assertTrue(signalVault.canAllocate(address(0), key, alice));
         assertTrue(signalVault.canAccountAllocate(alice));
         assertFalse(signalVault.goalResolved());
 

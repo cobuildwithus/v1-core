@@ -9,9 +9,7 @@ import { IManagedFlow } from "../interfaces/IManagedFlow.sol";
 import { AddressKeyAllocationStrategy } from "./AddressKeyAllocationStrategy.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-/// @notice Shared budget-flow strategy that resolves budget context from the caller flow address.
-/// @dev The `IAllocationStrategy` view hooks use `msg.sender` as flow context because runtime calls come from
-///      the flow itself. Off-chain callers (EOAs/indexers/simulators) should prefer the explicit `*ForFlow` views.
+/// @notice Shared budget-flow strategy that resolves budget context from explicit flow addresses.
 contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRouterStrategy, Initializable {
     IBudgetStakeLedger public override budgetStakeLedger;
     address public override registrar;
@@ -53,51 +51,30 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
         recipientId = _recipientIdByFlow[flow];
     }
 
-    /// @notice Returns live weight for `key` in caller-flow context.
-    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
-    ///      Non-flow callers fail closed via zero weight; use `currentWeightForFlow` off-chain.
-    function currentWeight(uint256 key) external view override returns (uint256) {
-        return _currentWeightForFlow(msg.sender, key);
-    }
-
-    /// @notice Returns whether `caller` can allocate for `key` in caller-flow context.
-    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
-    ///      Non-flow callers fail closed via `false`; use `canAllocateForFlow` off-chain.
-    function canAllocate(uint256 key, address caller) external view override returns (bool) {
-        return _canAllocateForFlow(msg.sender, key, caller);
-    }
-
-    /// @notice Returns whether `account` has positive allocation weight in caller-flow context.
-    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
-    ///      Non-flow callers fail closed via `false`; use `canAccountAllocateForFlow` off-chain.
-    function canAccountAllocate(address account) external view override returns (bool) {
-        return _canAccountAllocateForFlow(msg.sender, account);
-    }
-
-    /// @notice Returns current allocation weight for `account` in caller-flow context.
-    /// @dev Intended for in-flow runtime calls where `msg.sender` is the child flow.
-    ///      Non-flow callers fail closed via zero weight; use `accountAllocationWeightForFlow` off-chain.
-    function accountAllocationWeight(address account) external view override returns (uint256) {
-        return _accountAllocationWeightForFlow(msg.sender, account);
+    function flowBudgetStatus(
+        address flow
+    ) external view override returns (address budgetTreasury, FlowBudgetStatus status) {
+        return _effectiveTreasuryAndStatusForFlow(flow);
     }
 
     /// @notice Returns live weight for `key` in explicit `flow` context.
-    function currentWeightForFlow(address flow, uint256 key) external view override returns (uint256) {
-        return _currentWeightForFlow(flow, key);
+    function currentWeight(address flow, uint256 key) external view override returns (uint256) {
+        return _accountAllocationWeightForFlow(flow, _accountForKey(key));
     }
 
     /// @notice Returns whether `caller` can allocate for `key` in explicit `flow` context.
-    function canAllocateForFlow(address flow, uint256 key, address caller) external view override returns (bool) {
-        return _canAllocateForFlow(flow, key, caller);
+    function canAllocate(address flow, uint256 key, address caller) external view override returns (bool) {
+        address allocator = _accountForKey(key);
+        return caller == allocator && _accountAllocationWeightForFlow(flow, allocator) > 0;
     }
 
     /// @notice Returns whether `account` has positive allocation weight in explicit `flow` context.
-    function canAccountAllocateForFlow(address flow, address account) external view override returns (bool) {
-        return _canAccountAllocateForFlow(flow, account);
+    function canAccountAllocate(address flow, address account) external view override returns (bool) {
+        return _accountAllocationWeightForFlow(flow, account) > 0;
     }
 
     /// @notice Returns current allocation weight for `account` in explicit `flow` context.
-    function accountAllocationWeightForFlow(address flow, address account) external view override returns (uint256) {
+    function accountAllocationWeight(address flow, address account) external view override returns (uint256) {
         return _accountAllocationWeightForFlow(flow, account);
     }
 
@@ -105,23 +82,9 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
         return STRATEGY_KEY;
     }
 
-    function _currentWeightForFlow(address flow, uint256 key) internal view returns (uint256) {
-        return _accountAllocationWeightForFlow(flow, _accountForKey(key));
-    }
-
-    function _canAllocateForFlow(address flow, uint256 key, address caller) internal view returns (bool) {
-        address allocator = _accountForKey(key);
-        if (caller != allocator) return false;
-        return _accountAllocationWeightForFlow(flow, allocator) > 0;
-    }
-
-    function _canAccountAllocateForFlow(address flow, address account) internal view returns (bool) {
-        return _accountAllocationWeightForFlow(flow, account) > 0;
-    }
-
     function _accountAllocationWeightForFlow(address flow, address account) internal view returns (uint256) {
-        (address budgetTreasury, bool closed) = _effectiveTreasuryAndClosedForFlow(flow);
-        if (closed) return 0;
+        (address budgetTreasury, FlowBudgetStatus status) = _effectiveTreasuryAndStatusForFlow(flow);
+        if (status != FlowBudgetStatus.Active) return 0;
         return budgetStakeLedger.userAllocatedStakeOnBudget(account, budgetTreasury);
     }
 
@@ -133,19 +96,22 @@ contract BudgetFlowRouterStrategy is AddressKeyAllocationStrategy, IBudgetFlowRo
         }
     }
 
-    function _effectiveTreasuryAndClosedForFlow(
+    function _effectiveTreasuryAndStatusForFlow(
         address flow
-    ) internal view returns (address effectiveBudgetTreasury, bool closed) {
-        if (!_flowRegistered[flow]) return (address(0), true);
+    ) internal view returns (address effectiveBudgetTreasury, FlowBudgetStatus status) {
+        if (!_flowRegistered[flow]) return (address(0), FlowBudgetStatus.FlowNotRegistered);
 
         effectiveBudgetTreasury = budgetStakeLedger.budgetForRecipient(_recipientIdByFlow[flow]);
-        if (effectiveBudgetTreasury == address(0)) return (effectiveBudgetTreasury, true);
-        if (effectiveBudgetTreasury.code.length == 0) return (effectiveBudgetTreasury, true);
+        if (effectiveBudgetTreasury == address(0))
+            return (effectiveBudgetTreasury, FlowBudgetStatus.MissingBudgetTreasury);
+        if (effectiveBudgetTreasury.code.length == 0)
+            return (effectiveBudgetTreasury, FlowBudgetStatus.InvalidBudgetTreasury);
 
         try IBudgetTreasury(effectiveBudgetTreasury).resolved() returns (bool resolved_) {
-            return (effectiveBudgetTreasury, resolved_);
+            if (resolved_) return (effectiveBudgetTreasury, FlowBudgetStatus.BudgetResolved);
+            return (effectiveBudgetTreasury, FlowBudgetStatus.Active);
         } catch {
-            return (effectiveBudgetTreasury, true);
+            return (effectiveBudgetTreasury, FlowBudgetStatus.BudgetProbeFailed);
         }
     }
 }

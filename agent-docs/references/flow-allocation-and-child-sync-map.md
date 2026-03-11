@@ -4,8 +4,9 @@
 
 1. `CustomFlow.allocate` validates allocation vectors.
 2. Flow initialization configures exactly one strategy; default allocation resolves that strategy from storage and exposes it via `strategy()`.
-3. Primary allocation entrypoint derives key with `allocationKey(caller, "")`, verifies `canAllocate`, decodes previous
-   snapshot state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
+3. Primary allocation entrypoint derives key with `allocationKey(caller, "")`, passes explicit `flow` context into the
+   runtime strategy hooks (`canAllocate(flow, key, caller)` / `currentWeight(flow, key)`), decodes previous snapshot
+   state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
 4. Allocation commitment hashes are canonical over recipient ids + scaled allocation vectors (weight excluded from commit hash).
 5. Allocation deltas are applied through explicit typed `FlowAllocations` edit/maintenance helpers,
    with structural validation and previous-state continuity enforced inside the core apply boundary.
@@ -21,8 +22,13 @@
     successful child sync clears debt, while skip/failure outcomes do not open new debt.
 12. Parent allocation composition maintenance is fail-closed while debt exists for the allocating account
     (`ACCOUNT_HAS_CHILD_SYNC_DEBT`), and debt is cleared permissionlessly via `repairChildSyncDebt(account, budgetTreasury)`.
-13. `CustomFlow.previewChildSyncRequirements(...)` exposes the same changed-budget + expected-commit requirement set as a
-    read-only helper for SDK/indexer/relayer planning.
+13. `CustomFlow` is the canonical external allocation-read surface:
+    - `allocationKeyOf(account)`, `currentWeight(allocationKey)`, `canAllocate(allocationKey, caller)`,
+      `canAccountAllocate(account)`, and `accountAllocationWeight(account)` all resolve the configured default strategy
+      using the flow's own address as explicit context.
+    - `CustomFlow.previewChildSyncRequirements(...)` exposes the same changed-budget + expected-commit requirement set
+      as a read-only helper for SDK/indexer/relayer planning while passing explicit `flow` context into the pipeline
+      preview.
 14. Parent allocation commits do not run legacy child flow-rate queue processing; target-rate updates are owned by
     treasury/flow-operator sync paths.
 15. Parent allocation commits do not call `BudgetTreasury.sync()`; treasury lifecycle progression is handled by direct

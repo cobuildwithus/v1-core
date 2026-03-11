@@ -216,7 +216,9 @@ contract FlowAllocationsLifecycleTest is FlowAllocationsBase {
         strategy.setWeight(key, reducedWeight);
 
         vm.expectCall(
-            address(strategy), abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, key), uint64(1)
+            address(strategy),
+            abi.encodeWithSelector(IAllocationStrategy.currentWeight.selector, address(flow), key),
+            uint64(1)
         );
         vm.prank(other);
         flow.syncAllocation(key);

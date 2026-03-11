@@ -163,6 +163,20 @@ contract BudgetTCRStackDeploymentLibPermissiveFallbackTreasury {
     }
 }
 
+contract BudgetTCRStackDeploymentLibResolvedTreasuryMock {
+    function resolved() external pure returns (bool) {
+        return true;
+    }
+}
+
+contract BudgetTCRStackDeploymentLibRevertingResolvedTreasuryMock {
+    error PROBE_FAILED();
+
+    function resolved() external pure returns (bool) {
+        revert PROBE_FAILED();
+    }
+}
+
 contract BudgetTCRStackDeploymentLibNoStrategyChildFlow {
     function strategy() external pure returns (IAllocationStrategy) {
         return IAllocationStrategy(address(0));
@@ -293,6 +307,41 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         assertEq(budgetStrategy.accountAllocationWeight(address(childFlow), allocator), 42e18);
         assertTrue(budgetStrategy.canAllocate(address(childFlow), allocatorKey, allocator));
         assertTrue(budgetStrategy.canAccountAllocate(address(childFlow), allocator));
+    }
+
+    function test_sharedStrategy_flowBudgetStatus_distinguishesInactiveFailureModes() public {
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(budgetTCR, address(goalToken), address(sharedStrategy));
+        sharedStrategy.registerFlowRecipient(address(childFlow), recipientId);
+
+        (address missingBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus missingStatus) =
+            sharedStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(missingBudgetTreasury, address(0));
+        assertEq(uint8(missingStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.MissingBudgetTreasury));
+
+        address invalidTreasury = makeAddr("invalidTreasury");
+        budgetStakeLedger.setBudget(recipientId, invalidTreasury);
+        (address nonCodeBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus invalidStatus) =
+            sharedStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(nonCodeBudgetTreasury, invalidTreasury);
+        assertEq(uint8(invalidStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.InvalidBudgetTreasury));
+
+        address resolvedTreasury = address(new BudgetTCRStackDeploymentLibResolvedTreasuryMock());
+        budgetStakeLedger.setBudget(recipientId, resolvedTreasury);
+        (address terminalBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus resolvedStatus) =
+            sharedStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(terminalBudgetTreasury, resolvedTreasury);
+        assertEq(uint8(resolvedStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.BudgetResolved));
+        assertEq(sharedStrategy.currentWeight(address(childFlow), uint256(uint160(address(this)))), 0);
+        assertFalse(sharedStrategy.canAccountAllocate(address(childFlow), address(this)));
+
+        address probeFailedTreasury = address(new BudgetTCRStackDeploymentLibRevertingResolvedTreasuryMock());
+        budgetStakeLedger.setBudget(recipientId, probeFailedTreasury);
+        (address revertedBudgetTreasury, IBudgetFlowRouterStrategy.FlowBudgetStatus probeFailedStatus) =
+            sharedStrategy.flowBudgetStatus(address(childFlow));
+        assertEq(revertedBudgetTreasury, probeFailedTreasury);
+        assertEq(uint8(probeFailedStatus), uint8(IBudgetFlowRouterStrategy.FlowBudgetStatus.BudgetProbeFailed));
+        assertEq(sharedStrategy.accountAllocationWeight(address(childFlow), address(this)), 0);
     }
 
     function test_sharedStrategy_registerFlowRecipient_revertsWhenCallerIsNotRegistrar() public {

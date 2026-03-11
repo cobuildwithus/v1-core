@@ -372,6 +372,34 @@ interface ICustomFlow is IFlow {
     function syncAllocationForAccount(address account) external;
 
     /**
+     * @notice Resolves the configured default-strategy allocation key for `account`.
+     * @dev Uses empty aux data to match `allocate(...)` and `syncAllocationForAccount(...)` semantics.
+     */
+    function allocationKeyOf(address account) external view returns (uint256 allocationKey);
+
+    /**
+     * @notice Returns live allocation weight for `allocationKey` in this flow's configured strategy context.
+     */
+    function currentWeight(uint256 allocationKey) external view returns (uint256 weight);
+
+    /**
+     * @notice Returns whether `caller` can allocate for `allocationKey` in this flow's configured strategy context.
+     */
+    function canAllocate(uint256 allocationKey, address caller) external view returns (bool allowed);
+
+    /**
+     * @notice Returns whether `account` can allocate through this flow's configured default strategy.
+     * @dev Uses empty aux data to match `allocate(...)` semantics.
+     */
+    function canAccountAllocate(address account) external view returns (bool allowed);
+
+    /**
+     * @notice Returns current allocation weight for `account` under this flow's configured default strategy.
+     * @dev Uses empty aux data to match `allocate(...)` semantics.
+     */
+    function accountAllocationWeight(address account) external view returns (uint256 weight);
+
+    /**
      * @notice Permissionlessly clears stale units using stored previous-state snapshot.
      * @param allocationKey The allocation key.
      */

@@ -199,12 +199,12 @@ contract TeamFlow is Flow {
         return uint256(uint160(caller));
     }
 
-    function currentWeight(uint256 key) external view returns (uint256) {
+    function currentWeight(address, uint256 key) external view returns (uint256) {
         if (key != _selfAllocationKey()) return 0;
         return _allocationWeight();
     }
 
-    function canAllocate(uint256 key, address caller) external view returns (bool) {
+    function canAllocate(address, uint256 key, address caller) external view returns (bool) {
         return key == _selfAllocationKey() && caller == address(this);
     }
 

@@ -15,12 +15,13 @@ library CustomFlowAllocationEngine {
         FlowTypes.RecipientsState storage recipients,
         FlowTypes.AllocationState storage alloc,
         FlowTypes.PipelineState storage pipelineState,
+        address flow,
         IAllocationStrategy strategy,
         address caller,
         FlowAllocations.AllocationVector memory newAllocation
     ) external {
         uint256 allocationKey = strategy.allocationKey(caller, bytes(""));
-        if (!strategy.canAllocate(allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
+        if (!strategy.canAllocate(flow, allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
 
         address strategyAddress = address(strategy);
         (bytes32[] memory prevIds, uint32[] memory prevAllocationPpm, uint256 prevWeight) = CustomFlowPreviousState
@@ -35,7 +36,7 @@ library CustomFlowAllocationEngine {
                 allocationKey: allocationKey,
                 previousAllocation: _previousAllocation(prevIds, prevAllocationPpm, prevWeight),
                 newAllocation: newAllocation,
-                newWeight: strategy.currentWeight(allocationKey)
+                newWeight: strategy.currentWeight(flow, allocationKey)
             })
         );
     }

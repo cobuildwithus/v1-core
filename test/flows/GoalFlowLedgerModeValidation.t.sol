@@ -160,20 +160,12 @@ contract GoalFlowLedgerModeValidationNoStakeVaultStrategy is IAllocationStrategy
         return address(uint160(key));
     }
 
-    function currentWeight(uint256) external pure returns (uint256) {
+    function currentWeight(address, uint256) external pure returns (uint256) {
         return 1;
     }
 
-    function canAllocate(uint256, address) external pure returns (bool) {
+    function canAllocate(address, uint256, address) external pure returns (bool) {
         return true;
-    }
-
-    function canAccountAllocate(address) external pure returns (bool) {
-        return true;
-    }
-
-    function accountAllocationWeight(address) external pure returns (uint256) {
-        return 1;
     }
 
     function strategyKey() external pure returns (string memory) {

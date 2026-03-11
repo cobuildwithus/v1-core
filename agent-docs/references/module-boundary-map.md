@@ -10,6 +10,7 @@
 - Strategies: `src/allocation-strategies/*.sol`
 - Interfaces: `src/interfaces/IFlow.sol`, `src/interfaces/IManagedFlow.sol`, `src/interfaces/IAllocationStrategy.sol`, `src/interfaces/IAllocationPipeline.sol`, `src/interfaces/IGoalLedgerStrategy.sol`
 - Flow allocation pipeline modules: `src/hooks/GoalFlowAllocationLedgerPipeline.sol`
+- External-read boundary: `CustomFlow` owns canonical allocation-read helpers; strategies/pipeline previews consume explicit `flow` context instead of inferring it from `msg.sender`.
 
 ### Goals/treasury domain
 

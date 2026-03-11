@@ -8,7 +8,6 @@ import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
-import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -201,8 +200,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
             _revertIfAccountHasChildSyncDebt(account);
         }
 
-        address[] memory changedBudgetTreasuries = _checkpointAndDetectBudgetDeltas(
-            ledger,
+        address[] memory changedBudgetTreasuries = IBudgetStakeLedger(ledger).checkpointAllocation(
             account,
             prevWeight,
             prevRecipientIds,
@@ -247,39 +245,6 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         );
     }
 
-    function _checkpointAndDetectBudgetDeltas(
-        address ledger,
-        address account,
-        uint256 prevWeight,
-        bytes32[] calldata prevRecipientIds,
-        uint32[] calldata prevAllocationsPpm,
-        uint256 resolvedWeight,
-        bytes32[] calldata newRecipientIds,
-        uint32[] calldata newAllocationsPpm
-    ) private returns (address[] memory changedBudgetTreasuries) {
-        IBudgetStakeLedger(ledger).checkpointAllocation(
-            account,
-            prevWeight,
-            prevRecipientIds,
-            prevAllocationsPpm,
-            resolvedWeight,
-            newRecipientIds,
-            newAllocationsPpm
-        );
-
-        return
-            GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-                FlowProtocolConstants.PPM_SCALE_UINT256,
-                ledger,
-                prevWeight,
-                prevRecipientIds,
-                prevAllocationsPpm,
-                resolvedWeight,
-                newRecipientIds,
-                newAllocationsPpm
-            );
-    }
-
     function _executeAndEmitChildSync(
         address account,
         address[] memory changedBudgetTreasuries,
@@ -316,6 +281,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
     }
 
     function previewChildSyncRequirements(
+        address flow,
         address strategy,
         uint256 allocationKey,
         uint256 prevWeight,
@@ -324,8 +290,6 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationsPpm
     ) external view override returns (ICustomFlow.ChildSyncRequirement[] memory reqs) {
-        // Preview uses the same trust model as commit: caller is the flow identity under validation.
-        address flow = msg.sender;
         address ledger = allocationLedger;
         if (ledger == address(0)) return new ICustomFlow.ChildSyncRequirement[](0);
 
@@ -345,9 +309,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
         );
         if (!shouldCheckpoint) return new ICustomFlow.ChildSyncRequirement[](0);
 
-        address[] memory changedBudgetTreasuries = GoalFlowLedgerMode.detectBudgetDeltasCalldata(
-            FlowProtocolConstants.PPM_SCALE_UINT256,
-            ledger,
+        address[] memory changedBudgetTreasuries = IBudgetStakeLedger(ledger).previewChangedBudgetTreasuries(
             prevWeight,
             prevRecipientIds,
             prevAllocationsPpm,

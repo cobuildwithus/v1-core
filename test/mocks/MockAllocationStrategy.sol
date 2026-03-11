@@ -5,11 +5,11 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 
 contract MockAllocationStrategy is IAllocationStrategy {
     mapping(uint256 => uint256) public weights;
-    mapping(address => uint256) public accountWeights;
     mapping(uint256 => mapping(address => bool)) public keyCanAllocate;
     mapping(address => bool) public accountCanAllocate;
 
     bool public useAuxAsKey = true;
+    address public requiredFlow;
     address public stakeVault;
     string public constant KEY = "MockStrategy";
 
@@ -33,6 +33,10 @@ contract MockAllocationStrategy is IAllocationStrategy {
         stakeVault = stakeVault_;
     }
 
+    function setRequiredFlow(address requiredFlow_) external {
+        requiredFlow = requiredFlow_;
+    }
+
     function allocationKey(address caller, bytes calldata aux) external view returns (uint256) {
         if (useAuxAsKey) {
             if (aux.length == 0) return uint256(uint160(caller));
@@ -45,20 +49,14 @@ contract MockAllocationStrategy is IAllocationStrategy {
         return address(uint160(key));
     }
 
-    function currentWeight(uint256 key) external view returns (uint256) {
+    function currentWeight(address flow, uint256 key) external view returns (uint256) {
+        if (requiredFlow != address(0) && flow != requiredFlow) return 0;
         return weights[key];
     }
 
-    function canAllocate(uint256 key, address caller) external view returns (bool) {
+    function canAllocate(address flow, uint256 key, address caller) external view returns (bool) {
+        if (requiredFlow != address(0) && flow != requiredFlow) return false;
         return keyCanAllocate[key][caller] || accountCanAllocate[caller];
-    }
-
-    function canAccountAllocate(address account) external view returns (bool) {
-        return accountCanAllocate[account];
-    }
-
-    function accountAllocationWeight(address account) external view returns (uint256) {
-        return accountWeights[account];
     }
 
     function strategyKey() external pure returns (string memory) {
