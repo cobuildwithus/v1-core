@@ -1,141 +1,120 @@
 # Goal Funding and Underwriting Map
 
-Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is removed from runtime code. This map describes the current premium-escrow + underwriter slashing model.
+Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem is removed from runtime code. This map describes the current funding, premium, and slashing model after the preset refactor.
 
-## Community root routing path
+## Preset Summary
 
-1. A payer can route an evergreen community revnet payment through `CobuildCommunityTerminal`.
-   - `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction via an owner-signed payload.
-   - That registration now fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook as the sole full-bucket reserved split for the current ruleset.
-   - Deployment orchestration must atomically set that live reserved split to the predicted hook address and call `deployFor(...)`; leaving a gap lets permissionless reserved-token flushes mint into the predicted address before code exists.
-   - Manual registration remains available through `CobuildCommunityTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal and must already have the live reserved split group pointed at the same hook.
-2. The shared canonical terminal seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
-   - community pay metadata is `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`,
-   - explicit `goalIds`/`weights` seed an explicit per-payment route,
-   - embedded `jbMetadata` is forwarded unchanged into terminal-store accounting and pay-hook `payerMetadata`,
-   - empty metadata means no explicit route and empty downstream JB metadata, so the terminal will flush any newly created reserved tokens into backlog.
-   - the terminal snapshots any preexisting controller backlog so only the current pay's newly created reserved-token
-     delta can use the selected route when an explicit route exists.
-   - native ETH either records directly on the community through the shared terminal (`directNativeAllowed`) or first
-     buys the registered payment token from `paymentSourceRevnetId`; if that upstream native path is the same shared
-     terminal, the conversion stays internal and self-source-safe; direct payment-token pays skip the conversion step.
-   - canonical community pays go through the JB terminal store, so ruleset pause/weight/base-currency logic and pay
-     hooks still run before reserved-token routing continues.
-3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
-   - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
-   - the registry is ownerless and does not expose privileged system goals or pause controls,
-   - each listed goal carries metadata only; selectability is derived from canonical deployment, funding context, terminal presence, and live `GoalTreasury.canAcceptHookFunding()` status.
-   - terminal goals can be permissionlessly pruned from the donor-visible listed set via `pruneTerminalGoal(goalId)`.
-4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
-5. Direct goal funding uses the shared `CobuildGoalTerminal`.
-   - it resolves each goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
-   - native ETH funding converts through the resolved source revnet before forwarding to the goal's primary payment-token terminal.
-6. If the terminal-created community pay minted reserved tokens, the terminal immediately calls the community controller's
-   `sendReservedTokensToSplitsOf(...)` in the same transaction.
-7. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`.
-8. If the callback carried a terminal-seeded pending route, the full current pay delta is forwarded into the selected
-   child goals by paying each goal's primary terminal for the community token.
-9. If the callback had no pending route, the full callback amount is deferred into hook-managed backlog.
-10. All explicit routed payments record per-goal routing score; that score decays lazily with a 30-day half-life, and backlog flushes do not reinforce it.
-11. Historical backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked
-   backlog in bounded chunks.
-12. Historical backlog routing is derived only from selectable goals with non-zero decayed explicit-route score and always pays
-   goal-treasury beneficiaries.
-13. If the terminal-created pay minted no reserved tokens, the terminal clears the unused pending route instead of leaving
-   stale routing state behind.
-14. If older backlog was included in that controller flush, `CobuildSplitHook` parks that snapshotted backlog for later
-   permissionless retry instead of routing it through the current payer's selection.
-15. If no usable historical route exists, the split hook keeps that backlog on-hook for later
-   permissionless historical flush instead of blocking canonical-terminal-routed mints.
+- Both presets use the same goal funding vault: `StakeVault`.
+- `StakeVault` is not always the allocator:
+  - open preset: `StakeVault` is the goal-flow allocator and the funding / coverage vault,
+  - managed preset: `StakeVault` still holds funding / coverage state, but goal-flow allocation authority comes from `SingleAllocatorStrategy` with `ManagedBudgetController` as allocator identity.
+- Budget controllers are now pluggable:
+  - open preset: `BudgetTCR`
+  - managed preset: `ManagedBudgetController`
+- Premium / risk modules are now pluggable:
+  - open preset: `PremiumEscrow`
+  - managed preset: `NullPremiumEscrow`
+- Managed v1 deliberately keeps child budget `recipientAdmin` on the Safe directly.
+- Advisory TCR for maintainer goals and any managed mechanism controller are intentionally out of scope for this pass.
+
+## Community Root Routing Path
+
+1. A payer routes an evergreen community revnet payment through `CobuildCommunityTerminal`.
+2. `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction through an owner-signed payload.
+3. Registration fail-closes unless the community revnet's live reserved-token split group already resolves to the predicted hook for the current ruleset.
+4. `CommunityGoalRegistry` remains the canonical onchain source of donor-visible goals.
+5. `GoalDeploymentRegistry` remains the canonical onchain source of `goalId -> goalTreasury`.
+6. Direct goal funding uses `CobuildGoalTerminal`, which resolves each goal's payment token and source revnet from the registered goal treasury plus stake vault.
+7. When community reserved tokens are minted, `CobuildSplitHook` routes either:
+   - the explicit one-shot route seeded by the terminal for the current pay, or
+   - hook-managed backlog for later permissionless flush.
 
 ## Goal Funding Path
 
-1. Revnet reserved-token splits enter through `GoalRevnetSplitHook.processSplitWith`.
-2. Hook validates caller/context and forwards value handling to `GoalTreasury.processHookSplit`.
-3. If `goalTreasury.canAcceptHookFunding()`, treasury converts/forwards into goal `Flow` SuperToken balance and records accepted funding telemetry (`HookFundingRecorded`, `totalRaised`).
-4. Treasury also accepts direct donations while funding is open:
-   - `donateUnderlyingAndUpgrade(amount)` pulls underlying, upgrades, and forwards into the goal flow.
-   - donation receipts are counted in `totalRaised` (telemetry).
-5. Goal min-raise lifecycle checks use live treasury balance (`superToken.balanceOf(flow)`), so direct flow inflows can satisfy activation.
-6. If treasury state is `Succeeded` and minting remains open, hook splits are success-settled by burning source value (no reward-escrow split branch).
-7. If funding is closed but treasury is still nonterminal, hook value is converted to SuperToken and accumulated as deferred funding on treasury.
-8. If treasury is terminal, hook value is converted and settled through terminal residual policy.
+1. Goal funding enters through `GoalRevnetSplitHook.processSplitWith(...)` or direct donation helpers on `GoalTreasury`.
+2. `GoalTreasury` accepts funding into the goal flow while `canAcceptHookFunding()` remains true.
+3. Goal min-raise lifecycle checks use live flow balance (`superToken.balanceOf(flow)`), not just accounting telemetry.
+4. `GoalTreasury.sync()` owns funding activation and active-state target-rate updates through the configured `ISpendPolicy`.
+5. The goal flow always sits on the universal recursive-flow substrate; only the configured goal allocation strategy differs by preset.
 
-## Goal Lifecycle Path
+## Budget Control Planes
 
-1. Treasury begins in `Funding`.
-2. `sync()` handles both funding activation and active-state flow-rate updates through configured `ISpendPolicy` targeting/sync-mode selection.
-   - The current uncapped goal default is `LinearSpendPolicy(includeIncomingRate=false, maxTargetFlowRate=0, syncMode=LinearSpendDownFallback)`, so raw target remains treasury balance over remaining time with buffer-aware liquidation-horizon guarding and best-effort fallback writes when that sync mode is selected.
-3. Success is assertion-backed and resolver-gated:
-   - immutable `successResolver` controls assertion registration/clearing,
-   - goal `resolveSuccess` is success-resolver-only and requires a pending truthful assertion,
-   - post-deadline false/invalid outcomes settle fail-closed to `Expired` semantics (with reassert-grace policy).
-4. Finalization is state-first: terminal state/timestamp commit before external side effects.
-5. Goal terminal side effects are best-effort and permissionlessly retryable via `retryTerminalSideEffects`:
-   - flow stop,
-   - residual settlement,
-   - deferred-hook settlement,
-   - stake-vault `markGoalResolved`.
-6. Goal residual settlement always burns downgraded underlying through controller policy:
-   - `Succeeded`: success-residual burn memo path,
-   - `Expired`: terminal-residual burn memo path.
-7. `sync()` remains terminal no-op; late inflows can be handled via `settleLateResidual()`.
+### Open preset
 
-## Budget Lifecycle + Premium Escrow Path
+1. `BudgetTCR` is the budget controller, topology registry, and open-market budget curation layer.
+2. `BudgetTCRDeployer` prepares the budget stack:
+   - cloned `BudgetTreasury`
+   - cloned `PremiumEscrow`
+   - shared `BudgetFlowRouterStrategy`
+   - optional `AllocationMechanismTCR` layer
+3. Open child-flow `recipientAdmin` comes from deployer stack-module config; the default open stack uses the mechanism layer rather than a Safe.
+4. Budget enable / disable decisions use stake-backed coverage semantics through `IBudgetGatePolicy` (`StakeCoverageGatePolicy` by default).
+5. Permissionless liveness batching is `BudgetTCR.syncBudgetTreasuries(...)`.
 
-1. Parent funding enters each budget child flow from the goal flow recipient path.
-2. Budgets are deployed as child flows where the budget treasury is child `flowOperator`/`sweeper`, and manager reward stream is routed to per-budget `PremiumEscrow` at `budgetPremiumPpm`.
-3. Budget treasury active target flow-rate is policy-only:
-   - the repo-wide default budget deployment is `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`,
-   - that preserves trusted incoming plus balance spenddown:
-     - trusted incoming component: `max(parent.getMemberFlowRate(child), 0)`,
-     - spenddown component: `treasuryBalance / timeRemaining`,
-     - total target is the saturated sum of both components (`int96.max` cap).
-4. Budget treasury is assertion-backed for success and controller-gated for manual failure (`resolveFailure`) under deadline constraints.
-5. Budget finalization is state-first, then best-effort side effects:
-   - child outflow stop,
-   - premium escrow close with terminal metadata,
-   - residual sweep back to parent goal flow.
-6. `BudgetTCR.syncBudgetTreasuries(itemIDs)` provides permissionless best-effort treasury sync batching for liveness.
-7. Budget delisting semantics (on-chain remove/finalize-removed path) are split:
-   - pre-activation delist is fail-closed and terminalizes,
-   - activation-locked delist detaches parent funding and forces spend-stop, but is not itself guaranteed permanent shutdown until treasury terminalization.
+### Managed preset
 
-## Stake + Underwriting Path
+1. `ManagedBudgetController` is the budget controller, topology registry, and goal-level allocator identity.
+2. `GoalFactoryManagedPresetDeploy` wires:
+   - `SingleAllocatorStrategy` for the goal flow, owned by and allocating as `ManagedBudgetController`
+   - `ManagedBudgetControllerStackDeployer` for budget child stacks
+   - `NoopBudgetGatePolicy`
+   - `NullPremiumEscrow`
+3. `ManagedBudgetControllerStackDeployer` prepares each managed budget stack with:
+   - cloned `BudgetTreasury`
+   - cloned `NullPremiumEscrow`
+   - `BudgetSingleAllocatorStrategy`
+4. Managed child-flow `recipientAdmin` is the Safe directly in v1.
+5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
+6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`.
 
-- `StakeVault` tracks goal + cobuild stake, supports juror locks/exits, and exposes live allocator weight.
-- Goal-token deposit weighting in `StakeVault` is composed of:
-  - issuance base from snapshotted init ruleset weight (`goalAmount * weightScale / snappedWeight`),
-  - plus a snapshotted reserved-percent premium that decays linearly from full at activation/pre-activation to zero at deadline.
-- `StakeVault` snapshots both goal ruleset weight and reserved percent once at initialization; later ruleset drift does not reprice existing or future deposits for that vault instance.
-- `reservedPercent == 10_000` at snapshot is invalid and vault initialization reverts.
-- Cobuild deposits remain 1:1 amount-to-weight.
-- Deposits still require live staking-open state (`currentOf(goalRevnetId).weight > 0`) when each deposit executes.
-- `BudgetStakeLedger` is coverage-only accounting (per-user and per-budget allocated stake plus checkpoint history for vote snapshots).
-- `PremiumEscrow` checkpoints per-underwriter budget coverage and accrues premium from indexed inflows.
-- `PremiumEscrow` goal-flow receipt baseline/checkpoint reads fail closed on read failure; receipt accounting no longer falls back to zero or silently skips failed reads.
-- Premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`).
-- Premium inflow with zero budget coverage is recycled to goal funding path (no orphan premium custody).
-- On goal `Expired`, escrowed premium can be swept via `PremiumEscrow.burnOnGoalFailure()` to goal flow for terminal residual burn settlement.
-- On escrow close to `Failed` or post-activation `Expired`, `PremiumEscrow.slash(underwriter)` treats `creditDrawn` as first-loss principal attributed to that underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and calls `UnderwriterSlasherRouter`.
-- Slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
-  `executionDuration`.
-- `BudgetTCRFactory` only preserves manual registry deposits when the submission-deposit strategy cleanly reports `supportsEscrowBonding() == false`; probe failures now fail deployment instead of silently downgrading escrow-bond policy.
-- `UnderwriterSlasherRouter` receives slashed stake via `StakeVault`, best-effort converts cobuild -> goal token, upgrades to goal SuperToken, and forwards to goal funding target; failures remain observable and retryable via `retryForwarding`.
-- Post-goal-resolution underwriter withdrawals are caller-prepared, not globally budget-gated:
-  - each underwriter runs `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over registered budgets,
-  - unresolved caller exposure blocks only that caller's withdrawals.
+## Budget Lifecycle and Risk Modules
+
+1. Parent funding reaches each budget as a child flow under the goal flow.
+2. In both presets, the budget treasury remains the child `flowOperator` and `sweeper`.
+3. `BudgetTreasury` is controller-gated through `IBudgetController`, not `BudgetTCR` specifically.
+4. Budget active target-rate computation is still policy-driven through `ISpendPolicy`.
+5. Terminal pruning is controller-owned through `IBudgetController.pruneTerminalBudget(...)`:
+   - open preset implementation: `BudgetTCR`
+   - managed preset implementation: `ManagedBudgetController`
+
+### Open preset risk path
+
+- Manager reward stream routes into `PremiumEscrow` at `budgetPremiumPpm`.
+- `PremiumEscrow` checkpoints live coverage from `BudgetStakeLedger`, accrues premium, gates claims on goal success, and can slash underwriters through `UnderwriterSlasherRouter`.
+- Coverage-based recipient enable / disable remains part of the live routing path.
+
+### Managed preset risk path
+
+- Manager reward stream routes into `NullPremiumEscrow` to satisfy the same escrow seam without doing premium accounting.
+- `NullPremiumEscrow` still records wiring (`budgetTreasury`, `budgetStakeLedger`, `goalFlow`, `underwriterSlasherRouter`, `budgetSlashPpm`) so the topology remains uniform.
+- Runtime premium, claim, slash, and burn operations are intentional no-ops.
+- Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
+
+## Stake, Coverage, and Reward Semantics
+
+- `StakeVault` still tracks goal and cobuild stake, juror locks, underwriter coverage, and withdrawal preparation.
+- Open preset uses `StakeVault` weight directly for goal allocation.
+- Managed preset still uses `StakeVault` for funding / coverage state, but not for goal allocator identity.
+- `BudgetStakeLedger` remains coverage-only accounting for per-user / per-budget allocated stake plus checkpoint history.
+- `UnderwriterSlasherRouter` still receives slash outcomes from real `PremiumEscrow` flows in the open preset and forwards recovered value toward goal funding.
+- Managed preset keeps the same wiring seam but intentionally skips live premium / slash accounting through `NullPremiumEscrow`.
+
+## Deferred Follow-Ups
+
+- Advisory TCR for managed / maintainer goals: deferred
+- Managed mechanism controller / managed mechanism registry: deferred
 
 ## Key Files
 
-- `src/hooks/GoalRevnetSplitHook.sol`
 - `src/goals/GoalTreasury.sol`
 - `src/goals/BudgetTreasury.sol`
-- `src/goals/policies/*.sol`
-- `src/goals/BudgetStakeLedger.sol`
 - `src/goals/StakeVault.sol`
 - `src/goals/PremiumEscrow.sol`
-- `src/goals/UnderwriterSlasherRouter.sol`
-- `src/allocation-strategies/BudgetFlowRouterStrategy.sol`
+- `src/goals/NullPremiumEscrow.sol`
+- `src/goals/ManagedBudgetController.sol`
+- `src/goals/ManagedBudgetControllerStackDeployer.sol`
+- `src/tcr/BudgetTCR.sol`
+- `src/tcr/BudgetTCRDeployer.sol`
+- `src/hooks/GoalRevnetSplitHook.sol`
+- `src/juicebox/CobuildGoalTerminal.sol`
 - `src/juicebox/CobuildCommunityTerminal.sol`
-- `src/juicebox/CobuildCommunityTerminalFactory.sol`

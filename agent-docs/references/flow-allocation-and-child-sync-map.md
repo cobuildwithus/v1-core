@@ -1,73 +1,87 @@
 # Flow Allocation and Child Sync Map
 
+## Universal Substrate
+
+- The recursive flow substrate is shared across presets:
+  - `Flow`
+  - `CustomFlow`
+  - `GoalFlowAllocationLedgerPipeline`
+  - `GoalFlowLedgerMode`
+- Flow runtime code does not branch on managed vs open preset selection.
+- Goal-flow allocation uses the same runtime hooks in both presets:
+  - `allocationKey(account, "")`
+  - `currentWeight(flow, key)`
+  - `canAllocate(flow, key, caller)`
+
+## Goal Allocator Presets
+
+- Open preset:
+  - goal funding vault: `StakeVault`
+  - goal allocator strategy: `StakeVault`
+  - allocator weight source: live stake weight
+- Managed preset:
+  - goal funding vault: `StakeVault`
+  - goal allocator strategy: `SingleAllocatorStrategy`
+  - allocator identity: `ManagedBudgetController`
+  - Safe rotation does not change goal allocator identity because the controller owns the managed goal strategy
+
 ## Allocation Path
 
 1. `CustomFlow.allocate` validates allocation vectors.
-2. Flow initialization configures exactly one strategy; default allocation resolves that strategy from storage and exposes it via `strategy()`.
-3. Primary allocation entrypoint derives key with `allocationKey(caller, "")`, passes explicit `flow` context into the
-   runtime strategy hooks (`canAllocate(flow, key, caller)` / `currentWeight(flow, key)`), decodes previous snapshot
-   state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
-4. Allocation commitment hashes are canonical over recipient ids + scaled allocation vectors (weight excluded from commit hash).
-5. Allocation deltas are applied through explicit typed `FlowAllocations` edit/maintenance helpers,
-   with structural validation and previous-state continuity enforced inside the core apply boundary.
-6. After successful allocation commit, `CustomFlow` invokes the configured allocation pipeline.
+2. Flow initialization configures exactly one default strategy and exposes it via `strategy()`.
+3. Default allocation resolves `allocationKey(caller, "")`, passes explicit `flow` context into the strategy, loads previous snapshot state, and resolves previous weight from on-chain cache (`allocWeightPlusOne`).
+4. Allocation commitment hashes remain canonical over recipient ids plus scaled allocation vectors; weight is tracked separately.
+5. Allocation edits are applied through typed `FlowAllocations` helpers with structural validation and previous-state continuity checks.
+6. After a successful commit, `CustomFlow` invokes the configured allocation pipeline.
 7. With `GoalFlowAllocationLedgerPipeline` configured with a non-zero ledger, checkpoints are written to `BudgetStakeLedger`.
-8. When a parent budget stake delta changes and the corresponding child budget flow has an existing commit, child sync
-   requirements are derived from canonical budget-stack topology stored in `BudgetTCR` plus the live child-flow commit.
-9. Child sync execution remains best-effort per target: unresolved/no-commit targets are skipped and attempted child
-   sync failures are emitted as failed attempts.
-10. `GoalFlowAllocationLedgerPipeline` records per-account/per-budget child-sync debt on allocation-edit commits when
-   child sync is skipped due to gas budget (`"GAS_BUDGET"`) or when an attempted child sync call fails.
-11. Maintenance sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are default-strategy debt-clear-only:
-    successful child sync clears debt, while skip/failure outcomes do not open new debt.
-12. Parent allocation composition maintenance is fail-closed while debt exists for the allocating account
-    (`ACCOUNT_HAS_CHILD_SYNC_DEBT`), and debt is cleared permissionlessly via `repairChildSyncDebt(account, budgetTreasury)`.
-13. `CustomFlow` is the canonical external allocation-read surface:
-    - `allocationKeyOf(account)`, `currentWeight(allocationKey)`, `canAllocate(allocationKey, caller)`,
-      `canAccountAllocate(account)`, and `accountAllocationWeight(account)` all resolve the configured default strategy
-      using the flow's own address as explicit context.
-    - `CustomFlow.previewChildSyncRequirements(...)` exposes the same changed-budget + expected-commit requirement set
-      as a read-only helper for SDK/indexer/relayer planning while passing explicit `flow` context into the pipeline
-      preview.
-14. Parent allocation commits do not run legacy child flow-rate queue processing; target-rate updates are owned by
-    treasury/flow-operator sync paths.
-15. Parent allocation commits do not call `BudgetTreasury.sync()`; treasury lifecycle progression is handled by direct
-    treasury sync calls and permissionless batch sync via `BudgetTCR.syncBudgetTreasuries(...)`.
-16. Allocation logging is split deterministically:
-   - `AllocationCommitted` always emits latest `(commit, weight)` for every apply/sync.
-   - `AllocationSnapshotUpdated` emits packed snapshot bytes only when `commit` changes.
-17. `allocationPipeline` is configured during flow initialization and validated before the flow finishes init.
-18. Pipeline instances may be configured with `allocationLedger == 0` for explicit no-op mode.
-19. Goal-flow ledger mode (`GoalFlowAllocationLedgerPipeline` + `GoalFlowLedgerMode`) validates goal treasury wiring and
-    strategy compatibility, including account-based empty-aux probing via `allocationKey(account, "")`.
-20. Child-sync target discovery is registry-backed and fail-closed:
-    - `GoalFlowLedgerMode` resolves `childFlow` + child strategy through `budgetTreasury.authority() -> BudgetTCR`,
-    - the stored target is accepted only when the live child flow's configured `strategy()` still matches registry state.
-21. Goal-ledger strategy capability is explicit via `src/interfaces/IGoalScopedAllocationStrategy.sol`
-    (`src/interfaces/IGoalLedgerStrategy.sol` remains a legacy alias) and is used by `GoalFlowLedgerMode`
-    as the validation capability surface.
+8. `GoalFlowLedgerMode` validates that the configured goal strategy satisfies the goal-scoped strategy boundary (`IGoalScopedAllocationStrategy`; `IGoalLedgerStrategy` remains a legacy alias).
+9. Pipeline instances with `allocationLedger == 0` remain explicit no-op mode.
 
-## Child Flow Sync Path
+## Child Sync Target Discovery
 
-- Child flow recipients are tracked as distribution members in parent allocations.
-- Goal-ledger child allocation sync executes through `GoalFlowAllocationLedgerPipeline` best-effort actions with
-  account-level debt gating and permissionless per-budget repair.
-- Budget/goal treasuries own flow-rate mutation via `sync()` and `TreasuryFlowRateSync`.
+- Changed budget treasuries come from `BudgetStakeLedger.checkpointAllocation(...)` or its preview twin.
+- Child-sync target discovery is controller-neutral:
+  - `GoalFlowLedgerMode` reads `budgetTreasury.authority()`,
+  - that authority must implement `IBudgetStackTopologyReader`,
+  - current concrete registries are `BudgetTCR` for open goals and `ManagedBudgetController` for managed goals.
+- Target resolution still fail-closes unless:
+  - the controller reports an active topology for that budget treasury,
+  - the live child flow exists,
+  - the live child flow's configured strategy matches controller-reported topology,
+  - the child strategy round-trips `allocationKey(account, "")` back to the same account,
+  - the child flow already has a commitment for that `(strategy, allocationKey)`.
+- Managed controllers may report zero `allocationMechanism` / `allocationMechanismArbitrator` fields; child sync does not depend on mechanism topology.
 
-## Invariants
+## Child Strategy Shapes
 
-- Recipient IDs/allocation vectors should remain sorted/unique where required.
-- Snapshot ids/scaled-allocation + commit checks and cached previous-weight sourcing prevent silent allocation drift.
-- Parent budget stake deltas can trigger immediate child-allocation weight resync without requiring allocator-only access.
-- Child sync call failures should remain explicit via emitted execution outcomes (`success=false` / skip reason).
-- Composition-changing allocation commits for accounts with unresolved child-sync debt fail closed until debt is repaired or cleared.
+- Open preset child flows usually use shared `BudgetFlowRouterStrategy`, which maps allocator accounts to checkpointed stake in `BudgetStakeLedger`.
+- Managed preset child flows use `BudgetSingleAllocatorStrategy`, which scopes one allocator key to one budget treasury flow.
+- Managed live routing does not depend on underwriter coverage semantics in the child-allocation path; coverage-based enable/disable decisions remain a controller / gate-policy concern.
+
+## Execution and Debt
+
+1. Child sync execution remains best-effort per target.
+2. Unresolved targets are skipped with `TARGET_UNAVAILABLE`; missing child commits are skipped with `NO_COMMITMENT`.
+3. Allocation-edit commits open per-account child-sync debt on gas-budget skips (`GAS_BUDGET`) and attempted child-sync call failures.
+4. Maintenance-sync commits (`syncAllocation`, `syncAllocationForAccount`, `clearStaleAllocation`) are debt-clear-only: they may clear existing debt but do not open new debt on skip/failure.
+5. Composition-changing allocation commits fail closed with `ACCOUNT_HAS_CHILD_SYNC_DEBT` until debt is cleared.
+6. Permissionless repair remains available through `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
+
+## Controller-Owned Treasury Sync
+
+- Parent allocation commits do not mutate child target outflow rates directly.
+- Child target-rate mutation belongs to child `flowOperator` roles, typically budget treasuries.
+- Treasury lifecycle progression is controller-owned and permissionlessly callable:
+  - open preset: `BudgetTCR.syncBudgetTreasuries(...)`
+  - managed preset: `ManagedBudgetController.syncBudgetTreasuries(...)`
 
 ## Key Files
 
 - `src/Flow.sol`
 - `src/flows/CustomFlow.sol`
 - `src/hooks/GoalFlowAllocationLedgerPipeline.sol`
+- `src/library/GoalFlowLedgerMode.sol`
 - `src/library/FlowAllocations.sol`
-- `src/library/FlowRates.sol`
-- `src/library/FlowPools.sol`
-- `src/library/FlowRecipients.sol`
+- `src/goals/BudgetStakeLedger.sol`
+- `src/tcr/BudgetTCR.sol`
+- `src/goals/ManagedBudgetController.sol`

@@ -43,12 +43,20 @@ cobuild-protocol/
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
 - Optional treasury spend-policy modules: `src/goals/policies/*.sol`.
 - Goal stake vault: `src/goals/StakeVault.sol`.
+- Pluggable budget controllers / topology registries:
+  - `src/tcr/BudgetTCR.sol` (open preset)
+  - `src/goals/ManagedBudgetController.sol` (managed preset)
+- Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol` plus concrete policies under `src/goals/policies/*.sol`.
 - Goal/vault helper libraries: `src/goals/library/*.sol` (treasury flow/donation helpers plus extracted stake/slash math modules).
 - Allocation strategies:
-  - `src/goals/StakeVault.sol` (goal-flow weighting from live stake-vault weight via built-in strategy surface).
-  - `src/allocation-strategies/SingleAllocatorStrategy.sol` (goal-scoped managed-goal allocator identity with virtual managed weight).
-  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (shared per-goal budget-flow weighting from per-budget stake checkpoints in `BudgetStakeLedger`, resolved via registered caller-flow context and quantized to Flow unit-weight resolution).
-- Budget premium escrow for underwriting accrual/slashing windows: `src/goals/PremiumEscrow.sol`.
+  - `src/goals/StakeVault.sol` (open-preset goal allocator plus shared funding / coverage vault).
+  - `src/allocation-strategies/SingleAllocatorStrategy.sol` (managed-preset goal allocator; allocator identity is the controller contract).
+  - `src/allocation-strategies/BudgetFlowRouterStrategy.sol` (open-preset child-budget strategy backed by `BudgetStakeLedger` stake checkpoints).
+  - `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol` (managed-preset child-budget strategy scoped to one budget treasury flow).
+- Budget premium / risk modules:
+  - `src/goals/PremiumEscrow.sol` (open preset)
+  - `src/goals/NullPremiumEscrow.sol` (managed preset)
+- Managed budget stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 - Shared goal funding terminal: `src/juicebox/CobuildGoalTerminal.sol`.
@@ -72,6 +80,30 @@ cobuild-protocol/
 - Budget listing validation helpers:
   - `src/tcr/library/BudgetTCRValidationLib.sol`
 - Storage and helpers: `src/tcr/storage/*.sol`, `src/tcr/library/TCRRounds.sol`, `src/tcr/utils/*.sol`, `src/tcr/strategies/*.sol`.
+
+### Deployment-time presets
+
+- The recursive-flow substrate is universal. `Flow`, `CustomFlow`, `GoalFlowAllocationLedgerPipeline`, `GoalTreasury`, `BudgetTreasury`, and `StakeVault` are reused by both presets without runtime `isManaged` branching.
+- Control-plane modules are chosen at deploy time by `GoalFactory`.
+- `StakeVault` remains the funding vault in both presets, but it is not always the allocator.
+
+Open preset
+- Goal allocator: `StakeVault`
+- Budget controller / topology registry: `BudgetTCR`
+- Budget gate policy: `StakeCoverageGatePolicy` through `IBudgetGatePolicy`
+- Budget child strategy: shared `BudgetFlowRouterStrategy`
+- Premium / risk module: `PremiumEscrow`
+- Mechanism layer: `AllocationMechanismTCR`
+
+Managed preset
+- Goal allocator: `SingleAllocatorStrategy`
+- Goal allocator identity: `ManagedBudgetController`
+- Budget controller / topology registry: `ManagedBudgetController`
+- Budget gate policy: current preset wiring uses `NoopBudgetGatePolicy`
+- Budget child strategy: `BudgetSingleAllocatorStrategy`
+- Premium / risk module: `NullPremiumEscrow`
+- Budget child `recipientAdmin`: Safe-direct in v1
+- No advisory TCR and no managed mechanism controller in this pass
 
 ## Cross-Cutting Invariants
 
@@ -106,7 +138,7 @@ cobuild-protocol/
   - Policy context is now treasury-topology-agnostic and contains only timing/balance/flow fields
     (`nowTs`, `activatedAt`, `deadline`, `treasuryBalance`, `timeRemaining`, `incomingRate`,
     `currentOutflowRate`); recipient units are not part of `ISpendPolicy.SpendContext`.
-- Budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
+- Open-preset budget credit-line eligibility is enforced in `BudgetTCR.syncBudgetTreasuries` through goal-flow recipient gating:
   - cumulative exposure meter is `goalFlow.getTotalReceivedByMember(childFlow)`,
   - insured line is slashable first-loss principal `budgetTotalAllocatedStake(budgetTreasury) * budgetSlashPpm / 1e6`,
   - optional `runwayCap` remains an additional lower ceiling on cumulative received funding,
@@ -115,7 +147,7 @@ cobuild-protocol/
   - budget `executionDuration` no longer increases insured principal; it only affects downstream treasury pacing/lock time,
   - enforcement runs before per-budget treasury `sync()` in each batch iteration so the same cycle observes the updated gate state,
   - enforcement is best-effort per item; external-call failures emit `BudgetCreditCapEnforcementFailed` and batch sync continues.
-- Budget underwriting premium/slash routing is hard-cutover:
+- Open-preset underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at `budgetPremiumPpm`,
   - `PremiumEscrow` premium entitlement uses a balance-index over live `BudgetStakeLedger` coverage checkpoints (no snapshot-only settlement),
   - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure (no zero-baseline or silent checkpoint-skip fallback),
@@ -125,6 +157,11 @@ cobuild-protocol/
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter and slashes `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`, routing through the per-goal underwriter slasher router,
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
     `executionDuration`.
+- Managed-preset risk wiring keeps the same controller/treasury/escrow seam without live premium accounting:
+  - manager-reward stream routes to `NullPremiumEscrow`,
+  - `NullPremiumEscrow` preserves the `IPremiumEscrow` topology seam for budget treasury, stake-ledger, goal-flow, and slasher wiring,
+  - claim, slash, burn-on-failure, and close side effects are intentional no-ops,
+  - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
   - `BudgetTCRFactory` may preserve manual registry deposits when a strategy cleanly reports `supportsEscrowBonding() == false`,
   - capability probe failures or missing capability interfaces now fail deployment fast instead of silently downgrading escrow-bond economics.
@@ -242,11 +279,11 @@ cobuild-protocol/
 - `allocationPipeline` is configured at flow initialization and validated fail-fast during init.
 - Goal-flow allocation-ledger validation (goal treasury wiring + goal-scoped strategy compatibility, including
   empty-aux `allocationKey(account, "")` round-trip probing) is owned by `GoalFlowAllocationLedgerPipeline` via `GoalFlowLedgerMode`.
-- `BudgetTCR` is the canonical budget-stack topology registry:
-  - activation records per-item `childFlow`, `budgetTreasury`, `premiumEscrow`, shared child strategy, allocation mechanism,
-    and mechanism arbitrator before `BudgetStakeLedger.registerBudget(...)`,
-  - child-sync target resolution discovers topology via `budgetTreasury.authority() -> BudgetTCR` and then still
-    fail-closes unless the live child flow's configured `strategy()` matches stored topology.
+- Budget-stack topology is controller-owned and read through `IBudgetController` / `IBudgetStackTopologyReader`:
+  - open preset registry: `BudgetTCR`
+  - managed preset registry: `ManagedBudgetController`
+  - child-sync target resolution discovers topology via `budgetTreasury.authority() -> IBudgetStackTopologyReader`
+    and still fail-closes unless the live child flow's configured `strategy()` matches stored topology.
 - Pipeline instances with `allocationLedger == 0` are explicit no-op mode and do not checkpoint.
 - Goal-flow ledger checkpointing and child-sync enforcement/execution are executed through the configured
   post-commit pipeline (`src/hooks/GoalFlowAllocationLedgerPipeline.sol`) after successful allocation commits.
@@ -264,11 +301,12 @@ cobuild-protocol/
 - Goal-ledger strategy capability is explicit via `src/interfaces/IGoalScopedAllocationStrategy.sol`;
   `src/interfaces/IGoalLedgerStrategy.sol` remains a legacy alias for that goal-scoped boundary
   (`IAllocationStrategy` + `IAllocationKeyAccountResolver` + `goalTreasury()`).
-- Goal allocation pipeline underwriting hook:
-  - after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
+- Goal allocation pipeline budget-risk hook:
+  - open preset: after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
     budget's `PremiumEscrow` for the allocating account,
+  - managed preset: the same seam resolves to `NullPremiumEscrow`, preserving topology compatibility without real premium accounting,
   - `previewChildSyncRequirements(...)` derives changed budgets from the ledger preview path instead of reimplementing merge semantics,
-  - checkpoint failures fail closed on allocation commit to preserve premium/slash accounting correctness.
+  - checkpoint failures still fail closed on allocation commit so the configured premium/risk seam cannot silently diverge from ledger state.
 
 4. Governance boundary clarity
 - Recipient-admin/operator/governor permissions should stay explicit with no ambiguous authority paths.
@@ -284,7 +322,7 @@ cobuild-protocol/
   - parent allocation maintenance uses default-strategy `syncAllocation`/`clearStaleAllocation` with pipeline-driven child sync attempts.
   - account-level child-sync debt repair is permissionless via
     `GoalFlowAllocationLedgerPipeline.repairChildSyncDebt(account, budgetTreasury)`.
-  - budget treasury maintenance uses `BudgetTCR.syncBudgetTreasuries` best-effort batch sync.
+  - budget treasury maintenance uses controller-owned best-effort batch sync (`BudgetTCR.syncBudgetTreasuries` or `ManagedBudgetController.syncBudgetTreasuries`).
   - per-target failures are emitted and recoverable without queue-based retries.
 - `AllocationMechanismTCR` enforces a hard active recipient cap (`MAX_ACTIVE_MECHANISM_RECIPIENTS = 7`):
   - activation reverts when the cap is reached,
@@ -295,21 +333,25 @@ cobuild-protocol/
   keeps the existing mechanism-escrow release path unchanged.
 - `TeamFlow` is a concrete payout `Flow` runtime with self-owned `recipientAdmin`, `flowOperator`, and `sweeper`
   roles; it assigns fixed per-seat units and hard-removes departed seats via `removeRecipient`.
-- Runtime budget recipient add/remove operations are executed directly by `BudgetTCR`, so goal-flow `recipientAdmin` should be configured to the per-goal `BudgetTCR`.
+- Runtime budget recipient add/remove operations are executed directly by the per-goal budget controller, so goal-flow `recipientAdmin` should be configured to that controller (`BudgetTCR` for open goals, `ManagedBudgetController` for managed goals).
 - Child flow synchronization is explicit per recipient:
   - `ParentSynced` (default): parent allocation pipeline computes/applies child sync updates.
   - `ManagerSynced`: parent skips auto-sync; child budget treasury/flow operator owns rate updates.
   - `BudgetTCR` marks newly deployed budget child flows as `ManagerSynced`.
-- `BudgetTCR` exposes permissionless retry for removed-but-unresolved budget progression (`retryRemovedBudgetResolution`):
+- `BudgetTCR` exposes permissionless retry for removed-but-unresolved budget progression (`retryRemovedBudgetResolution`) on the open preset:
   - pre-activation removals retry terminal-only resolution,
   - activation-locked removals retry spend-stop + treasury sync progression.
-- `BudgetTCR` exposes permissionless best-effort budget treasury batch sync (`syncBudgetTreasuries`):
+- Budget controllers expose permissionless best-effort budget treasury batch sync:
+- open preset (`BudgetTCR.syncBudgetTreasuries`):
   - skips undeployed/inactive item IDs,
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
-- `BudgetStakeLedger.registerBudget(...)` treats goal-flow `recipientAdmin` (`BudgetTCR`) as the canonical budget
-  topology source and keeps a lightweight runtime cross-check against `budgetTreasury.flow()` and child-parent wiring
-  before coverage tracking is admitted.
-- `BudgetTCRDeployer` remains a mechanical helper (`onlyBudgetTCR`) that prepares stack components and deploys budget treasury instances.
+- managed preset (`ManagedBudgetController.syncBudgetTreasuries`):
+  - skips unknown/inactive item IDs,
+  - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
+- `BudgetStakeLedger.registerBudget(...)` treats goal-flow `recipientAdmin` (the per-goal budget controller implementing `IBudgetStackTopologyReader`) as the canonical budget topology source and keeps a lightweight runtime cross-check against `budgetTreasury.flow()` and child-parent wiring before coverage tracking is admitted.
+- Stack deployers remain mechanical helpers:
+  - `BudgetTCRDeployer` is `onlyBudgetTCR` and serves the open preset,
+  - `ManagedBudgetControllerStackDeployer` is `ONLY_CONTROLLER` and serves the managed preset.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal stack slasher wiring is init-only and fail-fast:
   - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them into `GoalTreasury.initialize`,
@@ -317,19 +359,19 @@ cobuild-protocol/
   - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
   - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
   - `RoundFactory` round arbitrators keep stake-vault voting but are intentionally deployed as non-slashing and are never added to the router allowlist.
-- Budget stack activation no longer deploys a temporary manager contract or performs post-deploy authority handoff:
-  - `BudgetTCR` creates the child recipient with explicit child roles (`recipientAdmin`, `flowOperator`, `sweeper`),
-  - current budget stack wiring sets those child roles to the cloned budget treasury address during creation.
+- Budget child-flow role wiring is preset-specific and explicit:
+  - open preset: `BudgetTCR` creates the child recipient using `BudgetTCRDeployer` stack-module config, typically with the budget treasury as `flowOperator` / `sweeper` and the mechanism-layer admin as child `recipientAdmin`,
+  - managed preset: `ManagedBudgetController` creates the child recipient with the Safe as child `recipientAdmin` and the cloned budget treasury as `flowOperator` / `sweeper`.
 - Budget stack topology is registry-owned rather than graph-discovered:
-  - `BudgetTCR` exposes direct topology getters plus reverse lookups by budget treasury and child flow,
+  - `BudgetTCR` and `ManagedBudgetController` both expose direct topology getters plus reverse lookups by budget treasury and child flow,
   - inactive/removed stacks remain discoverable through that registry surface with `active == false`.
 - `BudgetFlowRouterStrategy` uses contextual flow routing:
-  - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
+  - the open preset registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
-- `BudgetTCRDeployer` uses clone-first treasury setup:
-  - deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack`,
-  - anchors `StakeVault.goalTreasury` to that real clone address,
-  - initializes the clone during `deployBudgetTreasury` after child-flow creation.
+- Stack deployers use clone-first treasury setup:
+  - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
+  - `ManagedBudgetControllerStackDeployer` does the same for managed budgets and pairs that clone with `NullPremiumEscrow` plus `BudgetSingleAllocatorStrategy`,
+  - budget treasury initialization still happens after child-flow creation in both stacks.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 
 ## Verification Baseline
