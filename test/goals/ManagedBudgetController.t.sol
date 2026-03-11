@@ -160,6 +160,12 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         );
     }
 
+    function test_createBudget_revertsOnZeroItemId() public {
+        vm.expectRevert(IManagedBudgetController.INVALID_ITEM_ID.selector);
+        vm.prank(safe);
+        controller.createBudget(bytes32(0), _defaultBudgetConfig("Budget Zero"));
+    }
+
     function test_safeRotationChangesAuthorityButNotAllocatorIdentity() public {
         bytes32 itemID = bytes32(uint256(1));
         _createBudget(itemID, "Budget A");
