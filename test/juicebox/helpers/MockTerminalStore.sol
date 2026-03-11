@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBPayHook} from "@bananapus/core-v5/interfaces/IJBPayHook.sol";
 import {IJBRulesetApprovalHook} from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import {JBPayHookSpecification} from "@bananapus/core-v5/structs/JBPayHookSpecification.sol";
@@ -13,6 +14,9 @@ contract MockTerminalStore {
 
     mapping(address terminal => mapping(uint256 projectId => mapping(address token => uint256))) public balanceOf;
     mapping(uint256 projectId => uint256) internal _recordedTokenCountOf;
+    mapping(uint256 projectId => JBPayHookSpecification) internal _payHookSpecificationOf;
+
+    bytes public lastMetadata;
 
     bool internal _paymentsPaused;
 
@@ -28,6 +32,12 @@ contract MockTerminalStore {
 
     function setPaymentsPaused(bool paused) external {
         _paymentsPaused = paused;
+    }
+
+    function setPayHookSpecification(uint256 projectId, IJBPayHook hook, uint256 amount, bytes calldata metadata)
+        external
+    {
+        _payHookSpecificationOf[projectId] = JBPayHookSpecification({hook: hook, amount: amount, metadata: metadata});
     }
 
     function currentSurplusOf(
@@ -67,11 +77,14 @@ contract MockTerminalStore {
         JBTokenAmount calldata amount,
         uint256 projectId,
         address,
-        bytes calldata
-    ) external returns (JBRuleset memory ruleset, uint256 tokenCount, JBPayHookSpecification[] memory hookSpecifications)
+        bytes calldata metadata
+    )
+        external
+        returns (JBRuleset memory ruleset, uint256 tokenCount, JBPayHookSpecification[] memory hookSpecifications)
     {
         if (_paymentsPaused) revert PAYMENT_PAUSED();
 
+        lastMetadata = metadata;
         balanceOf[msg.sender][projectId][amount.token] += amount.value;
         tokenCount = _recordedTokenCountOf[projectId] == 0 ? amount.value : _recordedTokenCountOf[projectId];
         ruleset = JBRuleset({
@@ -85,7 +98,18 @@ contract MockTerminalStore {
             approvalHook: IJBRulesetApprovalHook(address(0)),
             metadata: uint256(amount.currency) << 36
         });
-        hookSpecifications = new JBPayHookSpecification[](0);
+
+        JBPayHookSpecification storage payHookSpecification = _payHookSpecificationOf[projectId];
+        if (address(payHookSpecification.hook) == address(0)) {
+            hookSpecifications = new JBPayHookSpecification[](0);
+        } else {
+            hookSpecifications = new JBPayHookSpecification[](1);
+            hookSpecifications[0] = JBPayHookSpecification({
+                hook: payHookSpecification.hook,
+                amount: payHookSpecification.amount,
+                metadata: payHookSpecification.metadata
+            });
+        }
     }
 
     function recordTerminalMigration(uint256 projectId, address token) external returns (uint256 balance) {
