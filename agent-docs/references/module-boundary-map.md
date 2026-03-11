@@ -28,13 +28,13 @@
 - Goal allocator: `src/allocation-strategies/SingleAllocatorStrategy.sol`
 - Goal allocator identity: `src/goals/ManagedBudgetController.sol`
 - Budget controller / topology registry: `src/goals/ManagedBudgetController.sol`
-- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses `src/goals/NoopBudgetGatePolicy.sol`)
+- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses `src/goals/policies/NoopBudgetGatePolicy.sol`)
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
 - Premium / risk module: `src/goals/NullPremiumEscrow.sol`
 - Stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass
-- Child-flow `recipientAdmin`: Safe-direct in v1; the Safe is not the allocator identity
+- Child-flow `recipientAdmin`: `src/goals/ManagedBudgetController.sol`
 
 ### Intentional non-goals for this pass
 
@@ -112,7 +112,7 @@
    - managed preset: `ManagedBudgetController`
 4. Child-flow `recipientAdmin` is preset-specific and must not be inferred from the goal-flow controller:
    - open preset: chosen by `BudgetTCRDeployer` stack-module config,
-   - managed preset: Safe-direct in v1.
+   - managed preset: `ManagedBudgetController`.
 5. Goal-flow child-sync and budget-ledger registration discover topology through `IBudgetStackTopologyReader` (`budgetTreasury.authority()` / `goalFlow.recipientAdmin()`), not by assuming `BudgetTCR` is the only controller.
 6. Gate policies own enable/disable decisions only; controller modules own routing writes, terminal prune, and best-effort sync retries.
 7. Keep community goal-curation, deployment-registry ownership, and treasury beneficiary resolution explicit; do not infer them from ad hoc runtime probes.
