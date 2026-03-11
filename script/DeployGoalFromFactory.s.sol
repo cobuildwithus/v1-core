@@ -10,6 +10,8 @@ import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 
 contract DeployGoalFromFactory is DeployScript {
+    bytes32 internal constant DEFAULT_SPEND_POLICY_OPTION_HASH = keccak256(bytes("default"));
+
     address internal goalFactoryAddressOut;
     address internal goalOwnerOut;
     address internal goalSpendPolicyOut;
@@ -73,8 +75,8 @@ contract DeployGoalFromFactory is DeployScript {
             revert BUDGET_SLASH_PPM_INVALID(budgetSlashPpmRaw);
         }
         uint32 budgetSlashPpm = uint32(budgetSlashPpmRaw);
-        address goalSpendPolicy = vm.envOr("GOAL_SPEND_POLICY", BURN);
-        address budgetSpendPolicy = vm.envOr("BUDGET_SPEND_POLICY", BURN);
+        address goalSpendPolicy = _resolveGoalSpendPolicy(factory);
+        address budgetSpendPolicy = _resolveBudgetSpendPolicy(factory);
 
         address budgetSuccessResolver = vm.envOr("BUDGET_SUCCESS_RESOLVER", successResolver);
         if (goalSpendPolicy == BURN) revert GOAL_SPEND_POLICY_REQUIRED();
@@ -267,12 +269,42 @@ contract DeployGoalFromFactory is DeployScript {
         });
     }
 
+    function _resolveGoalSpendPolicy(GoalFactory factory) internal view returns (address spendPolicy) {
+        return _resolveSpendPolicy(
+            "GOAL_SPEND_POLICY", "GOAL_SPEND_POLICY_OPTION", factory.DEFAULT_GOAL_SPEND_POLICY(), true
+        );
+    }
+
+    function _resolveBudgetSpendPolicy(GoalFactory factory) internal view returns (address spendPolicy) {
+        return _resolveSpendPolicy(
+            "BUDGET_SPEND_POLICY", "BUDGET_SPEND_POLICY_OPTION", factory.DEFAULT_BUDGET_SPEND_POLICY(), false
+        );
+    }
+
+    function _resolveSpendPolicy(
+        string memory spendPolicyEnvKey,
+        string memory spendPolicyOptionEnvKey,
+        address defaultSpendPolicy,
+        bool goalPolicy
+    ) internal view returns (address spendPolicy) {
+        if (vm.envExists(spendPolicyEnvKey)) return vm.envAddress(spendPolicyEnvKey);
+
+        string memory option = vm.envOr(spendPolicyOptionEnvKey, string(""));
+        if (bytes(option).length == 0 || keccak256(bytes(option)) == DEFAULT_SPEND_POLICY_OPTION_HASH) {
+            return defaultSpendPolicy;
+        }
+        if (goalPolicy) revert GOAL_SPEND_POLICY_OPTION_INVALID(option);
+        revert BUDGET_SPEND_POLICY_OPTION_INVALID(option);
+    }
+
     error GOAL_SPEND_POLICY_REQUIRED();
     error GOAL_SPEND_POLICY_NOT_CONTRACT(address spendPolicy);
     error GOAL_SPEND_POLICY_INVALID(address spendPolicy);
+    error GOAL_SPEND_POLICY_OPTION_INVALID(string option);
     error BUDGET_SPEND_POLICY_REQUIRED();
     error BUDGET_SPEND_POLICY_NOT_CONTRACT(address spendPolicy);
     error BUDGET_SPEND_POLICY_INVALID(address spendPolicy);
+    error BUDGET_SPEND_POLICY_OPTION_INVALID(string option);
     error SUCCESS_RESOLVER_REQUIRED();
     error SUCCESS_RESOLVER_NOT_CONTRACT(address resolver);
     error BUDGET_SUCCESS_RESOLVER_REQUIRED();
