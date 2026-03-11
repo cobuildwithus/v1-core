@@ -299,6 +299,61 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertFalse(_sameRuntimeCode(deployed.goalAllocatorStrategy, factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL()));
     }
 
+    function test_deployGoal_managedPreset_reusesSharedInfraAcrossMultipleDeployments() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+
+        GoalFactory.DeployParams memory firstParams = _baseDeployParams(address(goalSpendPolicy));
+        firstParams.preset = GoalFactory.GoalPreset.Managed;
+        firstParams.managedSafe = address(new FactoryDeployDummyContract());
+
+        GoalFactory.DeployedGoalStack memory first = factory.deployGoal(firstParams);
+
+        uint256 secondGoalRevnetId = GOAL_REVNET_ID + 1;
+        FactoryDeployMockToken secondGoalToken = new FactoryDeployMockToken("Goal Two", "GL2");
+        tokens.setTokenOf(secondGoalRevnetId, address(secondGoalToken));
+        tokens.setProjectIdOf(address(secondGoalToken), secondGoalRevnetId);
+        directory.setController(secondGoalRevnetId, address(controller));
+        rulesets.configureTwoRulesetSchedule(secondGoalRevnetId, uint48(block.timestamp + 7 days), 1e18);
+        revDeployer.setGoalRevnetId(secondGoalRevnetId);
+
+        GoalFactory.DeployParams memory secondParams = _baseDeployParams(address(goalSpendPolicy));
+        secondParams.preset = GoalFactory.GoalPreset.Managed;
+        secondParams.managedSafe = address(new FactoryDeployDummyContract());
+
+        GoalFactory.DeployedGoalStack memory second = factory.deployGoal(secondParams);
+
+        ManagedBudgetController firstController = ManagedBudgetController(first.budgetController);
+        ManagedBudgetController secondController = ManagedBudgetController(second.budgetController);
+        SingleAllocatorStrategy firstStrategy = SingleAllocatorStrategy(first.goalAllocatorStrategy);
+        SingleAllocatorStrategy secondStrategy = SingleAllocatorStrategy(second.goalAllocatorStrategy);
+
+        assertEq(first.goalRevnetId, GOAL_REVNET_ID);
+        assertEq(second.goalRevnetId, secondGoalRevnetId);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(first.goalRevnetId), first.goalTreasury);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(second.goalRevnetId), second.goalTreasury);
+
+        assertEq(firstController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
+        assertEq(secondController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
+        assertEq(firstController.budgetGatePolicy(), factory.MANAGED_BUDGET_GATE_POLICY());
+        assertEq(secondController.budgetGatePolicy(), factory.MANAGED_BUDGET_GATE_POLICY());
+
+        assertEq(firstController.goalTreasury(), first.goalTreasury);
+        assertEq(firstController.goalFlow(), first.goalFlow);
+        assertEq(secondController.goalTreasury(), second.goalTreasury);
+        assertEq(secondController.goalFlow(), second.goalFlow);
+        assertEq(firstStrategy.goalTreasury(), first.goalTreasury);
+        assertEq(firstStrategy.allocator(), first.budgetController);
+        assertEq(secondStrategy.goalTreasury(), second.goalTreasury);
+        assertEq(secondStrategy.allocator(), second.budgetController);
+
+        assertTrue(first.budgetController != second.budgetController);
+        assertTrue(first.goalAllocatorStrategy != second.goalAllocatorStrategy);
+        assertTrue(first.goalTreasury != second.goalTreasury);
+        assertTrue(first.goalFlow != second.goalFlow);
+        assertTrue(_sameRuntimeCode(first.budgetController, second.budgetController));
+        assertTrue(_sameRuntimeCode(first.goalAllocatorStrategy, second.goalAllocatorStrategy));
+    }
+
     function test_deployGoal_managedPreset_canCreateMultipleBudgetsAndUpdateWeights() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
         GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
@@ -749,11 +804,15 @@ contract FactoryDeployBudgetTcrStackDeployerMetadataMock {
 contract FactoryDeployMockRevDeployer {
     address internal immutable _directory;
     address internal immutable _controller;
-    uint256 internal immutable _goalRevnetId;
+    uint256 internal _goalRevnetId;
 
     constructor(address directory_, address controller_, uint256 goalRevnetId_) {
         _directory = directory_;
         _controller = controller_;
+        _goalRevnetId = goalRevnetId_;
+    }
+
+    function setGoalRevnetId(uint256 goalRevnetId_) external {
         _goalRevnetId = goalRevnetId_;
     }
 
