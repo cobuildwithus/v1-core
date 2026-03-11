@@ -6,7 +6,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
-import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
+import {CobuildGoalTerminal} from "src/juicebox/CobuildGoalTerminal.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
@@ -77,7 +77,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revnetTokens.setTokenOf(PAYMENT_REVNET_ID, address(paymentToken));
         revnetDirectory.setPrimaryTerminal(PAYMENT_REVNET_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(new DummyTerminal())));
         configuredGoalPaymentTerminal = address(
-            new CobuildTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
+            new CobuildGoalTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
         );
 
         factory = _newFactory(configuredGoalPaymentTerminal);
@@ -98,7 +98,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function test_constructor_revertsWhenGoalPaymentTerminalDirectoryMismatch() public {
         MockDirectory wrongDirectory = new MockDirectory();
         address mismatchedTerminal = address(
-            new CobuildTerminal(IJBDirectory(address(wrongDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
+            new CobuildGoalTerminal(IJBDirectory(address(wrongDirectory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)))
         );
 
         vm.expectRevert(
@@ -112,7 +112,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     function test_constructor_revertsWhenGoalPaymentTerminalRegistryMismatch() public {
         GoalDeploymentRegistry wrongRegistry = new GoalDeploymentRegistry(address(this), address(0));
         address mismatchedTerminal =
-            address(new CobuildTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(wrongRegistry))));
+            address(new CobuildGoalTerminal(IJBDirectory(address(revnetDirectory)), IGoalDeploymentRegistry(address(wrongRegistry))));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -282,7 +282,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
     }
 
-    function test_deployGoalForCommunity_revertsWhenCallerIsNotRegistryOwner() public {
+    function test_deployGoalForCommunity_allowsPermissionlessCallers() public {
         address registryOwner = makeAddr("registry-owner");
         MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
             registryOwner,
@@ -291,11 +291,30 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             PAYMENT_REVNET_ID,
             address(paymentToken)
         );
-        address caller = makeAddr("not-owner");
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        uint256 deploymentNonce = vm.getNonce(address(factory));
+        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
+        revDeployer.setExpectedSplitHook(expectedSplitHook);
+        revDeployer.setExpectedGoalPaymentTerminal(configuredGoalPaymentTerminal);
+        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
+        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
+        revDeployer.setRevertWithObserved(true);
+        address caller = makeAddr("permissionless-caller");
 
         vm.prank(caller);
-        vm.expectRevert(abi.encodeWithSelector(GoalFactory.UNAUTHORIZED.selector, registryOwner, caller));
-        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockRevDeployer.DeployForForwarding.selector,
+                DEFAULT_BUYBACK_POOL_FEE,
+                DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
+                true,
+                true,
+                true
+            )
+        );
+        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
     }
 
     function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {

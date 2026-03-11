@@ -25,10 +25,7 @@ contract CommunityGoalRegistryTest is Test {
     uint256 internal constant ARBITRATION_COST = 1e14;
     uint256 internal constant CHALLENGE_PERIOD = 7 days;
     uint256 internal constant SUBMISSION_DEPOSIT = 1e18;
-    uint32 internal constant SYSTEM_FLOOR_ONE = 120_000;
-    uint32 internal constant SYSTEM_FLOOR_TWO = 30_000;
 
-    address internal owner = makeAddr("owner");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
@@ -71,8 +68,7 @@ contract CommunityGoalRegistryTest is Test {
                 directory: IJBDirectory(address(directory)),
                 goalDeploymentRegistry: goalDeploymentRegistry,
                 communityRevnetId: COMMUNITY_REVNET_ID,
-                communityToken: address(token),
-                owner: owner
+                communityToken: address(token)
             })
         );
 
@@ -107,8 +103,7 @@ contract CommunityGoalRegistryTest is Test {
                 directory: IJBDirectory(address(directory)),
                 goalDeploymentRegistry: goalDeploymentRegistry,
                 communityRevnetId: COMMUNITY_REVNET_ID,
-                communityToken: address(token),
-                owner: owner
+                communityToken: address(token)
             })
         );
     }
@@ -127,8 +122,7 @@ contract CommunityGoalRegistryTest is Test {
                 directory: IJBDirectory(address(directory)),
                 goalDeploymentRegistry: goalDeploymentRegistry,
                 communityRevnetId: COMMUNITY_REVNET_ID,
-                communityToken: noCodeToken,
-                owner: owner
+                communityToken: noCodeToken
             })
         );
     }
@@ -146,150 +140,9 @@ contract CommunityGoalRegistryTest is Test {
                 directory: IJBDirectory(address(directory)),
                 goalDeploymentRegistry: goalDeploymentRegistry,
                 communityRevnetId: COMMUNITY_REVNET_ID,
-                communityToken: address(token),
-                owner: owner
+                communityToken: address(token)
             })
         );
-    }
-
-    function test_pinSystemGoal_marksGoalSelectable() public {
-        vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-
-        assertTrue(registry.isListed(GOAL_ID_ONE));
-        assertTrue(registry.isSelectable(GOAL_ID_ONE));
-        assertEq(address(registry.goalDeploymentRegistry()), address(goalDeploymentRegistry));
-        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_ONE);
-
-        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
-        assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
-        assertEq(listing.metadataURI, "ipfs://system-goal");
-        assertTrue(listing.isSystem);
-        assertEq(listing.floorPpm, SYSTEM_FLOOR_ONE);
-        assertFalse(listing.paused);
-        assertTrue(listing.selectable);
-
-        (uint256[] memory goalIds, uint32[] memory floorPpms) = registry.systemRoute();
-        assertEq(goalIds.length, 1);
-        assertEq(goalIds[0], GOAL_ID_ONE);
-        assertEq(floorPpms.length, 1);
-        assertEq(floorPpms[0], SYSTEM_FLOOR_ONE);
-    }
-
-    function test_setGoalPaused_togglesSystemGoalSelectability() public {
-        vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-
-        vm.prank(owner);
-        registry.setGoalPaused(GOAL_ID_ONE, true);
-        assertFalse(registry.isSelectable(GOAL_ID_ONE));
-
-        vm.prank(owner);
-        registry.setGoalPaused(GOAL_ID_ONE, false);
-        assertTrue(registry.isSelectable(GOAL_ID_ONE));
-    }
-
-    function test_isSelectable_returnsFalseWhenPrimaryTerminalHasNoCode() public {
-        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
-
-        address noCodeTerminal = makeAddr("no-code-terminal");
-        directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(noCodeTerminal));
-
-        assertFalse(registry.isSelectable(GOAL_ID_ONE));
-
-        uint256[] memory selectableGoalIds = registry.selectableGoalIds();
-        assertEq(selectableGoalIds.length, 0);
-    }
-
-    function test_pinSystemGoal_revertsWhenPrimaryTerminalHasNoCode() public {
-        address noCodeTerminal = makeAddr("no-code-terminal");
-        directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(noCodeTerminal));
-
-        vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_TERMINAL_NOT_CONFIGURED.selector, GOAL_ID_ONE)
-        );
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-    }
-
-    function test_pinSystemGoal_revertsWhenGoalAlreadyHasPendingTcrRequest() public {
-        bytes memory item = _goalItem(GOAL_ID_ONE, "ipfs://goal-one");
-
-        vm.prank(alice);
-        registry.addItem(item);
-
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_ALREADY_LISTED.selector, GOAL_ID_ONE));
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-    }
-
-    function test_pinSystemGoal_revertsWhenFloorIsZero() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.INVALID_SYSTEM_FLOOR_PPM.selector, uint32(0)));
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", 0);
-    }
-
-    function test_pinSystemGoal_revertsWhenTotalSystemFloorPpmExceedsScale() public {
-        vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", 900_000);
-
-        vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ICommunityGoalRegistry.TOTAL_SYSTEM_FLOOR_PPM_EXCEEDS_MAX.selector, uint256(1_100_000)
-            )
-        );
-        registry.pinSystemGoal(GOAL_ID_TWO, "ipfs://system-goal-two", 200_000);
-    }
-
-    function test_pinSystemGoal_updatesTotalSystemFloorPpmWhenRepinned() public {
-        vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-
-        vm.prank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal-v2", SYSTEM_FLOOR_TWO);
-
-        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
-        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
-        assertEq(listing.metadataURI, "ipfs://system-goal-v2");
-        assertEq(listing.floorPpm, SYSTEM_FLOOR_TWO);
-    }
-
-    function test_pinSystemGoal_repinnedSystemGoalPreservesPausedState() public {
-        vm.startPrank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-        registry.setGoalPaused(GOAL_ID_ONE, true);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal-v2", SYSTEM_FLOOR_TWO);
-        vm.stopPrank();
-
-        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
-        assertEq(listing.metadataURI, "ipfs://system-goal-v2");
-        assertEq(listing.floorPpm, SYSTEM_FLOOR_TWO);
-        assertTrue(listing.paused);
-        assertFalse(listing.selectable);
-        assertFalse(registry.isSelectable(GOAL_ID_ONE));
-        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
-    }
-
-    function test_unpinSystemGoal_removesFloorFromTotalsAndSystemRoute() public {
-        vm.startPrank(owner);
-        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
-        registry.pinSystemGoal(GOAL_ID_TWO, "ipfs://system-goal-two", SYSTEM_FLOOR_TWO);
-        registry.unpinSystemGoal(GOAL_ID_ONE);
-        vm.stopPrank();
-
-        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
-        assertFalse(registry.isListed(GOAL_ID_ONE));
-
-        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
-        assertEq(listing.floorPpm, 0);
-        assertFalse(listing.isSystem);
-
-        (uint256[] memory goalIds, uint32[] memory floorPpms) = registry.systemRoute();
-        assertEq(goalIds.length, 1);
-        assertEq(goalIds[0], GOAL_ID_TWO);
-        assertEq(floorPpms.length, 1);
-        assertEq(floorPpms[0], SYSTEM_FLOOR_TWO);
     }
 
     function test_addItem_registersGoalWithCanonicalItemId() public {
@@ -309,13 +162,40 @@ contract CommunityGoalRegistryTest is Test {
 
         assertTrue(registry.isListed(GOAL_ID_ONE));
         assertTrue(registry.isSelectable(GOAL_ID_ONE));
+        assertEq(address(registry.goalDeploymentRegistry()), address(goalDeploymentRegistry));
         assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
 
+        uint256[] memory listedGoalIds = registry.listedGoalIds();
+        assertEq(listedGoalIds.length, 1);
+        assertEq(listedGoalIds[0], GOAL_ID_ONE);
+
         ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.goalId, GOAL_ID_ONE);
         assertEq(listing.itemId, itemId);
         assertEq(listing.metadataURI, "ipfs://goal-one");
-        assertFalse(listing.isSystem);
-        assertEq(listing.floorPpm, 0);
+        assertTrue(listing.selectable);
+    }
+
+    function test_addItem_revertsWhenGoalIsAlreadyListed() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(ICommunityGoalRegistry.GOAL_ALREADY_LISTED.selector, GOAL_ID_ONE));
+        registry.addItem(_goalItem(GOAL_ID_ONE, "ipfs://goal-one-v2"));
+    }
+
+    function test_selectableGoalIds_omitsListedGoalsWhosePrimaryTerminalLosesCode() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+        _registerGoal(bob, GOAL_ID_TWO, "ipfs://goal-two");
+
+        address noCodeTerminal = makeAddr("no-code-terminal");
+        directory.setPrimaryTerminal(GOAL_ID_ONE, address(token), IJBTerminal(noCodeTerminal));
+
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        uint256[] memory selectableGoalIds = registry.selectableGoalIds();
+        assertEq(selectableGoalIds.length, 1);
+        assertEq(selectableGoalIds[0], GOAL_ID_TWO);
     }
 
     function test_removeAndRelistGoal_updatesOnlyMetadata_notCanonicalTreasury() public {
@@ -331,11 +211,9 @@ contract CommunityGoalRegistryTest is Test {
         assertFalse(registry.isSelectable(GOAL_ID_ONE));
         assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
         ICommunityGoalRegistry.GoalListingView memory removedListing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(removedListing.goalId, GOAL_ID_ONE);
         assertEq(removedListing.itemId, bytes32(0));
         assertEq(bytes(removedListing.metadataURI).length, 0);
-        assertFalse(removedListing.isSystem);
-        assertEq(removedListing.floorPpm, 0);
-        assertFalse(removedListing.paused);
         assertFalse(removedListing.selectable);
 
         _registerGoal(bob, GOAL_ID_ONE, "ipfs://goal-one-v2");
@@ -344,18 +222,16 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(listing.itemId, bytes32(GOAL_ID_ONE));
         assertEq(listing.metadataURI, "ipfs://goal-one-v2");
         assertTrue(listing.selectable);
-        assertEq(listing.floorPpm, 0);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(GOAL_ID_ONE), address(goalTreasuryOne));
     }
 
     function test_addItem_revertsWhenGoalIsNotRegisteredInDeploymentRegistry() public {
         uint256 unregisteredGoalId = 999;
         directory.setPrimaryTerminal(unregisteredGoalId, address(token), IJBTerminal(address(terminal)));
-        bytes memory badItem = _goalItem(unregisteredGoalId, "ipfs://bad-goal");
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
-        registry.addItem(badItem);
+        registry.addItem(_goalItem(unregisteredGoalId, "ipfs://bad-goal"));
     }
 
     function test_addItem_revertsWhenGoalHasNoPrimaryTerminal() public {
@@ -363,11 +239,10 @@ contract CommunityGoalRegistryTest is Test {
         CommunityGoalRegistryMockGoalTreasury goalTreasury =
             _newGoalTreasury(goalIdWithoutTerminal, COMMUNITY_REVNET_ID, address(token));
         goalDeploymentRegistry.registerGoal(goalIdWithoutTerminal, address(goalTreasury));
-        bytes memory missingTerminalItem = _goalItem(goalIdWithoutTerminal, "ipfs://missing-terminal");
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
-        registry.addItem(missingTerminalItem);
+        registry.addItem(_goalItem(goalIdWithoutTerminal, "ipfs://missing-terminal"));
     }
 
     function test_addItem_revertsWhenGoalFundingRevnetDiffersFromCommunity() public {
@@ -382,25 +257,27 @@ contract CommunityGoalRegistryTest is Test {
         registry.addItem(_goalItem(mismatchedGoalId, "ipfs://wrong-revnet"));
     }
 
-    function test_pinSystemGoal_revertsWhenGoalFundingTokenDiffersFromCommunity() public {
+    function test_addItem_revertsWhenGoalFundingTokenDiffersFromCommunity() public {
         uint256 mismatchedGoalId = 505;
         CommunityGoalRegistryMockGoalTreasury mismatchedTreasury =
             _newGoalTreasury(mismatchedGoalId, COMMUNITY_REVNET_ID, address(otherToken));
         goalDeploymentRegistry.registerGoal(mismatchedGoalId, address(mismatchedTreasury));
         directory.setPrimaryTerminal(mismatchedGoalId, address(token), IJBTerminal(address(terminal)));
 
-        vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CommunityGoalRegistry.GOAL_FUNDING_CONTEXT_MISMATCH.selector,
-                mismatchedGoalId,
-                COMMUNITY_REVNET_ID,
-                COMMUNITY_REVNET_ID,
-                address(token),
-                address(otherToken)
-            )
-        );
-        registry.pinSystemGoal(mismatchedGoalId, "ipfs://wrong-token", SYSTEM_FLOOR_ONE);
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        registry.addItem(_goalItem(mismatchedGoalId, "ipfs://wrong-token"));
+    }
+
+    function test_addItem_revertsWhenGoalRoutesToCommunityItself() public {
+        CommunityGoalRegistryMockGoalTreasury communityTreasury =
+            _newGoalTreasury(COMMUNITY_REVNET_ID, COMMUNITY_REVNET_ID, address(token));
+        goalDeploymentRegistry.registerGoal(COMMUNITY_REVNET_ID, address(communityTreasury));
+        directory.setPrimaryTerminal(COMMUNITY_REVNET_ID, address(token), IJBTerminal(address(terminal)));
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        registry.addItem(_goalItem(COMMUNITY_REVNET_ID, "ipfs://self"));
     }
 
     function _registerGoal(address submitter, uint256 goalId, string memory metadataUri) internal {

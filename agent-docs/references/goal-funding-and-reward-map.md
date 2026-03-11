@@ -4,9 +4,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 
 ## Community root routing path
 
-1. A payer can route an evergreen community revnet payment through `CobuildPaymentTerminal`.
-   - `CobuildPaymentTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildPaymentTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction via an owner-signed payload.
-   - Manual registration remains available through `CobuildPaymentTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal.
+1. A payer can route an evergreen community revnet payment through `CobuildCommunityTerminal`.
+   - `CobuildCommunityTerminalFactory.deployFor(...)` deterministically deploys the community-scoped `CobuildSplitHook`, initializes it with the shared `CobuildCommunityTerminal` as fixed `routeSetter`, and registers the community on that terminal in the same transaction via an owner-signed payload.
+   - Manual registration remains available through `CobuildCommunityTerminal.registerCommunity(...)`, but the community must already point both its native ETH terminal and registered payment-token terminal at the shared terminal.
 2. The shared canonical terminal seeds a one-shot pending route on `CobuildSplitHook` before calling the registered community funding path:
    - explicit metadata seeds an explicit per-payment route,
    - empty metadata means no explicit route, so the terminal will flush any newly created reserved tokens into backlog.
@@ -19,35 +19,28 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
      hooks still run before reserved-token routing continues.
 3. `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
    - community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
-   - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
-   - total configured system-goal floor is capped at `1_000_000` ppm,
-   - each listed goal carries metadata plus paused/selectable state, and system goals additionally expose `floorPpm`.
+   - the registry is ownerless and does not expose privileged system goals or pause controls,
+   - each listed goal carries metadata only; selectability is derived from canonical deployment, funding context, and terminal presence.
 4. `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing.
-5. Direct goal funding uses the shared `CobuildTerminal`.
+5. Direct goal funding uses the shared `CobuildGoalTerminal`.
    - it resolves each goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
    - native ETH funding converts through the resolved source revnet before forwarding to the goal's primary payment-token terminal.
 6. If the terminal-created community pay minted reserved tokens, the terminal immediately calls the community controller's
    `sendReservedTokensToSplitsOf(...)` in the same transaction.
-7. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`, which first peels off the configured
-   system-goal floor slice and routes it into canonical goal-treasury beneficiaries.
-8. If the callback carried a terminal-seeded pending route, only the discretionary remainder from the current pay's
-   newly created reserved-token delta is forwarded into the selected child goals by paying each goal's primary
-   terminal for the community token.
-8. If the callback had no pending route, only the discretionary remainder is deferred into hook-managed backlog.
-9. If a configured system goal is paused or otherwise not currently selectable, its floor share is rolled back into
-   that discretionary remainder instead of bricking routing.
-10. Only discretionary explicit routed payments record observed per-goal volume; system-floor routing and backlog
-    flushes do not reinforce the historical signal.
+7. That controller callback invokes `CobuildSplitHook.processSplitWith(...)`.
+8. If the callback carried a terminal-seeded pending route, the full current pay delta is forwarded into the selected
+   child goals by paying each goal's primary terminal for the community token.
+9. If the callback had no pending route, the full callback amount is deferred into hook-managed backlog.
+10. All explicit routed payments record observed per-goal volume; backlog flushes do not reinforce the historical signal.
 11. Historical backlog retry is paginated through `flushHistoricalBacklog(maxGoalCount)`, so callers can flush the parked
-   discretionary backlog in bounded chunks.
-12. Historical backlog routing is derived only from selectable non-system goals with observed discretionary explicit
-   volume and always pays goal-treasury beneficiaries.
+   backlog in bounded chunks.
+12. Historical backlog routing is derived only from selectable goals with observed explicit volume and always pays
+   goal-treasury beneficiaries.
 13. If the terminal-created pay minted no reserved tokens, the terminal clears the unused pending route instead of leaving
    stale routing state behind.
-14. If older backlog was included in that controller flush, `CobuildSplitHook` applies system-floor routing to that
-   snapshotted backlog first and parks only the discretionary remainder for later permissionless retry instead of
-   routing it through the current payer's selection.
-15. If no usable historical route exists, the split hook keeps that discretionary backlog on-hook for later
+14. If older backlog was included in that controller flush, `CobuildSplitHook` parks that snapshotted backlog for later
+   permissionless retry instead of routing it through the current payer's selection.
+15. If no usable historical route exists, the split hook keeps that backlog on-hook for later
    permissionless historical flush instead of blocking canonical-terminal-routed mints.
 
 ## Goal Funding Path
@@ -139,5 +132,5 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow/points subsystem is
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/UnderwriterSlasherRouter.sol`
 - `src/allocation-strategies/BudgetFlowRouterStrategy.sol`
-- `src/juicebox/CobuildPaymentTerminal.sol`
-- `src/juicebox/CobuildPaymentTerminalFactory.sol`
+- `src/juicebox/CobuildCommunityTerminal.sol`
+- `src/juicebox/CobuildCommunityTerminalFactory.sol`

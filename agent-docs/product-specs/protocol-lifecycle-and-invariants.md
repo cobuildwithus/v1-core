@@ -68,36 +68,33 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
 - Community root routing is canonical-terminal-seeded and split-driven:
-  - `CobuildPaymentTerminalFactory` is the canonical deployer for the community-scoped split hook:
+  - `CobuildCommunityTerminalFactory` is the canonical deployer for the community-scoped split hook:
     - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
     - deploys the split hook,
     - initializes the hook with the shared terminal as the fixed `routeSetter`,
     - completes same-transaction community registration on that terminal via an owner-signed registration payload.
-  - `CobuildPaymentTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
+  - `CobuildCommunityTerminal` optionally decodes routing metadata as `abi.encode(uint256[] goalIds, uint32[] weights)`,
     seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, pays through the registered
     community config, and synchronously flushes reserved-token splits through the community controller when that pay
     created reserved tokens.
-  - Community registration is owner-gated per community revnet and must bind the split hook, payment token,
+  - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
     payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay.
   - Registered communities must point both their native ETH terminal and registered payment-token terminal at the shared
-    `CobuildPaymentTerminal`; sidecar-only directory wiring is invalid.
+    `CobuildCommunityTerminal`; sidecar-only directory wiring is invalid.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - standard community listings use `GeneralizedTCR` request/challenge/arbitration flow with canonical `bytes32(goalId)` item ids,
-    - owner-backed system goals can be pinned/unpinned directly with configured `floorPpm`,
-    - total configured system-goal floor is capped at `1_000_000` ppm,
-    - each listed goal carries metadata plus paused/selectable state, and system goals additionally expose `floorPpm`.
+    - the registry is ownerless and does not expose privileged system goals or pause controls,
+    - each listed goal carries donor-visible metadata only, while selectability is derived from canonical deployment, funding context, and terminal presence.
   - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury` for community routing:
     - authorized goal-factory versions register deployed treasuries exactly once,
     - treasury identity is immutable per goal id once registered.
-  - `CobuildTerminal` is the canonical shared goal funding terminal:
+  - `CobuildGoalTerminal` is the canonical shared goal funding terminal:
     - it resolves the goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
     - native ETH funding must convert through the resolved payment-source revnet before forwarding to the goal's primary payment-token terminal.
   - `CobuildSplitHook` keeps both the terminal contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
-  - `CobuildSplitHook` applies configured system-goal floor routing first on every controller callback and routes those
-    slices to canonical goal-treasury beneficiaries.
-  - Explicit routed community pays only route the discretionary remainder after that floor-first pass.
-  - Only discretionary explicit routed community pays record historical routing volume.
+  - `CobuildSplitHook` routes the full explicit amount for terminal-seeded pending routes into the selected registry-selectable goals.
+  - All explicit routed community pays record their full routed volume into historical routing telemetry.
   - Canonical-terminal-routed community pays snapshot any preexisting controller reserved-token backlog, route only the current
     pay's newly created reserved-token delta through the pending route, and defer the older backlog to permissionless
     historical flushing so a new user route cannot capture earlier backlog.
@@ -110,13 +107,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     stale routing state behind.
   - Hook-managed historical backlog is discretionary-only and is retried through a paginated permissionless flush path (`flushHistoricalBacklog(maxGoalCount)`), so backlog liveness is chunkable instead of all-or-nothing.
   - `CobuildSplitHook` routes reserved community tokens only during the configured community revnet's controller callback,
-    routes system-floor slices into currently selectable system goals using deployment-registry-provided treasury sinks,
-    only routes discretionary explicit selections into registry-selectable child goals for terminal-selected routes,
-    derives backlog flush routing from selectable non-system goals with observed discretionary explicit volume, uses
+    only routes explicit selections into registry-selectable child goals for terminal-selected routes,
+    derives backlog flush routing from selectable goals with observed explicit volume, uses
     each goal's deployment-registry-provided treasury sink for backlog flush beneficiaries, and otherwise defers
-    discretionary historical backlog on-hook for later permissionless retry when no usable historical route exists.
-  - If a configured system goal is paused or otherwise not selectable, its floor share falls back into the
-    discretionary remainder instead of reverting the community callback.
+    historical backlog on-hook for later permissionless retry when no usable historical route exists.
 - Budget failure slashing semantics are first-loss-principal and activation-gated:
   - slash is enabled only when escrow is closed into `Failed` or post-activation `Expired` (`activatedAt != 0`),
   - slash weight is `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`,

@@ -58,7 +58,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     FactoryDeployMockDirectory internal directory;
     FactoryDeployMockController internal controller;
     FactoryDeployMockRevDeployer internal revDeployer;
-    FactoryDeployMockCobuildTerminal internal cobuildTerminal;
+    FactoryDeployMockGoalTerminal internal goalTerminal;
     FactoryDeployMockSuperTokenFactory internal superTokenFactory;
     FactoryDeployMockSuperfluidHost internal superfluidHost;
     FactoryDeployMockBudgetTcrFactory internal budgetTcrFactory;
@@ -78,8 +78,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         budgetTcrFactory = new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR);
         successResolver = new FactoryDeployDummyContract();
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
-        cobuildTerminal =
-            new FactoryDeployMockCobuildTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
+        goalTerminal =
+            new FactoryDeployMockGoalTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 7 days), 1e18);
@@ -100,7 +100,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             ISuperfluid(address(superfluidHost)),
             BudgetTCRFactory(address(budgetTcrFactory)),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
-            address(cobuildTerminal),
+            address(goalTerminal),
             address(new FactoryDeployDummyContract()),
             address(new FactoryDeployDummyContract()),
             address(new FactoryDeployDummyContract()),
@@ -179,7 +179,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
     }
 
-    function test_deployGoalForCommunity_revertsWhenCallerIsNotRegistryOwner() public {
+    function test_deployGoalForCommunity_allowsPermissionlessCallers() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
         GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
         FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
@@ -190,10 +190,13 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             address(cobuildToken)
         );
 
-        address caller = makeAddr("not-owner");
-        vm.expectRevert(abi.encodeWithSelector(GoalFactory.UNAUTHORIZED.selector, registry.owner(), caller));
+        address caller = makeAddr("permissionless-caller");
         vm.prank(caller);
-        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+        GoalFactory.DeployedGoalStack memory deployed =
+            factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+
+        assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
     }
 
     function test_deployGoal_bubblesInvalidSpendPolicyFromGoalTreasuryInitialization() public {
@@ -512,7 +515,7 @@ contract FactoryDeployMockDirectory {
     }
 }
 
-contract FactoryDeployMockCobuildTerminal {
+contract FactoryDeployMockGoalTerminal {
     IJBDirectory private immutable _directory;
     IGoalDeploymentRegistry private immutable _goalDeploymentRegistry;
 

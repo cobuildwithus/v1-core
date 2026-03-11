@@ -23,7 +23,6 @@ contract CobuildSplitHookTest is Test {
     uint256 internal constant RESERVED_TOKENS_GROUP_ID = 1;
     uint256 internal constant GOAL_ID_ONE = 101;
     uint256 internal constant GOAL_ID_TWO = 202;
-    uint32 internal constant SYSTEM_FLOOR_ONE = 200_000;
 
     address internal controller = makeAddr("controller");
     address internal routeSetter;
@@ -180,30 +179,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentHistoricalTotalVolume(), 100e18);
     }
 
-    function test_processSplitWith_routesSystemFloorBeforePendingDiscretionaryRoute() public {
-        goalRegistry.setSystemGoalFloor(GOAL_ID_ONE, SYSTEM_FLOOR_ONE);
-
-        vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 1));
-
-        communityToken.mint(address(hook), 100e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(100e18));
-
-        assertFalse(hook.hasPendingRoute());
-        assertEq(goalTerminalOne.totalReceived(), 60e18);
-        assertEq(goalTerminalTwo.totalReceived(), 40e18);
-        assertEq(goalTerminalOne.receivedByBeneficiary(address(goalTreasuryOne)), 20e18);
-        assertEq(goalTerminalOne.receivedByBeneficiary(beneficiary), 40e18);
-        assertEq(goalTerminalTwo.receivedByBeneficiary(beneficiary), 40e18);
-        assertEq(goalTerminalTwo.receivedByBeneficiary(address(goalTreasuryTwo)), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 40e18);
-        assertEq(hook.cumulativeObservedVolume(), 40e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 40e18);
-    }
-
     function test_processSplitWith_defersDirectPayEvenWhenHistoricalRouteExists() public {
         _seedObservedRoute(100e18, 2, 3, beneficiary);
 
@@ -218,22 +193,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(communityToken.balanceOf(address(hook)), 50e18);
         assertEq(hook.cumulativeObservedVolume(), 100e18);
         assertEq(hook.currentHistoricalTotalVolume(), 100e18);
-    }
-
-    function test_processSplitWith_routesSystemFloorBeforeDeferringDirectBacklog() public {
-        goalRegistry.setSystemGoalFloor(GOAL_ID_ONE, SYSTEM_FLOOR_ONE);
-
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 10e18);
-        assertEq(goalTerminalOne.receivedByBeneficiary(address(goalTreasuryOne)), 10e18);
-        assertEq(goalTerminalTwo.totalReceived(), 0);
-        assertEq(hook.historicalBacklogAmount(), 40e18);
-        assertEq(communityToken.balanceOf(address(hook)), 40e18);
-        assertEq(hook.cumulativeObservedVolume(), 0);
     }
 
     function test_processSplitWith_routesOnlyPendingExplicitDelta_andDefersSnapshottedBacklog() public {
@@ -257,30 +216,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(communityToken.balanceOf(address(hook)), 40e18);
     }
 
-    function test_processSplitWith_appliesSystemFloorSeparatelyToBacklogAndCurrentDelta() public {
-        goalRegistry.setSystemGoalFloor(GOAL_ID_ONE, SYSTEM_FLOOR_ONE);
-
-        vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
-
-        communityToken.mint(address(hook), 100e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(100e18));
-
-        assertFalse(hook.hasPendingRoute());
-        assertEq(goalTerminalOne.totalReceived(), 32e18);
-        assertEq(goalTerminalTwo.totalReceived(), 36e18);
-        assertEq(goalTerminalOne.receivedByBeneficiary(address(goalTreasuryOne)), 20e18);
-        assertEq(goalTerminalOne.receivedByBeneficiary(beneficiary), 12e18);
-        assertEq(goalTerminalTwo.receivedByBeneficiary(beneficiary), 36e18);
-        assertEq(hook.historicalBacklogAmount(), 32e18);
-        assertEq(communityToken.balanceOf(address(hook)), 32e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 36e18);
-        assertEq(hook.cumulativeObservedVolume(), 36e18);
-    }
-
     function test_processSplitWith_consumesPendingRoute_intoBacklogWhenSnapshotMatchesAmount() public {
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));
@@ -299,21 +234,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 0);
         assertEq(hook.cumulativeObservedVolume(), 0);
         assertEq(hook.currentHistoricalTotalVolume(), 0);
-    }
-
-    function test_processSplitWith_systemFloorFallsBackWhenSystemGoalIsNotSelectable() public {
-        goalRegistry.setSystemGoalFloor(GOAL_ID_ONE, SYSTEM_FLOOR_ONE);
-        goalRegistry.setGoalSelectable(GOAL_ID_ONE, false);
-
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        assertEq(goalTerminalOne.totalReceived(), 0);
-        assertEq(goalTerminalTwo.totalReceived(), 0);
-        assertEq(hook.historicalBacklogAmount(), 50e18);
-        assertEq(communityToken.balanceOf(address(hook)), 50e18);
     }
 
     function test_flushHistoricalBacklog_routesDeferredBalanceUsingHistoricalGoalTreasuries() public {
@@ -340,34 +260,6 @@ contract CobuildSplitHookTest is Test {
         assertEq(goalTerminalOne.lastBeneficiary(), address(goalTreasuryOne));
         assertEq(goalTerminalTwo.lastBeneficiary(), address(goalTreasuryTwo));
         assertEq(communityToken.balanceOf(address(hook)), 0);
-    }
-
-    function test_flushHistoricalBacklog_usesOnlyDiscretionaryHistoryWhenSystemGoalWasExplicitlyRouted() public {
-        goalRegistry.setSystemGoalFloor(GOAL_ID_ONE, SYSTEM_FLOOR_ONE);
-
-        vm.prank(routeSetter);
-        hook.beginPendingRoute(beneficiary, beneficiary, 0, _goalIds(), _weights(1, 1));
-
-        communityToken.mint(address(hook), 100e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(100e18));
-
-        communityToken.mint(address(hook), 50e18);
-
-        vm.prank(controller);
-        hook.processSplitWith(_context(50e18));
-
-        uint256 routedAmount = hook.flushHistoricalBacklog(2);
-
-        assertEq(routedAmount, 40e18);
-        assertEq(hook.historicalBacklogAmount(), 0);
-        assertEq(goalTerminalOne.receivedByBeneficiary(address(goalTreasuryOne)), 30e18);
-        assertEq(goalTerminalTwo.receivedByBeneficiary(address(goalTreasuryTwo)), 40e18);
-        assertEq(goalTerminalTwo.totalReceived(), 80e18);
-        assertEq(hook.observedVolumeOf(GOAL_ID_ONE), 0);
-        assertEq(hook.observedVolumeOf(GOAL_ID_TWO), 40e18);
-        assertEq(hook.currentHistoricalTotalVolume(), 40e18);
     }
 
     function test_flushHistoricalBacklog_pagesAcrossGoalsAndTracksProgress() public {
@@ -966,13 +858,9 @@ contract CobuildSplitHookMockGoalRegistry {
     IGoalDeploymentRegistry public goalDeploymentRegistry;
     uint256 public communityRevnetId;
     address public communityToken;
-    uint32 public totalSystemFloorPpm;
 
     uint256[] internal _selectableGoalIds;
     mapping(uint256 goalId => bool selectable) internal _isSelectable;
-    uint256[] internal _systemGoalIds;
-    mapping(uint256 goalId => bool isSystem) internal _isSystemGoalId;
-    mapping(uint256 goalId => uint32 floorPpm) internal _systemFloorPpm;
 
     constructor(
         IJBDirectory directory_,
@@ -997,20 +885,6 @@ contract CobuildSplitHookMockGoalRegistry {
         if (wasSelectable && !selectable) {
             _removeGoal(goalId);
         }
-    }
-
-    function setSystemGoalFloor(uint256 goalId, uint32 floorPpm) external {
-        uint32 previousFloorPpm = _systemFloorPpm[goalId];
-        if (!_isSystemGoalId[goalId] && floorPpm != 0) {
-            _isSystemGoalId[goalId] = true;
-            _systemGoalIds.push(goalId);
-        } else if (_isSystemGoalId[goalId] && floorPpm == 0) {
-            _isSystemGoalId[goalId] = false;
-            _removeSystemGoal(goalId);
-        }
-
-        totalSystemFloorPpm = totalSystemFloorPpm + floorPpm - previousFloorPpm;
-        _systemFloorPpm[goalId] = floorPpm;
     }
 
     function removeGoal(uint256 goalId) external {
@@ -1039,21 +913,6 @@ contract CobuildSplitHookMockGoalRegistry {
         return _isSelectableGoal(goalId);
     }
 
-    function isSystemGoal(uint256 goalId) external view returns (bool) {
-        return _isSystemGoalId[goalId];
-    }
-
-    function systemRoute() external view returns (uint256[] memory goalIds, uint32[] memory floorPpms) {
-        uint256 length = _systemGoalIds.length;
-        goalIds = new uint256[](length);
-        floorPpms = new uint32[](length);
-        for (uint256 i = 0; i < length; i++) {
-            uint256 goalId = _systemGoalIds[i];
-            goalIds[i] = goalId;
-            floorPpms[i] = _systemFloorPpm[goalId];
-        }
-    }
-
     function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
         address terminalAddress = address(directory.primaryTerminalOf(goalId, communityToken));
         return _isSelectable[goalId] && terminalAddress.code.length != 0;
@@ -1067,18 +926,6 @@ contract CobuildSplitHookMockGoalRegistry {
             uint256 lastIndex = length - 1;
             if (i != lastIndex) _selectableGoalIds[i] = _selectableGoalIds[lastIndex];
             _selectableGoalIds.pop();
-            return;
-        }
-    }
-
-    function _removeSystemGoal(uint256 goalId) internal {
-        uint256 length = _systemGoalIds.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (_systemGoalIds[i] != goalId) continue;
-
-            uint256 lastIndex = length - 1;
-            if (i != lastIndex) _systemGoalIds[i] = _systemGoalIds[lastIndex];
-            _systemGoalIds.pop();
             return;
         }
     }

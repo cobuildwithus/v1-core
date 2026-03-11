@@ -279,8 +279,7 @@ contract GasGriefSubmissionDepositStrategy is ISubmissionDepositStrategy {
                     directory: IJBDirectory(address(directory)),
                     goalDeploymentRegistry: goalDeploymentRegistry,
                     communityRevnetId: COMMUNITY_REVNET_ID,
-                    communityToken: address(votingToken_),
-                    owner: owner
+                    communityToken: address(votingToken_)
                 })
             );
         }

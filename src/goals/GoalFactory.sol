@@ -174,8 +174,6 @@ contract GoalFactory {
     );
     error INVALID_COMMUNITY_DIRECTORY(address expected, address actual);
     error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
-    error UNAUTHORIZED(address expected, address actual);
-
     constructor(
         IREVDeployer revDeployer,
         ISuperfluid superfluidHost,
@@ -270,8 +268,6 @@ contract GoalFactory {
     ) external returns (DeployedGoalStack memory out) {
         if (address(registry) == address(0)) revert ADDRESS_ZERO();
         if (address(registry).code.length == 0) revert NOT_A_CONTRACT(address(registry));
-        address registryOwner = registry.owner();
-        if (msg.sender != registryOwner) revert UNAUTHORIZED(registryOwner, msg.sender);
 
         IJBDirectory directory = REV_DEPLOYER.DIRECTORY();
         IJBDirectory registryDirectory = registry.directory();
@@ -464,7 +460,7 @@ contract GoalFactory {
                     revDeployer: REV_DEPLOYER,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
-                    cobuildTerminal: GOAL_PAYMENT_TERMINAL,
+                    goalPaymentTerminal: GOAL_PAYMENT_TERMINAL,
                     jbMultiTerminal: JB_MULTI_TERMINAL,
                     splitHook: address(splitHook),
                     name: p.revnet.name,

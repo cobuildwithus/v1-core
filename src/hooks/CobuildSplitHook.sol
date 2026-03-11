@@ -9,12 +9,10 @@ import { JBSplitHookContext } from "@bananapus/core-v5/structs/JBSplitHookContex
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Community-level split hook that routes reserved community tokens into registry-curated child goals.
@@ -45,7 +43,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error NO_PENDING_ROUTE();
     error INVALID_HISTORICAL_FLUSH_PAGE_SIZE();
     error INVALID_BACKLOG_SNAPSHOT(uint256 backlogTokenCount, uint256 sourceAmount);
-    error INVALID_SYSTEM_ROUTE_LENGTHS(uint256 goalIdsLength, uint256 floorPpmsLength);
     error NO_GOAL_TERMINAL(uint256 goalId);
     error GOAL_PAYMENT_OUTFLOW_MISMATCH(uint256 goalId, uint256 expectedAmount, uint256 actualAmount);
     error NATIVE_VALUE_MISMATCH(uint256 expected, uint256 actual);
@@ -301,7 +298,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             return;
         }
 
-        _deferHistoricalBacklog(_routeSystemFloors(token, amount, false));
+        _deferHistoricalBacklog(amount);
     }
 
     function _validateProcessSplitContext(JBSplitHookContext calldata context) internal view {
@@ -321,8 +318,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
     function _processPendingRoute(IERC20 token, uint256 amount) internal {
         PendingRouteExecution memory pending = _consumePendingRoute(amount);
-        uint256 backlogDiscretionaryAmount = _routeSystemFloors(token, pending.backlogTokenCount, false);
-        if (backlogDiscretionaryAmount != 0) _deferHistoricalBacklog(backlogDiscretionaryAmount);
+        if (pending.backlogTokenCount != 0) _deferHistoricalBacklog(pending.backlogTokenCount);
         if (pending.routeAmount != 0) _routePendingRouteAmount(token, pending);
 
         emit PendingRouteConsumed(
@@ -349,68 +345,17 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     }
 
     function _routePendingRouteAmount(IERC20 token, PendingRouteExecution memory pending) internal {
-        uint256 discretionaryRouteAmount = _routeSystemFloors(token, pending.routeAmount, true);
-        if (discretionaryRouteAmount == 0) return;
-
         _routeToGoals(
             RouteRuntime({
                 token: token,
-                sourceAmount: discretionaryRouteAmount,
+                sourceAmount: pending.routeAmount,
                 beneficiary: pending.beneficiary,
                 goalIds: pending.goalIds,
                 weights: pending.weights,
                 fromPendingRoute: true
             })
         );
-        _recordObservedRoute(pending.goalIds, pending.weights, discretionaryRouteAmount);
-    }
-
-    function _routeSystemFloors(
-        IERC20 token,
-        uint256 sourceAmount,
-        bool fromPendingRoute
-    ) internal returns (uint256 discretionaryRemainder) {
-        discretionaryRemainder = sourceAmount;
-        if (sourceAmount == 0) return discretionaryRemainder;
-
-        (uint256[] memory systemGoalIds, uint32[] memory floorPpms) = _goalRegistry.systemRoute();
-        uint256 systemGoalCount = systemGoalIds.length;
-        if (systemGoalCount == 0) return discretionaryRemainder;
-        if (systemGoalCount != floorPpms.length) {
-            revert INVALID_SYSTEM_ROUTE_LENGTHS(systemGoalCount, floorPpms.length);
-        }
-
-        uint256 totalFloorPpm = _goalRegistry.totalSystemFloorPpm();
-        if (totalFloorPpm == 0) return discretionaryRemainder;
-
-        uint256 systemAmount = Math.mulDiv(sourceAmount, totalFloorPpm, FlowProtocolConstants.PPM_SCALE_UINT256);
-        if (systemAmount == 0) return discretionaryRemainder;
-
-        uint256 remainingSystemAmount = systemAmount;
-        uint256 routedSystemAmount;
-        for (uint256 i = 0; i < systemGoalCount; i++) {
-            (uint256 amountForGoal, uint256 nextRemaining) = _allocatedAmountForShare(
-                systemAmount,
-                floorPpms[i],
-                totalFloorPpm,
-                remainingSystemAmount,
-                i,
-                systemGoalCount
-            );
-            remainingSystemAmount = nextRemaining;
-            if (amountForGoal == 0) continue;
-
-            uint256 goalId = systemGoalIds[i];
-            if (!_goalRegistry.isSelectable(goalId)) continue;
-
-            address beneficiary = _goalDeploymentRegistry.goalTreasuryOf(goalId);
-            if (beneficiary == address(0)) revert NO_GOAL_TREASURY(goalId);
-
-            _payGoal(token, goalId, amountForGoal, beneficiary, fromPendingRoute);
-            routedSystemAmount += amountForGoal;
-        }
-
-        discretionaryRemainder = sourceAmount - routedSystemAmount;
+        _recordObservedRoute(pending.goalIds, pending.weights, pending.routeAmount);
     }
 
     function _routeToGoals(RouteRuntime memory route) internal {
@@ -474,8 +419,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
             if (amountForGoal == 0) continue;
 
             uint256 goalId = goalIds[i];
-            if (_goalRegistry.isSystemGoal(goalId)) continue;
-
             uint256 newGoalObservedTotal = observedVolumeOf[goalId] + amountForGoal;
             observedVolumeOf[goalId] = newGoalObservedTotal;
             updatedCumulativeObservedVolume += amountForGoal;
@@ -567,11 +510,11 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     }
 
     function _historicalRoute() internal view returns (uint256[] memory goalIds, uint256[] memory volumes) {
-        uint256[] memory discretionaryIds = _discretionaryGoalIds();
-        uint256 discretionaryLength = discretionaryIds.length;
+        uint256[] memory selectableIds = _goalRegistry.selectableGoalIds();
+        uint256 selectableLength = selectableIds.length;
         uint256 count;
-        for (uint256 i = 0; i < discretionaryLength; i++) {
-            uint256 goalId = discretionaryIds[i];
+        for (uint256 i = 0; i < selectableLength; i++) {
+            uint256 goalId = selectableIds[i];
             if (observedVolumeOf[goalId] == 0) continue;
             count++;
         }
@@ -579,8 +522,8 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         goalIds = new uint256[](count);
         volumes = new uint256[](count);
         uint256 cursor;
-        for (uint256 i = 0; i < discretionaryLength; i++) {
-            uint256 goalId = discretionaryIds[i];
+        for (uint256 i = 0; i < selectableLength; i++) {
+            uint256 goalId = selectableIds[i];
             uint256 volume = observedVolumeOf[goalId];
             if (volume == 0) continue;
 
@@ -606,7 +549,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     function _remainingHistoricalRouteRuntime(
         uint256 epoch
     ) internal view returns (uint256[] memory selectableIds, uint256 totalRemainingVolume, uint256 remainingGoalCount) {
-        selectableIds = _discretionaryGoalIds();
+        selectableIds = _goalRegistry.selectableGoalIds();
         for (uint256 i = 0; i < selectableIds.length; i++) {
             uint256 goalId = selectableIds[i];
             if (_historicalBacklogProcessedAtEpoch[goalId] == epoch) continue;
@@ -616,25 +559,6 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
             totalRemainingVolume += volume;
             remainingGoalCount += 1;
-        }
-    }
-
-    function _discretionaryGoalIds() internal view returns (uint256[] memory goalIds) {
-        uint256[] memory selectableIds = _goalRegistry.selectableGoalIds();
-        uint256 selectableLength = selectableIds.length;
-        uint256 count;
-        for (uint256 i = 0; i < selectableLength; i++) {
-            if (_goalRegistry.isSystemGoal(selectableIds[i])) continue;
-            count++;
-        }
-
-        goalIds = new uint256[](count);
-        uint256 cursor;
-        for (uint256 i = 0; i < selectableLength; i++) {
-            uint256 goalId = selectableIds[i];
-            if (_goalRegistry.isSystemGoal(goalId)) continue;
-            goalIds[cursor] = goalId;
-            cursor++;
         }
     }
 

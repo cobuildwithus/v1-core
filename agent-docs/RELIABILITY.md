@@ -29,7 +29,7 @@
 - `src/goals/UnderwriterSlasherRouter.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
 - `src/hooks/CobuildSplitHook.sol`
-- `src/juicebox/CobuildPaymentTerminal.sol`
+- `src/juicebox/CobuildCommunityTerminal.sol`
 
 ### TCR + arbitrator
 
@@ -68,17 +68,13 @@
   delta.
 - If a canonical-terminal-routed pay creates no reserved tokens, the terminal should clear the unused pending route instead of
   leaving stale routing state behind.
-- Community routing must apply configured system-goal floor slices before any explicit/discretionary or backlog logic,
-  and those floor slices must use goal-treasury beneficiaries.
-- Only discretionary explicit routed community pays should update historical routing volume; system-floor routing and
-  backlog flushes must not make the historical signal self-reinforcing.
+- Community routing must only honor registry-selectable goals and must route the full explicit pending-route amount.
+- Explicit routed community pays should update historical routing volume with the full routed amount; backlog flushes must
+  not make the historical signal self-reinforcing.
 - Hook-managed historical backlog should be flushed through the paginated permissionless path instead of piggybacking
   older backlog through unrelated direct community pays.
-- Historical backlog must remain discretionary-only; direct community pays should route any currently selectable
-  system-goal floor slices immediately and defer only the discretionary remainder for later permissionless historical
-  retry instead of inferring a downstream route.
-- If a configured system goal is paused or otherwise not selectable, its floor share should fall back into the
-  discretionary remainder rather than blocking the community callback.
+- Historical backlog must be derived from observed explicit routes only; direct community pays without a pending route
+  should defer the full callback amount instead of inferring a downstream route.
 - Permissionless backlog flushes should use each registry-listed goal's treasury as the downstream beneficiary sink.
 
 ## Verification Matrix

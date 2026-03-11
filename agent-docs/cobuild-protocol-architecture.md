@@ -37,7 +37,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Underwriting premium/slash modules: `src/goals/PremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
-- Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildPaymentTerminal.sol`, `src/juicebox/CobuildPaymentTerminalFactory.sol`
+- Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`
 
 ### Curation and arbitration domain
 
@@ -98,12 +98,12 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - seat changes hard-remove departed recipients and assign fixed per-seat units directly on the flow runtime.
 
 Community root routing
-- Canonical deployment of the community split hook is `CobuildPaymentTerminalFactory.deployFor(...)`:
+- Canonical deployment of the community split hook is `CobuildCommunityTerminalFactory.deployFor(...)`:
   - the factory deterministically derives the split-hook clone address from caller + goal registry + shared route setter + salt,
   - deploys the split hook,
-  - initializes the hook with the shared `CobuildPaymentTerminal` as its fixed `routeSetter`,
+  - initializes the hook with the shared `CobuildCommunityTerminal` as its fixed `routeSetter`,
   - registers the community on that same terminal in the same transaction via an owner-signed registration payload.
-- Community payments can arrive through the shared `CobuildPaymentTerminal` only after the community binds immutable
+- Community payments can arrive through the shared `CobuildCommunityTerminal` only after the community binds immutable
   routing config and points both its native ETH terminal and registered payment-token terminal at that shared terminal.
 - The shared canonical terminal accepts native ETH or the registered community payment token:
   - if `directNativeAllowed`, native ETH is recorded directly on the community revnet through the shared terminal's JB terminal-store path,
@@ -120,14 +120,13 @@ Community root routing
   `sendReservedTokensToSplitsOf(...)` on the community controller so goal routing completes in the same transaction.
 - If the community pay created no reserved tokens, the shared terminal clears the unused pending route instead of leaving stale
   state behind.
-- Direct goal funding uses the shared `CobuildTerminal`, which resolves each goal's payment token and source revnet
+- Direct goal funding uses the shared `CobuildGoalTerminal`, which resolves each goal's payment token and source revnet
   from the registered goal treasury + stake vault before converting native ETH or forwarding direct payment-token pays.
 - `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,
-  - owner-backed system goals can be pinned/unpinned directly with a configured `floorPpm`,
-  - total configured system-goal floor is capped at `1_000_000` ppm,
-  - every listed goal carries metadata plus paused/selectable status, and system goals additionally expose `floorPpm`.
+  - the registry is ownerless and does not expose privileged system goals or pause controls,
+  - every listed goal carries metadata only; selectability is derived from canonical deployment, funding context, and terminal presence.
 - `GoalDeploymentRegistry` is the canonical onchain source of `goalId -> goalTreasury`:
   - `GoalFactory` registers each deployed goal treasury exactly once,
   - future owner-authorized goal-factory versions can register into the same registry,
@@ -136,20 +135,17 @@ Community root routing
   explicit-route validation, and a fixed init-time `GoalDeploymentRegistry` reference for direct-pay treasury resolution.
 - During canonical-terminal-routed community pays, reserved-token split delivery is forced synchronously by the terminal through the
   community controller's `sendReservedTokensToSplitsOf(...)` call.
-- `CobuildSplitHook` first applies configured system-goal floor routing on each controller callback and pays those
-  slices into canonical goal-treasury beneficiaries.
-- Any remaining discretionary amount from a canonical-terminal-routed pending route is forwarded into registry-selectable child
-  goals by paying each goal's primary terminal for the community token, but only for the current pay's newly created
-  reserved-token delta.
-- Older controller backlog encountered during a canonical-terminal-routed pay is floor-routed first, then only the discretionary
-  remainder is moved into hook-managed historical backlog for later permissionless routing.
+- `CobuildSplitHook` forwards the full canonical-terminal pending-route delta into registry-selectable child goals by paying
+  each goal's primary terminal for the community token.
+- Older controller backlog encountered during a canonical-terminal-routed pay is moved into hook-managed historical backlog for
+  later permissionless routing.
 - `flushHistoricalBacklog(maxGoalCount)` routes that historical backlog in bounded chunks, so a single backlog retry no
   longer has to scan/pay every historically weighted goal in one transaction.
-- Only discretionary explicit routed payments record observed per-goal volume.
-- Historical backlog routing is derived only from selectable non-system goals with non-zero observed explicit volume and is
+- All explicit routed payments record observed per-goal volume.
+- Historical backlog routing is derived only from selectable goals with non-zero observed explicit volume and is
   only executed through the paginated permissionless backlog-flush path.
 - If no pending route exists, the hook defers the full controller callback amount into hook-managed backlog instead of
-  routing it inline through the current transaction, after first funding any currently selectable system-goal floor slices.
+  routing it inline through the current transaction.
 - If no usable historical route exists, the hook keeps historical backlog escrowed on-hook for later permissionless
   retry instead of blocking canonical-terminal-routed mints.
 
@@ -224,7 +220,7 @@ Community root routing
   - Closed nonterminal path defers split funds on treasury.
   - Terminal closed path applies treasury terminal settlement policy.
 - `CobuildSplitHook` is controller-gated and terminal-seeded:
-  - explicit routed pays are seeded by `CobuildPaymentTerminal` through a one-shot pending route and are the only flows
+  - explicit routed pays are seeded by `CobuildCommunityTerminal` through a one-shot pending route and are the only flows
     that update observed historical volume,
   - terminal seeding authority is a fixed init-time `routeSetter` with no runtime rotation surface,
   - empty-metadata canonical-terminal pays do not seed any pending route and instead flush any newly created reserved tokens into

@@ -1,0 +1,831 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.34;
+
+import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import { SignatureChecker } from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBPayHook } from "@bananapus/core-v5/interfaces/IJBPayHook.sol";
+import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
+import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import { IJBTerminalStore } from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
+import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import { JBAfterPayRecordedContext } from "@bananapus/core-v5/structs/JBAfterPayRecordedContext.sol";
+import { JBPayHookSpecification } from "@bananapus/core-v5/structs/JBPayHookSpecification.sol";
+import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
+import { JBTokenAmount } from "@bananapus/core-v5/structs/JBTokenAmount.sol";
+import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
+
+import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+
+/// @notice Canonical shared community terminal that mints community tokens and routes reserved-token splits into child goals.
+/// @dev Each community binds a fixed split hook plus payment-source config once. Native pays can either mint directly
+/// on this terminal or recursively acquire the registered payment token through another community or external native terminal.
+contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+    using MessageHashUtils for bytes32;
+
+    bytes32 private constant REGISTER_COMMUNITY_TYPEHASH =
+        keccak256(
+            "RegisterCommunity(address registrant,uint256 communityRevnetId,address splitHook,address paymentToken,uint256 paymentSourceRevnetId,bool directNativeAllowed,uint256 deadline,address terminal,uint256 chainId)"
+        );
+
+    struct CommunityConfig {
+        ICobuildSplitHook splitHook;
+        address paymentToken;
+        uint8 paymentTokenDecimals;
+        uint256 paymentSourceRevnetId;
+        bool directNativeAllowed;
+        bool exists;
+    }
+
+    IJBDirectory public immutable DIRECTORY;
+    IJBTerminalStore public immutable STORE;
+
+    mapping(uint256 communityRevnetId => CommunityConfig config) private _communityConfigOf;
+
+    error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
+    error UNAUTHORIZED(address expected, address actual);
+    error NO_VALUE();
+    error INCORRECT_VALUE();
+    error UNSUPPORTED_TOKEN(address token);
+    error COMMUNITY_NOT_REGISTERED(uint256 communityRevnetId);
+    error COMMUNITY_ALREADY_REGISTERED(uint256 communityRevnetId);
+    error INVALID_PROJECT(uint256 expectedProjectId, uint256 actualProjectId);
+    error INVALID_COMMUNITY_TOKEN(address expectedToken, address actualToken);
+    error INVALID_ROUTE_SETTER(address expectedRouteSetter, address actualRouteSetter);
+    error INVALID_DIRECTORY(address expectedDirectory, address actualDirectory);
+    error INVALID_PAYMENT_SOURCE(uint256 paymentSourceRevnetId, address expectedToken, address actualToken);
+    error INVALID_NATIVE_TERMINAL(address expectedTerminal, address actualTerminal);
+    error INVALID_PAYMENT_TERMINAL(address expectedTerminal, address actualTerminal);
+    error INVALID_REGISTRATION_SIGNATURE(address expectedSigner, address actualSigner);
+    error REGISTRATION_DEADLINE_EXPIRED(uint256 deadline, uint256 currentTimestamp);
+    error NO_PAYMENT_ETH_TERMINAL(uint256 paymentSourceRevnetId);
+    error PAYMENT_SOURCE_NOT_REGISTERED(uint256 paymentSourceRevnetId);
+    error ZERO_PAYMENT_OUT();
+    error ROUTE_NOT_CONSUMED();
+    error NO_CONTROLLER(uint256 communityRevnetId);
+
+    event CommunityRegistered(
+        uint256 indexed communityRevnetId,
+        address indexed splitHook,
+        address indexed paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed,
+        address goalRegistry,
+        address registrant
+    );
+
+    constructor(IJBDirectory directory, IJBTerminalStore store) {
+        if (address(directory) == address(0)) revert ADDRESS_ZERO();
+        if (address(store) == address(0)) revert ADDRESS_ZERO();
+        if (address(directory).code.length == 0) revert NOT_A_CONTRACT(address(directory));
+        if (address(store).code.length == 0) revert NOT_A_CONTRACT(address(store));
+        if (store.DIRECTORY() != directory) revert INVALID_DIRECTORY(address(directory), address(store.DIRECTORY()));
+
+        DIRECTORY = directory;
+        STORE = store;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
+        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function communityConfigOf(
+        uint256 communityRevnetId
+    )
+        external
+        view
+        returns (
+            ICobuildSplitHook splitHook,
+            address paymentToken,
+            uint256 paymentSourceRevnetId,
+            bool directNativeAllowed,
+            bool exists
+        )
+    {
+        CommunityConfig storage config = _communityConfigOf[communityRevnetId];
+        return (
+            config.splitHook,
+            config.paymentToken,
+            config.paymentSourceRevnetId,
+            config.directNativeAllowed,
+            config.exists
+        );
+    }
+
+    function registerCommunity(
+        uint256 communityRevnetId,
+        ICobuildSplitHook splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed
+    ) external {
+        _registerCommunity(
+            msg.sender,
+            communityRevnetId,
+            splitHook,
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed
+        );
+    }
+
+    function registerCommunityWithSignature(
+        address registrant,
+        uint256 communityRevnetId,
+        ICobuildSplitHook splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed,
+        uint256 deadline,
+        bytes calldata signature
+    ) external {
+        if (block.timestamp > deadline) revert REGISTRATION_DEADLINE_EXPIRED(deadline, block.timestamp);
+
+        bytes32 signedDigest = _registrationDigestOf(
+            registrant,
+            communityRevnetId,
+            address(splitHook),
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed,
+            deadline
+        ).toEthSignedMessageHash();
+
+        if (registrant.code.length == 0) {
+            address actualSigner = ECDSA.recover(signedDigest, signature);
+            if (actualSigner != registrant) revert INVALID_REGISTRATION_SIGNATURE(registrant, actualSigner);
+        } else if (!SignatureChecker.isValidSignatureNow(registrant, signedDigest, signature)) {
+            revert INVALID_REGISTRATION_SIGNATURE(registrant, address(0));
+        }
+
+        _registerCommunity(
+            registrant,
+            communityRevnetId,
+            splitHook,
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed
+        );
+    }
+
+    function registrationDigestOf(
+        address registrant,
+        uint256 communityRevnetId,
+        address splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed,
+        uint256 deadline
+    ) external view returns (bytes32 digest) {
+        digest = _registrationDigestOf(
+            registrant,
+            communityRevnetId,
+            splitHook,
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed,
+            deadline
+        );
+    }
+
+    function _registerCommunity(
+        address registrant,
+        uint256 communityRevnetId,
+        ICobuildSplitHook splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed
+    ) internal {
+        if (address(splitHook) == address(0)) revert ADDRESS_ZERO();
+        if (paymentToken == address(0)) revert ADDRESS_ZERO();
+        if (communityRevnetId == 0 || paymentSourceRevnetId == 0) revert ADDRESS_ZERO();
+        if (address(splitHook).code.length == 0) revert NOT_A_CONTRACT(address(splitHook));
+        if (paymentToken.code.length == 0) revert NOT_A_CONTRACT(paymentToken);
+        if (_communityConfigOf[communityRevnetId].exists) revert COMMUNITY_ALREADY_REGISTERED(communityRevnetId);
+
+        address goalRegistryAddress = splitHook.goalRegistry();
+        if (goalRegistryAddress == address(0)) revert ADDRESS_ZERO();
+        if (goalRegistryAddress.code.length == 0) revert NOT_A_CONTRACT(goalRegistryAddress);
+
+        ICommunityGoalRegistry goalRegistry = ICommunityGoalRegistry(goalRegistryAddress);
+        uint256 registeredCommunityRevnetId = goalRegistry.communityRevnetId();
+        if (registeredCommunityRevnetId != communityRevnetId) {
+            revert INVALID_PROJECT(communityRevnetId, registeredCommunityRevnetId);
+        }
+        IJBDirectory goalRegistryDirectory = goalRegistry.directory();
+        if (goalRegistryDirectory != DIRECTORY) {
+            revert INVALID_DIRECTORY(address(DIRECTORY), address(goalRegistryDirectory));
+        }
+        address projectOwner = DIRECTORY.PROJECTS().ownerOf(communityRevnetId);
+        if (registrant != projectOwner) revert UNAUTHORIZED(projectOwner, registrant);
+
+        address registeredCommunityToken = goalRegistry.communityToken();
+        address configuredCommunityToken = splitHook.communityToken();
+        if (configuredCommunityToken != registeredCommunityToken) {
+            revert INVALID_COMMUNITY_TOKEN(registeredCommunityToken, configuredCommunityToken);
+        }
+
+        _requireSplitHookConfiguration(splitHook, communityRevnetId);
+        _requireCanonicalCommunityTerminals(communityRevnetId, paymentToken);
+        _requirePaymentSource(paymentSourceRevnetId, paymentToken, !directNativeAllowed);
+
+        _communityConfigOf[communityRevnetId] = CommunityConfig({
+            splitHook: splitHook,
+            paymentToken: paymentToken,
+            paymentTokenDecimals: IERC20Metadata(paymentToken).decimals(),
+            paymentSourceRevnetId: paymentSourceRevnetId,
+            directNativeAllowed: directNativeAllowed,
+            exists: true
+        });
+
+        emit CommunityRegistered(
+            communityRevnetId,
+            address(splitHook),
+            paymentToken,
+            paymentSourceRevnetId,
+            directNativeAllowed,
+            goalRegistryAddress,
+            registrant
+        );
+    }
+
+    function pay(
+        uint256 projectId,
+        address token,
+        uint256 amount,
+        address beneficiary,
+        uint256 minReturnedTokens,
+        string calldata memo,
+        bytes calldata metadata
+    ) external payable override nonReentrant returns (uint256 beneficiaryTokenCount) {
+        CommunityConfig storage config = _communityConfigOf[projectId];
+        if (!config.exists) revert COMMUNITY_NOT_REGISTERED(projectId);
+
+        (uint256[] memory goalIds, uint32[] memory weights) = _decodeRoutingMetadata(metadata);
+        if (token == JBConstants.NATIVE_TOKEN) {
+            if (msg.value == 0) revert NO_VALUE();
+            if (msg.value != amount) revert INCORRECT_VALUE();
+            return
+                _payWithEth(
+                    config,
+                    projectId,
+                    msg.sender,
+                    msg.sender,
+                    amount,
+                    beneficiary,
+                    minReturnedTokens,
+                    memo,
+                    goalIds,
+                    weights
+                );
+        }
+
+        if (token == config.paymentToken) {
+            if (msg.value != 0) revert INCORRECT_VALUE();
+            return
+                _payWithPaymentToken(
+                    config,
+                    projectId,
+                    msg.sender,
+                    msg.sender,
+                    amount,
+                    beneficiary,
+                    minReturnedTokens,
+                    memo,
+                    goalIds,
+                    weights
+                );
+        }
+
+        revert UNSUPPORTED_TOKEN(token);
+    }
+
+    function accountingContextForTokenOf(
+        uint256 projectId,
+        address token
+    ) external view override returns (JBAccountingContext memory) {
+        CommunityConfig storage config = _communityConfigOf[projectId];
+
+        if (token == JBConstants.NATIVE_TOKEN) {
+            return _nativeAccountingContext();
+        }
+        if (token == config.paymentToken) {
+            return _paymentTokenAccountingContext(config);
+        }
+        if (!config.exists) {
+            return _erc20AccountingContext(token);
+        }
+
+        return JBAccountingContext({ token: address(0), decimals: 0, currency: 0 });
+    }
+
+    function accountingContextsOf(
+        uint256 projectId
+    ) external view override returns (JBAccountingContext[] memory contexts) {
+        CommunityConfig storage config = _communityConfigOf[projectId];
+        if (!config.exists) return new JBAccountingContext[](0);
+
+        contexts = new JBAccountingContext[](2);
+        contexts[0] = _nativeAccountingContext();
+        contexts[1] = _paymentTokenAccountingContext(config);
+    }
+
+    function currentSurplusOf(
+        uint256 projectId,
+        JBAccountingContext[] memory accountingContexts,
+        uint256 decimals,
+        uint256 currency
+    ) external view override returns (uint256 surplus) {
+        if (accountingContexts.length != 0) {
+            return STORE.currentSurplusOf(address(this), projectId, accountingContexts, decimals, currency);
+        }
+
+        CommunityConfig storage config = _communityConfigOf[projectId];
+        if (!config.exists) return 0;
+
+        JBAccountingContext[] memory defaultContexts = new JBAccountingContext[](2);
+        defaultContexts[0] = _nativeAccountingContext();
+        defaultContexts[1] = _paymentTokenAccountingContext(config);
+        return STORE.currentSurplusOf(address(this), projectId, defaultContexts, decimals, currency);
+    }
+
+    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+    function addToBalanceOf(
+        uint256 projectId,
+        address token,
+        uint256 amount,
+        bool,
+        string calldata memo,
+        bytes calldata metadata
+    ) external payable override nonReentrant {
+        CommunityConfig storage config = _communityConfigOf[projectId];
+        if (!config.exists) revert COMMUNITY_NOT_REGISTERED(projectId);
+
+        uint256 accountedAmount = _receiveAccountingTokens(config, token, amount);
+        STORE.recordAddedBalanceFor(projectId, token, accountedAmount);
+        emit AddToBalance(projectId, accountedAmount, 0, memo, metadata, msg.sender);
+    }
+
+    function migrateBalanceOf(
+        uint256 projectId,
+        address token,
+        IJBTerminal to
+    ) external override nonReentrant returns (uint256 balance) {
+        address projectOwner = DIRECTORY.PROJECTS().ownerOf(projectId);
+        if (msg.sender != projectOwner) revert UNAUTHORIZED(projectOwner, msg.sender);
+        if (to.accountingContextForTokenOf(projectId, token).token == address(0)) revert UNSUPPORTED_TOKEN(token);
+
+        balance = STORE.recordTerminalMigration(projectId, token);
+        emit MigrateTerminal(projectId, token, to, balance, msg.sender);
+        if (balance == 0) return 0;
+
+        if (token == JBConstants.NATIVE_TOKEN) {
+            to.addToBalanceOf{ value: balance }(projectId, token, balance, false, "", bytes(""));
+            return balance;
+        }
+
+        IERC20 tokenRef = IERC20(token);
+        tokenRef.forceApprove(address(to), 0);
+        tokenRef.forceApprove(address(to), balance);
+        to.addToBalanceOf(projectId, token, balance, false, "", bytes(""));
+        tokenRef.forceApprove(address(to), 0);
+    }
+
+    function _payWithEth(
+        CommunityConfig storage config,
+        uint256 communityRevnetId,
+        address payer,
+        address caller,
+        uint256 amount,
+        address beneficiary,
+        uint256 minReturnedTokens,
+        string calldata memo,
+        uint256[] memory goalIds,
+        uint32[] memory weights
+    ) internal returns (uint256 beneficiaryTokenCount) {
+        if (config.directNativeAllowed) {
+            return
+                _payWithHeldAmount(
+                    config,
+                    communityRevnetId,
+                    payer,
+                    caller,
+                    JBConstants.NATIVE_TOKEN,
+                    amount,
+                    beneficiary,
+                    minReturnedTokens,
+                    memo,
+                    goalIds,
+                    weights
+                );
+        }
+
+        uint256 paymentReceived = _receivePaymentTokensFromEth(config, amount, memo);
+        return
+            _payWithHeldAmount(
+                config,
+                communityRevnetId,
+                payer,
+                caller,
+                config.paymentToken,
+                paymentReceived,
+                beneficiary,
+                minReturnedTokens,
+                memo,
+                goalIds,
+                weights
+            );
+    }
+
+    function _receivePaymentTokensFromEth(
+        CommunityConfig storage config,
+        uint256 amount,
+        string calldata memo
+    ) internal returns (uint256 paymentReceived) {
+        IJBTerminal paymentEthTerminal = DIRECTORY.primaryTerminalOf(
+            config.paymentSourceRevnetId,
+            JBConstants.NATIVE_TOKEN
+        );
+        if (address(paymentEthTerminal) == address(0)) revert NO_PAYMENT_ETH_TERMINAL(config.paymentSourceRevnetId);
+
+        IERC20 paymentTokenRef = IERC20(config.paymentToken);
+        uint256 paymentBalanceBefore = paymentTokenRef.balanceOf(address(this));
+
+        if (address(paymentEthTerminal) == address(this)) {
+            CommunityConfig storage sourceConfig = _communityConfigOf[config.paymentSourceRevnetId];
+            if (!sourceConfig.exists) revert PAYMENT_SOURCE_NOT_REGISTERED(config.paymentSourceRevnetId);
+            _payWithEth(
+                sourceConfig,
+                config.paymentSourceRevnetId,
+                address(this),
+                address(this),
+                amount,
+                address(this),
+                1,
+                memo,
+                new uint256[](0),
+                new uint32[](0)
+            );
+        } else {
+            paymentEthTerminal.pay{ value: amount }(
+                config.paymentSourceRevnetId,
+                JBConstants.NATIVE_TOKEN,
+                amount,
+                address(this),
+                1,
+                memo,
+                bytes("")
+            );
+        }
+
+        paymentReceived = paymentTokenRef.balanceOf(address(this)) - paymentBalanceBefore;
+        if (paymentReceived == 0) revert ZERO_PAYMENT_OUT();
+    }
+
+    function _payWithPaymentToken(
+        CommunityConfig storage config,
+        uint256 communityRevnetId,
+        address payer,
+        address caller,
+        uint256 amount,
+        address beneficiary,
+        uint256 minReturnedTokens,
+        string calldata memo,
+        uint256[] memory goalIds,
+        uint32[] memory weights
+    ) internal returns (uint256 beneficiaryTokenCount) {
+        IERC20 paymentTokenRef = IERC20(config.paymentToken);
+        uint256 paymentBalanceBefore = paymentTokenRef.balanceOf(address(this));
+        paymentTokenRef.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 paymentReceived = paymentTokenRef.balanceOf(address(this)) - paymentBalanceBefore;
+        if (paymentReceived == 0) revert ZERO_PAYMENT_OUT();
+
+        beneficiaryTokenCount = _payWithHeldAmount(
+            config,
+            communityRevnetId,
+            payer,
+            caller,
+            config.paymentToken,
+            paymentReceived,
+            beneficiary,
+            minReturnedTokens,
+            memo,
+            goalIds,
+            weights
+        );
+    }
+
+    function _payWithHeldAmount(
+        CommunityConfig storage config,
+        uint256 communityRevnetId,
+        address payer,
+        address caller,
+        address accountingToken,
+        uint256 paymentAmount,
+        address beneficiary,
+        uint256 minReturnedTokens,
+        string calldata memo,
+        uint256[] memory goalIds,
+        uint32[] memory weights
+    ) internal returns (uint256 beneficiaryTokenCount) {
+        (IJBController controller, uint256 backlogTokenCount) = _beginRoute(
+            config,
+            communityRevnetId,
+            payer,
+            beneficiary,
+            goalIds,
+            weights
+        );
+
+        JBTokenAmount memory tokenAmount = _tokenAmountFrom(config, accountingToken, paymentAmount);
+        (JBRuleset memory ruleset, uint256 tokenCount, JBPayHookSpecification[] memory hookSpecifications) = STORE
+            .recordPaymentFrom(payer, tokenAmount, communityRevnetId, beneficiary, bytes(""));
+        if (tokenCount != 0) {
+            beneficiaryTokenCount = controller.mintTokensOf(communityRevnetId, tokenCount, beneficiary, "", true);
+        }
+        if (beneficiaryTokenCount < minReturnedTokens) revert ZERO_PAYMENT_OUT();
+
+        emit Pay(
+            ruleset.id,
+            ruleset.cycleNumber,
+            communityRevnetId,
+            payer,
+            beneficiary,
+            paymentAmount,
+            beneficiaryTokenCount,
+            memo,
+            bytes(""),
+            caller
+        );
+
+        if (hookSpecifications.length != 0) {
+            _fulfillPayHookSpecificationsFor(
+                communityRevnetId,
+                hookSpecifications,
+                tokenAmount,
+                payer,
+                caller,
+                ruleset,
+                beneficiary,
+                beneficiaryTokenCount
+            );
+        }
+
+        _finishRoute(config.splitHook, controller, communityRevnetId, backlogTokenCount);
+    }
+
+    function _beginRoute(
+        CommunityConfig storage config,
+        uint256 communityRevnetId,
+        address payer,
+        address beneficiary,
+        uint256[] memory goalIds,
+        uint32[] memory weights
+    ) internal returns (IJBController controller, uint256 backlogTokenCount) {
+        _requireSplitHookConfiguration(config.splitHook, communityRevnetId);
+
+        controller = _controllerOf(communityRevnetId);
+        backlogTokenCount = controller.pendingReservedTokenBalanceOf(communityRevnetId);
+
+        bool hasExplicitRoute = goalIds.length != 0;
+        if (hasExplicitRoute) {
+            config.splitHook.beginPendingRoute(payer, beneficiary, backlogTokenCount, goalIds, weights);
+        }
+    }
+
+    function _finishRoute(
+        ICobuildSplitHook splitHook,
+        IJBController controller,
+        uint256 communityRevnetId,
+        uint256 backlogTokenCount
+    ) internal {
+        uint256 pendingReservedTokenBalance = controller.pendingReservedTokenBalanceOf(communityRevnetId);
+        if (pendingReservedTokenBalance <= backlogTokenCount) {
+            if (splitHook.hasPendingRoute()) splitHook.cancelPendingRoute();
+            return;
+        }
+
+        controller.sendReservedTokensToSplitsOf(communityRevnetId);
+        if (splitHook.hasPendingRoute()) revert ROUTE_NOT_CONSUMED();
+    }
+
+    function _controllerOf(uint256 communityRevnetId) internal view returns (IJBController controller) {
+        address controllerAddress = address(DIRECTORY.controllerOf(communityRevnetId));
+        if (controllerAddress == address(0)) revert NO_CONTROLLER(communityRevnetId);
+        if (controllerAddress.code.length == 0) revert NOT_A_CONTRACT(controllerAddress);
+
+        controller = IJBController(controllerAddress);
+    }
+
+    function _requireSplitHookConfiguration(ICobuildSplitHook splitHook, uint256 communityRevnetId) internal view {
+        uint256 configuredCommunityRevnetId = splitHook.communityRevnetId();
+        if (configuredCommunityRevnetId != communityRevnetId) {
+            revert INVALID_PROJECT(communityRevnetId, configuredCommunityRevnetId);
+        }
+
+        address configuredRouteSetter = splitHook.routeSetter();
+        if (configuredRouteSetter != address(this)) {
+            revert INVALID_ROUTE_SETTER(address(this), configuredRouteSetter);
+        }
+    }
+
+    function _requireCanonicalCommunityTerminals(uint256 communityRevnetId, address paymentToken) internal view {
+        address actualNativeTerminal = address(
+            DIRECTORY.primaryTerminalOf(communityRevnetId, JBConstants.NATIVE_TOKEN)
+        );
+        if (actualNativeTerminal != address(this)) {
+            revert INVALID_NATIVE_TERMINAL(address(this), actualNativeTerminal);
+        }
+
+        address actualPaymentTerminal = address(DIRECTORY.primaryTerminalOf(communityRevnetId, paymentToken));
+        if (actualPaymentTerminal != address(this)) {
+            revert INVALID_PAYMENT_TERMINAL(address(this), actualPaymentTerminal);
+        }
+    }
+
+    function _requirePaymentSource(
+        uint256 paymentSourceRevnetId,
+        address paymentToken,
+        bool requireRegisteredIfSelf
+    ) internal view {
+        IJBController controller = _controllerOf(paymentSourceRevnetId);
+        address paymentSourceToken = address(controller.TOKENS().tokenOf(paymentSourceRevnetId));
+        if (paymentSourceToken != paymentToken) {
+            revert INVALID_PAYMENT_SOURCE(paymentSourceRevnetId, paymentToken, paymentSourceToken);
+        }
+
+        IJBTerminal paymentEthTerminal = DIRECTORY.primaryTerminalOf(paymentSourceRevnetId, JBConstants.NATIVE_TOKEN);
+        if (address(paymentEthTerminal) == address(0)) revert NO_PAYMENT_ETH_TERMINAL(paymentSourceRevnetId);
+        if (requireRegisteredIfSelf && address(paymentEthTerminal) == address(this)) {
+            if (!_communityConfigOf[paymentSourceRevnetId].exists)
+                revert PAYMENT_SOURCE_NOT_REGISTERED(paymentSourceRevnetId);
+        }
+    }
+
+    function _decodeRoutingMetadata(
+        bytes calldata metadata
+    ) internal pure returns (uint256[] memory goalIds, uint32[] memory weights) {
+        if (metadata.length == 0) return (new uint256[](0), new uint32[](0));
+        return abi.decode(metadata, (uint256[], uint32[]));
+    }
+
+    function _nativeAccountingContext() internal pure returns (JBAccountingContext memory) {
+        return
+            JBAccountingContext({
+                token: JBConstants.NATIVE_TOKEN,
+                decimals: 18,
+                currency: _currencyFromToken(JBConstants.NATIVE_TOKEN)
+            });
+    }
+
+    function _paymentTokenAccountingContext(
+        CommunityConfig storage config
+    ) internal view returns (JBAccountingContext memory) {
+        return _erc20AccountingContext(config.paymentToken, config.paymentTokenDecimals);
+    }
+
+    function _erc20AccountingContext(address token) internal view returns (JBAccountingContext memory context) {
+        if (token.code.length == 0) return JBAccountingContext({ token: address(0), decimals: 0, currency: 0 });
+
+        try IERC20Metadata(token).decimals() returns (uint8 decimals) {
+            return _erc20AccountingContext(token, decimals);
+        } catch {
+            return JBAccountingContext({ token: address(0), decimals: 0, currency: 0 });
+        }
+    }
+
+    function _erc20AccountingContext(
+        address token,
+        uint8 decimals
+    ) internal pure returns (JBAccountingContext memory context) {
+        context = JBAccountingContext({ token: token, decimals: decimals, currency: _currencyFromToken(token) });
+    }
+
+    function _currencyFromToken(address token) internal pure returns (uint32 currency) {
+        assembly {
+            currency := and(token, 0xffffffff)
+        }
+    }
+
+    function _receiveAccountingTokens(
+        CommunityConfig storage config,
+        address token,
+        uint256 amount
+    ) internal returns (uint256 accountedAmount) {
+        if (token == JBConstants.NATIVE_TOKEN) {
+            if (msg.value == 0) revert NO_VALUE();
+            if (msg.value != amount) revert INCORRECT_VALUE();
+            return amount;
+        }
+
+        if (token != config.paymentToken) revert UNSUPPORTED_TOKEN(token);
+        if (msg.value != 0) revert INCORRECT_VALUE();
+
+        IERC20 paymentTokenRef = IERC20(token);
+        uint256 balanceBefore = paymentTokenRef.balanceOf(address(this));
+        paymentTokenRef.safeTransferFrom(msg.sender, address(this), amount);
+        accountedAmount = paymentTokenRef.balanceOf(address(this)) - balanceBefore;
+        if (accountedAmount == 0) revert ZERO_PAYMENT_OUT();
+    }
+
+    function _tokenAmountFrom(
+        CommunityConfig storage config,
+        address token,
+        uint256 amount
+    ) internal view returns (JBTokenAmount memory tokenAmount) {
+        JBAccountingContext memory accountingContext = token == JBConstants.NATIVE_TOKEN
+            ? _nativeAccountingContext()
+            : _paymentTokenAccountingContext(config);
+
+        tokenAmount = JBTokenAmount({
+            token: accountingContext.token,
+            decimals: accountingContext.decimals,
+            currency: accountingContext.currency,
+            value: amount
+        });
+    }
+
+    function _fulfillPayHookSpecificationsFor(
+        uint256 projectId,
+        JBPayHookSpecification[] memory specifications,
+        JBTokenAmount memory tokenAmount,
+        address payer,
+        address caller,
+        JBRuleset memory ruleset,
+        address beneficiary,
+        uint256 newlyIssuedTokenCount
+    ) internal {
+        JBAfterPayRecordedContext memory context = JBAfterPayRecordedContext({
+            payer: payer,
+            projectId: projectId,
+            rulesetId: ruleset.id,
+            amount: tokenAmount,
+            forwardedAmount: tokenAmount,
+            weight: ruleset.weight,
+            newlyIssuedTokenCount: newlyIssuedTokenCount,
+            beneficiary: beneficiary,
+            hookMetadata: bytes(""),
+            payerMetadata: bytes("")
+        });
+
+        uint256 specificationsLength = specifications.length;
+        for (uint256 i; i < specificationsLength; i++) {
+            JBPayHookSpecification memory specification = specifications[i];
+            context.forwardedAmount = JBTokenAmount({
+                token: tokenAmount.token,
+                decimals: tokenAmount.decimals,
+                currency: tokenAmount.currency,
+                value: specification.amount
+            });
+            context.hookMetadata = specification.metadata;
+
+            uint256 payValue = _beforeTransferTo(address(specification.hook), tokenAmount.token, specification.amount);
+            specification.hook.afterPayRecordedWith{ value: payValue }(context);
+
+            emit HookAfterRecordPay(IJBPayHook(specification.hook), context, specification.amount, caller);
+        }
+    }
+
+    function _beforeTransferTo(address to, address token, uint256 amount) internal returns (uint256 payValue) {
+        if (token == JBConstants.NATIVE_TOKEN) return amount;
+
+        IERC20(token).safeIncreaseAllowance(to, amount);
+        return 0;
+    }
+
+    function _registrationDigestOf(
+        address registrant,
+        uint256 communityRevnetId,
+        address splitHook,
+        address paymentToken,
+        uint256 paymentSourceRevnetId,
+        bool directNativeAllowed,
+        uint256 deadline
+    ) internal view returns (bytes32 digest) {
+        digest = keccak256(
+            abi.encode(
+                REGISTER_COMMUNITY_TYPEHASH,
+                registrant,
+                communityRevnetId,
+                splitHook,
+                paymentToken,
+                paymentSourceRevnetId,
+                directNativeAllowed,
+                deadline,
+                address(this),
+                block.chainid
+            )
+        );
+    }
+}
