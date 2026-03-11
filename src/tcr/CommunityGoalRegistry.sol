@@ -5,8 +5,11 @@ import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { ICommunityGoalRegistry } from "./interfaces/ICommunityGoalRegistry.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
@@ -28,6 +31,13 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
     error NOT_A_CONTRACT(address account);
     error VOTING_TOKEN_MISMATCH(address expectedToken, address actualToken);
+    error GOAL_FUNDING_CONTEXT_MISMATCH(
+        uint256 goalId,
+        uint256 expectedRevnetId,
+        uint256 actualRevnetId,
+        address expectedToken,
+        address actualToken
+    );
 
     IJBDirectory public directory;
     IGoalDeploymentRegistry public goalDeploymentRegistry;
@@ -212,6 +222,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (data.goalId == 0) return false;
         if (data.goalId == communityRevnetId) return false;
         if (!_isRegisteredGoal(data.goalId)) return false;
+        if (!_goalMatchesCommunity(data.goalId)) return false;
         if (!_goalHasPrimaryTerminal(data.goalId)) return false;
         return true;
     }
@@ -258,6 +269,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (goalId == 0) revert INVALID_GOAL_ID();
         if (goalId == communityRevnetId) revert GOAL_CANNOT_ROUTE_TO_SELF(goalId);
         if (!_isRegisteredGoal(goalId)) revert GOAL_NOT_DEPLOYED(goalId);
+        _requireGoalMatchesCommunity(goalId);
         if (!_goalHasPrimaryTerminal(goalId)) revert GOAL_TERMINAL_NOT_CONFIGURED(goalId);
     }
 
@@ -270,11 +282,68 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         return goalDeploymentRegistry.isRegisteredGoal(goalId);
     }
 
+    function _goalMatchesCommunity(uint256 goalId) internal view returns (bool) {
+        address goalTreasuryAddress = goalDeploymentRegistry.goalTreasuryOf(goalId);
+        if (goalTreasuryAddress == address(0) || goalTreasuryAddress.code.length == 0) return false;
+
+        IGoalTreasury goalTreasury = IGoalTreasury(goalTreasuryAddress);
+        uint256 goalCommunityRevnetId;
+        address goalCommunityToken;
+
+        try goalTreasury.cobuildRevnetId() returns (uint256 resolvedRevnetId) {
+            goalCommunityRevnetId = resolvedRevnetId;
+        } catch {
+            return false;
+        }
+
+        address stakeVaultAddress;
+        try goalTreasury.stakeVault() returns (address resolvedStakeVault) {
+            stakeVaultAddress = resolvedStakeVault;
+        } catch {
+            return false;
+        }
+        if (stakeVaultAddress == address(0) || stakeVaultAddress.code.length == 0) return false;
+
+        try IStakeVault(stakeVaultAddress).cobuildToken() returns (IERC20 resolvedToken) {
+            goalCommunityToken = address(resolvedToken);
+        } catch {
+            return false;
+        }
+
+        return goalCommunityRevnetId == communityRevnetId && goalCommunityToken == communityToken;
+    }
+
+    function _requireGoalMatchesCommunity(uint256 goalId) internal view {
+        address goalTreasuryAddress = goalDeploymentRegistry.goalTreasuryOf(goalId);
+        if (goalTreasuryAddress == address(0) || goalTreasuryAddress.code.length == 0) {
+            revert GOAL_NOT_DEPLOYED(goalId);
+        }
+
+        IGoalTreasury goalTreasury = IGoalTreasury(goalTreasuryAddress);
+        uint256 actualRevnetId = goalTreasury.cobuildRevnetId();
+        address stakeVaultAddress = goalTreasury.stakeVault();
+        if (stakeVaultAddress == address(0) || stakeVaultAddress.code.length == 0) {
+            revert GOAL_FUNDING_CONTEXT_MISMATCH(goalId, communityRevnetId, actualRevnetId, communityToken, address(0));
+        }
+        address actualToken = address(IStakeVault(stakeVaultAddress).cobuildToken());
+
+        if (actualRevnetId != communityRevnetId || actualToken != communityToken) {
+            revert GOAL_FUNDING_CONTEXT_MISMATCH(
+                goalId,
+                communityRevnetId,
+                actualRevnetId,
+                communityToken,
+                actualToken
+            );
+        }
+    }
+
     function _isSelectableGoal(uint256 goalId) internal view returns (bool) {
         GoalListing storage listing = _goalListings[goalId];
         if (!_isListedGoal(goalId) || listing.paused) return false;
         if (goalId == communityRevnetId) return false;
         if (!_isRegisteredGoal(goalId)) return false;
+        if (!_goalMatchesCommunity(goalId)) return false;
         return _goalHasPrimaryTerminal(goalId);
     }
 

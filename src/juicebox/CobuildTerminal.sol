@@ -11,33 +11,40 @@ import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
-/// @notice Immutable terminal that routes ETH -> COBUILD -> goal payments.
-/// @dev Direct COBUILD payments are forwarded to the goal project's COBUILD terminal.
+import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+
+/// @notice Shared terminal that routes native ETH into a goal's parent/community token before funding the goal.
+/// @dev The goal's payment denomination is resolved from its registered treasury on each pay call.
 contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IJBDirectory public immutable DIRECTORY;
-    address public immutable COBUILD_TOKEN;
-    uint256 public immutable COBUILD_REVNET_ID;
+    IGoalDeploymentRegistry public immutable GOAL_DEPLOYMENT_REGISTRY;
 
     error ADDRESS_ZERO();
+    error NOT_A_CONTRACT(address account);
     error NO_VALUE();
     error INCORRECT_VALUE();
     error UNSUPPORTED_TOKEN(address token);
     error UNSUPPORTED_CALL();
-    error NO_COBUILD_ETH_TERMINAL();
-    error NO_DEST_TERMINAL();
+    error GOAL_NOT_REGISTERED(uint256 goalId);
+    error NO_PAYMENT_ETH_TERMINAL(uint256 paymentRevnetId);
+    error NO_DEST_TERMINAL(uint256 projectId, address token);
     error DEST_TERMINAL_IS_SELF();
-    error ZERO_COBUILD_OUT();
+    error ZERO_PAYMENT_TOKEN_OUT();
 
-    constructor(IJBDirectory directory, address cobuildToken, uint256 cobuildRevnetId) {
+    constructor(IJBDirectory directory, IGoalDeploymentRegistry goalDeploymentRegistry) {
         if (address(directory) == address(0)) revert ADDRESS_ZERO();
-        if (cobuildToken == address(0)) revert ADDRESS_ZERO();
-        if (cobuildRevnetId == 0) revert ADDRESS_ZERO();
+        if (address(goalDeploymentRegistry) == address(0)) revert ADDRESS_ZERO();
+        if (address(directory).code.length == 0) revert NOT_A_CONTRACT(address(directory));
+        if (address(goalDeploymentRegistry).code.length == 0) {
+            revert NOT_A_CONTRACT(address(goalDeploymentRegistry));
+        }
 
         DIRECTORY = directory;
-        COBUILD_TOKEN = cobuildToken;
-        COBUILD_REVNET_ID = cobuildRevnetId;
+        GOAL_DEPLOYMENT_REGISTRY = goalDeploymentRegistry;
     }
 
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
@@ -53,13 +60,26 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         string calldata memo,
         bytes calldata metadata
     ) external payable override nonReentrant returns (uint256 beneficiaryTokenCount) {
+        (address paymentToken, uint256 paymentRevnetId) = _fundingContextOf(projectId);
+
         if (token == JBConstants.NATIVE_TOKEN) {
-            return _payWithEth(projectId, amount, beneficiary, minReturnedTokens, memo, metadata);
+            return
+                _payWithEth(
+                    projectId,
+                    paymentToken,
+                    paymentRevnetId,
+                    amount,
+                    beneficiary,
+                    minReturnedTokens,
+                    memo,
+                    metadata
+                );
         }
 
-        if (token == COBUILD_TOKEN) {
+        if (token == paymentToken) {
             if (msg.value != 0) revert INCORRECT_VALUE();
-            return _payWithCobuild(projectId, amount, beneficiary, minReturnedTokens, memo, metadata);
+            return
+                _payWithPaymentToken(projectId, paymentToken, amount, beneficiary, minReturnedTokens, memo, metadata);
         }
 
         revert UNSUPPORTED_TOKEN(token);
@@ -109,6 +129,8 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
 
     function _payWithEth(
         uint256 projectId,
+        address paymentToken,
+        uint256 paymentRevnetId,
         uint256 amount,
         address beneficiary,
         uint256 minReturnedTokens,
@@ -118,31 +140,31 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         if (msg.value == 0) revert NO_VALUE();
         if (msg.value != amount) revert INCORRECT_VALUE();
 
-        IJBTerminal cobuildEthTerminal = DIRECTORY.primaryTerminalOf(COBUILD_REVNET_ID, JBConstants.NATIVE_TOKEN);
-        if (address(cobuildEthTerminal) == address(0)) revert NO_COBUILD_ETH_TERMINAL();
+        IJBTerminal paymentEthTerminal = DIRECTORY.primaryTerminalOf(paymentRevnetId, JBConstants.NATIVE_TOKEN);
+        if (address(paymentEthTerminal) == address(0)) revert NO_PAYMENT_ETH_TERMINAL(paymentRevnetId);
 
-        IERC20 cobuildToken = IERC20(COBUILD_TOKEN);
-        uint256 cobuildBalanceBefore = cobuildToken.balanceOf(address(this));
+        IERC20 paymentTokenRef = IERC20(paymentToken);
+        uint256 paymentBalanceBefore = paymentTokenRef.balanceOf(address(this));
 
-        // Buy COBUILD from the COBUILD revnet using ETH.
-        cobuildEthTerminal.pay{ value: msg.value }(
-            COBUILD_REVNET_ID,
+        paymentEthTerminal.pay{ value: msg.value }(
+            paymentRevnetId,
             JBConstants.NATIVE_TOKEN,
             msg.value,
             address(this),
             1,
             memo,
-            metadata
+            bytes("")
         );
 
-        uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBalanceBefore;
-        if (cobuildReceived == 0) revert ZERO_COBUILD_OUT();
-        IJBTerminal destinationTerminal = _destinationTerminalOf(projectId);
+        uint256 paymentReceived = paymentTokenRef.balanceOf(address(this)) - paymentBalanceBefore;
+        if (paymentReceived == 0) revert ZERO_PAYMENT_TOKEN_OUT();
 
-        beneficiaryTokenCount = _forwardCobuild(
+        IJBTerminal destinationTerminal = _destinationTerminalOf(projectId, paymentToken);
+        beneficiaryTokenCount = _forwardPaymentToken(
             destinationTerminal,
-            cobuildToken,
-            cobuildReceived,
+            paymentTokenRef,
+            paymentToken,
+            paymentReceived,
             projectId,
             beneficiary,
             minReturnedTokens,
@@ -151,26 +173,28 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         );
     }
 
-    function _payWithCobuild(
+    function _payWithPaymentToken(
         uint256 projectId,
+        address paymentToken,
         uint256 amount,
         address beneficiary,
         uint256 minReturnedTokens,
         string calldata memo,
         bytes calldata metadata
     ) internal returns (uint256 beneficiaryTokenCount) {
-        IJBTerminal destinationTerminal = _destinationTerminalOf(projectId);
-        IERC20 cobuildToken = IERC20(COBUILD_TOKEN);
+        IJBTerminal destinationTerminal = _destinationTerminalOf(projectId, paymentToken);
+        IERC20 paymentTokenRef = IERC20(paymentToken);
 
-        uint256 cobuildBalanceBefore = cobuildToken.balanceOf(address(this));
-        cobuildToken.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 cobuildReceived = cobuildToken.balanceOf(address(this)) - cobuildBalanceBefore;
-        if (cobuildReceived == 0) revert ZERO_COBUILD_OUT();
+        uint256 paymentBalanceBefore = paymentTokenRef.balanceOf(address(this));
+        paymentTokenRef.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 paymentReceived = paymentTokenRef.balanceOf(address(this)) - paymentBalanceBefore;
+        if (paymentReceived == 0) revert ZERO_PAYMENT_TOKEN_OUT();
 
-        beneficiaryTokenCount = _forwardCobuild(
+        beneficiaryTokenCount = _forwardPaymentToken(
             destinationTerminal,
-            cobuildToken,
-            cobuildReceived,
+            paymentTokenRef,
+            paymentToken,
+            paymentReceived,
             projectId,
             beneficiary,
             minReturnedTokens,
@@ -179,9 +203,29 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
         );
     }
 
-    function _destinationTerminalOf(uint256 projectId) internal view returns (IJBTerminal destinationTerminal) {
-        destinationTerminal = DIRECTORY.primaryTerminalOf(projectId, COBUILD_TOKEN);
-        if (address(destinationTerminal) == address(0)) revert NO_DEST_TERMINAL();
+    function _fundingContextOf(uint256 goalId) internal view returns (address paymentToken, uint256 paymentRevnetId) {
+        address goalTreasury = GOAL_DEPLOYMENT_REGISTRY.goalTreasuryOf(goalId);
+        if (goalTreasury == address(0)) revert GOAL_NOT_REGISTERED(goalId);
+        if (goalTreasury.code.length == 0) revert NOT_A_CONTRACT(goalTreasury);
+
+        IGoalTreasury treasury = IGoalTreasury(goalTreasury);
+        paymentRevnetId = treasury.cobuildRevnetId();
+
+        address stakeVault = treasury.stakeVault();
+        if (stakeVault == address(0)) revert ADDRESS_ZERO();
+        if (stakeVault.code.length == 0) revert NOT_A_CONTRACT(stakeVault);
+
+        paymentToken = address(IStakeVault(stakeVault).cobuildToken());
+        if (paymentToken == address(0)) revert ADDRESS_ZERO();
+        if (paymentToken.code.length == 0) revert NOT_A_CONTRACT(paymentToken);
+    }
+
+    function _destinationTerminalOf(
+        uint256 projectId,
+        address paymentToken
+    ) internal view returns (IJBTerminal destinationTerminal) {
+        destinationTerminal = DIRECTORY.primaryTerminalOf(projectId, paymentToken);
+        if (address(destinationTerminal) == address(0)) revert NO_DEST_TERMINAL(projectId, paymentToken);
         if (address(destinationTerminal) == address(this)) revert DEST_TERMINAL_IS_SELF();
     }
 
@@ -194,29 +238,30 @@ contract CobuildTerminal is IJBTerminal, ReentrancyGuard {
             });
     }
 
-    function _forwardCobuild(
+    function _forwardPaymentToken(
         IJBTerminal destinationTerminal,
-        IERC20 cobuildToken,
-        uint256 cobuildAmount,
+        IERC20 paymentTokenRef,
+        address paymentToken,
+        uint256 paymentAmount,
         uint256 projectId,
         address beneficiary,
         uint256 minReturnedTokens,
         string calldata memo,
         bytes calldata metadata
     ) internal returns (uint256 beneficiaryTokenCount) {
-        cobuildToken.forceApprove(address(destinationTerminal), 0);
-        cobuildToken.forceApprove(address(destinationTerminal), cobuildAmount);
+        paymentTokenRef.forceApprove(address(destinationTerminal), 0);
+        paymentTokenRef.forceApprove(address(destinationTerminal), paymentAmount);
 
         beneficiaryTokenCount = destinationTerminal.pay(
             projectId,
-            COBUILD_TOKEN,
-            cobuildAmount,
+            paymentToken,
+            paymentAmount,
             beneficiary,
             minReturnedTokens,
             memo,
             metadata
         );
 
-        cobuildToken.forceApprove(address(destinationTerminal), 0);
+        paymentTokenRef.forceApprove(address(destinationTerminal), 0);
     }
 }

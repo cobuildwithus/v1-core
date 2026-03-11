@@ -21,16 +21,16 @@ import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
-interface ICobuildTerminalConfig {
+interface IGoalFundingTerminalConfig {
     function DIRECTORY() external view returns (IJBDirectory);
-    function COBUILD_TOKEN() external view returns (address);
-    function COBUILD_REVNET_ID() external view returns (uint256);
+    function GOAL_DEPLOYMENT_REGISTRY() external view returns (IGoalDeploymentRegistry);
 }
 
 contract GoalFactory {
@@ -39,10 +39,7 @@ contract GoalFactory {
     ISuperfluid public immutable SUPERFLUID_HOST;
     IGoalDeploymentRegistry public immutable GOAL_DEPLOYMENT_REGISTRY;
 
-    address public immutable COBUILD_TOKEN;
-    uint8 public immutable COBUILD_DECIMALS;
-    uint256 public immutable COBUILD_REVNET_ID;
-    address public immutable COBUILD_TERMINAL;
+    address public immutable GOAL_PAYMENT_TERMINAL;
     address public immutable JB_MULTI_TERMINAL;
     address public immutable BUYBACK_HOOK_DATA_HOOK;
     address public immutable BUYBACK_HOOK;
@@ -64,6 +61,11 @@ contract GoalFactory {
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     uint24 internal constant BUYBACK_POOL_FEE = 3_000;
     uint32 internal constant BUYBACK_TWAP_WINDOW = 1 hours;
+
+    struct FundingContext {
+        address paymentToken;
+        uint256 paymentRevnetId;
+    }
 
     struct RevnetParams {
         string name;
@@ -121,6 +123,7 @@ contract GoalFactory {
     }
 
     struct DeployParams {
+        FundingContext funding;
         RevnetParams revnet;
         GoalTimingParams timing;
         SuccessParams success;
@@ -159,20 +162,25 @@ contract GoalFactory {
     error INVALID_UNDERWRITING_SLASH_CONFIG(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
     error INVALID_MIN_RAISE_WINDOW(uint32 minRaiseDurationSeconds, uint32 goalDurationSeconds);
     error BUDGET_TCR_ADDRESS_MISMATCH(address predicted, address deployed);
-    error INVALID_COBUILD_TERMINAL_DIRECTORY(address expected, address actual);
-    error INVALID_COBUILD_TERMINAL_TOKEN(address expected, address actual);
-    error INVALID_COBUILD_TERMINAL_REVNET_ID(uint256 expected, uint256 actual);
-    error INVALID_COBUILD_REVNET_TOKEN(address expected, address actual, uint256 revnetId);
-    error INVALID_COBUILD_NATIVE_TERMINAL(address terminal);
+    error INVALID_GOAL_TERMINAL_DIRECTORY(address expected, address actual);
+    error INVALID_GOAL_TERMINAL_REGISTRY(address expected, address actual);
+    error INVALID_PAYMENT_REVNET_TOKEN(address expected, address actual, uint256 revnetId);
+    error INVALID_PAYMENT_NATIVE_TERMINAL(address terminal, uint256 revnetId);
+    error INVALID_DEPLOYED_FUNDING_CONTEXT(
+        address expectedToken,
+        address actualToken,
+        uint256 expectedRevnetId,
+        uint256 actualRevnetId
+    );
+    error INVALID_COMMUNITY_DIRECTORY(address expected, address actual);
+    error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
 
     constructor(
         IREVDeployer revDeployer,
         ISuperfluid superfluidHost,
         BudgetTCRFactory budgetTcrFactory,
         IGoalDeploymentRegistry goalDeploymentRegistry,
-        address cobuildToken,
-        uint256 cobuildRevnetId,
-        address cobuildTerminal,
+        address goalPaymentTerminal,
         address jbMultiTerminal,
         address buybackHookDataHook,
         address buybackHook,
@@ -193,8 +201,7 @@ contract GoalFactory {
         if (address(superfluidHost) == address(0)) revert ADDRESS_ZERO();
         if (address(budgetTcrFactory) == address(0)) revert ADDRESS_ZERO();
         if (address(goalDeploymentRegistry) == address(0)) revert ADDRESS_ZERO();
-        if (cobuildToken == address(0)) revert ADDRESS_ZERO();
-        if (cobuildTerminal == address(0)) revert ADDRESS_ZERO();
+        if (goalPaymentTerminal == address(0)) revert ADDRESS_ZERO();
         if (jbMultiTerminal == address(0)) revert ADDRESS_ZERO();
         if (buybackHookDataHook == address(0)) revert ADDRESS_ZERO();
         if (buybackHook == address(0)) revert ADDRESS_ZERO();
@@ -222,24 +229,21 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
-        if (cobuildTerminal.code.length == 0) revert NOT_A_CONTRACT(cobuildTerminal);
+        if (goalPaymentTerminal.code.length == 0) revert NOT_A_CONTRACT(goalPaymentTerminal);
         if (jbMultiTerminal.code.length == 0) revert NOT_A_CONTRACT(jbMultiTerminal);
         if (buybackHookDataHook.code.length == 0) revert NOT_A_CONTRACT(buybackHookDataHook);
         if (buybackHook.code.length == 0) revert NOT_A_CONTRACT(buybackHook);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
         }
-        _validateCobuildConfig(revDeployer, cobuildToken, cobuildRevnetId, cobuildTerminal);
+        _validateGoalTerminalConfig(revDeployer, goalDeploymentRegistry, goalPaymentTerminal);
 
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;
         BUDGET_TCR_FACTORY = budgetTcrFactory;
         GOAL_DEPLOYMENT_REGISTRY = goalDeploymentRegistry;
 
-        COBUILD_TOKEN = cobuildToken;
-        COBUILD_DECIMALS = IERC20Metadata(cobuildToken).decimals();
-        COBUILD_REVNET_ID = cobuildRevnetId;
-        COBUILD_TERMINAL = cobuildTerminal;
+        GOAL_PAYMENT_TERMINAL = goalPaymentTerminal;
         JB_MULTI_TERMINAL = jbMultiTerminal;
         BUYBACK_HOOK_DATA_HOOK = buybackHookDataHook;
         BUYBACK_HOOK = buybackHook;
@@ -259,44 +263,83 @@ contract GoalFactory {
         DEFAULT_INVALID_ROUND_REWARDS_SINK = defaultInvalidRoundRewardsSink;
     }
 
-    function _validateCobuildConfig(
-        IREVDeployer revDeployer,
-        address cobuildToken,
-        uint256 cobuildRevnetId,
-        address cobuildTerminal
-    ) private view {
-        IJBDirectory directory = revDeployer.DIRECTORY();
-        ICobuildTerminalConfig cobuildTerminalConfig = ICobuildTerminalConfig(cobuildTerminal);
+    function deployGoalForCommunity(
+        ICommunityGoalRegistry registry,
+        DeployParams calldata p
+    ) external returns (DeployedGoalStack memory out) {
+        if (address(registry) == address(0)) revert ADDRESS_ZERO();
+        if (address(registry).code.length == 0) revert NOT_A_CONTRACT(address(registry));
 
-        IJBDirectory terminalDirectory = cobuildTerminalConfig.DIRECTORY();
-        if (terminalDirectory != directory) {
-            revert INVALID_COBUILD_TERMINAL_DIRECTORY(address(directory), address(terminalDirectory));
+        IJBDirectory directory = REV_DEPLOYER.DIRECTORY();
+        if (address(registry.directory()) != address(directory)) {
+            revert INVALID_COMMUNITY_DIRECTORY(address(directory), address(registry.directory()));
+        }
+        if (address(registry.goalDeploymentRegistry()) != address(GOAL_DEPLOYMENT_REGISTRY)) {
+            revert INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(
+                address(GOAL_DEPLOYMENT_REGISTRY),
+                address(registry.goalDeploymentRegistry())
+            );
         }
 
-        address terminalToken = cobuildTerminalConfig.COBUILD_TOKEN();
-        if (terminalToken != cobuildToken) {
-            revert INVALID_COBUILD_TERMINAL_TOKEN(cobuildToken, terminalToken);
-        }
-
-        uint256 terminalRevnetId = cobuildTerminalConfig.COBUILD_REVNET_ID();
-        if (terminalRevnetId != cobuildRevnetId) {
-            revert INVALID_COBUILD_TERMINAL_REVNET_ID(cobuildRevnetId, terminalRevnetId);
-        }
-
-        IJBController controller = revDeployer.CONTROLLER();
-        IJBTokens tokens = controller.TOKENS();
-        address revnetToken = address(tokens.tokenOf(cobuildRevnetId));
-        if (revnetToken != cobuildToken) {
-            revert INVALID_COBUILD_REVNET_TOKEN(cobuildToken, revnetToken, cobuildRevnetId);
-        }
-
-        address nativeTerminal = address(directory.primaryTerminalOf(cobuildRevnetId, JBConstants.NATIVE_TOKEN));
-        if (nativeTerminal == address(0) || nativeTerminal == cobuildTerminal) {
-            revert INVALID_COBUILD_NATIVE_TERMINAL(nativeTerminal);
-        }
+        DeployParams memory params = p;
+        params.funding = FundingContext({
+            paymentToken: registry.communityToken(),
+            paymentRevnetId: registry.communityRevnetId()
+        });
+        out = _deployGoal(params);
     }
 
     function deployGoal(DeployParams calldata p) external returns (DeployedGoalStack memory out) {
+        DeployParams memory params = p;
+        out = _deployGoal(params);
+    }
+
+    function _validateGoalTerminalConfig(
+        IREVDeployer revDeployer,
+        IGoalDeploymentRegistry goalDeploymentRegistry,
+        address goalPaymentTerminal
+    ) private view {
+        IJBDirectory directory = revDeployer.DIRECTORY();
+        IGoalFundingTerminalConfig goalTerminalConfig = IGoalFundingTerminalConfig(goalPaymentTerminal);
+
+        IJBDirectory terminalDirectory = goalTerminalConfig.DIRECTORY();
+        if (terminalDirectory != directory) {
+            revert INVALID_GOAL_TERMINAL_DIRECTORY(address(directory), address(terminalDirectory));
+        }
+
+        address terminalRegistry = address(goalTerminalConfig.GOAL_DEPLOYMENT_REGISTRY());
+        if (terminalRegistry != address(goalDeploymentRegistry)) {
+            revert INVALID_GOAL_TERMINAL_REGISTRY(address(goalDeploymentRegistry), terminalRegistry);
+        }
+    }
+
+    function _resolveFundingContext(
+        FundingContext memory funding
+    ) private view returns (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) {
+        paymentToken = funding.paymentToken;
+        paymentRevnetId = funding.paymentRevnetId;
+
+        if (paymentToken == address(0) || paymentRevnetId == 0) revert ADDRESS_ZERO();
+        if (paymentToken.code.length == 0) revert NOT_A_CONTRACT(paymentToken);
+
+        IJBController controller = REV_DEPLOYER.CONTROLLER();
+        IJBTokens tokens = controller.TOKENS();
+        address revnetToken = address(tokens.tokenOf(paymentRevnetId));
+        if (revnetToken != paymentToken) {
+            revert INVALID_PAYMENT_REVNET_TOKEN(paymentToken, revnetToken, paymentRevnetId);
+        }
+
+        address nativeTerminal = address(
+            REV_DEPLOYER.DIRECTORY().primaryTerminalOf(paymentRevnetId, JBConstants.NATIVE_TOKEN)
+        );
+        if (nativeTerminal == address(0) || nativeTerminal == GOAL_PAYMENT_TERMINAL) {
+            revert INVALID_PAYMENT_NATIVE_TERMINAL(nativeTerminal, paymentRevnetId);
+        }
+
+        paymentTokenDecimals = IERC20Metadata(paymentToken).decimals();
+    }
+
+    function _deployGoal(DeployParams memory p) private returns (DeployedGoalStack memory out) {
         if (p.revnet.durationSeconds == 0) revert INVALID_DURATION();
         if (p.revnet.reservedPercent > FlowProtocolConstants.BPS_SCALE) revert INVALID_RESERVED_PERCENT();
         if (p.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
@@ -324,18 +367,25 @@ contract GoalFactory {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(p.underwriting.budgetPremiumPpm, p.underwriting.budgetSlashPpm);
         }
 
+        (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) = _resolveFundingContext(p.funding);
+
         GoalTreasury goalTreasury = GoalTreasury(Clones.clone(GOAL_TREASURY_IMPL));
         GoalRevnetSplitHook splitHook = GoalRevnetSplitHook(payable(Clones.clone(SPLIT_HOOK_IMPL)));
         CustomFlow goalFlow = CustomFlow(payable(Clones.clone(FLOW_IMPL)));
 
-        GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet = _deployRevnet(p, splitHook);
+        GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet = _deployRevnet(
+            p,
+            splitHook,
+            paymentToken,
+            paymentTokenDecimals
+        );
 
         address predictedBudgetTCR = BUDGET_TCR_FACTORY.predictBudgetTCRAddress(
             address(this),
             address(goalFlow),
             address(goalTreasury),
             revnet.goalRevnetId,
-            COBUILD_TOKEN
+            paymentToken
         );
 
         uint32 minRaiseWindow = _resolveMinRaiseWindow(p.revnet.durationSeconds, p.timing.minRaiseDurationSeconds);
@@ -348,14 +398,34 @@ contract GoalFactory {
             goalFlow,
             revnet,
             predictedBudgetTCR,
-            minRaiseDeadline
+            minRaiseDeadline,
+            paymentToken,
+            paymentTokenDecimals
         );
 
-        BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(p, core, revnet, predictedBudgetTCR);
+        BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(
+            p,
+            core,
+            revnet,
+            predictedBudgetTCR,
+            paymentToken,
+            paymentTokenDecimals
+        );
         if (tcrStack.budgetTCR != predictedBudgetTCR) {
             revert BUDGET_TCR_ADDRESS_MISMATCH(predictedBudgetTCR, tcrStack.budgetTCR);
         }
         GOAL_DEPLOYMENT_REGISTRY.registerGoal(revnet.goalRevnetId, address(core.goalTreasury));
+
+        uint256 actualPaymentRevnetId = core.goalTreasury.cobuildRevnetId();
+        address actualPaymentToken = address(core.stakeVault.cobuildToken());
+        if (actualPaymentRevnetId != paymentRevnetId || actualPaymentToken != paymentToken) {
+            revert INVALID_DEPLOYED_FUNDING_CONTEXT(
+                paymentToken,
+                actualPaymentToken,
+                paymentRevnetId,
+                actualPaymentRevnetId
+            );
+        }
 
         out = DeployedGoalStack({
             goalRevnetId: revnet.goalRevnetId,
@@ -378,16 +448,18 @@ contract GoalFactory {
     }
 
     function _deployRevnet(
-        DeployParams calldata p,
-        GoalRevnetSplitHook splitHook
+        DeployParams memory p,
+        GoalRevnetSplitHook splitHook,
+        address paymentToken,
+        uint8 paymentTokenDecimals
     ) private returns (GoalFactoryRevnetDeploy.RevnetDeploymentResult memory) {
         return
             GoalFactoryRevnetDeploy.deployRevnet(
                 GoalFactoryRevnetDeploy.RevnetDeploymentRequest({
                     revDeployer: REV_DEPLOYER,
-                    cobuildToken: COBUILD_TOKEN,
-                    cobuildDecimals: COBUILD_DECIMALS,
-                    cobuildTerminal: COBUILD_TERMINAL,
+                    cobuildToken: paymentToken,
+                    cobuildDecimals: paymentTokenDecimals,
+                    cobuildTerminal: GOAL_PAYMENT_TERMINAL,
                     jbMultiTerminal: JB_MULTI_TERMINAL,
                     splitHook: address(splitHook),
                     name: p.revnet.name,
@@ -407,13 +479,15 @@ contract GoalFactory {
     }
 
     function _initializeCoreStack(
-        DeployParams calldata p,
+        DeployParams memory p,
         GoalTreasury goalTreasury,
         GoalRevnetSplitHook splitHook,
         CustomFlow goalFlow,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address predictedBudgetTCR,
-        uint64 minRaiseDeadline
+        uint64 minRaiseDeadline,
+        address paymentToken,
+        uint8 paymentTokenDecimals
     ) private returns (GoalFactoryCoreStackDeploy.CoreStackResult memory) {
         return
             GoalFactoryCoreStackDeploy.initializeCoreStack(
@@ -429,8 +503,8 @@ contract GoalFactory {
                     underwriterSlasherRouterImpl: UNDERWRITER_SLASHER_ROUTER_IMPL,
                     budgetStakeLedgerImpl: BUDGET_STAKE_LEDGER_IMPL,
                     goalFlowAllocationLedgerPipelineImpl: GOAL_FLOW_ALLOCATION_LEDGER_PIPELINE_IMPL,
-                    cobuildToken: COBUILD_TOKEN,
-                    cobuildDecimals: COBUILD_DECIMALS,
+                    cobuildToken: paymentToken,
+                    cobuildDecimals: paymentTokenDecimals,
                     goalRevnetId: revnet.goalRevnetId,
                     goalToken: revnet.goalToken,
                     predictedBudgetTcr: predictedBudgetTCR,
@@ -458,10 +532,12 @@ contract GoalFactory {
     }
 
     function _deployBudgetTcr(
-        DeployParams calldata p,
+        DeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
-        address predictedBudgetTCR
+        address predictedBudgetTCR,
+        address paymentToken,
+        uint8 paymentTokenDecimals
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
         return
             GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
@@ -483,8 +559,8 @@ contract GoalFactory {
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-                    cobuildToken: COBUILD_TOKEN,
-                    cobuildDecimals: COBUILD_DECIMALS,
+                    cobuildToken: paymentToken,
+                    cobuildDecimals: paymentTokenDecimals,
                     budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
                     budgetBounds: p.budgetTCR.budgetBounds,
                     oracleBounds: p.budgetTCR.oracleBounds,

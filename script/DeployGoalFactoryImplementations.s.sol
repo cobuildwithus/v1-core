@@ -10,6 +10,7 @@ import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 import {DeployScript} from "script/DeployScript.s.sol";
+import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
@@ -104,9 +105,14 @@ contract DeployGoalFactoryImplementations is DeployScript {
         fakeUmaEscalationManagerOut = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
         fakeUmaDomainIdOut = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
-        CobuildTerminal cobuildTerminal = new CobuildTerminal(
-            IREVDeployer(revDeployerAddressOut).DIRECTORY(), cobuildTokenAddressOut, cobuildRevnetIdOut
-        );
+        address goalDeploymentRegistryForTerminal = vm.envOr("GOAL_DEPLOYMENT_REGISTRY", address(0));
+        if (goalDeploymentRegistryForTerminal != address(0)) {
+            CobuildTerminal cobuildTerminal = new CobuildTerminal(
+                IREVDeployer(revDeployerAddressOut).DIRECTORY(),
+                IGoalDeploymentRegistry(goalDeploymentRegistryForTerminal)
+            );
+            cobuildTerminalOut = address(cobuildTerminal);
+        }
 
         GoalTreasury goalTreasuryImpl = new GoalTreasury();
         StakeVault stakeVaultImpl =
@@ -177,7 +183,6 @@ contract DeployGoalFactoryImplementations is DeployScript {
         teamFlowFactoryImplOut = address(teamFlowFactoryImpl);
 
         defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
-        cobuildTerminalOut = address(cobuildTerminal);
         fakeUmaResolverOut = address(fakeUmaResolver);
 
         console2.log("Deployer:", deployerAddress);

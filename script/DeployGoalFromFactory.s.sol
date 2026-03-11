@@ -37,6 +37,8 @@ contract DeployGoalFromFactory is DeployScript {
         string memory goalName = vm.envOr("GOAL_NAME", string("Test Goal"));
         string memory goalTicker = vm.envOr("GOAL_TICKER", string("TGOAL"));
         string memory goalUri = vm.envOr("GOAL_URI", string("ipfs://TEST"));
+        address paymentToken = vm.envOr("GOAL_PAYMENT_TOKEN", vm.envOr("COBUILD_TOKEN", BURN));
+        uint256 paymentRevnetId = vm.envOr("GOAL_PAYMENT_REVNET_ID", vm.envOr("COBUILD_REVNET_ID", uint256(138)));
 
         uint32 duration = uint32(vm.envOr("GOAL_DURATION_SECONDS", uint256(6 hours)));
         uint16 reservedPercent = uint16(vm.envOr("GOAL_RESERVED_PERCENT_BPS", uint256(9900)));
@@ -118,6 +120,7 @@ contract DeployGoalFromFactory is DeployScript {
         });
 
         GoalFactory.DeployParams memory params = GoalFactory.DeployParams({
+            funding: GoalFactory.FundingContext({paymentToken: paymentToken, paymentRevnetId: paymentRevnetId}),
             revnet: GoalFactory.RevnetParams({
                 name: goalName,
                 ticker: goalTicker,

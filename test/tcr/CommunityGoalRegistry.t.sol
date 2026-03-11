@@ -52,8 +52,8 @@ contract CommunityGoalRegistryTest is Test {
         terminal = new CommunityGoalRegistryMockTerminal();
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
 
-        goalTreasuryOne = new CommunityGoalRegistryMockGoalTreasury(GOAL_ID_ONE);
-        goalTreasuryTwo = new CommunityGoalRegistryMockGoalTreasury(GOAL_ID_TWO);
+        goalTreasuryOne = _newGoalTreasury(GOAL_ID_ONE, COMMUNITY_REVNET_ID, address(token));
+        goalTreasuryTwo = _newGoalTreasury(GOAL_ID_TWO, COMMUNITY_REVNET_ID, address(token));
         goalDeploymentRegistry.registerGoal(GOAL_ID_ONE, address(goalTreasuryOne));
         goalDeploymentRegistry.registerGoal(GOAL_ID_TWO, address(goalTreasuryTwo));
 
@@ -361,13 +361,46 @@ contract CommunityGoalRegistryTest is Test {
     function test_addItem_revertsWhenGoalHasNoPrimaryTerminal() public {
         uint256 goalIdWithoutTerminal = 303;
         CommunityGoalRegistryMockGoalTreasury goalTreasury =
-            new CommunityGoalRegistryMockGoalTreasury(goalIdWithoutTerminal);
+            _newGoalTreasury(goalIdWithoutTerminal, COMMUNITY_REVNET_ID, address(token));
         goalDeploymentRegistry.registerGoal(goalIdWithoutTerminal, address(goalTreasury));
         bytes memory missingTerminalItem = _goalItem(goalIdWithoutTerminal, "ipfs://missing-terminal");
 
         vm.prank(alice);
         vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
         registry.addItem(missingTerminalItem);
+    }
+
+    function test_addItem_revertsWhenGoalFundingRevnetDiffersFromCommunity() public {
+        uint256 mismatchedGoalId = 404;
+        CommunityGoalRegistryMockGoalTreasury mismatchedTreasury =
+            _newGoalTreasury(mismatchedGoalId, COMMUNITY_REVNET_ID + 1, address(token));
+        goalDeploymentRegistry.registerGoal(mismatchedGoalId, address(mismatchedTreasury));
+        directory.setPrimaryTerminal(mismatchedGoalId, address(token), IJBTerminal(address(terminal)));
+
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        registry.addItem(_goalItem(mismatchedGoalId, "ipfs://wrong-revnet"));
+    }
+
+    function test_pinSystemGoal_revertsWhenGoalFundingTokenDiffersFromCommunity() public {
+        uint256 mismatchedGoalId = 505;
+        CommunityGoalRegistryMockGoalTreasury mismatchedTreasury =
+            _newGoalTreasury(mismatchedGoalId, COMMUNITY_REVNET_ID, address(otherToken));
+        goalDeploymentRegistry.registerGoal(mismatchedGoalId, address(mismatchedTreasury));
+        directory.setPrimaryTerminal(mismatchedGoalId, address(token), IJBTerminal(address(terminal)));
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CommunityGoalRegistry.GOAL_FUNDING_CONTEXT_MISMATCH.selector,
+                mismatchedGoalId,
+                COMMUNITY_REVNET_ID,
+                COMMUNITY_REVNET_ID,
+                address(token),
+                address(otherToken)
+            )
+        );
+        registry.pinSystemGoal(mismatchedGoalId, "ipfs://wrong-token", SYSTEM_FLOOR_ONE);
     }
 
     function _registerGoal(address submitter, uint256 goalId, string memory metadataUri) internal {
@@ -380,6 +413,16 @@ contract CommunityGoalRegistryTest is Test {
 
     function _goalItem(uint256 goalId, string memory metadataUri) internal pure returns (bytes memory item) {
         item = abi.encode(ICommunityGoalRegistry.GoalItemData({goalId: goalId, metadataURI: metadataUri}));
+    }
+
+    function _newGoalTreasury(
+        uint256 goalId,
+        uint256 fundingRevnetId,
+        address fundingToken
+    ) internal returns (CommunityGoalRegistryMockGoalTreasury goalTreasury) {
+        goalTreasury = new CommunityGoalRegistryMockGoalTreasury(
+            goalId, fundingRevnetId, address(new CommunityGoalRegistryMockStakeVault(fundingToken))
+        );
     }
 
     function _registryConfig(
@@ -430,8 +473,20 @@ contract CommunityGoalRegistryMockTerminal {}
 
 contract CommunityGoalRegistryMockGoalTreasury {
     uint256 public immutable goalRevnetId;
+    uint256 public immutable cobuildRevnetId;
+    address public immutable stakeVault;
 
-    constructor(uint256 goalRevnetId_) {
+    constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
         goalRevnetId = goalRevnetId_;
+        cobuildRevnetId = cobuildRevnetId_;
+        stakeVault = stakeVault_;
+    }
+}
+
+contract CommunityGoalRegistryMockStakeVault {
+    IERC20 public immutable cobuildToken;
+
+    constructor(address cobuildToken_) {
+        cobuildToken = IERC20(cobuildToken_);
     }
 }

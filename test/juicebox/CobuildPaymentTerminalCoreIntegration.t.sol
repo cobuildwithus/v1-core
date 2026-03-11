@@ -405,16 +405,21 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         directory.setPrimaryTerminalOf(
             fixture.communityRevnetId, address(fixture.communityToken), IJBTerminal(address(fixture.communityTerminal))
         );
+        directory.setPrimaryTerminalOf(
+            fixture.communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(new NoopNativeTerminal()))
+        );
         vm.prank(multisig);
         controller.setProjectTerminal(fixture.communityRevnetId, address(fixture.communityTerminal), true);
 
         fixture.registry =
             _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
 
-        (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) =
-            _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Wrapper Goal One");
-        (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) =
-            _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Wrapper Goal Two");
+        (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) = _deployGoal(
+            goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Wrapper Goal One"
+        );
+        (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) = _deployGoal(
+            goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Wrapper Goal Two"
+        );
         if (pinAsSystem) {
             _pinSystemGoals(fixture.registry, fixture.goalIdOne, fixture.goalIdTwo, floorPpmOne, floorPpmTwo);
         } else {
@@ -422,19 +427,21 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         }
 
         fixture.hook = _deployHookClone();
-        fixture.wrapper = new CobuildPaymentTerminal(
-            IJBDirectory(address(directory)),
-            ICobuildSplitHook(address(fixture.hook)),
-            address(fixture.communityToken),
-            fixture.communityRevnetId,
-            fixture.communityRevnetId
-        );
+        fixture.wrapper = new CobuildPaymentTerminal(IJBDirectory(address(directory)));
         fixture.hook.initialize(
             IJBDirectory(address(directory)),
             fixture.communityRevnetId,
             address(fixture.communityToken),
             address(fixture.wrapper),
             fixture.registry
+        );
+        vm.prank(multisig);
+        fixture.wrapper.registerCommunity(
+            fixture.communityRevnetId,
+            ICobuildSplitHook(address(fixture.hook)),
+            address(fixture.communityToken),
+            fixture.communityRevnetId,
+            true
         );
 
         vm.prank(multisig);
@@ -466,10 +473,12 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
         fixture.registry =
             _deployCommunityGoalRegistry(fixture.communityRevnetId, address(fixture.communityToken), goalDeploymentRegistry);
 
-        (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) =
-            _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Manual Goal One");
-        (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) =
-            _deployGoal(goalDeploymentRegistry, address(fixture.communityToken), "Manual Goal Two");
+        (fixture.goalIdOne, fixture.goalTerminalOne, fixture.goalTreasuryOne) = _deployGoal(
+            goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Manual Goal One"
+        );
+        (fixture.goalIdTwo, fixture.goalTerminalTwo, fixture.goalTreasuryTwo) = _deployGoal(
+            goalDeploymentRegistry, fixture.communityRevnetId, address(fixture.communityToken), "Manual Goal Two"
+        );
         if (pinAsSystem) {
             _pinSystemGoals(fixture.registry, fixture.goalIdOne, fixture.goalIdTwo, floorPpmOne, floorPpmTwo);
         } else {
@@ -516,12 +525,13 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
 
     function _deployGoal(
         GoalDeploymentRegistry goalDeploymentRegistry,
+        uint256 communityRevnetId,
         address communityToken,
         string memory nameHint
     ) internal returns (uint256 goalId, GoalRecordingTerminal terminal, GoalTreasuryStub treasury) {
         (goalId,) = controller.createProject(multisig, 0, nameHint, "GOAL");
         terminal = new GoalRecordingTerminal(communityToken);
-        treasury = new GoalTreasuryStub(goalId);
+        treasury = new GoalTreasuryStub(goalId, communityRevnetId, address(new StakeVaultStub(communityToken)));
 
         goalDeploymentRegistry.registerGoal(goalId, address(treasury));
         directory.setPrimaryTerminalOf(goalId, communityToken, IJBTerminal(address(terminal)));
@@ -734,6 +744,14 @@ contract CobuildPaymentTerminalCoreIntegrationTest is Test {
 
 contract RouteSetterStub {}
 
+contract AsyncTokens {
+    mapping(uint256 projectId => MockVotesToken token) public tokenOf;
+
+    function setTokenOf(uint256 projectId, MockVotesToken token) external {
+        tokenOf[projectId] = token;
+    }
+}
+
 contract AsyncReservedController is IERC165 {
     error UNAUTHORIZED();
     error INVALID_PROJECT();
@@ -748,6 +766,7 @@ contract AsyncReservedController is IERC165 {
     }
 
     AsyncDirectory public immutable directory;
+    AsyncTokens public immutable TOKENS;
 
     uint256 public projectCount;
     mapping(uint256 projectId => uint256) public pendingReservedTokenBalanceOf;
@@ -757,6 +776,7 @@ contract AsyncReservedController is IERC165 {
 
     constructor(AsyncDirectory directory_) {
         directory = directory_;
+        TOKENS = new AsyncTokens();
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
@@ -774,6 +794,7 @@ contract AsyncReservedController is IERC165 {
 
         _projectConfigOf[projectId] =
             ProjectConfig({owner: owner, token: token, reservedPercent: reservedPercent, reservedSplitHook: IJBSplitHook(address(0))});
+        TOKENS.setTokenOf(projectId, token);
         directory.setControllerOf(projectId, IERC165(address(this)));
     }
 
@@ -1062,8 +1083,80 @@ contract GoalRecordingTerminal is IJBTerminal {
 
 contract GoalTreasuryStub {
     uint256 public immutable goalRevnetId;
+    uint256 public immutable cobuildRevnetId;
+    address public immutable stakeVault;
 
-    constructor(uint256 goalRevnetId_) {
+    constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
         goalRevnetId = goalRevnetId_;
+        cobuildRevnetId = cobuildRevnetId_;
+        stakeVault = stakeVault_;
+    }
+}
+
+contract StakeVaultStub {
+    IERC20 public immutable cobuildToken;
+
+    constructor(address cobuildToken_) {
+        cobuildToken = IERC20(cobuildToken_);
+    }
+}
+
+contract NoopNativeTerminal is IJBTerminal {
+    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function accountingContextForTokenOf(
+        uint256,
+        address token
+    ) external pure override returns (JBAccountingContext memory context) {
+        if (token != JBConstants.NATIVE_TOKEN) {
+            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        }
+
+        return JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+    }
+
+    function accountingContextsOf(uint256) external pure override returns (JBAccountingContext[] memory contexts) {
+        contexts = new JBAccountingContext[](1);
+        contexts[0] =
+            JBAccountingContext({token: JBConstants.NATIVE_TOKEN, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
+    }
+
+    function currentSurplusOf(
+        uint256,
+        JBAccountingContext[] memory,
+        uint256,
+        uint256
+    ) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
+
+    function addToBalanceOf(
+        uint256,
+        address,
+        uint256,
+        bool,
+        string calldata,
+        bytes calldata
+    ) external payable override {}
+
+    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function pay(
+        uint256,
+        address token,
+        uint256 amount,
+        address,
+        uint256,
+        string calldata,
+        bytes calldata
+    ) external payable override returns (uint256) {
+        if (token != JBConstants.NATIVE_TOKEN || msg.value != amount) revert("INVALID_PAY");
+        return amount;
     }
 }

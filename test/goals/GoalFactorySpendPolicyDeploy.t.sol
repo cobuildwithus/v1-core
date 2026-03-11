@@ -38,6 +38,7 @@ import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
@@ -72,14 +73,13 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         directory = new FactoryDeployMockDirectory();
         controller = new FactoryDeployMockController(address(tokens), address(rulesets));
         revDeployer = new FactoryDeployMockRevDeployer(address(directory), address(controller), GOAL_REVNET_ID);
-        cobuildTerminal = new FactoryDeployMockCobuildTerminal(
-            IJBDirectory(address(directory)), address(cobuildToken), COBUILD_REVNET_ID
-        );
         superTokenFactory = new FactoryDeployMockSuperTokenFactory();
         superfluidHost = new FactoryDeployMockSuperfluidHost(address(superTokenFactory));
         budgetTcrFactory = new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR);
         successResolver = new FactoryDeployDummyContract();
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
+        cobuildTerminal =
+            new FactoryDeployMockCobuildTerminal(IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry)));
 
         rulesets.setDirectory(IJBDirectory(address(directory)));
         rulesets.configureTwoRulesetSchedule(GOAL_REVNET_ID, uint48(block.timestamp + 7 days), 1e18);
@@ -100,8 +100,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             ISuperfluid(address(superfluidHost)),
             BudgetTCRFactory(address(budgetTcrFactory)),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
-            address(cobuildToken),
-            COBUILD_REVNET_ID,
             address(cobuildTerminal),
             address(new FactoryDeployDummyContract()),
             address(new FactoryDeployDummyContract()),
@@ -160,6 +158,26 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(configuredBudgetSpendPolicy));
     }
 
+    function test_deployGoalForCommunity_overridesCallerFundingContextWithRegistryFundingContext() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+        FactoryDeployMockToken wrongToken = new FactoryDeployMockToken("Other", "OTH");
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
+        params.funding = GoalFactory.FundingContext({paymentToken: address(wrongToken), paymentRevnetId: 999});
+
+        FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COBUILD_REVNET_ID,
+            address(cobuildToken)
+        );
+
+        GoalFactory.DeployedGoalStack memory deployed =
+            factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+
+        assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
+    }
+
     function test_deployGoal_bubblesInvalidSpendPolicyFromGoalTreasuryInitialization() public {
         FactoryDeployDummyContract invalidPolicy = new FactoryDeployDummyContract();
         GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
@@ -202,6 +220,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     }
 
     function _baseDeployParams(address goalSpendPolicy) internal returns (GoalFactory.DeployParams memory p) {
+        p.funding = GoalFactory.FundingContext({paymentToken: address(cobuildToken), paymentRevnetId: COBUILD_REVNET_ID});
         p.revnet = GoalFactory.RevnetParams({
             name: "Goal",
             ticker: "GOAL",
@@ -477,25 +496,38 @@ contract FactoryDeployMockDirectory {
 
 contract FactoryDeployMockCobuildTerminal {
     IJBDirectory private immutable _directory;
-    address private immutable _cobuildToken;
-    uint256 private immutable _cobuildRevnetId;
+    IGoalDeploymentRegistry private immutable _goalDeploymentRegistry;
 
-    constructor(IJBDirectory directory_, address cobuildToken_, uint256 cobuildRevnetId_) {
+    constructor(IJBDirectory directory_, IGoalDeploymentRegistry goalDeploymentRegistry_) {
         _directory = directory_;
-        _cobuildToken = cobuildToken_;
-        _cobuildRevnetId = cobuildRevnetId_;
+        _goalDeploymentRegistry = goalDeploymentRegistry_;
     }
 
     function DIRECTORY() external view returns (IJBDirectory) {
         return _directory;
     }
 
-    function COBUILD_TOKEN() external view returns (address) {
-        return _cobuildToken;
+    function GOAL_DEPLOYMENT_REGISTRY() external view returns (IGoalDeploymentRegistry) {
+        return _goalDeploymentRegistry;
     }
+}
 
-    function COBUILD_REVNET_ID() external view returns (uint256) {
-        return _cobuildRevnetId;
+contract FactoryDeployMockCommunityGoalRegistry {
+    IJBDirectory public directory;
+    IGoalDeploymentRegistry public goalDeploymentRegistry;
+    uint256 public communityRevnetId;
+    address public communityToken;
+
+    constructor(
+        IJBDirectory directory_,
+        IGoalDeploymentRegistry goalDeploymentRegistry_,
+        uint256 communityRevnetId_,
+        address communityToken_
+    ) {
+        directory = directory_;
+        goalDeploymentRegistry = goalDeploymentRegistry_;
+        communityRevnetId = communityRevnetId_;
+        communityToken = communityToken_;
     }
 }
 

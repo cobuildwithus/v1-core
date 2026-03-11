@@ -9,6 +9,7 @@ import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositS
 import {DeployScript} from "script/DeployScript.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {CobuildTerminal} from "src/juicebox/CobuildTerminal.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
@@ -51,12 +52,16 @@ contract GoalFactoryPairDeployer {
 
     address public immutable budgetTcrFactory;
     address public immutable goalDeploymentRegistry;
+    address public immutable goalPaymentTerminal;
     address public immutable goalFactory;
 
     constructor(BudgetTcrFactoryConfig memory budgetTcrConfig, GoalFactoryConfig memory goalFactoryConfig) {
         bool deployGoalDeploymentRegistry = goalFactoryConfig.goalDeploymentRegistry == address(0);
-        // Pair deployer constructor creation order is: optional GoalDeploymentRegistry, BudgetTCRFactory, GoalFactory.
-        uint256 goalFactoryCreateNonce = deployGoalDeploymentRegistry ? 3 : 2;
+        bool deployGoalPaymentTerminal = goalFactoryConfig.cobuildTerminal == address(0);
+        // Pair deployer constructor creation order is:
+        // optional GoalDeploymentRegistry, optional CobuildTerminal, BudgetTCRFactory, GoalFactory.
+        uint256 goalFactoryCreateNonce =
+            2 + (deployGoalDeploymentRegistry ? 1 : 0) + (deployGoalPaymentTerminal ? 1 : 0);
         address predictedGoalFactory = _computeCreateAddress(address(this), goalFactoryCreateNonce);
 
         address goalDeploymentRegistry_ = goalFactoryConfig.goalDeploymentRegistry;
@@ -64,6 +69,16 @@ contract GoalFactoryPairDeployer {
             GoalDeploymentRegistry deployedGoalDeploymentRegistry =
                 new GoalDeploymentRegistry(goalFactoryConfig.goalDeploymentRegistryRegistrarAdmin, predictedGoalFactory);
             goalDeploymentRegistry_ = address(deployedGoalDeploymentRegistry);
+        }
+
+        address goalPaymentTerminal_ = goalFactoryConfig.cobuildTerminal;
+        if (deployGoalPaymentTerminal) {
+            goalPaymentTerminal_ = address(
+                new CobuildTerminal(
+                    IREVDeployer(goalFactoryConfig.revDeployer).DIRECTORY(),
+                    IGoalDeploymentRegistry(goalDeploymentRegistry_)
+                )
+            );
         }
 
         BudgetTCRFactory budgetTcrFactory_ = new BudgetTCRFactory(
@@ -79,9 +94,7 @@ contract GoalFactoryPairDeployer {
             ISuperfluid(goalFactoryConfig.superfluidHost),
             budgetTcrFactory_,
             IGoalDeploymentRegistry(goalDeploymentRegistry_),
-            goalFactoryConfig.cobuildToken,
-            goalFactoryConfig.cobuildRevnetId,
-            goalFactoryConfig.cobuildTerminal,
+            goalPaymentTerminal_,
             goalFactoryConfig.jbMultiTerminal,
             goalFactoryConfig.buybackHookDataHook,
             goalFactoryConfig.buybackHook,
@@ -105,6 +118,7 @@ contract GoalFactoryPairDeployer {
 
         budgetTcrFactory = address(budgetTcrFactory_);
         goalDeploymentRegistry = goalDeploymentRegistry_;
+        goalPaymentTerminal = goalPaymentTerminal_;
         goalFactory = address(goalFactory_);
     }
 
@@ -186,7 +200,10 @@ contract DeployGoalFactory is DeployScript {
             "COBUILD_TOKEN", "$.core.cobuildToken", address(0x62f05B1aD94c5d7B9f989A294d2A0f36a1AE10Fb)
         );
         cobuildRevnetIdOut = _resolveUint("COBUILD_REVNET_ID", "$.core.cobuildRevnetId", 138);
-        cobuildTerminalOut = _requireConfigAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal");
+        cobuildTerminalOut = _resolveAddress("GOAL_PAYMENT_TERMINAL", "$.core.goalPaymentTerminal", address(0));
+        if (cobuildTerminalOut == address(0)) {
+            cobuildTerminalOut = _resolveAddress("COBUILD_TERMINAL", "$.core.cobuildTerminal", address(0));
+        }
         jbMultiTerminalOut = _resolveAddress(
             "JB_MULTI_TERMINAL", "$.core.jbMultiTerminal", address(0x2dB6d704058E552DeFE415753465df8dF0361846)
         );

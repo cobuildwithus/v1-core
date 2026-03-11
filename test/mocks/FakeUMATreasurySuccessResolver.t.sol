@@ -10,7 +10,7 @@ import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessRe
 import {ISuccessAssertionTreasury} from "src/interfaces/ISuccessAssertionTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
-import {DeployGoalFactory} from "script/DeployGoalFactory.s.sol";
+import {DeployGoalFactory, GoalFactoryPairDeployer} from "script/DeployGoalFactory.s.sol";
 import {DeployGoalFactoryImplementations} from "script/DeployGoalFactoryImplementations.s.sol";
 import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
@@ -285,7 +285,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             string memory latestTomlPath = _latestImplementationsTomlPath();
             string memory latestToml = vm.readFile(latestTomlPath);
             address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
-            address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
             address expectedBuybackHookDataHook = vm.parseTomlAddress(latestToml, "$.core.buybackHookDataHook");
             address expectedBuybackHook = vm.parseTomlAddress(latestToml, "$.core.buybackHook");
             assertEq(expectedBuybackHookDataHook, buybackHookDataHookAddress);
@@ -308,9 +307,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, string.concat("SUPERFLUID_HOST: ", vm.toString(SUPERFLUID_HOST))));
             assertTrue(_stringContains(artifact, string.concat("COBUILD_TOKEN: ", vm.toString(address(token)))));
             assertTrue(_stringContains(artifact, "COBUILD_REVNET_ID: 138"));
-            assertTrue(
-                _stringContains(artifact, string.concat("COBUILD_TERMINAL: ", vm.toString(expectedCobuildTerminal)))
-            );
+            assertTrue(_stringContains(artifact, "COBUILD_TERMINAL: "));
             assertTrue(_stringContains(artifact, "GoalTreasuryImpl: 0x"));
             assertTrue(_stringContains(artifact, "StakeVaultImpl: 0x"));
             assertTrue(_stringContains(artifact, "BudgetStakeLedgerImpl: 0x"));
@@ -364,8 +361,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             address deployer = vm.addr(PRIVATE_KEY);
 
             deployFactoryScript.run();
-            string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
-            address expectedCobuildTerminal = vm.parseTomlAddress(latestToml, "$.core.cobuildTerminal");
             address expectedJbMultiTerminal = jbMultiTerminalAddress;
             string memory artifactPath = string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
             string memory artifact = vm.readFile(artifactPath);
@@ -374,8 +369,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             address budgetTcrFactory = _artifactAddressForKey(artifact, "BudgetTCRFactory");
             address pairDeployer = _artifactAddressForKey(artifact, "GoalFactoryPairDeployer");
             address predictedGoalDeploymentRegistry = _predictCreateAddress(pairDeployer, 1);
-            uint256 budgetTcrFactoryCreateNonce = goalDeploymentRegistry == predictedGoalDeploymentRegistry ? 2 : 1;
-            uint256 goalFactoryCreateNonce = goalDeploymentRegistry == predictedGoalDeploymentRegistry ? 3 : 2;
+            bool pairDeployedGoalRegistry = goalDeploymentRegistry == predictedGoalDeploymentRegistry;
+            uint256 budgetTcrFactoryCreateNonce = pairDeployedGoalRegistry ? 3 : 2;
+            uint256 goalFactoryCreateNonce = pairDeployedGoalRegistry ? 4 : 3;
             address predictedBudgetTcrFactory = _predictCreateAddress(pairDeployer, budgetTcrFactoryCreateNonce);
             address predictedGoalFactory = _predictCreateAddress(pairDeployer, goalFactoryCreateNonce);
 
@@ -389,10 +385,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
             assertEq(address(deployedFactory.GOAL_DEPLOYMENT_REGISTRY()), goalDeploymentRegistry);
-            assertEq(deployedFactory.COBUILD_TERMINAL(), expectedCobuildTerminal);
+            assertEq(deployedFactory.GOAL_PAYMENT_TERMINAL(), GoalFactoryPairDeployer(pairDeployer).goalPaymentTerminal());
             assertEq(deployedFactory.JB_MULTI_TERMINAL(), expectedJbMultiTerminal);
-            assertEq(deployedFactory.COBUILD_TOKEN(), address(token));
-            assertEq(deployedFactory.COBUILD_REVNET_ID(), 138);
             assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
             assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
 
