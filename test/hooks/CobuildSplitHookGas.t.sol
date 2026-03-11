@@ -33,7 +33,7 @@ contract CobuildSplitHookGasProfileTest is Test {
     uint256 internal constant GOAL_ID_BASE = 10_000;
     uint256 internal constant PAGINATED_FLUSH_GOAL_COUNT = 16;
     uint256 internal constant TOKENS_PER_GOAL = 1e18;
-    uint256 internal constant OBSERVED_VOLUME_MAPPING_SLOT = 6;
+    uint256 internal constant ROUTING_SCORE_MAPPING_SLOT = 6;
 
     event HistoricalRoutingGasMeasured(bytes32 indexed scenario, uint256 indexed goalCount, uint256 gasUsed);
 
@@ -111,7 +111,7 @@ contract CobuildSplitHookGasProfileTest is Test {
             goalRegistry.setGoalSelectable(goalId, true);
         }
 
-        _seedHistoricalVolumes(hook, goalCount);
+        _seedRoutingScores(hook, goalCount);
         assertEq(hook.observedVolumeOf(GOAL_ID_BASE + 1), TOKENS_PER_GOAL);
 
         scenario = Scenario({hook: hook, token: token, controller: controller});
@@ -134,12 +134,12 @@ contract CobuildSplitHookGasProfileTest is Test {
         );
     }
 
-    function _seedHistoricalVolumes(CobuildSplitHook hook, uint256 goalCount) internal {
+    function _seedRoutingScores(CobuildSplitHook hook, uint256 goalCount) internal {
         for (uint256 i = 0; i < goalCount; i++) {
             uint256 goalId = GOAL_ID_BASE + i + 1;
             vm.store(
                 address(hook),
-                keccak256(abi.encode(goalId, uint256(OBSERVED_VOLUME_MAPPING_SLOT))),
+                keccak256(abi.encode(goalId, uint256(ROUTING_SCORE_MAPPING_SLOT))),
                 bytes32(TOKENS_PER_GOAL)
             );
         }
