@@ -341,6 +341,5 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         listing.metadataURI = metadataURI;
         listing.isSystem = isSystem;
         listing.floorPpm = floorPpm;
-        listing.paused = false;
     }
 }

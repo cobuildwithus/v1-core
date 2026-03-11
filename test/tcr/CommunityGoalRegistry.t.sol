@@ -255,6 +255,22 @@ contract CommunityGoalRegistryTest is Test {
         assertEq(listing.floorPpm, SYSTEM_FLOOR_TWO);
     }
 
+    function test_pinSystemGoal_repinnedSystemGoalPreservesPausedState() public {
+        vm.startPrank(owner);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
+        registry.setGoalPaused(GOAL_ID_ONE, true);
+        registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal-v2", SYSTEM_FLOOR_TWO);
+        vm.stopPrank();
+
+        ICommunityGoalRegistry.GoalListingView memory listing = registry.listingOf(GOAL_ID_ONE);
+        assertEq(listing.metadataURI, "ipfs://system-goal-v2");
+        assertEq(listing.floorPpm, SYSTEM_FLOOR_TWO);
+        assertTrue(listing.paused);
+        assertFalse(listing.selectable);
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+        assertEq(registry.totalSystemFloorPpm(), SYSTEM_FLOOR_TWO);
+    }
+
     function test_unpinSystemGoal_removesFloorFromTotalsAndSystemRoute() public {
         vm.startPrank(owner);
         registry.pinSystemGoal(GOAL_ID_ONE, "ipfs://system-goal", SYSTEM_FLOOR_ONE);
