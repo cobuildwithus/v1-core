@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { ISuccessAssertionTreasury } from "src/interfaces/ISuccessAssertionTreasury.sol";
+import { ISuccessAssertionDocumentRegistry } from "src/interfaces/ISuccessAssertionDocumentRegistry.sol";
+import { IUMATreasurySuccessResolverConfig } from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import { OptimisticOracleV3CallbackRecipientInterface } from "src/interfaces/uma/OptimisticOracleV3CallbackRecipientInterface.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,8 +11,15 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 
-contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterface, ReentrancyGuard {
+contract UMATreasurySuccessResolver is
+    OptimisticOracleV3CallbackRecipientInterface,
+    IUMATreasurySuccessResolverConfig,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
+
+    address internal constant NO_ESCALATION_MANAGER = address(0);
+    bytes32 internal constant NO_DOMAIN_ID = bytes32(0);
 
     struct AssertionMeta {
         address treasury;
@@ -28,6 +37,8 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
     error INVALID_ASSERTION_CONFIG();
     error INVALID_TREASURY();
     error ONLY_ORACLE();
+    error SPEC_DOCUMENT_NOT_REGISTERED(bytes32 specHash);
+    error POLICY_DOCUMENT_NOT_REGISTERED(bytes32 policyHash);
     error ASSERTION_ALREADY_ACTIVE(bytes32 assertionId);
     error ASSERTION_NOT_FOUND();
     error ASSERTION_NOT_RESOLVED();
@@ -45,7 +56,10 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         ISuccessAssertionTreasury.TreasuryKind kind,
         uint64 liveness,
         uint256 bond,
-        string evidence
+        address documentRegistry,
+        bytes32 specHash,
+        bytes32 policyHash,
+        bytes32 evidenceHash
     );
 
     event SuccessAssertionDisputed(bytes32 indexed assertionId, address indexed treasury);
@@ -55,27 +69,30 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
     uint256 public constant EVIDENCE_MAX_LENGTH = 2048;
     bytes32 public constant UMA_ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
 
-    OptimisticOracleV3Interface public immutable optimisticOracle;
-    IERC20 public immutable assertionCurrency;
-    address public immutable escalationManager;
-    bytes32 public immutable domainId;
+    OptimisticOracleV3Interface public immutable override optimisticOracle;
+    IERC20 public immutable override assertionCurrency;
+    ISuccessAssertionDocumentRegistry public immutable documentRegistry;
 
     mapping(address => bytes32) public activeAssertionOfTreasury;
     mapping(bytes32 => AssertionMeta) public assertionMeta;
+    mapping(bytes32 => bytes32) public evidenceHashOfAssertion;
 
     constructor(
         OptimisticOracleV3Interface optimisticOracle_,
         IERC20 assertionCurrency_,
-        address escalationManager_,
-        bytes32 domainId_
+        ISuccessAssertionDocumentRegistry documentRegistry_
     ) {
-        if (address(optimisticOracle_) == address(0) || address(assertionCurrency_) == address(0))
+        if (
+            address(optimisticOracle_) == address(0) ||
+            address(assertionCurrency_) == address(0) ||
+            address(documentRegistry_) == address(0)
+        ) {
             revert ADDRESS_ZERO();
+        }
 
         optimisticOracle = optimisticOracle_;
         assertionCurrency = assertionCurrency_;
-        escalationManager = escalationManager_;
-        domainId = domainId_;
+        documentRegistry = documentRegistry_;
     }
 
     function assertSuccess(
@@ -102,6 +119,10 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         bytes32 specHash = successTreasury.successOracleSpecHash();
         bytes32 policyHash = successTreasury.successAssertionPolicyHash();
         if (liveness == 0 || specHash == bytes32(0) || policyHash == bytes32(0)) revert INVALID_ASSERTION_CONFIG();
+        if (!documentRegistry.hasDocument(specHash)) revert SPEC_DOCUMENT_NOT_REGISTERED(specHash);
+        if (!documentRegistry.hasDocument(policyHash)) revert POLICY_DOCUMENT_NOT_REGISTERED(policyHash);
+
+        bytes32 evidenceHash = _registerEvidence(evidence);
 
         optimisticOracle.syncUmaParams(UMA_ASSERT_TRUTH_IDENTIFIER, address(assertionCurrency));
 
@@ -112,17 +133,17 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         assertionCurrency.forceApprove(address(optimisticOracle), bond);
 
         uint64 assertedAt = uint64(block.timestamp);
-        bytes memory claim = _buildClaim(treasury, kind, assertedAt, specHash, policyHash, evidence);
+        bytes memory claim = _buildClaim(treasury, kind, assertedAt, specHash, policyHash, evidenceHash);
         assertionId = optimisticOracle.assertTruth(
             claim,
             msg.sender,
             address(this),
-            escalationManager,
+            NO_ESCALATION_MANAGER,
             liveness,
             assertionCurrency,
             bond,
             UMA_ASSERT_TRUTH_IDENTIFIER,
-            domainId
+            NO_DOMAIN_ID
         );
         assertionCurrency.forceApprove(address(optimisticOracle), 0);
 
@@ -139,8 +160,20 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
             truthful: false,
             finalized: false
         });
+        evidenceHashOfAssertion[assertionId] = evidenceHash;
 
-        emit SuccessAssertionRequested(assertionId, treasury, msg.sender, kind, liveness, bond, evidence);
+        emit SuccessAssertionRequested(
+            assertionId,
+            treasury,
+            msg.sender,
+            kind,
+            liveness,
+            bond,
+            address(documentRegistry),
+            specHash,
+            policyHash,
+            evidenceHash
+        );
     }
 
     function settle(bytes32 assertionId) external nonReentrant {
@@ -241,8 +274,8 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
         uint64 assertedAt,
         bytes32 specHash,
         bytes32 policyHash,
-        string calldata evidence
-    ) internal pure returns (bytes memory) {
+        bytes32 evidenceHash
+    ) internal view returns (bytes memory) {
         return
             abi.encodePacked(
                 "As of assertion timestamp ",
@@ -255,9 +288,18 @@ contract UMATreasurySuccessResolver is OptimisticOracleV3CallbackRecipientInterf
                 Strings.toHexString(uint256(specHash), 32),
                 " and complied with Policy policyHash=",
                 Strings.toHexString(uint256(policyHash), 32),
-                ". Evidence: ",
-                evidence
+                ". Canonical documents are stored in registry ",
+                Strings.toHexString(uint160(address(documentRegistry)), 20),
+                ". Evidence hash=",
+                Strings.toHexString(uint256(evidenceHash), 32)
             );
+    }
+
+    function _registerEvidence(string calldata evidence) internal returns (bytes32 evidenceHash) {
+        if (bytes(evidence).length == 0) return bytes32(0);
+
+        evidenceHash = keccak256(bytes(evidence));
+        documentRegistry.register(evidenceHash, evidence);
     }
 
     function _detectTreasuryKind(address treasury) internal view returns (ISuccessAssertionTreasury.TreasuryKind) {

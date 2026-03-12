@@ -1,32 +1,53 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-import { UMATreasurySuccessResolver } from "src/goals/UMATreasurySuccessResolver.sol";
-import { ISuccessAssertionTreasury } from "src/interfaces/ISuccessAssertionTreasury.sol";
-import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
-import { OptimisticOracleV3CallbackRecipientInterface } from "src/interfaces/uma/OptimisticOracleV3CallbackRecipientInterface.sol";
+import {SuccessAssertionDocumentRegistry} from "src/goals/SuccessAssertionDocumentRegistry.sol";
+import {UMATreasurySuccessResolver} from "src/goals/UMATreasurySuccessResolver.sol";
+import {ISuccessAssertionTreasury} from "src/interfaces/ISuccessAssertionTreasury.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import {
+    OptimisticOracleV3CallbackRecipientInterface
+} from "src/interfaces/uma/OptimisticOracleV3CallbackRecipientInterface.sol";
 
 contract UMATreasurySuccessResolverTest is Test {
     MockUSDC internal usdc;
     MockOptimisticOracleV3 internal mockOracle;
+    SuccessAssertionDocumentRegistry internal documentRegistry;
     UMATreasurySuccessResolver internal resolver;
     MockGoalAssertionTreasury internal goalTreasury;
     MockBudgetAssertionTreasury internal budgetTreasury;
 
     address internal constant ASSERTER = address(0xA11CE);
+    string internal constant SPEC_TEXT = "goal-spec";
+    string internal constant POLICY_TEXT = "goal-policy";
+    string internal constant BUDGET_SPEC_TEXT = "budget-spec";
+    string internal constant BUDGET_POLICY_TEXT = "budget-policy";
+    bytes32 internal constant SUCCESS_ASSERTION_REQUESTED_SIG =
+        keccak256(
+            "SuccessAssertionRequested(bytes32,address,address,uint8,uint64,uint256,address,bytes32,bytes32,bytes32)"
+        );
     bytes32 internal constant SPEC_HASH = keccak256("goal-spec");
     bytes32 internal constant POLICY_HASH = keccak256("goal-policy");
+    bytes32 internal constant BUDGET_SPEC_HASH = keccak256("budget-spec");
+    bytes32 internal constant BUDGET_POLICY_HASH = keccak256("budget-policy");
 
     function setUp() public {
         usdc = new MockUSDC();
         mockOracle = new MockOptimisticOracleV3(IERC20(address(usdc)));
+        documentRegistry = new SuccessAssertionDocumentRegistry();
         resolver = new UMATreasurySuccessResolver(
-            OptimisticOracleV3Interface(address(mockOracle)), IERC20(address(usdc)), address(0), bytes32(0)
+            OptimisticOracleV3Interface(address(mockOracle)), IERC20(address(usdc)), documentRegistry
         );
+        documentRegistry.register(SPEC_HASH, SPEC_TEXT);
+        documentRegistry.register(POLICY_HASH, POLICY_TEXT);
+        documentRegistry.register(BUDGET_SPEC_HASH, BUDGET_SPEC_TEXT);
+        documentRegistry.register(BUDGET_POLICY_HASH, BUDGET_POLICY_TEXT);
 
         goalTreasury = new MockGoalAssertionTreasury();
         goalTreasury.configure({
@@ -43,8 +64,8 @@ contract UMATreasurySuccessResolverTest is Test {
             resolver_: address(resolver),
             liveness_: 8 hours,
             bond_: 200e6,
-            specHash_: keccak256("budget-spec"),
-            policyHash_: keccak256("budget-policy"),
+            specHash_: BUDGET_SPEC_HASH,
+            policyHash_: BUDGET_POLICY_HASH,
             fundingDeadline_: uint64(block.timestamp + 1 days),
             deadline_: uint64(block.timestamp + 8 days)
         });
@@ -58,30 +79,59 @@ contract UMATreasurySuccessResolverTest is Test {
 
     function test_constructor_revertsWhenOracleAddressIsZero() public {
         vm.expectRevert(UMATreasurySuccessResolver.ADDRESS_ZERO.selector);
-        new UMATreasurySuccessResolver(
-            OptimisticOracleV3Interface(address(0)),
-            IERC20(address(usdc)),
-            address(0),
-            bytes32(0)
-        );
+        new UMATreasurySuccessResolver(OptimisticOracleV3Interface(address(0)), IERC20(address(usdc)), documentRegistry);
     }
 
     function test_constructor_revertsWhenAssertionCurrencyIsZero() public {
         vm.expectRevert(UMATreasurySuccessResolver.ADDRESS_ZERO.selector);
         new UMATreasurySuccessResolver(
+            OptimisticOracleV3Interface(address(mockOracle)), IERC20(address(0)), documentRegistry
+        );
+    }
+
+    function test_constructor_revertsWhenDocumentRegistryIsZero() public {
+        vm.expectRevert(UMATreasurySuccessResolver.ADDRESS_ZERO.selector);
+        new UMATreasurySuccessResolver(
             OptimisticOracleV3Interface(address(mockOracle)),
-            IERC20(address(0)),
-            address(0),
-            bytes32(0)
+            IERC20(address(usdc)),
+            SuccessAssertionDocumentRegistry(address(0))
         );
     }
 
     function test_assertSuccess_registersGoalAssertionAndClampsBondToMinimum() public {
+        string memory evidence = "ipfs://goal-evidence";
+        bytes32 evidenceHash = keccak256(bytes(evidence));
+
+        vm.recordLogs();
         vm.prank(ASSERTER);
-        bytes32 assertionId = resolver.assertSuccess(address(goalTreasury), "ipfs://goal-evidence");
+        bytes32 assertionId = resolver.assertSuccess(address(goalTreasury), evidence);
 
         assertEq(resolver.activeAssertionOfTreasury(address(goalTreasury)), assertionId);
         assertEq(goalTreasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(resolver.evidenceHashOfAssertion(assertionId), evidenceHash);
+        assertEq(documentRegistry.getDocument(evidenceHash), evidence);
+
+        Vm.Log memory requestLog = _findLog(vm.getRecordedLogs(), address(resolver), SUCCESS_ASSERTION_REQUESTED_SIG);
+        assertEq(requestLog.topics[1], assertionId);
+        assertEq(address(uint160(uint256(requestLog.topics[2]))), address(goalTreasury));
+        assertEq(address(uint160(uint256(requestLog.topics[3]))), ASSERTER);
+
+        (
+            uint8 rawKind,
+            uint64 liveness,
+            uint256 bond,
+            address loggedDocumentRegistry,
+            bytes32 specHash,
+            bytes32 policyHash,
+            bytes32 loggedEvidenceHash
+        ) = abi.decode(requestLog.data, (uint8, uint64, uint256, address, bytes32, bytes32, bytes32));
+        assertEq(rawKind, uint8(ISuccessAssertionTreasury.TreasuryKind.Goal));
+        assertEq(liveness, goalTreasury.successAssertionLiveness());
+        assertEq(bond, 250e6);
+        assertEq(loggedDocumentRegistry, address(documentRegistry));
+        assertEq(specHash, SPEC_HASH);
+        assertEq(policyHash, POLICY_HASH);
+        assertEq(loggedEvidenceHash, evidenceHash);
 
         (
             address treasury,
@@ -108,22 +158,52 @@ contract UMATreasurySuccessResolverTest is Test {
         assertEq(mockOracle.lastIdentifier(), bytes32("ASSERT_TRUTH2"));
         assertEq(mockOracle.lastSyncedIdentifier(), bytes32("ASSERT_TRUTH2"));
         assertEq(mockOracle.lastSyncedCurrency(), address(usdc));
+        assertEq(mockOracle.lastEscalationManager(), address(0));
+        assertEq(mockOracle.lastDomainId(), bytes32(0));
         assertEq(usdc.allowance(address(resolver), address(mockOracle)), 0);
 
         string memory claim = mockOracle.lastClaim();
         assertTrue(_contains(claim, "type: GOAL"));
-        assertTrue(_contains(claim, "ipfs://goal-evidence"));
+        assertTrue(_contains(claim, "Canonical documents are stored in registry"));
+        assertTrue(_contains(claim, Strings.toHexString(uint160(address(documentRegistry)), 20)));
+        assertTrue(_contains(claim, vm.toString(SPEC_HASH)));
+        assertTrue(_contains(claim, vm.toString(POLICY_HASH)));
+        assertTrue(_contains(claim, vm.toString(evidenceHash)));
+    }
+
+    function test_assertSuccess_withEmptyEvidence_recordsZeroHashWithoutRegisteringDocument() public {
+        vm.prank(ASSERTER);
+        bytes32 assertionId = resolver.assertSuccess(address(goalTreasury), "");
+
+        assertEq(resolver.evidenceHashOfAssertion(assertionId), bytes32(0));
+        assertFalse(documentRegistry.hasDocument(bytes32(0)));
+        assertEq(documentRegistry.getDocument(bytes32(0)), "");
+
+        string memory claim = mockOracle.lastClaim();
+        assertTrue(_contains(claim, vm.toString(bytes32(0))));
+    }
+
+    function test_assertSuccess_allowsPreRegisteredEvidenceDocument() public {
+        string memory evidence = "ipfs://shared-evidence";
+        bytes32 evidenceHash = keccak256(bytes(evidence));
+
+        assertTrue(documentRegistry.register(evidenceHash, evidence));
+
+        MockGoalAssertionTreasury otherTreasury = _newConfiguredGoalTreasury();
+
+        vm.prank(ASSERTER);
+        bytes32 assertionId = resolver.assertSuccess(address(otherTreasury), evidence);
+
+        assertEq(otherTreasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(resolver.evidenceHashOfAssertion(assertionId), evidenceHash);
+        assertEq(documentRegistry.getDocument(evidenceHash), evidence);
     }
 
     function test_assertSuccess_revertsOnEvidenceTooLong() public {
         string memory longEvidence = _stringOfLength(2049);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                UMATreasurySuccessResolver.EVIDENCE_TOO_LONG.selector,
-                uint256(2048),
-                uint256(2049)
-            )
+            abi.encodeWithSelector(UMATreasurySuccessResolver.EVIDENCE_TOO_LONG.selector, uint256(2048), uint256(2049))
         );
         vm.prank(ASSERTER);
         resolver.assertSuccess(address(goalTreasury), longEvidence);
@@ -186,6 +266,44 @@ contract UMATreasurySuccessResolverTest is Test {
         vm.expectRevert(UMATreasurySuccessResolver.INVALID_ASSERTION_CONFIG.selector);
         vm.prank(ASSERTER);
         resolver.assertSuccess(address(goalTreasury), "ipfs://invalid-config");
+    }
+
+    function test_assertSuccess_revertsWhenSpecDocumentIsMissing() public {
+        bytes32 missingSpecHash = keccak256("missing-goal-spec");
+        goalTreasury.configure({
+            resolver_: address(resolver),
+            liveness_: goalTreasury.successAssertionLiveness(),
+            bond_: goalTreasury.successAssertionBond(),
+            specHash_: missingSpecHash,
+            policyHash_: goalTreasury.successAssertionPolicyHash(),
+            deadline_: goalTreasury.deadline()
+        });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(UMATreasurySuccessResolver.SPEC_DOCUMENT_NOT_REGISTERED.selector, missingSpecHash)
+        );
+        vm.prank(ASSERTER);
+        resolver.assertSuccess(address(goalTreasury), "ipfs://missing-spec");
+    }
+
+    function test_assertSuccess_revertsWhenPolicyDocumentIsMissing() public {
+        bytes32 missingPolicyHash = keccak256("missing-goal-policy");
+        goalTreasury.configure({
+            resolver_: address(resolver),
+            liveness_: goalTreasury.successAssertionLiveness(),
+            bond_: goalTreasury.successAssertionBond(),
+            specHash_: goalTreasury.successOracleSpecHash(),
+            policyHash_: missingPolicyHash,
+            deadline_: goalTreasury.deadline()
+        });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UMATreasurySuccessResolver.POLICY_DOCUMENT_NOT_REGISTERED.selector, missingPolicyHash
+            )
+        );
+        vm.prank(ASSERTER);
+        resolver.assertSuccess(address(goalTreasury), "ipfs://missing-policy");
     }
 
     function test_assertSuccess_revertsWhenTreasuryKindIsUnknown() public {
@@ -315,9 +433,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.TREASURY_RESOLVE_SUCCESS_FAILED.selector,
-                address(goalTreasury),
-                assertionId
+                UMATreasurySuccessResolver.TREASURY_RESOLVE_SUCCESS_FAILED.selector, address(goalTreasury), assertionId
             )
         );
         resolver.settleAndFinalize(assertionId);
@@ -347,9 +463,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.TREASURY_CLEAR_ASSERTION_FAILED.selector,
-                address(goalTreasury),
-                assertionId
+                UMATreasurySuccessResolver.TREASURY_CLEAR_ASSERTION_FAILED.selector, address(goalTreasury), assertionId
             )
         );
         resolver.settleAndFinalize(assertionId);
@@ -376,9 +490,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.TREASURY_RESOLVE_SUCCESS_FAILED.selector,
-                address(goalTreasury),
-                assertionId
+                UMATreasurySuccessResolver.TREASURY_RESOLVE_SUCCESS_FAILED.selector, address(goalTreasury), assertionId
             )
         );
         resolver.finalize(assertionId);
@@ -394,9 +506,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.TREASURY_CLEAR_ASSERTION_FAILED.selector,
-                address(goalTreasury),
-                assertionId
+                UMATreasurySuccessResolver.TREASURY_CLEAR_ASSERTION_FAILED.selector, address(goalTreasury), assertionId
             )
         );
         resolver.finalize(assertionId);
@@ -440,9 +550,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.TREASURY_PENDING_ASSERTION_MISMATCH.selector,
-                assertionId,
-                otherAssertionId
+                UMATreasurySuccessResolver.TREASURY_PENDING_ASSERTION_MISMATCH.selector, assertionId, otherAssertionId
             )
         );
         resolver.finalize(assertionId);
@@ -485,9 +593,7 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                UMATreasurySuccessResolver.ASSERTION_NOT_ACTIVE.selector,
-                assertionId,
-                differentAssertionId
+                UMATreasurySuccessResolver.ASSERTION_NOT_ACTIVE.selector, assertionId, differentAssertionId
             )
         );
         resolver.finalize(assertionId);
@@ -552,7 +658,8 @@ contract UMATreasurySuccessResolverTest is Test {
 
         vm.startPrank(ASSERTER);
         bytes32 settleTargetAssertionId = resolver.assertSuccess(address(settleTargetTreasury), "ipfs://settle-target");
-        bytes32 finalizeTargetAssertionId = resolver.assertSuccess(address(finalizeTargetTreasury), "ipfs://finalize-target");
+        bytes32 finalizeTargetAssertionId =
+            resolver.assertSuccess(address(finalizeTargetTreasury), "ipfs://finalize-target");
         bytes32 settleAndFinalizeTargetAssertionId =
             resolver.assertSuccess(address(settleAndFinalizeTargetTreasury), "ipfs://settle-and-finalize-target");
         vm.stopPrank();
@@ -607,12 +714,14 @@ contract UMATreasurySuccessResolverTest is Test {
             resolver.activeAssertionOfTreasury(address(settleAndFinalizeTargetTreasury)),
             settleAndFinalizeTargetAssertionId
         );
-        assertEq(
-            settleAndFinalizeTargetTreasury.pendingSuccessAssertionId(),
-            settleAndFinalizeTargetAssertionId
-        );
-        (,,,, bool settleAndFinalizeDisputed, bool settleAndFinalizeResolved, bool settleAndFinalizeTruthful, bool
-            settleAndFinalizeFinalized) = resolver.assertionMeta(settleAndFinalizeTargetAssertionId);
+        assertEq(settleAndFinalizeTargetTreasury.pendingSuccessAssertionId(), settleAndFinalizeTargetAssertionId);
+        (
+            ,,,,
+            bool settleAndFinalizeDisputed,
+            bool settleAndFinalizeResolved,
+            bool settleAndFinalizeTruthful,
+            bool settleAndFinalizeFinalized
+        ) = resolver.assertionMeta(settleAndFinalizeTargetAssertionId);
         assertFalse(settleAndFinalizeDisputed);
         assertFalse(settleAndFinalizeResolved);
         assertFalse(settleAndFinalizeTruthful);
@@ -689,10 +798,25 @@ contract UMATreasurySuccessResolverTest is Test {
         }
         return false;
     }
+
+    function _findLog(Vm.Log[] memory logs, address emitter, bytes32 eventSig)
+        internal
+        pure
+        returns (Vm.Log memory foundLog)
+    {
+        for (uint256 i = 0; i < logs.length; i++) {
+            Vm.Log memory entry = logs[i];
+            if (entry.emitter == emitter && entry.topics.length != 0 && entry.topics[0] == eventSig) {
+                return entry;
+            }
+        }
+
+        revert("LOG_NOT_FOUND");
+    }
 }
 
 contract MockUSDC is ERC20 {
-    constructor() ERC20("Mock USDC", "USDC") { }
+    constructor() ERC20("Mock USDC", "USDC") {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -775,12 +899,8 @@ contract MockOptimisticOracleV3 {
 
         _nonce += 1;
         assertionId = keccak256(abi.encodePacked("assertion", _nonce));
-        _assertions[assertionId] = Assertion({
-            callbackRecipient: callbackRecipient,
-            truthful: true,
-            disputed: false,
-            settled: false
-        });
+        _assertions[assertionId] =
+            Assertion({callbackRecipient: callbackRecipient, truthful: true, disputed: false, settled: false});
 
         lastClaimBytes = claim;
         lastAsserter = asserter;
@@ -799,11 +919,11 @@ contract MockOptimisticOracleV3 {
         assertion.settled = true;
 
         if (assertion.disputed) {
-            OptimisticOracleV3CallbackRecipientInterface(assertion.callbackRecipient).assertionDisputedCallback(assertionId);
+            OptimisticOracleV3CallbackRecipientInterface(assertion.callbackRecipient)
+                .assertionDisputedCallback(assertionId);
         }
-        OptimisticOracleV3CallbackRecipientInterface(assertion.callbackRecipient).assertionResolvedCallback(
-            assertionId, assertion.truthful
-        );
+        OptimisticOracleV3CallbackRecipientInterface(assertion.callbackRecipient)
+            .assertionResolvedCallback(assertionId, assertion.truthful);
     }
 }
 
@@ -904,233 +1024,231 @@ contract MockGoalAssertionTreasury is ISuccessAssertionTreasury {
     }
 }
 
-contract MockBudgetAssertionTreasury is ISuccessAssertionTreasury {
-    error ONLY_RESOLVER();
-    error INVALID_STATE();
+    contract MockBudgetAssertionTreasury is ISuccessAssertionTreasury {
+        error ONLY_RESOLVER();
+        error INVALID_STATE();
 
-    address public override successResolver;
-    uint64 public override successAssertionLiveness;
-    uint256 public override successAssertionBond;
-    bytes32 public override successOracleSpecHash;
-    bytes32 public override successAssertionPolicyHash;
+        address public override successResolver;
+        uint64 public override successAssertionLiveness;
+        uint256 public override successAssertionBond;
+        bytes32 public override successOracleSpecHash;
+        bytes32 public override successAssertionPolicyHash;
 
-    uint64 public fundingDeadline;
-    uint64 public deadline;
-    uint64 public pendingSuccessAssertionAt;
+        uint64 public fundingDeadline;
+        uint64 public deadline;
+        uint64 public pendingSuccessAssertionAt;
 
-    bytes32 internal _pendingAssertionId;
+        bytes32 internal _pendingAssertionId;
 
-    function configure(
-        address resolver_,
-        uint64 liveness_,
-        uint256 bond_,
-        bytes32 specHash_,
-        bytes32 policyHash_,
-        uint64 fundingDeadline_,
-        uint64 deadline_
-    ) external {
-        successResolver = resolver_;
-        successAssertionLiveness = liveness_;
-        successAssertionBond = bond_;
-        successOracleSpecHash = specHash_;
-        successAssertionPolicyHash = policyHash_;
-        fundingDeadline = fundingDeadline_;
-        deadline = deadline_;
-    }
-
-    function pendingSuccessAssertionId() external view returns (bytes32) {
-        return _pendingAssertionId;
-    }
-
-    function reassertGraceDeadline() external pure returns (uint64) {
-        return 0;
-    }
-
-    function reassertGraceUsed() external pure returns (bool) {
-        return false;
-    }
-
-    function isReassertGraceActive() external pure returns (bool) {
-        return false;
-    }
-
-    function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
-        return ISuccessAssertionTreasury.TreasuryKind.Budget;
-    }
-
-    function registerSuccessAssertion(bytes32 assertionId) external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (assertionId == bytes32(0)) revert INVALID_STATE();
-        if (_pendingAssertionId != bytes32(0)) revert INVALID_STATE();
-        if (block.timestamp < fundingDeadline || block.timestamp >= deadline) revert INVALID_STATE();
-
-        _pendingAssertionId = assertionId;
-        pendingSuccessAssertionAt = uint64(block.timestamp);
-    }
-
-    function clearSuccessAssertion(bytes32 assertionId) external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (_pendingAssertionId != assertionId) revert INVALID_STATE();
-
-        delete _pendingAssertionId;
-        delete pendingSuccessAssertionAt;
-    }
-
-    function resolveSuccess() external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (_pendingAssertionId == bytes32(0)) revert INVALID_STATE();
-
-        delete _pendingAssertionId;
-        delete pendingSuccessAssertionAt;
-    }
-}
-
-contract MockReentrantGoalAssertionTreasury is ISuccessAssertionTreasury {
-    error ONLY_RESOLVER();
-    error INVALID_STATE();
-    error INVALID_REENTRY_RESULTS();
-
-    bytes4 internal constant REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR =
-        bytes4(keccak256("ReentrancyGuardReentrantCall()"));
-
-    address public override successResolver;
-    uint64 public override successAssertionLiveness;
-    uint256 public override successAssertionBond;
-    bytes32 public override successOracleSpecHash;
-    bytes32 public override successAssertionPolicyHash;
-
-    uint64 public deadline;
-    uint64 public pendingSuccessAssertionAt;
-
-    bytes32 internal _pendingAssertionId;
-
-    address public assertSuccessTargetTreasury;
-    bytes32 public settleTargetAssertionId;
-    bytes32 public finalizeTargetAssertionId;
-    bytes32 public settleAndFinalizeTargetAssertionId;
-
-    bool public reentryAttempted;
-    bool public assertSuccessBlocked;
-    bool public settleBlocked;
-    bool public finalizeBlocked;
-    bool public settleAndFinalizeBlocked;
-
-    uint256 public resolveSuccessCalls;
-    uint256 public clearSuccessAssertionCalls;
-
-    constructor(address resolver_) {
-        successResolver = resolver_;
-    }
-
-    function configure(
-        address resolver_,
-        uint64 liveness_,
-        uint256 bond_,
-        bytes32 specHash_,
-        bytes32 policyHash_,
-        uint64 deadline_
-    ) external {
-        successResolver = resolver_;
-        successAssertionLiveness = liveness_;
-        successAssertionBond = bond_;
-        successOracleSpecHash = specHash_;
-        successAssertionPolicyHash = policyHash_;
-        deadline = deadline_;
-    }
-
-    function configureReentryTargets(
-        address assertSuccessTargetTreasury_,
-        bytes32 settleTargetAssertionId_,
-        bytes32 finalizeTargetAssertionId_,
-        bytes32 settleAndFinalizeTargetAssertionId_
-    ) external {
-        assertSuccessTargetTreasury = assertSuccessTargetTreasury_;
-        settleTargetAssertionId = settleTargetAssertionId_;
-        finalizeTargetAssertionId = finalizeTargetAssertionId_;
-        settleAndFinalizeTargetAssertionId = settleAndFinalizeTargetAssertionId_;
-    }
-
-    function approveAssertionCurrency(IERC20 token, address spender, uint256 amount) external {
-        token.approve(spender, amount);
-    }
-
-    function pendingSuccessAssertionId() external view returns (bytes32) {
-        return _pendingAssertionId;
-    }
-
-    function reassertGraceDeadline() external pure returns (uint64) {
-        return 0;
-    }
-
-    function reassertGraceUsed() external pure returns (bool) {
-        return false;
-    }
-
-    function isReassertGraceActive() external pure returns (bool) {
-        return false;
-    }
-
-    function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
-        return ISuccessAssertionTreasury.TreasuryKind.Goal;
-    }
-
-    function registerSuccessAssertion(bytes32 assertionId) external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (assertionId == bytes32(0)) revert INVALID_STATE();
-        if (_pendingAssertionId != bytes32(0)) revert INVALID_STATE();
-        if (block.timestamp >= deadline) revert INVALID_STATE();
-
-        _pendingAssertionId = assertionId;
-        pendingSuccessAssertionAt = uint64(block.timestamp);
-    }
-
-    function clearSuccessAssertion(bytes32 assertionId) external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (_pendingAssertionId != assertionId) revert INVALID_STATE();
-
-        delete _pendingAssertionId;
-        delete pendingSuccessAssertionAt;
-        clearSuccessAssertionCalls += 1;
-    }
-
-    function resolveSuccess() external override {
-        if (msg.sender != successResolver) revert ONLY_RESOLVER();
-        if (_pendingAssertionId == bytes32(0)) revert INVALID_STATE();
-
-        reentryAttempted = true;
-        assertSuccessBlocked = _attemptReentry(
-            abi.encodeCall(
-                UMATreasurySuccessResolver.assertSuccess,
-                (assertSuccessTargetTreasury, "ipfs://reentry-assert-success")
-            )
-        );
-        settleBlocked =
-            _attemptReentry(abi.encodeCall(UMATreasurySuccessResolver.settle, (settleTargetAssertionId)));
-        finalizeBlocked =
-            _attemptReentry(abi.encodeCall(UMATreasurySuccessResolver.finalize, (finalizeTargetAssertionId)));
-        settleAndFinalizeBlocked = _attemptReentry(
-            abi.encodeCall(
-                UMATreasurySuccessResolver.settleAndFinalize,
-                (settleAndFinalizeTargetAssertionId)
-            )
-        );
-        if (!(assertSuccessBlocked && settleBlocked && finalizeBlocked && settleAndFinalizeBlocked)) {
-            revert INVALID_REENTRY_RESULTS();
+        function configure(
+            address resolver_,
+            uint64 liveness_,
+            uint256 bond_,
+            bytes32 specHash_,
+            bytes32 policyHash_,
+            uint64 fundingDeadline_,
+            uint64 deadline_
+        ) external {
+            successResolver = resolver_;
+            successAssertionLiveness = liveness_;
+            successAssertionBond = bond_;
+            successOracleSpecHash = specHash_;
+            successAssertionPolicyHash = policyHash_;
+            fundingDeadline = fundingDeadline_;
+            deadline = deadline_;
         }
 
-        delete _pendingAssertionId;
-        delete pendingSuccessAssertionAt;
-        resolveSuccessCalls += 1;
-    }
-
-    function _attemptReentry(bytes memory payload) internal returns (bool blockedByReentrancyGuard) {
-        (bool success, bytes memory returnData) = successResolver.call(payload);
-        if (success || returnData.length < 4) return false;
-
-        bytes4 selector;
-        assembly {
-            selector := mload(add(returnData, 32))
+        function pendingSuccessAssertionId() external view returns (bytes32) {
+            return _pendingAssertionId;
         }
-        blockedByReentrancyGuard = selector == REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR;
+
+        function reassertGraceDeadline() external pure returns (uint64) {
+            return 0;
+        }
+
+        function reassertGraceUsed() external pure returns (bool) {
+            return false;
+        }
+
+        function isReassertGraceActive() external pure returns (bool) {
+            return false;
+        }
+
+        function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
+            return ISuccessAssertionTreasury.TreasuryKind.Budget;
+        }
+
+        function registerSuccessAssertion(bytes32 assertionId) external override {
+            if (msg.sender != successResolver) revert ONLY_RESOLVER();
+            if (assertionId == bytes32(0)) revert INVALID_STATE();
+            if (_pendingAssertionId != bytes32(0)) revert INVALID_STATE();
+            if (block.timestamp < fundingDeadline || block.timestamp >= deadline) revert INVALID_STATE();
+
+            _pendingAssertionId = assertionId;
+            pendingSuccessAssertionAt = uint64(block.timestamp);
+        }
+
+        function clearSuccessAssertion(bytes32 assertionId) external override {
+            if (msg.sender != successResolver) revert ONLY_RESOLVER();
+            if (_pendingAssertionId != assertionId) revert INVALID_STATE();
+
+            delete _pendingAssertionId;
+            delete pendingSuccessAssertionAt;
+        }
+
+        function resolveSuccess() external override {
+            if (msg.sender != successResolver) revert ONLY_RESOLVER();
+            if (_pendingAssertionId == bytes32(0)) revert INVALID_STATE();
+
+            delete _pendingAssertionId;
+            delete pendingSuccessAssertionAt;
+        }
     }
-}
+
+        contract MockReentrantGoalAssertionTreasury is ISuccessAssertionTreasury {
+            error ONLY_RESOLVER();
+            error INVALID_STATE();
+            error INVALID_REENTRY_RESULTS();
+
+            bytes4 internal constant REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR =
+                bytes4(keccak256("ReentrancyGuardReentrantCall()"));
+
+            address public override successResolver;
+            uint64 public override successAssertionLiveness;
+            uint256 public override successAssertionBond;
+            bytes32 public override successOracleSpecHash;
+            bytes32 public override successAssertionPolicyHash;
+
+            uint64 public deadline;
+            uint64 public pendingSuccessAssertionAt;
+
+            bytes32 internal _pendingAssertionId;
+
+            address public assertSuccessTargetTreasury;
+            bytes32 public settleTargetAssertionId;
+            bytes32 public finalizeTargetAssertionId;
+            bytes32 public settleAndFinalizeTargetAssertionId;
+
+            bool public reentryAttempted;
+            bool public assertSuccessBlocked;
+            bool public settleBlocked;
+            bool public finalizeBlocked;
+            bool public settleAndFinalizeBlocked;
+
+            uint256 public resolveSuccessCalls;
+            uint256 public clearSuccessAssertionCalls;
+
+            constructor(address resolver_) {
+                successResolver = resolver_;
+            }
+
+            function configure(
+                address resolver_,
+                uint64 liveness_,
+                uint256 bond_,
+                bytes32 specHash_,
+                bytes32 policyHash_,
+                uint64 deadline_
+            ) external {
+                successResolver = resolver_;
+                successAssertionLiveness = liveness_;
+                successAssertionBond = bond_;
+                successOracleSpecHash = specHash_;
+                successAssertionPolicyHash = policyHash_;
+                deadline = deadline_;
+            }
+
+            function configureReentryTargets(
+                address assertSuccessTargetTreasury_,
+                bytes32 settleTargetAssertionId_,
+                bytes32 finalizeTargetAssertionId_,
+                bytes32 settleAndFinalizeTargetAssertionId_
+            ) external {
+                assertSuccessTargetTreasury = assertSuccessTargetTreasury_;
+                settleTargetAssertionId = settleTargetAssertionId_;
+                finalizeTargetAssertionId = finalizeTargetAssertionId_;
+                settleAndFinalizeTargetAssertionId = settleAndFinalizeTargetAssertionId_;
+            }
+
+            function approveAssertionCurrency(IERC20 token, address spender, uint256 amount) external {
+                token.approve(spender, amount);
+            }
+
+            function pendingSuccessAssertionId() external view returns (bytes32) {
+                return _pendingAssertionId;
+            }
+
+            function reassertGraceDeadline() external pure returns (uint64) {
+                return 0;
+            }
+
+            function reassertGraceUsed() external pure returns (bool) {
+                return false;
+            }
+
+            function isReassertGraceActive() external pure returns (bool) {
+                return false;
+            }
+
+            function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
+                return ISuccessAssertionTreasury.TreasuryKind.Goal;
+            }
+
+            function registerSuccessAssertion(bytes32 assertionId) external override {
+                if (msg.sender != successResolver) revert ONLY_RESOLVER();
+                if (assertionId == bytes32(0)) revert INVALID_STATE();
+                if (_pendingAssertionId != bytes32(0)) revert INVALID_STATE();
+                if (block.timestamp >= deadline) revert INVALID_STATE();
+
+                _pendingAssertionId = assertionId;
+                pendingSuccessAssertionAt = uint64(block.timestamp);
+            }
+
+            function clearSuccessAssertion(bytes32 assertionId) external override {
+                if (msg.sender != successResolver) revert ONLY_RESOLVER();
+                if (_pendingAssertionId != assertionId) revert INVALID_STATE();
+
+                delete _pendingAssertionId;
+                delete pendingSuccessAssertionAt;
+                clearSuccessAssertionCalls += 1;
+            }
+
+            function resolveSuccess() external override {
+                if (msg.sender != successResolver) revert ONLY_RESOLVER();
+                if (_pendingAssertionId == bytes32(0)) revert INVALID_STATE();
+
+                reentryAttempted = true;
+                assertSuccessBlocked = _attemptReentry(
+                    abi.encodeCall(
+                        UMATreasurySuccessResolver.assertSuccess,
+                        (assertSuccessTargetTreasury, "ipfs://reentry-assert-success")
+                    )
+                );
+                settleBlocked = _attemptReentry(
+                    abi.encodeCall(UMATreasurySuccessResolver.settle, (settleTargetAssertionId))
+                );
+                finalizeBlocked =
+                    _attemptReentry(abi.encodeCall(UMATreasurySuccessResolver.finalize, (finalizeTargetAssertionId)));
+                settleAndFinalizeBlocked = _attemptReentry(
+                    abi.encodeCall(UMATreasurySuccessResolver.settleAndFinalize, (settleAndFinalizeTargetAssertionId))
+                );
+                if (!(assertSuccessBlocked && settleBlocked && finalizeBlocked && settleAndFinalizeBlocked)) {
+                    revert INVALID_REENTRY_RESULTS();
+                }
+
+                delete _pendingAssertionId;
+                delete pendingSuccessAssertionAt;
+                resolveSuccessCalls += 1;
+            }
+
+            function _attemptReentry(bytes memory payload) internal returns (bool blockedByReentrancyGuard) {
+                (bool success, bytes memory returnData) = successResolver.call(payload);
+                if (success || returnData.length < 4) return false;
+
+                bytes4 selector;
+                assembly {
+                    selector := mload(add(returnData, 32))
+                }
+                blockedByReentrancyGuard = selector == REENTRANCY_GUARD_REENTRANT_CALL_SELECTOR;
+            }
+        }

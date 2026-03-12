@@ -1,6 +1,6 @@
 # UMA Deployment Recommendations
 
-Last reviewed: 2026-02-25
+Last reviewed: 2026-03-12
 
 ## Purpose
 
@@ -27,7 +27,15 @@ Use these as the default deployment profile unless a goal/budget has unusually h
 - UMA OOv3 enforces a dynamic minimum bond per currency via `getMinimumBond(currency)`.
 - This protocol already enforces an effective floor at assertion time:
   - `effectiveBond = max(successAssertionBond, optimisticOracle.getMinimumBond(assertionCurrency))`.
-- Treasuries also verify assertion fields (resolver, currency, escalation manager, domain, liveness window, bond threshold) before accepting success.
+- V1 treasury acceptance is fixed to the standard OOv3 path:
+  - `escalationManager == address(0)`,
+  - `domainId == bytes32(0)`,
+  - `arbitrateViaEscalationManager == false`,
+  - `discardOracle == false`,
+  - `validateDisputers == false`.
+- Treasuries also verify resolver, currency, liveness window, and bond threshold before accepting success.
+- Canonical success-spec / assertion-policy text must be registered onchain in `SuccessAssertionDocumentRegistry` before `assertSuccess(...)` can succeed.
+- Non-empty assertion evidence is stored onchain at assertion time in that same registry under `keccak256(bytes(evidence))`.
 
 ### Operator Policy (Configurable)
 
@@ -49,16 +57,18 @@ Net: adopting `USDC + 750` as this protocol's default is reasonable, but treat i
 1. Deploy `UMATreasurySuccessResolver` with:
    - chain's canonical UMA OOv3,
    - `USDC` as `assertionCurrency`,
-   - chosen `escalationManager`,
-   - protocol `domainId`.
-2. No separate UMA parameter sync call is required: resolver `assertSuccess(...)` syncs UMA parameters before assertion.
-3. Set treasury defaults:
+   - protocol `SuccessAssertionDocumentRegistry`.
+   - no escalation manager or custom domain; v1 hardcodes zero values.
+2. Register the canonical spec/policy text onchain and verify `keccak256(bytes(text))` matches each configured treasury/listing hash.
+3. No separate UMA parameter sync call is required: resolver `assertSuccess(...)` syncs UMA parameters before assertion.
+4. Set treasury defaults:
    - `successAssertionBond = 750e6`,
    - `successAssertionLiveness = 7200`.
-4. For Budget TCR deployment, set global `oracleValidationBounds` to match policy defaults so listings cannot drift.
-5. Verify on-chain before launch:
+5. For Budget TCR deployment, set global `oracleValidationBounds` to match policy defaults so listings cannot drift.
+6. Verify on-chain before launch:
    - `getMinimumBond(USDC)` value,
    - resolver currency/address wiring,
+   - registry contains the configured spec/policy text for each hash,
    - successful dry-run assertion and settlement path.
 
 ## Suggested Override Bands (Policy)
@@ -77,6 +87,7 @@ These are operator recommendations, not protocol rules.
 - Polymarket UMA adapter behavior (custom bond/liveness parameters, default handling on `0`).
 - UMA OOv3 data-asserter docs (`setBond`, `getMinimumBond`).
 - Internal implementation:
+  - `src/goals/SuccessAssertionDocumentRegistry.sol`
   - `src/goals/UMATreasurySuccessResolver.sol`
   - `src/goals/GoalTreasury.sol`
   - `src/goals/BudgetTreasury.sol`

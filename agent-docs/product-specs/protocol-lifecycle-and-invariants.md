@@ -145,6 +145,11 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - immutable `successResolver` controls assertion registration/clearing,
   - goal `resolveSuccess` is success-resolver-only and requires an active pending truthful assertion id,
   - budget `resolveSuccess` is success-resolver-only and requires an active pending truthful assertion id.
+- Success document retrieval is canonical and onchain:
+  - goal and budget treasuries still store only `successOracleSpecHash` / `successAssertionPolicyHash`,
+  - `UMATreasurySuccessResolver.assertSuccess(...)` requires both hashes to already exist in `SuccessAssertionDocumentRegistry`,
+  - non-empty evidence text is auto-registered in that registry under `keccak256(bytes(evidence))`,
+  - the UMA claim and `SuccessAssertionRequested` event emit the registry address plus canonical `specHash` / `policyHash` / `evidenceHash`, not just raw prose.
 - Budget listing oracle config is hash-only:
   - `oracleConfig.oracleSpecHash` and `oracleConfig.assertionPolicyHash` must both be non-zero.
 - Budget success assertion registration is funding-window gated (no registration before `fundingDeadline`).
