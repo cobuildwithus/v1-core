@@ -167,10 +167,6 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         assertEq(factory.GOAL_PAYMENT_TERMINAL(), configuredGoalPaymentTerminal);
     }
 
-    function test_constructor_setsManagedPremiumEscrowImplToZero() public view {
-        assertEq(factory.MANAGED_PREMIUM_ESCROW_IMPL(), address(0));
-    }
-
     function test_deployGoal_revertsWhenFundingRevnetTokenMismatch() public {
         MockToken wrongToken = new MockToken();
         revnetTokens.setTokenOf(PAYMENT_REVNET_ID, address(wrongToken));

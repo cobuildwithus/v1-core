@@ -11,7 +11,6 @@ import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeploye
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
-import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
@@ -534,55 +533,6 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         assertEq(BudgetTreasury(budgetTreasury).spendPolicy(), budgetSpendPolicy);
     }
 
-    function test_deployBudgetTreasury_initializesNullPremiumEscrow_andNoOpsPremiumHooks() public {
-        address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
-        NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
-        address premiumEscrow = Clones.clone(address(nullPremiumEscrowImplementation));
-        address ignoredBudgetStakeLedger = makeAddr("ignoredBudgetStakeLedger");
-        address ignoredUnderwriterSlasherRouter = makeAddr("ignoredUnderwriterSlasherRouter");
-        uint32 ignoredBudgetSlashPpm = 123_456;
-        IBudgetTCR.BudgetListing memory listing = _defaultListing();
-
-        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
-            new BudgetTCRStackDeploymentLibMockChildFlow(makeAddr("safe"), address(goalToken), address(sharedStrategy));
-        childFlow.setFlowOperator(treasuryAnchor);
-        childFlow.setSweeper(treasuryAnchor);
-
-        address budgetTreasury = harness.deployBudgetTreasury(
-            budgetTCR,
-            treasuryAnchor,
-            _budgetConfig(address(childFlow), premiumEscrow, listing, budgetTCR),
-            _riskModuleInitConfig(
-                ignoredBudgetStakeLedger, address(goalFlow), ignoredUnderwriterSlasherRouter, ignoredBudgetSlashPpm
-            )
-        );
-
-        (bool hasBudgetTreasuryGetter,) = premiumEscrow.staticcall(abi.encodeWithSignature("budgetTreasury()"));
-        (bool hasGoalFlowGetter,) = premiumEscrow.staticcall(abi.encodeWithSignature("goalFlow()"));
-        (bool budgetStakeLedgerGetterPresent,) =
-            premiumEscrow.staticcall(abi.encodeWithSignature("budgetStakeLedger()"));
-        (bool underwriterSlasherRouterGetterPresent,) =
-            premiumEscrow.staticcall(abi.encodeWithSignature("underwriterSlasherRouter()"));
-        (bool budgetSlashPpmGetterPresent,) = premiumEscrow.staticcall(abi.encodeWithSignature("budgetSlashPpm()"));
-
-        assertFalse(hasBudgetTreasuryGetter);
-        assertFalse(hasGoalFlowGetter);
-        assertFalse(budgetStakeLedgerGetterPresent);
-        assertFalse(underwriterSlasherRouterGetterPresent);
-        assertFalse(budgetSlashPpmGetterPresent);
-
-        NullPremiumEscrow(premiumEscrow).connectManagerRewardPool(makeAddr("managerRewardPool"));
-        NullPremiumEscrow(premiumEscrow).checkpoint(address(this));
-        NullPremiumEscrow(premiumEscrow).close(IBudgetTreasury.BudgetState.Failed, 0, 0);
-
-        assertEq(NullPremiumEscrow(premiumEscrow).claim(address(this)), 0);
-        assertEq(NullPremiumEscrow(premiumEscrow).burnOnGoalFailure(), 0);
-        assertEq(NullPremiumEscrow(premiumEscrow).slash(address(this)), 0);
-        assertEq(NullPremiumEscrow(premiumEscrow).userCov(address(this)), 0);
-        assertEq(NullPremiumEscrow(premiumEscrow).exposureIntegral(address(this)), 0);
-        assertEq(NullPremiumEscrow(premiumEscrow).creditDrawn(address(this)), 0);
-    }
-
     function test_deployBudgetTreasury_keepsPremiumEscrowStakeLedgerAndRouterFailFast() public {
         address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
         address premiumEscrow = Clones.clone(address(premiumEscrowImplementation));
@@ -649,11 +599,11 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         uint32 budgetSlashPpm_
     ) internal pure returns (IBudgetStackDeployer.RiskModuleInitConfig memory config) {
         config = IBudgetStackDeployer.RiskModuleInitConfig({
-            budgetStakeLedger: budgetStakeLedger_,
-            goalFlow: goalFlow_,
-            underwriterSlasherRouter: underwriterSlasherRouter_,
-            budgetSlashPpm: budgetSlashPpm_
-        });
+                budgetStakeLedger: budgetStakeLedger_,
+                goalFlow: goalFlow_,
+                underwriterSlasherRouter: underwriterSlasherRouter_,
+                budgetSlashPpm: budgetSlashPpm_
+            });
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {
@@ -978,10 +928,10 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         assertTrue(prepared.budgetTreasury != address(0));
     }
 
-    function test_initializeWithConfig_managedPreset_usesFixedStrategySafeRecipientAdminAndNullPremiumEscrow() public {
+    function test_initializeWithConfig_cloneMode_usesFixedStrategySafeRecipientAdminAndClonedPremiumEscrow() public {
         BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
         BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
-        NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
+        PremiumEscrow configuredPremiumEscrow = new PremiumEscrow();
         address safe = makeAddr("safe");
         IBudgetStackDeployer.StackModuleConfig memory config = IBudgetStackDeployer.StackModuleConfig({
             childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
@@ -989,7 +939,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
             childFlowRecipientAdmin: safe,
             premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+            premiumEscrowImplementation: address(configuredPremiumEscrow),
             requireZeroPremiumAndSlashRates: true
         });
 
@@ -1001,7 +951,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         assertEq(uint8(storedConfig.mechanismLayerMode), uint8(config.mechanismLayerMode));
         assertEq(storedConfig.childFlowRecipientAdmin, safe);
         assertEq(uint8(storedConfig.premiumEscrowMode), uint8(config.premiumEscrowMode));
-        assertEq(storedConfig.premiumEscrowImplementation, address(nullPremiumEscrowImplementation));
+        assertEq(storedConfig.premiumEscrowImplementation, address(configuredPremiumEscrow));
         assertTrue(storedConfig.requireZeroPremiumAndSlashRates);
 
         IBudgetStackDeployer.PreparationResult memory prepared = managedDeployer.prepareBudgetStack(
@@ -1011,6 +961,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         assertEq(prepared.strategy, address(fixedStrategy));
         assertTrue(prepared.budgetTreasury != address(0));
         assertTrue(prepared.premiumEscrow != address(0));
+        assertNotEq(prepared.premiumEscrow, address(configuredPremiumEscrow));
         assertEq(prepared.childFlowRecipientAdmin, safe);
         assertEq(prepared.allocationMechanism, address(0));
         assertEq(managedDeployer.sharedBudgetFlowStrategy(), address(0));
@@ -1024,9 +975,8 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
         BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
         address safe = makeAddr("safe");
-        IBudgetStackDeployer.StackModuleConfig memory config = _fixedStrategyNoPremiumStackModuleConfig(
-            address(fixedStrategy), safe
-        );
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(fixedStrategy), safe);
 
         managedDeployer.initializeWithConfig(address(this), config, address(0));
 
@@ -1053,9 +1003,8 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
         BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
         PremiumEscrow configuredPremiumEscrow = new PremiumEscrow();
-        IBudgetStackDeployer.StackModuleConfig memory config = _fixedStrategyNoPremiumStackModuleConfig(
-            address(fixedStrategy), makeAddr("safe")
-        );
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(fixedStrategy), makeAddr("safe"));
         config.premiumEscrowImplementation = address(configuredPremiumEscrow);
 
         vm.expectRevert(BudgetTCRDeployer.INVALID_STACK_MODULE_CONFIG.selector);
@@ -1065,9 +1014,8 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     function test_initializeWithConfig_revertsWhenCloneModeUsesZeroPremiumImplementation() public {
         BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
         BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
-        IBudgetStackDeployer.StackModuleConfig memory config = _fixedStrategyNoPremiumStackModuleConfig(
-            address(fixedStrategy), makeAddr("safe")
-        );
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(fixedStrategy), makeAddr("safe"));
         config.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
 
         vm.expectRevert(IBudgetStackDeployer.ADDRESS_ZERO.selector);
@@ -1079,28 +1027,19 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
         BudgetTCRChildFlowStrategyFactoryMock strategyFactory =
             new BudgetTCRChildFlowStrategyFactoryMock(address(fixedStrategy));
-        NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
         address safe = makeAddr("safe");
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(strategyFactory), safe);
+        config.childFlowStrategyMode = IBudgetStackDeployer.ChildFlowStrategyMode.Factory;
 
-        managedDeployer.initializeWithConfig(
-            address(this),
-            IBudgetStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Factory,
-                childFlowStrategyTarget: address(strategyFactory),
-                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-                childFlowRecipientAdmin: safe,
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
-                requireZeroPremiumAndSlashRates: true
-            }),
-            address(0)
-        );
+        managedDeployer.initializeWithConfig(address(this), config, address(0));
 
         IBudgetStackDeployer.PreparationResult memory prepared = managedDeployer.prepareBudgetStack(
             address(budgetStakeLedgerA), address(goalFlow), address(underwriterSlasherRouter)
         );
 
         assertEq(prepared.strategy, address(fixedStrategy));
+        assertEq(prepared.premiumEscrow, address(0));
         assertEq(prepared.childFlowRecipientAdmin, safe);
         assertEq(prepared.allocationMechanism, address(0));
         assertEq(strategyFactory.lastBudgetTreasury(), prepared.budgetTreasury);
@@ -1129,21 +1068,11 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
     function test_initializeWithConfig_factoryHook_revertsWhenFactoryReturnsInvalidStrategy() public {
         BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
         BudgetTCRChildFlowStrategyFactoryMock strategyFactory = new BudgetTCRChildFlowStrategyFactoryMock(address(0));
-        NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(strategyFactory), makeAddr("safe"));
+        config.childFlowStrategyMode = IBudgetStackDeployer.ChildFlowStrategyMode.Factory;
 
-        managedDeployer.initializeWithConfig(
-            address(this),
-            IBudgetStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Factory,
-                childFlowStrategyTarget: address(strategyFactory),
-                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-                childFlowRecipientAdmin: makeAddr("safe"),
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
-                requireZeroPremiumAndSlashRates: true
-            }),
-            address(0)
-        );
+        managedDeployer.initializeWithConfig(address(this), config, address(0));
 
         vm.expectRevert(abi.encodeWithSelector(BudgetTCRDeployer.INVALID_CHILD_FLOW_STRATEGY.selector, address(0)));
         managedDeployer.prepareBudgetStack(
@@ -1222,10 +1151,11 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         return BudgetTCRDeployer(Clones.clone(address(implementation)));
     }
 
-    function _fixedStrategyNoPremiumStackModuleConfig(
-        address strategy,
-        address recipientAdmin
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
+    function _fixedStrategyNoPremiumStackModuleConfig(address strategy, address recipientAdmin)
+        internal
+        pure
+        returns (IBudgetStackDeployer.StackModuleConfig memory config)
+    {
         config = IBudgetStackDeployer.StackModuleConfig({
             childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
             childFlowStrategyTarget: strategy,

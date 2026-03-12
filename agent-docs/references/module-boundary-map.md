@@ -31,7 +31,7 @@
 - Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses no managed gate policy / `address(0)`)
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
-- Premium / risk module: shared stateless `src/goals/NullPremiumEscrow.sol`
+- Premium / risk module: none by default (`PremiumEscrowMode.None`; `premiumEscrow = address(0)`)
 - Stack deployer: configured clone of `src/tcr/BudgetTCRDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass
 - Safe-managed external mechanism runtimes may still be attached as ordinary budget-flow recipients through `src/goals/ManagedBudgetController.sol` generic recipient APIs; that path does not create a managed mechanism registry or managed escrow layer
@@ -70,7 +70,6 @@
   - `src/goals/StakeVault.sol`
   - `src/goals/BudgetStakeLedger.sol`
   - `src/goals/PremiumEscrow.sol`
-  - `src/goals/NullPremiumEscrow.sol`
   - `src/goals/ManagedBudgetController.sol`
   - `src/goals/UnderwriterSlasherRouter.sol`
   - `src/goals/SuccessAssertionDocumentRegistry.sol`

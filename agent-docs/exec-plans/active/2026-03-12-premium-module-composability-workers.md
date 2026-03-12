@@ -14,7 +14,7 @@ Updated: 2026-03-12
 - Open-lane `BudgetTCR.syncBudgetTreasuries(...)` already has local terminal-prune fallback with later-sweep idempotence.
 - Managed deployment already converges on the generic `IBudgetStackDeployer` / `BudgetTCRDeployer` path.
 - The shared deploy seam already uses neutral `IBudgetTreasury.BudgetConfig` plus `RiskModuleInitConfig`.
-- `NullPremiumEscrow` is already a shared stateless shim.
+- The repo already models no-premium mode through explicit `PremiumEscrowMode.None` / `address(0)` wiring.
 - `BudgetSingleAllocatorStrategy` is already cloneable / initializable and its factory already uses clones.
 - Spend-policy validation is already centralized and hardened.
 
@@ -32,7 +32,7 @@ This batch must treat those items as fixed inputs and should not reopen them unl
 - Do not fully redesign `IPremiumEscrow` into multiple smaller interfaces in the same pass.
 - Do not change real `PremiumEscrow` accounting, claim, slash, or close semantics.
 - Do not silently weaken open-preset validation when underwriting is actually configured.
-- Do not delete `NullPremiumEscrow` until all live call sites and tests are updated; making it unused is sufficient for the first cut.
+- Delete the shim only after all live call sites and tests are updated to the explicit-absence model.
 
 ## Current Launch Blockers
 
@@ -103,14 +103,14 @@ This batch must treat those items as fixed inputs and should not reopen them unl
   - `src/goals/GoalFactory.sol`
   - `src/goals/library/GoalFactoryManagedPresetDeploy.sol`
   - `src/goals/ManagedBudgetController.sol`
-  - `src/goals/NullPremiumEscrow.sol` only if it becomes fully unused inside owned scope
+  - `src/goals/NullPremiumEscrow.sol` for deletion once no owned call sites remain
   - optional narrow coverage in:
     - `test/goals/ManagedBudgetController.t.sol`
     - `test/BudgetTCRManagedStackDeployments.t.sol`
     - `test/goals/GoalFactoryUnderwritingSlashConfigGuard.t.sol`
 - Outcome:
   - managed preset bootstraps with no premium module contract at all
-  - managed budget stacks stop creating or sharing `NullPremiumEscrow`
+  - managed budget stacks stop creating or sharing any fake premium escrow shim
 
 ### Worker D: Open/TCR optional-premium validation and wiring
 
@@ -151,8 +151,8 @@ Rationale:
 ### Parent integration
 
 - reconcile any shared semantic fallout between Worker B and Workers C/D
-- update broader deployment tests that still mention `NullPremiumEscrow`
-- decide whether `NullPremiumEscrow` can be deleted immediately or should remain dead until a tiny cleanup pass
+- update broader deployment tests that still mention the deleted shim
+- remove stale docs/plan references that still describe `NullPremiumEscrow` as live behavior
 - run required Solidity verification:
   - `pnpm -s verify:required`
   - `pnpm -s lint:solidity:warnings`
@@ -189,11 +189,11 @@ workspace-docs/bin/codex-workers \
 ## Discussion Points Before Launch
 
 - Whether to allow open preset absence mode immediately for zero-premium / zero-slash configs, or first limit absence mode to managed only.
-- Whether `NullPremiumEscrow` should stay in-tree as dead compatibility scaffolding for one turn, or be deleted in the same batch once tests are updated.
+- Whether shim deletion can land in the same batch once imports/tests are updated.
 - Whether `StakeVault` should treat zero premium module as automatically prepared for withdrawal, or require an additional explicit check on goal underwriting config.
 
 ## Recommended Answers
 
 - Allow open preset absence mode immediately, but only for explicit `budgetPremiumPpm == 0 && budgetSlashPpm == 0`.
-- Make `NullPremiumEscrow` unused first, then delete it in a tiny follow-up cleanup unless a worker can prove all imports/tests are already owned and updated safely.
+- Delete the shim in the same batch once imports/tests are updated and ownership is clear.
 - Treat zero premium module as "no underwriting side effects exist here"; do not block withdrawal preparation solely because no escrow contract exists.

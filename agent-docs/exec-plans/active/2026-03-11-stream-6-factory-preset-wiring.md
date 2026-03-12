@@ -14,7 +14,7 @@ Updated: 2026-03-11
 - `GoalFactory` supports explicit open vs managed preset deployment.
 - Core stack wiring accepts explicit controller/recipient-admin and allocator strategy outputs.
 - Open preset still deploys with `StakeVault` as goal allocator and `BudgetTCR` as budget controller.
-- Managed preset deploys with `SingleAllocatorStrategy`, `ManagedBudgetController`, no gate policy (`address(0)`), and `NullPremiumEscrow`.
+- Managed preset deploys with `SingleAllocatorStrategy`, `ManagedBudgetController`, no gate policy (`address(0)`), and no premium module (`PremiumEscrowMode.None` / `address(0)`).
 - Managed preset keeps `StakeVault` as funding vault and records Safe-owned child recipient-admin config.
 - Goal factory regression tests cover both presets.
 
@@ -63,7 +63,8 @@ Updated: 2026-03-11
   - `goalAllocatorStrategy = SingleAllocatorStrategy`
   - `budgetController = ManagedBudgetController` clone
   - `budgetGatePolicy = address(0)`
-  - `premiumEscrowImplementation = NullPremiumEscrow`
+  - `premiumEscrowMode = PremiumEscrowMode.None`
+  - `premiumEscrowImplementation = address(0)`
   - `jurorSlasherAuthority = ManagedBudgetController`
   - controller initialized through `GoalFactoryManagedPresetDeploy.initializeManagedController(...)`
 - Deploy script artifact outputs:

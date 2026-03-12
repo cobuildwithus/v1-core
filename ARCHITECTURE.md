@@ -56,7 +56,7 @@ cobuild-protocol/
   - `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol` (managed-preset child-budget strategy scoped to one budget treasury flow).
 - Budget premium / risk modules:
   - `src/goals/PremiumEscrow.sol` (open preset)
-  - shared stateless `src/goals/NullPremiumEscrow.sol` (managed preset)
+  - explicit absence via `premiumEscrow = address(0)` / `PremiumEscrowMode.None` (managed preset and zero-premium open mode)
 - Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` implemented by `src/tcr/BudgetTCRDeployer.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
@@ -104,7 +104,7 @@ Managed preset
 - Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
-- Premium / risk module: shared stateless `NullPremiumEscrow`
+- Premium / risk module: none by default (`PremiumEscrowMode.None`)
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - Safe-managed external mechanism runtimes such as `TeamFlow` can still be attached as ordinary managed budget-flow recipients through the controller's generic recipient APIs; that path does not add a managed mechanism registry or managed escrow layer
 - No advisory TCR and no managed mechanism controller in this pass
@@ -161,11 +161,10 @@ Managed preset
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter and slashes `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)`, routing through the per-goal underwriter slasher router,
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget
     `executionDuration`.
-- Managed-preset risk wiring keeps the same controller/treasury/escrow seam without live premium accounting:
-  - manager-reward stream routes to `NullPremiumEscrow`,
-  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config; managed budget deployment hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
-  - `NullPremiumEscrow` is a shared stateless shim and ignores init inputs,
-  - claim, slash, burn-on-failure, and close side effects are intentional no-ops,
+- Managed-preset risk wiring now represents premium-module absence explicitly:
+  - manager-reward routing is disabled on managed child-flow deployment,
+  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config; managed budget deployment hardcodes zero coverage/slash inputs through the shared treasury/gate seams,
+  - no premium escrow is initialized, connected, or authorized for managed budgets by default,
   - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
   - `BudgetTCRFactory` may preserve manual registry deposits when a strategy cleanly reports `supportsEscrowBonding() == false`,
@@ -322,7 +321,7 @@ Managed preset
 - Goal allocation pipeline budget-risk hook:
   - open preset: after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
     budget's `PremiumEscrow` for the allocating account,
-  - managed preset: the same seam resolves to shared `NullPremiumEscrow`, preserving topology compatibility without real premium accounting,
+  - managed preset: no premium module is configured by default, so the budget-risk checkpoint seam is skipped,
   - `previewChildSyncRequirements(...)` derives changed budgets from the ledger preview path instead of reimplementing merge semantics,
   - checkpoint failures still fail closed on allocation commit so the configured premium/risk seam cannot silently diverge from ledger state.
 
@@ -393,7 +392,7 @@ Managed preset
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - Stack deployers use clone-first treasury setup:
   - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
-  - managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with shared `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
+  - managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with no premium module plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
   - budget treasury initialization still happens after child-flow creation in both stacks.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 

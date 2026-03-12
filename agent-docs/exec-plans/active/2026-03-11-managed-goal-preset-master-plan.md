@@ -9,11 +9,10 @@
   - `IBudgetController`
   - `IBudgetGatePolicy`
   - `ManagedBudgetController`
-  - `NullPremiumEscrow`
   - `IGoalScopedAllocationStrategy`
   - `SingleAllocatorStrategy`
 - Managed goal allocator identity is the controller contract, not the Safe directly.
-- Managed goals use `ManagedBudgetController`, `SingleAllocatorStrategy`, and `NullPremiumEscrow`.
+- Managed goals use `ManagedBudgetController`, `SingleAllocatorStrategy`, and no premium module by default.
 - Managed budget child `recipientAdmin` is the Safe directly in v1.
 - No advisory TCR for maintainer goals in this pass.
 - Do not add a managed mechanism controller in this pass.
@@ -56,7 +55,7 @@ Refactor the protocol so recursive flows stay the neutral substrate while open-m
 - `ManagedBudgetController` is the deployment-time controller alternative for maintainer goals.
 - `ManagedBudgetController` owns managed budget topology, terminal prune behavior, and controller-side goal-sync retry behavior.
 - `ManagedBudgetController` delegates coverage/gating decisions to a pluggable `IBudgetGatePolicy`.
-- Managed goals use `NullPremiumEscrow`, not `address(0)`.
+- Managed goals use explicit no-premium mode (`PremiumEscrowMode.None` / `address(0)`), not a shim contract.
 - This pass does not add any managed analogue of `AllocationMechanismTCR`.
 
 ### Allocation boundary
@@ -75,7 +74,7 @@ Refactor the protocol so recursive flows stay the neutral substrate while open-m
 ### Escrow boundary
 
 - Open preset: current premium escrow stack remains unchanged.
-- Managed preset: `NullPremiumEscrow` is an explicit no-premium module. Do not use a zero-address sentinel.
+- Managed preset: no premium module by default. Use explicit `PremiumEscrowMode.None` / `address(0)` wiring.
 
 ## Frozen Shared Interface and Contract Names
 
@@ -105,10 +104,10 @@ Refactor the protocol so recursive flows stay the neutral substrate while open-m
 - Must be the allocator identity seen by `SingleAllocatorStrategy`.
 - Must not grow managed mechanism-registry ownership in this pass.
 
-### `NullPremiumEscrow`
+### Optional premium module
 
-- Concrete managed-goal escrow module that satisfies the expected escrow boundary without underwriting premium behavior.
-- Use this explicit contract/module name instead of `address(0)` wiring or runtime optional checks.
+- Managed goals represent premium-module absence explicitly through `PremiumEscrowMode.None` / `address(0)`.
+- Runtime consumers must treat the premium/risk module as optional rather than depending on a fake escrow implementation.
 
 ### `IGoalScopedAllocationStrategy`
 
@@ -140,7 +139,7 @@ Refactor the protocol so recursive flows stay the neutral substrate while open-m
 - Allocator identity: controller contract
 - Budget controller: `ManagedBudgetController`
 - Budget gate policy: pluggable `IBudgetGatePolicy`
-- Premium escrow: `NullPremiumEscrow`
+- Premium escrow: none by default (`PremiumEscrowMode.None`)
 - Budget child `recipientAdmin`: Safe directly in v1
 - Advisory TCR: none in this pass
 - Managed mechanism controller: none in this pass
@@ -185,13 +184,12 @@ Refactor the protocol so recursive flows stay the neutral substrate while open-m
 - Owns:
   - `src/interfaces/IBudgetGatePolicy.sol`
   - `src/goals/ManagedBudgetController.sol`
-  - `src/goals/NullPremiumEscrow.sol`
   - any small controller-owned helper libraries introduced for managed gating
   - targeted tests/docs for managed controller behavior
 - Responsibility:
   - implement managed budget routing/control without TCR semantics
   - keep budget routing separate from gate policy evaluation
-  - preserve explicit `NullPremiumEscrow` wiring
+  - preserve explicit no-premium wiring through `PremiumEscrowMode.None`
 - Must not own:
   - open-goal controller behavior changes beyond satisfying `IBudgetController`
   - managed mechanism-controller work
