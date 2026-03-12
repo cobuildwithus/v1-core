@@ -236,11 +236,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
-        if (
-            stackModuleConfig_.premiumEscrowImplementation == address(0) ||
-            stackModuleConfig_.premiumEscrowImplementation.code.length == 0
-        ) {
-            revert ADDRESS_ZERO();
+        if (stackModuleConfig_.premiumEscrowMode == PremiumEscrowMode.None) {
+            if (stackModuleConfig_.premiumEscrowImplementation != address(0)) {
+                revert INVALID_STACK_MODULE_CONFIG();
+            }
+        } else {
+            _assertImplementationAddress(stackModuleConfig_.premiumEscrowImplementation);
         }
 
         if (stackModuleConfig_.childFlowStrategyMode == ChildFlowStrategyMode.SharedBudgetFlowRouter) {
@@ -299,7 +300,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _preparePremiumEscrow() internal returns (address premiumEscrow) {
-        if (premiumEscrowMode == PremiumEscrowMode.Shared) {
+        PremiumEscrowMode escrowMode = premiumEscrowMode;
+        if (escrowMode == PremiumEscrowMode.None) {
+            return address(0);
+        }
+
+        if (escrowMode == PremiumEscrowMode.Shared) {
             return premiumEscrowImplementation;
         }
 

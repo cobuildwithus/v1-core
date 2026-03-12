@@ -140,6 +140,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
     error INVALID_BUDGET_SPEND_POLICY(address policy);
     error INVALID_BUDGET_GATE_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
+    error PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
     error GOAL_TERMINAL();

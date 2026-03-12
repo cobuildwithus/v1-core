@@ -524,7 +524,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     function _requirePreparedStack(IBudgetStackDeployer.PreparationResult memory prepared) private pure {
         if (prepared.strategy == address(0)) revert ADDRESS_ZERO();
         if (prepared.budgetTreasury == address(0)) revert ADDRESS_ZERO();
-        if (prepared.premiumEscrow == address(0)) revert ADDRESS_ZERO();
     }
 
     function _requireContract(address account) private view {

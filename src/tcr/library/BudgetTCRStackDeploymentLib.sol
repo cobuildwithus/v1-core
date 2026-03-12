@@ -20,24 +20,26 @@ library BudgetTCRStackDeploymentLib {
         if (controller == address(0)) revert ADDRESS_ZERO();
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.flow == address(0)) revert ADDRESS_ZERO();
-        if (budgetConfig.premiumEscrow == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.successResolver == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.spendPolicy == address(0)) revert ADDRESS_ZERO();
         if (riskModuleInitConfig.goalFlow == address(0)) revert ADDRESS_ZERO();
 
         if (budgetTreasury.code.length == 0) revert INVALID_TREASURY(budgetTreasury);
 
+        address premiumEscrow = budgetConfig.premiumEscrow;
         BudgetTreasury(budgetTreasury).initialize(controller, budgetConfig);
 
         _assertTreasuryConfiguration(
             budgetTreasury,
             controller,
             budgetConfig.flow,
-            budgetConfig.premiumEscrow,
+            premiumEscrow,
             budgetConfig.spendPolicy
         );
+        if (premiumEscrow == address(0)) return budgetTreasury;
+
         // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
-        IPremiumEscrow(budgetConfig.premiumEscrow).initialize(
+        IPremiumEscrow(premiumEscrow).initialize(
             budgetTreasury,
             riskModuleInitConfig.budgetStakeLedger,
             riskModuleInitConfig.goalFlow,

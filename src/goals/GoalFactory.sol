@@ -20,7 +20,6 @@ import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
-import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
@@ -291,7 +290,6 @@ contract GoalFactory {
         address managedBudgetChildStrategyFactoryImplementation = address(
             new BudgetSingleAllocatorStrategyFactory(managedBudgetChildStrategyImplementation)
         );
-        address managedPremiumEscrowImplementation = address(new NullPremiumEscrow());
 
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;
@@ -315,7 +313,7 @@ contract GoalFactory {
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
         MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL = managedBudgetChildStrategyFactoryImplementation;
-        MANAGED_PREMIUM_ESCROW_IMPL = managedPremiumEscrowImplementation;
+        MANAGED_PREMIUM_ESCROW_IMPL = address(0);
         OPEN_BUDGET_GATE_POLICY = openBudgetGatePolicy;
 
         DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy;
@@ -687,8 +685,7 @@ contract GoalFactory {
                     budgetControllerImplementation: MANAGED_BUDGET_CONTROLLER_IMPL,
                     goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL,
                     stackDeployerImplementation: BUDGET_TCR_FACTORY.stackDeployerImplementation(),
-                    budgetChildStrategyFactoryImplementation: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL,
-                    premiumEscrowImplementation: MANAGED_PREMIUM_ESCROW_IMPL
+                    budgetChildStrategyFactoryImplementation: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL
                 })
             );
     }

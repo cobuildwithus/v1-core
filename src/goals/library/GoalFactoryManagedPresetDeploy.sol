@@ -20,7 +20,6 @@ library GoalFactoryManagedPresetDeploy {
         address goalAllocatorStrategyImplementation;
         address stackDeployerImplementation;
         address budgetChildStrategyFactoryImplementation;
-        address premiumEscrowImplementation;
     }
 
     function bootstrapManagedPreset(
@@ -38,8 +37,8 @@ library GoalFactoryManagedPresetDeploy {
                 childFlowStrategyTarget: config.budgetChildStrategyFactoryImplementation,
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(out.budgetController),
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
-                premiumEscrowImplementation: config.premiumEscrowImplementation,
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+                premiumEscrowImplementation: address(0),
                 requireZeroPremiumAndSlashRates: true
             }),
             address(0)

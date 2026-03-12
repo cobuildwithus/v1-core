@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 /// @notice Read-only surface for canonical budget-stack topology stored by the budget registry.
 interface IBudgetStackTopologyReader {
     /// @dev Managed controllers may omit mechanism modules and leave both mechanism fields as zero.
+    ///      Budget stacks may also omit premium/underwriting modules entirely and leave `premiumEscrow` as zero.
     struct BudgetStackTopology {
         address childFlow;
         address budgetTreasury;

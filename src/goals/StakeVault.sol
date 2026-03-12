@@ -818,9 +818,9 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
 
         IBudgetTreasury budgetTreasury = IBudgetTreasury(budget);
         address premiumEscrowAddress = budgetTreasury.premiumEscrow();
-        if (premiumEscrowAddress == address(0) || premiumEscrowAddress.code.length == 0) {
-            revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
-        }
+        // `address(0)` is an explicit optional-premium mode: there is no underwriting side effect to reconcile.
+        if (premiumEscrowAddress == address(0)) return;
+        if (premiumEscrowAddress.code.length == 0) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
         IPremiumEscrow premiumEscrow = IPremiumEscrow(premiumEscrowAddress);
 
         uint256 currentCoverage = budgetStakeLedger.userAllocatedStakeOnBudget(underwriter, budget);

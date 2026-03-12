@@ -162,7 +162,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertTrue(factory.MANAGED_BUDGET_CONTROLLER_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL().code.length > 0);
-        assertTrue(factory.MANAGED_PREMIUM_ESCROW_IMPL().code.length > 0);
+        assertEq(factory.MANAGED_PREMIUM_ESCROW_IMPL(), address(0));
     }
 
     function test_constructor_revertsWhenDefaultGoalSpendPolicyIsInvalid() public {
@@ -339,7 +339,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(stackConfig.childFlowStrategyTarget, factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL());
         assertEq(uint8(stackConfig.mechanismLayerMode), uint8(IBudgetStackDeployer.MechanismLayerMode.None));
         assertEq(stackConfig.childFlowRecipientAdmin, deployed.budgetController);
-        assertEq(uint8(stackConfig.premiumEscrowMode), uint8(IBudgetStackDeployer.PremiumEscrowMode.Shared));
+        assertEq(uint8(stackConfig.premiumEscrowMode), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), factory.MANAGED_PREMIUM_ESCROW_IMPL());
         assertEq(deployed.arbitrator, address(0));
         assertEq(

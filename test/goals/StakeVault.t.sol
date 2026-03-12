@@ -1177,6 +1177,40 @@ contract StakeVaultTest is Test {
         assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
     }
 
+    function test_prepareUnderwriterWithdrawal_budgetWithoutPremiumEscrow_allowsPrepareAndWithdraw() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(0));
+        unresolvedBudget.setActivatedAt(1);
+        unresolvedBudget.setState(IBudgetTreasury.BudgetState.Active);
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+        budgetAwareLedger.setCoverage(alice, address(unresolvedBudget), 1e18);
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) =
+            budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(nextBudgetIndex, 1);
+        assertEq(budgetCount, 1);
+        assertTrue(complete);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 1);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), budgetAwareVault.goalResolvedAt());
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 1);
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+    }
+
     function test_prepareUnderwriterWithdrawal_unresolvedPreActivationCurrentCoverage_allowsPrepareAndWithdraw() public {
         (
             StakeVault budgetAwareVault,
@@ -1278,6 +1312,36 @@ contract StakeVaultTest is Test {
         VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
         escrow.setUserCov(alice, 1);
         VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.prepareUnderwriterWithdrawal(type(uint256).max);
+
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedForResolvedAt(alice), 0);
+        assertEq(budgetAwareVault.underwriterWithdrawalPreparedBudgetCount(alice), 0);
+
+        vm.prank(alice);
+        vm.expectRevert(IStakeVault.UNDERWRITER_WITHDRAWAL_NOT_PREPARED.selector);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+    }
+
+    function test_prepareUnderwriterWithdrawal_budgetWithNonContractPremiumEscrow_revertsAndKeepsWithdrawLocked()
+        public
+    {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(makeAddr("premium-escrow-eoa"));
         budgetAwareLedger.addBudget(address(unresolvedBudget));
 
         vm.prank(alice);

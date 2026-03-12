@@ -510,6 +510,30 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         );
     }
 
+    function test_deployBudgetTreasury_allowsZeroPremiumEscrowAndSkipsRiskModuleInitialization() public {
+        address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+
+        BudgetTCRStackDeploymentLibMockChildFlow childFlow =
+            new BudgetTCRStackDeploymentLibMockChildFlow(makeAddr("safe"), address(goalToken), address(sharedStrategy));
+        childFlow.setFlowOperator(treasuryAnchor);
+        childFlow.setSweeper(treasuryAnchor);
+
+        address budgetTreasury = harness.deployBudgetTreasury(
+            budgetTCR,
+            treasuryAnchor,
+            _budgetConfig(address(childFlow), address(0), listing, budgetTCR),
+            _riskModuleInitConfig(address(0), address(goalFlow), address(0), BUDGET_SLASH_PPM)
+        );
+
+        assertEq(budgetTreasury, treasuryAnchor);
+        assertEq(BudgetTreasury(budgetTreasury).controller(), budgetTCR);
+        assertEq(BudgetTreasury(budgetTreasury).flow(), address(childFlow));
+        assertEq(BudgetTreasury(budgetTreasury).premiumEscrow(), address(0));
+        assertEq(BudgetTreasury(budgetTreasury).successResolver(), budgetTCR);
+        assertEq(BudgetTreasury(budgetTreasury).spendPolicy(), budgetSpendPolicy);
+    }
+
     function test_deployBudgetTreasury_initializesNullPremiumEscrow_andNoOpsPremiumHooks() public {
         address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
         NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
@@ -1035,6 +1059,18 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils {
         config.premiumEscrowImplementation = address(configuredPremiumEscrow);
 
         vm.expectRevert(BudgetTCRDeployer.INVALID_STACK_MODULE_CONFIG.selector);
+        managedDeployer.initializeWithConfig(address(this), config, address(0));
+    }
+
+    function test_initializeWithConfig_revertsWhenCloneModeUsesZeroPremiumImplementation() public {
+        BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
+        BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
+        IBudgetStackDeployer.StackModuleConfig memory config = _fixedStrategyNoPremiumStackModuleConfig(
+            address(fixedStrategy), makeAddr("safe")
+        );
+        config.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
+
+        vm.expectRevert(IBudgetStackDeployer.ADDRESS_ZERO.selector);
         managedDeployer.initializeWithConfig(address(this), config, address(0));
     }
 

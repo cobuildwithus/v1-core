@@ -34,21 +34,18 @@ library BudgetTCRInitValidation {
             revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
         }
 
-        if (deploymentConfig.premiumEscrowImplementation == address(0)) {
-            revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address(0));
-        }
-        if (deploymentConfig.premiumEscrowImplementation.code.length == 0) {
-            revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(deploymentConfig.premiumEscrowImplementation);
-        }
-        address underwriterSlasherRouter_ = deploymentConfig.underwriterSlasherRouter;
-        if (underwriterSlasherRouter_ == address(0) || underwriterSlasherRouter_.code.length == 0) {
-            revert IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED();
-        }
         if (deploymentConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert IBudgetTCR.INVALID_PPM(deploymentConfig.budgetPremiumPpm);
         }
         if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert IBudgetTCR.INVALID_PPM(deploymentConfig.budgetSlashPpm);
+        }
+        if (_usesExplicitNoPremiumMode(deploymentConfig)) {
+            if (_requiresPremiumModule(deploymentConfig)) {
+                revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
+            }
+        } else {
+            _requirePremiumModuleWiring(deploymentConfig);
         }
         if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) {
             revert IBudgetTCR.BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
@@ -67,6 +64,32 @@ library BudgetTCRInitValidation {
         }
         if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0) {
             revert IBudgetTCR.INVALID_BOUNDS();
+        }
+    }
+
+    function _usesExplicitNoPremiumMode(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private pure returns (bool) {
+        return
+            deploymentConfig.premiumEscrowImplementation == address(0) &&
+            deploymentConfig.underwriterSlasherRouter == address(0);
+    }
+
+    function _requiresPremiumModule(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure returns (bool) {
+        return deploymentConfig.budgetPremiumPpm != 0 || deploymentConfig.budgetSlashPpm != 0;
+    }
+
+    function _requirePremiumModuleWiring(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private view {
+        if (deploymentConfig.premiumEscrowImplementation == address(0)) {
+            revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address(0));
+        }
+        if (deploymentConfig.premiumEscrowImplementation.code.length == 0) {
+            revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(deploymentConfig.premiumEscrowImplementation);
+        }
+
+        address underwriterSlasherRouter_ = deploymentConfig.underwriterSlasherRouter;
+        if (underwriterSlasherRouter_ == address(0) || underwriterSlasherRouter_.code.length == 0) {
+            revert IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED();
         }
     }
 

@@ -76,6 +76,7 @@ library BudgetTCRStackActions {
         address premiumEscrow = prepared.premiumEscrow;
         address allocationMechanism = prepared.allocationMechanism;
         bool hasAllocationMechanism = allocationMechanism != address(0);
+        bool hasPremiumEscrow = premiumEscrow != address(0);
 
         (, address childFlow) = goalFlow.addFlowRecipient(
             itemID,
@@ -84,7 +85,7 @@ library BudgetTCRStackActions {
             budgetTreasury,
             budgetTreasury,
             premiumEscrow,
-            budgetPremiumPpm,
+            hasPremiumEscrow ? budgetPremiumPpm : 0,
             IAllocationStrategy(prepared.strategy)
         );
 
@@ -119,11 +120,13 @@ library BudgetTCRStackActions {
             })
         );
 
-        address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
-        if (managerRewardDistributionPool == address(0)) {
-            revert IBudgetTCR.MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
+        if (hasPremiumEscrow) {
+            address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
+            if (managerRewardDistributionPool == address(0)) {
+                revert IBudgetTCR.MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
+            }
+            IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
         }
-        IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
         if (deployedBudgetTreasury != budgetTreasury) {
             revert BUDGET_TREASURY_MISMATCH();
         }
@@ -156,7 +159,9 @@ library BudgetTCRStackActions {
         );
 
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
-        IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
+        if (hasPremiumEscrow) {
+            IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
+        }
         if (hasAllocationMechanism) {
             emit BudgetAllocationMechanismDeployed(
                 itemID,

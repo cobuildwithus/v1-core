@@ -37,6 +37,7 @@ import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
@@ -418,6 +419,19 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initialize_reverts_when_explicit_no_premium_mode_has_nonzero_rates() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.premiumEscrowImplementation = address(0);
+        deploymentConfig.underwriterSlasherRouter = address(0);
+
+        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_budget_premium_ppm_exceeds_scale() public {
         (
             BudgetTCR freshTcr,
@@ -661,6 +675,61 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 100_000);
         assertEq(address(PremiumEscrow(premiumEscrow).managerRewardPool()), managerRewardDistributionPool);
         assertEq(PremiumEscrow(premiumEscrow).accountedManagerRewardReceived(), 0);
+    }
+
+    function test_activateRegisteredBudget_deploys_stack_without_premium_module_when_explicit_absence_mode() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetTCRDeployer(freshStackDeployer).initializeWithConfig(
+            address(freshTcr), _noPremiumStackModuleConfig(), address(0)
+        );
+
+        ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
+        bytes memory freshArbInit = _defaultArbitratorInitData(
+            owner, address(depositToken), address(freshTcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
+        address freshArbProxy = _deployProxy(address(freshArbImpl), freshArbInit);
+
+        deploymentConfig.stackDeployer = freshStackDeployer;
+        deploymentConfig.premiumEscrowImplementation = address(0);
+        deploymentConfig.underwriterSlasherRouter = address(0);
+        deploymentConfig.budgetPremiumPpm = 0;
+        deploymentConfig.budgetSlashPpm = 0;
+        registryConfig.tcrConfig.arbitrator = IArbitrator(freshArbProxy);
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+        goalFlow.setRecipientAdmin(address(freshTcr));
+
+        (uint256 addCost,,,,) = freshTcr.getTotalCosts();
+        vm.prank(requester);
+        depositToken.approve(address(freshTcr), addCost);
+
+        vm.prank(requester);
+        bytes32 itemID = freshTcr.addItem(abi.encode(_defaultListing()));
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        freshTcr.executeRequest(itemID);
+        freshTcr.activateRegisteredBudget(itemID);
+
+        (address childFlow, bool removed) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            freshTcr.budgetStackTopology(itemID);
+
+        assertFalse(removed);
+        assertTrue(active);
+        assertEq(topology.childFlow, childFlow);
+        assertEq(topology.budgetTreasury, budgetTreasury);
+        assertEq(topology.premiumEscrow, address(0));
+        assertEq(IBudgetTreasury(budgetTreasury).premiumEscrow(), address(0));
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPool(), address(0));
+        assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 0);
+        assertEq(budgetStakeLedger.registerCallCount(), 1);
     }
 
     function test_activateRegisteredBudget_setsConfiguredBudgetSpendPolicyOnBudgetTreasury() public {
@@ -2687,6 +2756,22 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
                 maxRunwayCap: 2_000_000e18
             }),
             oracleValidationBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
+        });
+    }
+
+    function _noPremiumStackModuleConfig()
+        internal
+        pure
+        returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig)
+    {
+        stackModuleConfig = IBudgetStackDeployer.StackModuleConfig({
+            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+            childFlowStrategyTarget: address(0),
+            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
+            childFlowRecipientAdmin: address(0),
+            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+            premiumEscrowImplementation: address(0),
+            requireZeroPremiumAndSlashRates: true
         });
     }
 

@@ -10,7 +10,6 @@ import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocator
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
-import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
@@ -703,7 +702,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
     BudgetTCRDeployer internal stackDeployer;
     BudgetSingleAllocatorStrategyFactory internal childStrategyFactory;
-    NullPremiumEscrow internal nullPremiumEscrowImplementation;
     SingleAllocatorStrategy internal goalStrategy;
     TestableCustomFlow internal goalFlow;
     address internal spendPolicy;
@@ -721,7 +719,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
         childStrategyFactory =
             new BudgetSingleAllocatorStrategyFactory(address(new BudgetSingleAllocatorStrategy(address(0), address(0))));
-        nullPremiumEscrowImplementation = new NullPremiumEscrow();
         BudgetTCRDeployer deployerImplementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
             address(
@@ -772,8 +769,8 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
                 childFlowStrategyTarget: address(childStrategyFactory),
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(controller),
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+                premiumEscrowImplementation: address(0),
                 requireZeroPremiumAndSlashRates: true
             }),
             address(0)
@@ -824,6 +821,9 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(child.recipientAdmin(), address(controller));
         assertEq(child.flowOperator(), budgetTreasury);
         assertEq(child.sweeper(), budgetTreasury);
+        assertEq(child.managerRewardPool(), address(0));
+        assertEq(child.managerRewardPoolFlowRatePpm(), 0);
+        assertEq(address(child.managerRewardDistributionPool()), address(0));
         assertEq(address(child.strategy()), topology.strategy);
 
         BudgetSingleAllocatorStrategy childStrategy = BudgetSingleAllocatorStrategy(topology.strategy);
@@ -854,7 +854,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(treasury.successAssertionPolicyHash(), config.successAssertionPolicyHash);
         assertEq(treasury.spendPolicy(), spendPolicy);
 
-        assertEq(topology.premiumEscrow, address(nullPremiumEscrowImplementation));
+        assertEq(topology.premiumEscrow, address(0));
     }
 
     function test_removeBudget_realStackFailClosesActivatedBudgetAndKeepsSyncTerminal() public {
