@@ -82,6 +82,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
     seeds an explicit route on `CobuildSplitHook` only when the caller selected goals, forwards `jbMetadata` unchanged
     into terminal-store accounting and pay-hook `payerMetadata`, pays through the registered community config, and
     synchronously flushes reserved-token splits through the community controller when that pay created reserved tokens.
+  - `CobuildCommunityTerminal.cashOutTokensOf(...)` is the canonical upward redemption primitive for registered community layers:
+    - supported reclaim assets are the registered payment token and native ETH,
+    - it records reclaim through terminal-store cash-out accounting, burns the holder's community tokens, transfers held reclaim liquidity, fulfills cash-out hooks, and intentionally requires `holder == msg.sender`.
   - Community registration is gated by the community project owner per revnet and must bind the split hook, payment token,
     payment-source revnet, and direct-native toggle against immutable registry + directory wiring before the terminal can pay; the supported entrypoints are direct owner calls and the approved factory path only.
   - If `directNativeAllowed`, community registration must pin `paymentSourceRevnetId == communityRevnetId`.
@@ -101,6 +104,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `CobuildGoalTerminal` is the canonical shared goal funding terminal:
     - it resolves the goal's payment token and payment-source revnet from the registered goal treasury + stake vault at pay time,
     - native ETH funding must convert through the resolved payment-source revnet before forwarding to the goal's primary payment-token terminal.
+  - `CobuildExitRouter` is the canonical shared user exit surface:
+    - `exitToCommunityToken(...)` cashes out a goal into its immediate upstream community denomination and rejects any first hop that is not a registered community layer,
+    - `exitToCobuildToken(...)` and `exitToEth(...)` keep walking registered community lineage onchain until they reach COBUILD or a direct-native root, and each community hop must settle through `CobuildCommunityTerminal`,
+    - public callers do not supply arbitrary route arrays; route inference is derived from canonical goal and community terminal config.
   - `CobuildSplitHook` keeps both the terminal contract `routeSetter`, the `CommunityGoalRegistry` reference, and the
     `GoalDeploymentRegistry` reference fixed from initialization.
   - `CobuildSplitHook` routes only its explicit callback slice for terminal-seeded pending routes into the selected registry-selectable goals.

@@ -34,11 +34,11 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 
 1. A holder sends goal tokens to `CobuildExitRouter` and chooses one of three user-facing targets: immediate community token, COBUILD token, or native ETH.
 2. The router resolves the goal's immediate upstream denomination from `goalTreasury.cobuildRevnetId()` and `StakeVault.cobuildToken()`.
-3. The router cashes out the goal into that immediate layer through the goal project's canonical cash-out terminal.
+3. The router cashes out the goal into that immediate layer through the goal project's canonical cash-out terminal and rejects `exitToCommunityToken(...)` unless that first hop is a registered community layer.
 4. If the requested target is above that first layer, the router walks `CobuildCommunityTerminal.communityConfigOf(...)` upward in bounded hops:
    - `exitToCobuildToken(...)` stops once the lineage reaches the configured COBUILD root.
    - `exitToEth(...)` stops at a direct-native community root or cashes the COBUILD root out into native ETH.
-5. Each community hop is redeemed through `CobuildCommunityTerminal.cashOutTokensOf(...)`, which burns the router-held intermediate community tokens and settles reclaim value from held terminal liquidity.
+5. Each community hop is redeemed through `CobuildCommunityTerminal.cashOutTokensOf(...)`, which burns the router-held intermediate community tokens and settles reclaim value from held terminal liquidity; if a community project's primary reclaim terminal is repointed away from the shared terminal, the router fails closed.
 
 ## Goal Funding Path
 

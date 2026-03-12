@@ -2,21 +2,33 @@
 pragma solidity ^0.8.34;
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBCashOutHook} from "@bananapus/core-v5/interfaces/IJBCashOutHook.sol";
 import {IJBPayHook} from "@bananapus/core-v5/interfaces/IJBPayHook.sol";
 import {IJBRulesetApprovalHook} from "@bananapus/core-v5/interfaces/IJBRulesetApprovalHook.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import {JBCashOutHookSpecification} from "@bananapus/core-v5/structs/JBCashOutHookSpecification.sol";
 import {JBPayHookSpecification} from "@bananapus/core-v5/structs/JBPayHookSpecification.sol";
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {JBTokenAmount} from "@bananapus/core-v5/structs/JBTokenAmount.sol";
 
 contract MockTerminalStore {
+    struct CashOutConfig {
+        uint256 reclaimAmount;
+        uint256 cashOutTaxRate;
+        IJBCashOutHook hook;
+        uint256 hookAmount;
+        bytes hookMetadata;
+    }
+
     IJBDirectory public immutable DIRECTORY;
 
     mapping(address terminal => mapping(uint256 projectId => mapping(address token => uint256))) public balanceOf;
     mapping(uint256 projectId => uint256) internal _recordedTokenCountOf;
     mapping(uint256 projectId => JBPayHookSpecification) internal _payHookSpecificationOf;
+    mapping(uint256 projectId => mapping(address token => CashOutConfig)) internal _cashOutConfigOf;
 
     bytes public lastMetadata;
+    bytes public lastCashOutMetadata;
 
     bool internal _paymentsPaused;
 
@@ -38,6 +50,24 @@ contract MockTerminalStore {
         external
     {
         _payHookSpecificationOf[projectId] = JBPayHookSpecification({hook: hook, amount: amount, metadata: metadata});
+    }
+
+    function setCashOutConfig(
+        uint256 projectId,
+        address token,
+        uint256 reclaimAmount,
+        uint256 cashOutTaxRate,
+        IJBCashOutHook hook,
+        uint256 hookAmount,
+        bytes calldata hookMetadata
+    ) external {
+        _cashOutConfigOf[projectId][token] = CashOutConfig({
+            reclaimAmount: reclaimAmount,
+            cashOutTaxRate: cashOutTaxRate,
+            hook: hook,
+            hookAmount: hookAmount,
+            hookMetadata: hookMetadata
+        });
     }
 
     function currentSurplusOf(
@@ -87,17 +117,7 @@ contract MockTerminalStore {
         lastMetadata = metadata;
         balanceOf[msg.sender][projectId][amount.token] += amount.value;
         tokenCount = _recordedTokenCountOf[projectId] == 0 ? amount.value : _recordedTokenCountOf[projectId];
-        ruleset = JBRuleset({
-            cycleNumber: 1,
-            id: 1,
-            basedOnId: 0,
-            start: 0,
-            duration: 0,
-            weight: 1e18,
-            weightCutPercent: 0,
-            approvalHook: IJBRulesetApprovalHook(address(0)),
-            metadata: uint256(amount.currency) << 36
-        });
+        ruleset = _mockRuleset(amount.currency);
 
         JBPayHookSpecification storage payHookSpecification = _payHookSpecificationOf[projectId];
         if (address(payHookSpecification.hook) == address(0)) {
@@ -112,8 +132,59 @@ contract MockTerminalStore {
         }
     }
 
+    function recordCashOutFor(
+        address,
+        uint256 projectId,
+        uint256 cashOutCount,
+        JBAccountingContext calldata accountingContext,
+        JBAccountingContext[] calldata,
+        bytes calldata metadata
+    )
+        external
+        returns (
+            JBRuleset memory ruleset,
+            uint256 reclaimAmount,
+            uint256 cashOutTaxRate,
+            JBCashOutHookSpecification[] memory hookSpecifications
+        )
+    {
+        lastCashOutMetadata = metadata;
+
+        CashOutConfig storage cashOutConfig = _cashOutConfigOf[projectId][accountingContext.token];
+        reclaimAmount = cashOutConfig.reclaimAmount == 0 ? cashOutCount : cashOutConfig.reclaimAmount;
+        cashOutTaxRate = cashOutConfig.cashOutTaxRate;
+
+        uint256 totalOutbound = reclaimAmount + cashOutConfig.hookAmount;
+        balanceOf[msg.sender][projectId][accountingContext.token] -= totalOutbound;
+
+        ruleset = _mockRuleset(accountingContext.currency);
+
+        if (address(cashOutConfig.hook) == address(0)) {
+            hookSpecifications = new JBCashOutHookSpecification[](0);
+        } else {
+            hookSpecifications = new JBCashOutHookSpecification[](1);
+            hookSpecifications[0] = JBCashOutHookSpecification({
+                hook: cashOutConfig.hook, amount: cashOutConfig.hookAmount, metadata: cashOutConfig.hookMetadata
+            });
+        }
+    }
+
     function recordTerminalMigration(uint256 projectId, address token) external returns (uint256 balance) {
         balance = balanceOf[msg.sender][projectId][token];
         balanceOf[msg.sender][projectId][token] = 0;
+    }
+
+    function _mockRuleset(uint256 currency) internal pure returns (JBRuleset memory ruleset) {
+        ruleset = JBRuleset({
+            cycleNumber: 1,
+            id: 1,
+            basedOnId: 0,
+            start: 0,
+            duration: 0,
+            weight: 1e18,
+            weightCutPercent: 0,
+            approvalHook: IJBRulesetApprovalHook(address(0)),
+            metadata: currency << 36
+        });
     }
 }

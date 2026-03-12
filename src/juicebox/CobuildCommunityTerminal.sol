@@ -8,25 +8,30 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import { IJBCashOutHook } from "@bananapus/core-v5/interfaces/IJBCashOutHook.sol";
+import { IJBCashOutTerminal } from "@bananapus/core-v5/interfaces/IJBCashOutTerminal.sol";
 import { IJBPayHook } from "@bananapus/core-v5/interfaces/IJBPayHook.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBTerminal } from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import { IJBTerminalStore } from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import { JBAccountingContext } from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import { JBAfterCashOutRecordedContext } from "@bananapus/core-v5/structs/JBAfterCashOutRecordedContext.sol";
 import { JBAfterPayRecordedContext } from "@bananapus/core-v5/structs/JBAfterPayRecordedContext.sol";
+import { JBCashOutHookSpecification } from "@bananapus/core-v5/structs/JBCashOutHookSpecification.sol";
 import { JBPayHookSpecification } from "@bananapus/core-v5/structs/JBPayHookSpecification.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { JBSplit } from "@bananapus/core-v5/structs/JBSplit.sol";
 import { JBTokenAmount } from "@bananapus/core-v5/structs/JBTokenAmount.sol";
 import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
+import { ICobuildCommunityTerminal } from "src/interfaces/ICobuildCommunityTerminal.sol";
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Canonical shared community terminal that mints community tokens and routes reserved-token splits into child goals.
 /// @dev Each community binds a fixed split hook plus payment-source config once. Native pays can either mint directly
 /// on this terminal or recursively acquire the registered payment token through another community or external native terminal.
-contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
+contract CobuildCommunityTerminal is ICobuildCommunityTerminal, IJBCashOutTerminal, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant RESERVED_TOKENS_GROUP_ID = 1;
@@ -75,6 +80,9 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     error ROUTE_NOT_CONSUMED();
     error NO_CONTROLLER(uint256 communityRevnetId);
     error UNAUTHORIZED_FACTORY(address expectedFactory, address actualFactory);
+    error UNDER_MIN_TOKENS_RECLAIMED(uint256 reclaimAmount, uint256 minTokensReclaimed);
+    error INSUFFICIENT_RECLAIM_LIQUIDITY(address token, uint256 needed, uint256 have);
+    error NATIVE_TRANSFER_FAILED(address to, uint256 amount);
     error INVALID_DIRECT_NATIVE_PAYMENT_SOURCE(
         uint256 expectedPaymentSourceRevnetId,
         uint256 actualPaymentSourceRevnetId
@@ -95,8 +103,9 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         if (address(store) == address(0)) revert ADDRESS_ZERO();
         if (address(directory).code.length == 0) revert NOT_A_CONTRACT(address(directory));
         if (address(store).code.length == 0) revert NOT_A_CONTRACT(address(store));
-        if (approvedFactory_ != address(0) && approvedFactory_.code.length == 0)
+        if (approvedFactory_ != address(0) && approvedFactory_.code.length == 0) {
             revert NOT_A_CONTRACT(approvedFactory_);
+        }
         if (store.DIRECTORY() != directory) revert INVALID_DIRECTORY(address(directory), address(store.DIRECTORY()));
 
         DIRECTORY = directory;
@@ -105,7 +114,11 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
     }
 
     function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
-        return interfaceId == type(IJBTerminal).interfaceId || interfaceId == type(IERC165).interfaceId;
+        return
+            interfaceId == type(ICobuildCommunityTerminal).interfaceId ||
+            interfaceId == type(IJBCashOutTerminal).interfaceId ||
+            interfaceId == type(IJBTerminal).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
     }
 
     function communityConfigOf(
@@ -283,23 +296,90 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         revert UNSUPPORTED_TOKEN(token);
     }
 
+    function cashOutTokensOf(
+        address holder,
+        uint256 projectId,
+        uint256 cashOutCount,
+        address tokenToReclaim,
+        uint256 minTokensReclaimed,
+        address payable beneficiary,
+        bytes calldata metadata
+    ) external override nonReentrant returns (uint256 reclaimAmount) {
+        CommunityConfig storage config = _communityConfigOf[projectId];
+        if (!config.exists) revert COMMUNITY_NOT_REGISTERED(projectId);
+        if (beneficiary == address(0)) revert ADDRESS_ZERO();
+        if (holder != msg.sender) revert UNAUTHORIZED(holder, msg.sender);
+        if (tokenToReclaim != JBConstants.NATIVE_TOKEN && tokenToReclaim != config.paymentToken) {
+            revert UNSUPPORTED_TOKEN(tokenToReclaim);
+        }
+
+        JBAccountingContext memory accountingContext = _accountingContextFor(config, tokenToReclaim);
+        JBAccountingContext[] memory balanceAccountingContexts = _defaultAccountingContexts(config);
+
+        (
+            JBRuleset memory ruleset,
+            uint256 recordedReclaimAmount,
+            uint256 cashOutTaxRate,
+            JBCashOutHookSpecification[] memory hookSpecifications
+        ) = STORE.recordCashOutFor(
+                holder,
+                projectId,
+                cashOutCount,
+                accountingContext,
+                balanceAccountingContexts,
+                metadata
+            );
+
+        if (cashOutCount != 0) _controllerOf(projectId).burnTokensOf(holder, projectId, cashOutCount, "");
+
+        uint256 totalOutbound = _totalCashOutOutbound(recordedReclaimAmount, hookSpecifications);
+        _requireAvailableBalance(tokenToReclaim, totalOutbound);
+
+        if (recordedReclaimAmount < minTokensReclaimed) {
+            revert UNDER_MIN_TOKENS_RECLAIMED(recordedReclaimAmount, minTokensReclaimed);
+        }
+
+        if (recordedReclaimAmount != 0) {
+            _transferAccountingToken(tokenToReclaim, beneficiary, recordedReclaimAmount);
+        }
+
+        if (hookSpecifications.length != 0) {
+            _fulfillCashOutHookSpecificationsFor(
+                projectId,
+                hookSpecifications,
+                holder,
+                cashOutCount,
+                ruleset,
+                accountingContext,
+                beneficiary,
+                recordedReclaimAmount,
+                cashOutTaxRate,
+                metadata
+            );
+        }
+
+        reclaimAmount = recordedReclaimAmount;
+
+        emit CashOutTokens(
+            ruleset.id,
+            ruleset.cycleNumber,
+            projectId,
+            holder,
+            beneficiary,
+            cashOutCount,
+            cashOutTaxRate,
+            reclaimAmount,
+            metadata,
+            msg.sender
+        );
+    }
+
     function accountingContextForTokenOf(
         uint256 projectId,
         address token
-    ) external view override returns (JBAccountingContext memory) {
+    ) external view override returns (JBAccountingContext memory context) {
         CommunityConfig storage config = _communityConfigOf[projectId];
-
-        if (token == JBConstants.NATIVE_TOKEN) {
-            return _nativeAccountingContext();
-        }
-        if (token == config.paymentToken) {
-            return _paymentTokenAccountingContext(config);
-        }
-        if (!config.exists) {
-            return _erc20AccountingContext(token);
-        }
-
-        return JBAccountingContext({ token: address(0), decimals: 0, currency: 0 });
+        context = _accountingContextFor(config, token);
     }
 
     function accountingContextsOf(
@@ -308,9 +388,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         CommunityConfig storage config = _communityConfigOf[projectId];
         if (!config.exists) return new JBAccountingContext[](0);
 
-        contexts = new JBAccountingContext[](2);
-        contexts[0] = _nativeAccountingContext();
-        contexts[1] = _paymentTokenAccountingContext(config);
+        contexts = _defaultAccountingContexts(config);
     }
 
     function currentSurplusOf(
@@ -326,10 +404,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         CommunityConfig storage config = _communityConfigOf[projectId];
         if (!config.exists) return 0;
 
-        JBAccountingContext[] memory defaultContexts = new JBAccountingContext[](2);
-        defaultContexts[0] = _nativeAccountingContext();
-        defaultContexts[1] = _paymentTokenAccountingContext(config);
-        return STORE.currentSurplusOf(address(this), projectId, defaultContexts, decimals, currency);
+        return STORE.currentSurplusOf(address(this), projectId, _defaultAccountingContexts(config), decimals, currency);
     }
 
     function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
@@ -728,6 +803,25 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
             });
     }
 
+    function _defaultAccountingContexts(
+        CommunityConfig storage config
+    ) internal view returns (JBAccountingContext[] memory contexts) {
+        contexts = new JBAccountingContext[](2);
+        contexts[0] = _nativeAccountingContext();
+        contexts[1] = _paymentTokenAccountingContext(config);
+    }
+
+    function _accountingContextFor(
+        CommunityConfig storage config,
+        address token
+    ) internal view returns (JBAccountingContext memory) {
+        if (token == JBConstants.NATIVE_TOKEN) return _nativeAccountingContext();
+        if (token == config.paymentToken) return _paymentTokenAccountingContext(config);
+        if (!config.exists) return _erc20AccountingContext(token);
+
+        return JBAccountingContext({ token: address(0), decimals: 0, currency: 0 });
+    }
+
     function _paymentTokenAccountingContext(
         CommunityConfig storage config
     ) internal view returns (JBAccountingContext memory) {
@@ -783,9 +877,7 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
         address token,
         uint256 amount
     ) internal view returns (JBTokenAmount memory tokenAmount) {
-        JBAccountingContext memory accountingContext = token == JBConstants.NATIVE_TOKEN
-            ? _nativeAccountingContext()
-            : _paymentTokenAccountingContext(config);
+        JBAccountingContext memory accountingContext = _accountingContextFor(config, token);
 
         tokenAmount = JBTokenAmount({
             token: accountingContext.token,
@@ -836,6 +928,106 @@ contract CobuildCommunityTerminal is IJBTerminal, ReentrancyGuard {
 
             emit HookAfterRecordPay(IJBPayHook(specification.hook), context, specification.amount, caller);
         }
+    }
+
+    function _fulfillCashOutHookSpecificationsFor(
+        uint256 projectId,
+        JBCashOutHookSpecification[] memory specifications,
+        address holder,
+        uint256 cashOutCount,
+        JBRuleset memory ruleset,
+        JBAccountingContext memory accountingContext,
+        address payable beneficiary,
+        uint256 reclaimAmount,
+        uint256 cashOutTaxRate,
+        bytes memory cashOutMetadata
+    ) internal {
+        JBAfterCashOutRecordedContext memory context = JBAfterCashOutRecordedContext({
+            holder: holder,
+            projectId: projectId,
+            rulesetId: ruleset.id,
+            cashOutCount: cashOutCount,
+            reclaimedAmount: JBTokenAmount({
+                token: accountingContext.token,
+                decimals: accountingContext.decimals,
+                currency: accountingContext.currency,
+                value: reclaimAmount
+            }),
+            forwardedAmount: JBTokenAmount({
+                token: accountingContext.token,
+                decimals: accountingContext.decimals,
+                currency: accountingContext.currency,
+                value: 0
+            }),
+            cashOutTaxRate: cashOutTaxRate,
+            beneficiary: beneficiary,
+            hookMetadata: bytes(""),
+            cashOutMetadata: cashOutMetadata
+        });
+
+        uint256 specificationsLength = specifications.length;
+        for (uint256 i; i < specificationsLength; i++) {
+            JBCashOutHookSpecification memory specification = specifications[i];
+            context.forwardedAmount = JBTokenAmount({
+                token: accountingContext.token,
+                decimals: accountingContext.decimals,
+                currency: accountingContext.currency,
+                value: specification.amount
+            });
+            context.hookMetadata = specification.metadata;
+
+            uint256 payValue = _beforeTransferTo(
+                address(specification.hook),
+                accountingContext.token,
+                specification.amount
+            );
+            specification.hook.afterCashOutRecordedWith{ value: payValue }(context);
+            _afterTransferTo(address(specification.hook), accountingContext.token);
+
+            emit HookAfterRecordCashOut(
+                IJBCashOutHook(specification.hook),
+                context,
+                specification.amount,
+                0,
+                msg.sender
+            );
+        }
+    }
+
+    function _totalCashOutOutbound(
+        uint256 reclaimAmount,
+        JBCashOutHookSpecification[] memory specifications
+    ) internal pure returns (uint256 totalOutbound) {
+        totalOutbound = reclaimAmount;
+
+        uint256 specificationsLength = specifications.length;
+        for (uint256 i; i < specificationsLength; i++) {
+            totalOutbound += specifications[i].amount;
+        }
+    }
+
+    function _requireAvailableBalance(address token, uint256 needed) internal view {
+        if (needed == 0) return;
+
+        uint256 have = _balanceOf(token);
+        if (have < needed) revert INSUFFICIENT_RECLAIM_LIQUIDITY(token, needed, have);
+    }
+
+    function _balanceOf(address token) internal view returns (uint256) {
+        if (token == JBConstants.NATIVE_TOKEN) return address(this).balance;
+        return IERC20(token).balanceOf(address(this));
+    }
+
+    function _transferAccountingToken(address token, address payable beneficiary, uint256 amount) internal {
+        if (amount == 0) return;
+
+        if (token == JBConstants.NATIVE_TOKEN) {
+            (bool success, ) = beneficiary.call{ value: amount }("");
+            if (!success) revert NATIVE_TRANSFER_FAILED(beneficiary, amount);
+            return;
+        }
+
+        IERC20(token).safeTransfer(beneficiary, amount);
     }
 
     function _beforeTransferTo(address to, address token, uint256 amount) internal returns (uint256 payValue) {

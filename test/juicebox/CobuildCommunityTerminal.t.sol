@@ -10,6 +10,7 @@ import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
 
+import {IJBCashOutHook} from "@bananapus/core-v5/interfaces/IJBCashOutHook.sol";
 import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBPayHook} from "@bananapus/core-v5/interfaces/IJBPayHook.sol";
@@ -17,6 +18,7 @@ import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
+import {JBAfterCashOutRecordedContext} from "@bananapus/core-v5/structs/JBAfterCashOutRecordedContext.sol";
 import {JBAfterPayRecordedContext} from "@bananapus/core-v5/structs/JBAfterPayRecordedContext.sol";
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
 import {JBRulesetMetadata} from "@bananapus/core-v5/structs/JBRulesetMetadata.sol";
@@ -51,8 +53,9 @@ contract CobuildCommunityTerminalTest is Test {
         controller = new CobuildCommunityTerminalMockController(splitHook, tokens);
         sourceTerminal = new CobuildCommunityTerminalMockPaymentSourceTerminal(paymentToken);
         store = new MockTerminalStore(IJBDirectory(address(directory)));
-        communityTerminal =
-            new CobuildCommunityTerminal(IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(0));
+        communityTerminal = new CobuildCommunityTerminal(
+            IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(0)
+        );
 
         splitHook.setRouteSetter(address(communityTerminal));
         tokens.setTokenOf(PAYMENT_SOURCE_REVNET_ID, address(paymentToken));
@@ -76,9 +79,7 @@ contract CobuildCommunityTerminalTest is Test {
     }
 
     function test_constructor_revertsWhenApprovedFactoryIsNotContract() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(CobuildCommunityTerminal.NOT_A_CONTRACT.selector, address(0xBEEF))
-        );
+        vm.expectRevert(abi.encodeWithSelector(CobuildCommunityTerminal.NOT_A_CONTRACT.selector, address(0xBEEF)));
         new CobuildCommunityTerminal(
             IJBDirectory(address(directory)), IJBTerminalStore(address(store)), address(0xBEEF)
         );
@@ -280,7 +281,7 @@ contract CobuildCommunityTerminalTest is Test {
             false
         );
 
-        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        (,,,, bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
         assertTrue(exists);
     }
 
@@ -325,7 +326,7 @@ contract CobuildCommunityTerminalTest is Test {
             false
         );
 
-        (, , , , bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
+        (,,,, bool exists) = communityTerminal.communityConfigOf(COMMUNITY_REVNET_ID);
         assertTrue(exists);
     }
 
@@ -729,8 +730,9 @@ contract CobuildCommunityTerminalTest is Test {
         _registerCommunity(false);
         controller.setReturnedTokenCount(0.5 ether);
 
-        CobuildCommunityTerminalMockSplitMutatingPayHook payHook =
-            new CobuildCommunityTerminalMockSplitMutatingPayHook(controller, COMMUNITY_REVNET_ID, splitHook, 500_000_000);
+        CobuildCommunityTerminalMockSplitMutatingPayHook payHook = new CobuildCommunityTerminalMockSplitMutatingPayHook(
+            controller, COMMUNITY_REVNET_ID, splitHook, 500_000_000
+        );
         store.setPayHookSpecification(COMMUNITY_REVNET_ID, IJBPayHook(address(payHook)), 1, bytes("hook-metadata"));
 
         paymentToken.mint(address(this), 1 ether);
@@ -869,6 +871,184 @@ contract CobuildCommunityTerminalTest is Test {
         assertEq(payHook.callCount(), 1);
         assertEq(payHook.lastObservedAllowance(), seedAllowance + 1 ether);
         assertEq(paymentToken.allowance(address(communityTerminal), address(payHook)), 0);
+    }
+
+    function test_cashOutTokensOf_revertsWhenHolderDiffersFromCaller() public {
+        _registerCommunity(false);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildCommunityTerminal.UNAUTHORIZED.selector, address(this), makeAddr("caller"))
+        );
+        vm.prank(makeAddr("caller"));
+        communityTerminal.cashOutTokensOf(
+            address(this), COMMUNITY_REVNET_ID, 1 ether, address(paymentToken), 0, payable(address(this)), bytes("")
+        );
+    }
+
+    function test_cashOutTokensOf_reclaimsPaymentTokensAndBurnsProjectTokens() public {
+        _registerCommunity(false);
+        address beneficiary = makeAddr("beneficiary");
+        paymentToken.mint(address(this), 3 ether);
+        paymentToken.approve(address(communityTerminal), 3 ether);
+        communityTerminal.addToBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), 3 ether, false, "seed", bytes(""));
+        store.setCashOutConfig(
+            COMMUNITY_REVNET_ID, address(paymentToken), 1.25 ether, 123, IJBCashOutHook(address(0)), 0, bytes("")
+        );
+
+        uint256 reclaimAmount = communityTerminal.cashOutTokensOf(
+            address(this),
+            COMMUNITY_REVNET_ID,
+            2 ether,
+            address(paymentToken),
+            1 ether,
+            payable(beneficiary),
+            bytes("cashout-metadata")
+        );
+
+        assertEq(reclaimAmount, 1.25 ether);
+        assertEq(paymentToken.balanceOf(beneficiary), 1.25 ether);
+        assertEq(controller.lastBurnHolder(), address(this));
+        assertEq(controller.lastBurnProjectId(), COMMUNITY_REVNET_ID);
+        assertEq(controller.lastBurnTokenCount(), 2 ether);
+        assertEq(keccak256(store.lastCashOutMetadata()), keccak256(bytes("cashout-metadata")));
+    }
+
+    function test_cashOutTokensOf_reclaimsNativeAndFulfillsHook() public {
+        _registerCommunity(true);
+        address payable beneficiary = payable(makeAddr("beneficiary"));
+        CobuildCommunityTerminalMockCashOutHook cashOutHook = new CobuildCommunityTerminalMockCashOutHook();
+
+        communityTerminal.addToBalanceOf{value: 3 ether}(
+            COMMUNITY_REVNET_ID, JBConstants.NATIVE_TOKEN, 3 ether, false, "seed", bytes("")
+        );
+        store.setCashOutConfig(
+            COMMUNITY_REVNET_ID,
+            JBConstants.NATIVE_TOKEN,
+            1 ether,
+            456,
+            IJBCashOutHook(address(cashOutHook)),
+            0.5 ether,
+            bytes("hook-metadata")
+        );
+
+        uint256 beneficiaryBalanceBefore = beneficiary.balance;
+        uint256 reclaimAmount = communityTerminal.cashOutTokensOf(
+            address(this),
+            COMMUNITY_REVNET_ID,
+            2 ether,
+            JBConstants.NATIVE_TOKEN,
+            0.5 ether,
+            beneficiary,
+            bytes("cashout-metadata")
+        );
+
+        assertEq(reclaimAmount, 1 ether);
+        assertEq(beneficiary.balance - beneficiaryBalanceBefore, 1 ether);
+        assertEq(cashOutHook.callCount(), 1);
+        assertEq(cashOutHook.lastForwardedAmount(), 0.5 ether);
+        assertEq(cashOutHook.lastReceivedValue(), 0.5 ether);
+        assertEq(cashOutHook.lastCashOutTaxRate(), 456);
+        assertEq(keccak256(cashOutHook.lastHookMetadata()), keccak256(bytes("hook-metadata")));
+        assertEq(keccak256(cashOutHook.lastCashOutMetadata()), keccak256(bytes("cashout-metadata")));
+    }
+
+    function test_cashOutTokensOf_revertsWhenAvailableBalanceCannotCoverReclaimAndHook() public {
+        _registerCommunity(false);
+
+        CobuildCommunityTerminalMockCashOutHook cashOutHook = new CobuildCommunityTerminalMockCashOutHook();
+        address payable beneficiary = payable(makeAddr("beneficiary"));
+
+        paymentToken.mint(address(this), 2 ether);
+        paymentToken.approve(address(communityTerminal), 2 ether);
+        communityTerminal.addToBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), 2 ether, false, "seed", bytes(""));
+
+        vm.prank(address(communityTerminal));
+        paymentToken.transfer(makeAddr("drain"), 0.75 ether);
+
+        store.setCashOutConfig(
+            COMMUNITY_REVNET_ID,
+            address(paymentToken),
+            1 ether,
+            0,
+            IJBCashOutHook(address(cashOutHook)),
+            0.5 ether,
+            bytes("hook-metadata")
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INSUFFICIENT_RECLAIM_LIQUIDITY.selector,
+                address(paymentToken),
+                1.5 ether,
+                1.25 ether
+            )
+        );
+        communityTerminal.cashOutTokensOf(
+            address(this), COMMUNITY_REVNET_ID, 1 ether, address(paymentToken), 0, beneficiary, bytes("cashout-metadata")
+        );
+
+        assertEq(paymentToken.balanceOf(beneficiary), 0);
+        assertEq(cashOutHook.callCount(), 0);
+    }
+
+    function test_cashOutTokensOf_resetsHookAllowanceAfterErc20Callback() public {
+        _registerCommunity(false);
+
+        CobuildCommunityTerminalMockCashOutHook cashOutHook = new CobuildCommunityTerminalMockCashOutHook();
+        uint256 seedAllowance = 123;
+        vm.prank(address(communityTerminal));
+        paymentToken.approve(address(cashOutHook), seedAllowance);
+        assertEq(paymentToken.allowance(address(communityTerminal), address(cashOutHook)), seedAllowance);
+
+        paymentToken.mint(address(this), 3 ether);
+        paymentToken.approve(address(communityTerminal), 3 ether);
+        communityTerminal.addToBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), 3 ether, false, "seed", bytes(""));
+        store.setCashOutConfig(
+            COMMUNITY_REVNET_ID,
+            address(paymentToken),
+            1 ether,
+            456,
+            IJBCashOutHook(address(cashOutHook)),
+            0.5 ether,
+            bytes("hook-metadata")
+        );
+
+        communityTerminal.cashOutTokensOf(
+            address(this),
+            COMMUNITY_REVNET_ID,
+            2 ether,
+            address(paymentToken),
+            0,
+            payable(address(this)),
+            bytes("cashout-metadata")
+        );
+
+        assertEq(cashOutHook.callCount(), 1);
+        assertEq(cashOutHook.lastObservedAllowance(), seedAllowance + 0.5 ether);
+        assertEq(paymentToken.allowance(address(communityTerminal), address(cashOutHook)), 0);
+    }
+
+    function test_cashOutTokensOf_revertsWhenRecordedReclaimIsBelowMinimum() public {
+        _registerCommunity(false);
+        paymentToken.mint(address(this), 2 ether);
+        paymentToken.approve(address(communityTerminal), 2 ether);
+        communityTerminal.addToBalanceOf(COMMUNITY_REVNET_ID, address(paymentToken), 2 ether, false, "seed", bytes(""));
+        store.setCashOutConfig(
+            COMMUNITY_REVNET_ID, address(paymentToken), 1 ether, 0, IJBCashOutHook(address(0)), 0, bytes("")
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildCommunityTerminal.UNDER_MIN_TOKENS_RECLAIMED.selector, 1 ether, 1.5 ether)
+        );
+        communityTerminal.cashOutTokensOf(
+            address(this),
+            COMMUNITY_REVNET_ID,
+            1 ether,
+            address(paymentToken),
+            1.5 ether,
+            payable(address(this)),
+            bytes("")
+        );
     }
 
     function test_pay_revertsWhenCommunityIsNotRegistered() public {
@@ -1207,6 +1387,9 @@ contract CobuildCommunityTerminalMockController {
     uint256 internal _lastMintTokenCount;
     address internal _lastMintBeneficiary;
     bool internal _lastUseReservedPercent;
+    address internal _lastBurnHolder;
+    uint256 internal _lastBurnProjectId;
+    uint256 internal _lastBurnTokenCount;
     mapping(uint256 => uint256) internal _pendingReservedTokenBalanceOf;
 
     constructor(CobuildCommunityTerminalMockSplitHook splitHook_, CobuildCommunityTerminalMockTokens tokens_) {
@@ -1282,18 +1465,30 @@ contract CobuildCommunityTerminalMockController {
         }
     }
 
+    function burnTokensOf(address holder, uint256 projectId, uint256 tokenCount, string calldata) external {
+        _lastBurnHolder = holder;
+        _lastBurnProjectId = projectId;
+        _lastBurnTokenCount = tokenCount;
+    }
+
     function sendReservedTokensToSplitsOf(uint256 projectId) external returns (uint256 tokenCount) {
         _sendReservedTokensToSplitsCallCount += 1;
         tokenCount = _pendingReservedTokenBalanceOf[projectId];
         _pendingReservedTokenBalanceOf[projectId] = 0;
 
-        if (_consumePendingRouteOnSend && _splitHook.hasPendingRoute() && _hookReservedTokenShareOf(projectId, tokenCount) != 0)
-        {
+        if (
+            _consumePendingRouteOnSend && _splitHook.hasPendingRoute()
+                && _hookReservedTokenShareOf(projectId, tokenCount) != 0
+        ) {
             _splitHook.consumePendingRoute();
         }
     }
 
-    function _hookReservedTokenShareOf(uint256 projectId, uint256 tokenCount) internal view returns (uint256 hookTokenCount) {
+    function _hookReservedTokenShareOf(uint256 projectId, uint256 tokenCount)
+        internal
+        view
+        returns (uint256 hookTokenCount)
+    {
         if (tokenCount == 0) return 0;
 
         JBSplit[] memory reservedSplits = _splits.splitsOf(projectId, uint256(CURRENT_RULESET_ID), 1);
@@ -1324,6 +1519,18 @@ contract CobuildCommunityTerminalMockController {
 
     function lastUseReservedPercent() external view returns (bool) {
         return _lastUseReservedPercent;
+    }
+
+    function lastBurnHolder() external view returns (address) {
+        return _lastBurnHolder;
+    }
+
+    function lastBurnProjectId() external view returns (uint256) {
+        return _lastBurnProjectId;
+    }
+
+    function lastBurnTokenCount() external view returns (uint256) {
+        return _lastBurnTokenCount;
     }
 }
 
@@ -1368,7 +1575,12 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
         goalIds = new uint256[](0);
     }
 
-    function historicalRoute() external pure override returns (uint256[] memory goalIds, uint256[] memory routingScores) {
+    function historicalRoute()
+        external
+        pure
+        override
+        returns (uint256[] memory goalIds, uint256[] memory routingScores)
+    {
         goalIds = new uint256[](0);
         routingScores = new uint256[](0);
     }
@@ -1503,6 +1715,62 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
 
         function lastForwardedAmount() external view returns (uint256) {
             return _lastForwardedAmount;
+        }
+    }
+
+    contract CobuildCommunityTerminalMockCashOutHook is IJBCashOutHook {
+        uint256 internal _callCount;
+        uint256 internal _lastForwardedAmount;
+        uint256 internal _lastReceivedValue;
+        uint256 internal _lastCashOutTaxRate;
+        uint256 internal _lastObservedAllowance;
+        bytes internal _lastHookMetadata;
+        bytes internal _lastCashOutMetadata;
+
+        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+            return interfaceId == type(IJBCashOutHook).interfaceId;
+        }
+
+        function afterCashOutRecordedWith(JBAfterCashOutRecordedContext calldata context) external payable override {
+            _callCount += 1;
+            _lastForwardedAmount = context.forwardedAmount.value;
+            _lastReceivedValue = msg.value;
+            _lastCashOutTaxRate = context.cashOutTaxRate;
+            if (context.reclaimedAmount.token.code.length != 0) {
+                _lastObservedAllowance = ERC20(context.reclaimedAmount.token).allowance(msg.sender, address(this));
+            } else {
+                _lastObservedAllowance = 0;
+            }
+            _lastHookMetadata = context.hookMetadata;
+            _lastCashOutMetadata = context.cashOutMetadata;
+        }
+
+        function callCount() external view returns (uint256) {
+            return _callCount;
+        }
+
+        function lastForwardedAmount() external view returns (uint256) {
+            return _lastForwardedAmount;
+        }
+
+        function lastReceivedValue() external view returns (uint256) {
+            return _lastReceivedValue;
+        }
+
+        function lastCashOutTaxRate() external view returns (uint256) {
+            return _lastCashOutTaxRate;
+        }
+
+        function lastObservedAllowance() external view returns (uint256) {
+            return _lastObservedAllowance;
+        }
+
+        function lastHookMetadata() external view returns (bytes memory) {
+            return _lastHookMetadata;
+        }
+
+        function lastCashOutMetadata() external view returns (bytes memory) {
+            return _lastCashOutMetadata;
         }
     }
 
