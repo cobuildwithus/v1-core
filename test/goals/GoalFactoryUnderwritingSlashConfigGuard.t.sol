@@ -23,11 +23,12 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     uint24 internal constant DEFAULT_BUYBACK_POOL_FEE = 3_000;
     uint32 internal constant DEFAULT_BUYBACK_POOL_TWAP_WINDOW = 1 hours;
     address internal constant SUPERFLUID_HOST = address(0x1002);
-    address internal constant BUDGET_TCR_FACTORY = address(0x1003);
     address internal constant DEFAULT_ALLOCATION_MECHANISM_ADMIN = address(0x1004);
     address internal constant DEFAULT_INVALID_ROUND_REWARDS_SINK = address(0x1005);
 
     GoalFactory internal factory;
+    MockBudgetTcrFactory internal budgetTcrFactory;
+    MockBudgetTcrStackDeployerMetadata internal budgetTcrStackDeployerMetadata;
     MockDirectory internal revnetDirectory;
     MockTokens internal revnetTokens;
     MockController internal revnetController;
@@ -60,6 +61,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revDeployer = new MockRevDeployer(address(revnetDirectory), address(revnetController));
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
         paymentToken = new MockToken();
+        budgetTcrStackDeployerMetadata = new MockBudgetTcrStackDeployerMetadata(address(new DummyContract()));
+        budgetTcrFactory = new MockBudgetTcrFactory(address(budgetTcrStackDeployerMetadata));
 
         configuredJbMultiTerminal = address(new DummyContract());
         configuredGoalTreasuryImpl = address(new DummyContract());
@@ -271,11 +274,31 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployGoal(p);
     }
 
-    function test_deployGoal_revertsWhenGoalSpendPolicyIsZero() public {
+    function test_deployGoal_revertsWhenBudgetSpendPolicyHasNoCode() public {
+        GoalFactory.DeployParams memory p = _baseDeployParams();
+        p.budgetTCR.budgetSpendPolicy = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetTCR.budgetSpendPolicy));
+        factory.deployGoal(p);
+    }
+
+    function test_deployGoal_usesDefaultGoalSpendPolicyWhenOmitted() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
         p.goalSpendPolicy = address(0);
+        _expectObservedRevnetDeploy();
 
-        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockRevDeployer.DeployForForwarding.selector,
+                DEFAULT_BUYBACK_POOL_FEE,
+                DEFAULT_BUYBACK_POOL_TWAP_WINDOW,
+                true,
+                true,
+                true,
+                true,
+                true
+            )
+        );
         factory.deployGoal(p);
     }
 
@@ -289,13 +312,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_deployGoal_forwardsBuybackDefaultsAndConfiguredTerminalsToRevDeployer() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
-        uint256 deploymentNonce = vm.getNonce(address(factory));
-        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
-        revDeployer.setExpectedSplitHook(expectedSplitHook);
-        revDeployer.setExpectedGoalPaymentTerminal(configuredGoalPaymentTerminal);
-        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
-        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
-        revDeployer.setRevertWithObserved(true);
+        _expectObservedRevnetDeploy();
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -314,13 +331,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function test_deployGoal_usesConfiguredJbMultiTerminalWithoutPaymentTokenTerminalLookup() public {
         GoalFactory.DeployParams memory p = _baseDeployParams();
-        uint256 deploymentNonce = vm.getNonce(address(factory));
-        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
-        revDeployer.setExpectedSplitHook(expectedSplitHook);
-        revDeployer.setExpectedGoalPaymentTerminal(configuredGoalPaymentTerminal);
-        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
-        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
-        revDeployer.setRevertWithObserved(true);
+        _expectObservedRevnetDeploy();
         revnetDirectory.setPrimaryTerminal(PAYMENT_REVNET_ID, p.funding.paymentToken, IJBTerminal(address(0)));
 
         vm.expectRevert(
@@ -387,13 +398,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             address(paymentToken)
         );
         GoalFactory.DeployParams memory p = _baseDeployParams();
-        uint256 deploymentNonce = vm.getNonce(address(factory));
-        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
-        revDeployer.setExpectedSplitHook(expectedSplitHook);
-        revDeployer.setExpectedGoalPaymentTerminal(configuredGoalPaymentTerminal);
-        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
-        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
-        revDeployer.setRevertWithObserved(true);
+        _expectObservedRevnetDeploy();
         address caller = makeAddr("permissionless-caller");
 
         vm.prank(caller);
@@ -410,6 +415,16 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             )
         );
         factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
+    }
+
+    function _expectObservedRevnetDeploy() internal {
+        uint256 deploymentNonce = vm.getNonce(address(factory));
+        address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
+        revDeployer.setExpectedSplitHook(expectedSplitHook);
+        revDeployer.setExpectedGoalPaymentTerminal(configuredGoalPaymentTerminal);
+        revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
+        revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
+        revDeployer.setRevertWithObserved(true);
     }
 
     function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {
@@ -455,7 +470,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         goalFactory = new GoalFactory(
             IREVDeployer(address(revDeployer)),
             ISuperfluid(SUPERFLUID_HOST),
-            BudgetTCRFactory(BUDGET_TCR_FACTORY),
+            BudgetTCRFactory(address(budgetTcrFactory)),
             IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
             goalPaymentTerminal,
             configuredJbMultiTerminal,
@@ -502,6 +517,30 @@ contract MockToken is ERC20 {
 
     function decimals() public pure override returns (uint8) {
         return 18;
+    }
+}
+
+contract MockBudgetTcrFactory {
+    address internal immutable _stackDeployerImplementation;
+
+    constructor(address stackDeployerImplementation_) {
+        _stackDeployerImplementation = stackDeployerImplementation_;
+    }
+
+    function stackDeployerImplementation() external view returns (address) {
+        return _stackDeployerImplementation;
+    }
+}
+
+contract MockBudgetTcrStackDeployerMetadata {
+    address internal immutable _budgetTreasuryImplementation;
+
+    constructor(address budgetTreasuryImplementation_) {
+        _budgetTreasuryImplementation = budgetTreasuryImplementation_;
+    }
+
+    function budgetTreasuryImplementation() external view returns (address) {
+        return _budgetTreasuryImplementation;
     }
 }
 

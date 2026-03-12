@@ -377,7 +377,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     }
 
     function test_allocate_withSingleAllocatorStrategy_checkpointsAndSyncsUsingControllerIdentity() public {
-        address controller = makeAddr("managed-controller");
+        address controller = address(new FlowLedgerPropManagedController());
 
         uint256 nonce = vm.getNonce(address(this));
         address predictedFlow = vm.computeCreateAddress(address(this), nonce + 4);
@@ -429,7 +429,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
     }
 
     function test_allocate_withSingleAllocatorStrategy_skipsCheckpointAndSyncWhenTreasuryResolved() public {
-        address controller = makeAddr("managed-controller");
+        address controller = address(new FlowLedgerPropManagedController());
 
         uint256 nonce = vm.getNonce(address(this));
         address predictedFlow = vm.computeCreateAddress(address(this), nonce + 4);
@@ -492,7 +492,8 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         managedGoalTreasury.setResolved(true);
 
-        (bytes32[] memory secondRecipientIds, uint32[] memory secondScaled) = _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
+        (bytes32[] memory secondRecipientIds, uint32[] memory secondScaled) =
+            _singleAllocation(SECOND_BUDGET_RECIPIENT_ID);
         ICustomFlow.ChildSyncRequirement[] memory reqs =
             managedFlow.previewChildSyncRequirements(managedAllocationKey, secondRecipientIds, secondScaled);
         assertEq(reqs.length, 0);
@@ -1250,15 +1251,10 @@ contract FlowLedgerPropNoPremiumCheckpointPipeline is IAllocationPipeline {
         address account = IAllocationKeyAccountResolver(strategy).accountForAllocationKey(allocationKey);
         if (account == address(0)) revert INVALID_ALLOCATION_PIPELINE_KEY_ACCOUNT(strategy, allocationKey);
 
-        address[] memory changedBudgetTreasuries = IBudgetStakeLedger(ledger).checkpointAllocation(
-            account,
-            prevWeight,
-            prevRecipientIds,
-            prevAllocationsPpm,
-            newWeight,
-            newRecipientIds,
-            newAllocationsPpm
-        );
+        address[] memory changedBudgetTreasuries = IBudgetStakeLedger(ledger)
+            .checkpointAllocation(
+                account, prevWeight, prevRecipientIds, prevAllocationsPpm, newWeight, newRecipientIds, newAllocationsPpm
+            );
         if (changedBudgetTreasuries.length == 0) return;
 
         GoalFlowLedgerMode.ChildSyncAction[] memory actions =
@@ -1340,12 +1336,7 @@ contract FlowLedgerPropLedger {
         checkpointCallCount += 1;
         return
             _changedBudgets(
-                prevWeight,
-                prevRecipientIds,
-                prevAllocationPpm,
-                newWeight,
-                newRecipientIds,
-                newAllocationPpm
+                prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm
             );
     }
 
@@ -1357,15 +1348,9 @@ contract FlowLedgerPropLedger {
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
     ) external view returns (address[] memory changedBudgetTreasuries) {
-        return
-            _changedBudgets(
-                prevWeight,
-                prevRecipientIds,
-                prevAllocationPpm,
-                newWeight,
-                newRecipientIds,
-                newAllocationPpm
-            );
+        return _changedBudgets(
+            prevWeight, prevRecipientIds, prevAllocationPpm, newWeight, newRecipientIds, newAllocationPpm
+        );
     }
 
     function _changedBudgets(
@@ -1376,32 +1361,27 @@ contract FlowLedgerPropLedger {
         bytes32[] calldata newRecipientIds,
         uint32[] calldata newAllocationPpm
     ) internal view returns (address[] memory changedBudgetTreasuries) {
-        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) return new address[](0);
+        if (prevRecipientIds.length == 0 && newRecipientIds.length == 0) {
+            return new address[](0);
+        }
 
         DeltaBuckets memory buckets = _initBuckets(prevRecipientIds.length + newRecipientIds.length);
         MergeOrderState memory orderState;
-        (SortedRecipientMerge.Cursor memory mergeCursor, ) = SortedRecipientMerge.init(
-            prevRecipientIds,
-            newRecipientIds,
-            SortedRecipientMerge.Precondition.AssumeSorted
-        );
+        (SortedRecipientMerge.Cursor memory mergeCursor,) =
+            SortedRecipientMerge.init(prevRecipientIds, newRecipientIds, SortedRecipientMerge.Precondition.AssumeSorted);
 
         while (SortedRecipientMerge.hasNext(mergeCursor, prevRecipientIds.length, newRecipientIds.length)) {
-            (
-                SortedRecipientMerge.Step memory step,
-                SortedRecipientMerge.Cursor memory nextCursor
-            ) = SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
+            (SortedRecipientMerge.Step memory step, SortedRecipientMerge.Cursor memory nextCursor) =
+                SortedRecipientMerge.next(prevRecipientIds, newRecipientIds, mergeCursor);
             mergeCursor = nextCursor;
             _assertStrictMergedOrder(step.recipientId, orderState);
             orderState.lastRecipientId = step.recipientId;
             orderState.hasLastRecipientId = true;
 
-            uint256 oldAllocated = step.hasOld
-                ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex])
-                : 0;
-            uint256 newAllocated = step.hasNew
-                ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex])
-                : 0;
+            uint256 oldAllocated =
+                step.hasOld ? _effectiveAllocatedStake(prevWeight, prevAllocationPpm[step.oldIndex]) : 0;
+            uint256 newAllocated =
+                step.hasNew ? _effectiveAllocatedStake(newWeight, newAllocationPpm[step.newIndex]) : 0;
             if (oldAllocated == newAllocated) continue;
 
             address budget = _budgetByRecipient[step.recipientId];
@@ -1440,16 +1420,21 @@ contract FlowLedgerPropLedger {
         }
     }
 
-    function _mergeBuckets(DeltaBuckets memory buckets) private pure returns (address[] memory changedBudgetTreasuries) {
-        uint256 totalCount = buckets.decreaseCount + buckets.increaseCount;
+    function _mergeBuckets(DeltaBuckets memory buckets)
+        private
+        pure
+        returns (address[] memory changedBudgetTreasuries)
+    {
+        uint256 totalCount =
+            buckets.decreaseCount + buckets.increaseCount;
         changedBudgetTreasuries = new address[](totalCount);
-        for (uint256 i = 0; i < buckets.decreaseCount; ) {
+        for (uint256 i = 0; i < buckets.decreaseCount;) {
             changedBudgetTreasuries[i] = buckets.decreases[i];
             unchecked {
                 ++i;
             }
         }
-        for (uint256 i = 0; i < buckets.increaseCount; ) {
+        for (uint256 i = 0; i < buckets.increaseCount;) {
             changedBudgetTreasuries[buckets.decreaseCount + i] = buckets.increases[i];
             unchecked {
                 ++i;
@@ -1724,3 +1709,5 @@ contract FlowLedgerPropBudgetTreasuryRegistrable {
         activatedAt = activatedAt_;
     }
 }
+
+contract FlowLedgerPropManagedController {}

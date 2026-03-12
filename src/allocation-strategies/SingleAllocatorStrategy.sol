@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import { AddressKeyAllocationStrategy } from "./AddressKeyAllocationStrategy.sol";
 import { IGoalScopedAllocationStrategy } from "../interfaces/IGoalScopedAllocationStrategy.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 
 /// @notice Goal-scoped strategy that admits one controller-contract allocator with a virtual managed weight.
-contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAllocationStrategy, Ownable {
+contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAllocationStrategy, Initializable {
     error NOT_A_CONTRACT(address account);
 
-    address public immutable override goalTreasury;
+    address public override goalTreasury;
     address public allocator;
 
     uint256 public constant VIRTUAL_WEIGHT = 1e24;
@@ -18,15 +19,18 @@ contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAll
 
     event AllocatorChanged(address indexed oldAllocator, address indexed newAllocator);
 
-    constructor(address initialOwner, address goalTreasury_, address allocator_) Ownable(initialOwner) {
-        if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
-        if (goalTreasury_.code.length == 0) revert NOT_A_CONTRACT(goalTreasury_);
-        if (allocator_ == address(0)) revert ADDRESS_ZERO();
+    constructor(address goalTreasury_, address allocator_) {
+        if (goalTreasury_ == address(0) && allocator_ == address(0)) {
+            _disableInitializers();
+            return;
+        }
 
-        goalTreasury = goalTreasury_;
-        allocator = allocator_;
+        _initialize(goalTreasury_, allocator_);
+        _disableInitializers();
+    }
 
-        emit AllocatorChanged(address(0), allocator_);
+    function initialize(address goalTreasury_, address allocator_) external initializer {
+        _initialize(goalTreasury_, allocator_);
     }
 
     function currentWeight(address flow, uint256 key) external view override returns (uint256) {
@@ -42,13 +46,16 @@ contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAll
         return STRATEGY_KEY;
     }
 
-    function changeAllocator(address newAllocator) external onlyOwner {
-        if (newAllocator == address(0)) revert ADDRESS_ZERO();
+    function _initialize(address goalTreasury_, address allocator_) private {
+        if (goalTreasury_ == address(0)) revert ADDRESS_ZERO();
+        if (goalTreasury_.code.length == 0) revert NOT_A_CONTRACT(goalTreasury_);
+        if (allocator_ == address(0)) revert ADDRESS_ZERO();
+        if (allocator_.code.length == 0) revert NOT_A_CONTRACT(allocator_);
 
-        address oldAllocator = allocator;
-        allocator = newAllocator;
+        goalTreasury = goalTreasury_;
+        allocator = allocator_;
 
-        emit AllocatorChanged(oldAllocator, newAllocator);
+        emit AllocatorChanged(address(0), allocator_);
     }
 
     function _usesAllocatorKey(address flow, uint256 key) internal view returns (bool) {
