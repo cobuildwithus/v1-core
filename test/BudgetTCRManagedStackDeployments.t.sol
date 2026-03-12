@@ -222,10 +222,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         assertTrue(underwriterSlasherRouter.isAuthorizedPremiumEscrow(deployment.premiumEscrow));
 
         assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetTreasury(), deployment.budgetTreasury);
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetStakeLedger(), address(0));
         assertEq(NullPremiumEscrow(deployment.premiumEscrow).goalFlow(), address(goalFlow));
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).underwriterSlasherRouter(), address(0));
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetSlashPpm(), MANAGED_BUDGET_SLASH_PPM);
     }
 
     function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {

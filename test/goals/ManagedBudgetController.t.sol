@@ -19,26 +19,21 @@ import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.
 import {IManagedBudgetControllerStackDeployer} from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
-import {BudgetTCRStakeLedgerHarness} from "test/helpers/BudgetTCRSystemHarnesses.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 import {FlowTestBase} from "test/flows/helpers/FlowTestBase.t.sol";
 
 contract ManagedBudgetControllerTest is FlowTestBase {
-    uint32 internal constant BUDGET_PREMIUM_PPM = 50_000;
-    uint32 internal constant BUDGET_SLASH_PPM = 40_000;
     uint64 internal constant FUNDING_WINDOW = 7 days;
     uint64 internal constant EXECUTION_DURATION = 30 days;
 
     address internal safe = makeAddr("safe");
     address internal newSafe = makeAddr("new-safe");
     address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
-    address internal underwriterSlasherRouter;
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
-    BudgetTCRStakeLedgerHarness internal budgetAllocationLedger;
     ManagedBudgetControllerMockStackDeployer internal stackDeployer;
     ManagedBudgetControllerMockSpendPolicy internal spendPolicy;
     SingleAllocatorStrategy internal goalStrategy;
@@ -51,13 +46,10 @@ contract ManagedBudgetControllerTest is FlowTestBase {
     function setUp() public override {
         super.setUp();
 
-        underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
-
         ManagedBudgetController controllerImplementation = new ManagedBudgetController();
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
-        budgetAllocationLedger = new BudgetTCRStakeLedgerHarness();
         stackDeployer = new ManagedBudgetControllerMockStackDeployer();
         spendPolicy = new ManagedBudgetControllerMockSpendPolicy();
 
@@ -83,16 +75,12 @@ contract ManagedBudgetControllerTest is FlowTestBase {
                 authority: safe,
                 goalTreasury: address(goalTreasury),
                 goalFlow: address(goalFlow),
-                budgetAllocationLedger: address(budgetAllocationLedger),
                 stackDeployer: address(stackDeployer),
                 budgetGatePolicy: address(0),
                 budgetSuccessResolver: budgetSuccessResolver,
                 budgetSpendPolicy: address(spendPolicy),
-                underwriterSlasherRouter: underwriterSlasherRouter,
                 successAssertionLiveness: 1 days,
-                successAssertionBond: 10e18,
-                budgetPremiumPpm: BUDGET_PREMIUM_PPM,
-                budgetSlashPpm: BUDGET_SLASH_PPM
+                successAssertionBond: 10e18
             })
         );
     }
@@ -107,9 +95,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(controller.activeBudgetCount(), 2);
         assertEq(controller.activeBudgetIdAt(0), itemA);
         assertEq(controller.activeBudgetIdAt(1), itemB);
-
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemA), treasuryA);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemB), treasuryB);
 
         (IBudgetStackTopologyReader.BudgetStackTopology memory topologyA, bool activeA) =
             controller.budgetStackTopology(itemA);
@@ -319,8 +304,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
         assertEq(controller.activeBudgetCount(), 1);
         assertEq(controller.activeBudgetIdAt(0), itemB);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemA), address(0));
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemB), treasuryB);
 
         FlowTypes.FlowRecipient memory removedRecipient = goalFlow.getRecipientById(itemA);
         FlowTypes.FlowRecipient memory survivingRecipient = goalFlow.getRecipientById(itemB);
@@ -369,7 +352,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertTrue(removedFromParent);
         assertTrue(terminallyResolved);
         assertEq(controller.activeBudgetCount(), 0);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
         assertEq(controller.itemIdForChildFlow(childFlow), itemID);
 
@@ -411,7 +393,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertTrue(removedFromParent);
         assertTrue(goalSynced);
         assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
 
         FlowTypes.FlowRecipient memory recipient = goalFlow.getRecipientById(itemID);
         assertEq(recipient.recipient, childFlow);
@@ -532,46 +513,32 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
     address internal authority = makeAddr("safe");
     address internal goalTreasury = address(new ManagedBudgetControllerDummyContract());
     address internal goalFlow = address(new ManagedBudgetControllerDummyContract());
-    address internal budgetAllocationLedger = address(new ManagedBudgetControllerDummyContract());
     address internal stackDeployer = address(new ManagedBudgetControllerDummyContract());
     address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
     address internal budgetSpendPolicy = address(new ManagedBudgetControllerDummyContract());
-    address internal underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
 
     function setUp() public {
         ManagedBudgetController implementation = new ManagedBudgetController();
         controller = ManagedBudgetController(Clones.clone(address(implementation)));
     }
 
-    function test_initialize_allowsZeroBudgetAllocationLedger() public {
+    function test_initialize_setsManagedCoreReferences() public {
         IManagedBudgetController.InitConfig memory config = _baseInitConfig();
-        config.budgetAllocationLedger = address(0);
 
         controller.initialize(config);
-        assertEq(controller.budgetAllocationLedger(), address(0));
+        assertEq(controller.authority(), authority);
+        assertEq(controller.goalTreasury(), goalTreasury);
+        assertEq(controller.goalFlow(), goalFlow);
+        assertEq(controller.stackDeployer(), stackDeployer);
+        assertEq(controller.budgetSuccessResolver(), budgetSuccessResolver);
+        assertEq(controller.budgetSpendPolicy(), budgetSpendPolicy);
     }
 
-    function test_initialize_revertsOnNonContractBudgetAllocationLedger() public {
+    function test_initialize_revertsOnNonContractBudgetGatePolicy() public {
         IManagedBudgetController.InitConfig memory config = _baseInitConfig();
-        config.budgetAllocationLedger = address(0xBEEF);
+        config.budgetGatePolicy = address(0xBEEF);
 
         vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.NOT_A_CONTRACT.selector, address(0xBEEF)));
-        controller.initialize(config);
-    }
-
-    function test_initialize_allowsZeroUnderwriterSlasherRouter() public {
-        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
-        config.underwriterSlasherRouter = address(0);
-
-        controller.initialize(config);
-        assertEq(controller.underwriterSlasherRouter(), address(0));
-    }
-
-    function test_initialize_revertsOnNonContractUnderwriterSlasherRouter() public {
-        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
-        config.underwriterSlasherRouter = address(0xCAFE);
-
-        vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.NOT_A_CONTRACT.selector, address(0xCAFE)));
         controller.initialize(config);
     }
 
@@ -580,16 +547,12 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
             authority: authority,
             goalTreasury: goalTreasury,
             goalFlow: goalFlow,
-            budgetAllocationLedger: budgetAllocationLedger,
             stackDeployer: stackDeployer,
             budgetGatePolicy: address(0),
             budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
-            underwriterSlasherRouter: underwriterSlasherRouter,
             successAssertionLiveness: 1 days,
-            successAssertionBond: 10e18,
-            budgetPremiumPpm: 0,
-            budgetSlashPpm: 0
+            successAssertionBond: 10e18
         });
     }
 }
@@ -605,7 +568,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
-    BudgetTCRStakeLedgerHarness internal budgetAllocationLedger;
     ManagedBudgetControllerStackDeployer internal stackDeployer;
     SingleAllocatorStrategy internal goalStrategy;
     TestableCustomFlow internal goalFlow;
@@ -622,7 +584,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
-        budgetAllocationLedger = new BudgetTCRStakeLedgerHarness();
         stackDeployer =
             new ManagedBudgetControllerStackDeployer(address(new BudgetTreasury()), address(new NullPremiumEscrow()));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
@@ -649,16 +610,12 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
                 authority: safe,
                 goalTreasury: address(goalTreasury),
                 goalFlow: address(goalFlow),
-                budgetAllocationLedger: address(0),
                 stackDeployer: address(stackDeployer),
                 budgetGatePolicy: address(0),
                 budgetSuccessResolver: budgetSuccessResolver,
                 budgetSpendPolicy: spendPolicy,
-                underwriterSlasherRouter: address(0),
                 successAssertionLiveness: SUCCESS_ASSERTION_LIVENESS,
-                successAssertionBond: SUCCESS_ASSERTION_BOND,
-                budgetPremiumPpm: 0,
-                budgetSlashPpm: 0
+                successAssertionBond: SUCCESS_ASSERTION_BOND
             })
         );
     }
@@ -674,9 +631,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(controller.activeBudgetIdAt(0), itemID);
         assertEq(controller.itemIdForBudgetTreasury(budgetTreasury), itemID);
         assertEq(controller.itemIdForChildFlow(childFlow), itemID);
-        assertEq(controller.budgetAllocationLedger(), address(0));
-        assertEq(controller.underwriterSlasherRouter(), address(0));
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
 
         (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
             controller.budgetStackTopology(itemID);
@@ -728,10 +682,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
         NullPremiumEscrow premiumEscrow = NullPremiumEscrow(topology.premiumEscrow);
         assertEq(premiumEscrow.budgetTreasury(), budgetTreasury);
-        assertEq(premiumEscrow.budgetStakeLedger(), address(0));
         assertEq(premiumEscrow.goalFlow(), address(goalFlow));
-        assertEq(premiumEscrow.underwriterSlasherRouter(), address(0));
-        assertEq(premiumEscrow.budgetSlashPpm(), 0);
     }
 
     function test_removeBudget_realStackFailClosesActivatedBudgetAndKeepsSyncTerminal() public {
@@ -831,7 +782,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertEq(controller.activeBudgetCount(), 0);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
         assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
         assertTrue(IBudgetTreasury(budgetTreasury).resolved());
@@ -860,7 +810,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
         assertEq(controller.activeBudgetCount(), 0);
-        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
         assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
         assertTrue(IBudgetTreasury(budgetTreasury).resolved());
@@ -1065,9 +1014,6 @@ contract ManagedBudgetControllerMockStackDeployer is IManagedBudgetControllerSta
         address premiumEscrow,
         address childFlow,
         address,
-        address,
-        address,
-        uint32,
         IManagedBudgetController.BudgetConfig calldata,
         address,
         address,

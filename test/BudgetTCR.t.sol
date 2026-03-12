@@ -66,6 +66,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Vm} from "forge-std/Vm.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
@@ -108,6 +109,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
+    address internal budgetGatePolicy;
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -147,6 +149,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
+        budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
         BudgetTCR tcrImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
@@ -347,10 +350,20 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_setUp_deploys_default_stake_coverage_gate_policy_when_budget_gate_policy_is_zero() public {
-        address gatePolicy = budgetTcr.budgetGatePolicy();
-        assertTrue(gatePolicy != address(0));
-        assertGt(gatePolicy.code.length, 0);
+    function test_setUp_uses_configured_budget_gate_policy() public view {
+        assertEq(budgetTcr.budgetGatePolicy(), budgetGatePolicy);
+    }
+
+    function test_initialize_reverts_when_budget_gate_policy_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetGatePolicy = address(0);
+
+        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
     function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
@@ -2440,7 +2453,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            budgetGatePolicy: address(0),
+            budgetGatePolicy: budgetGatePolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -2623,6 +2636,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
+    address internal budgetGatePolicy;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -2650,6 +2664,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
+        budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
         CustomFlow goalFlowImplementation = new CustomFlow();
         address goalFlowProxy = _deployProxy(address(goalFlowImplementation), "");
@@ -2933,7 +2948,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            budgetGatePolicy: address(0),
+            budgetGatePolicy: budgetGatePolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
