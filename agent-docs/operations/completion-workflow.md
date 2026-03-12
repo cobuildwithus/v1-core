@@ -17,8 +17,9 @@ Non-docs rule: for any change that touches production code or tests, all three s
 7. For any change that touches `.sol`, run `pnpm -s build:sizes` before final handoff.
 8. If `build:sizes` reports an over-limit contract, or your diff materially increases pressure on a near-limit contract, reduce size before handoff. Prefer the existing `Flow.sol` pattern: move heavy helper logic into existing libraries with `external` or `public` helpers when a current boundary fits, and only add a new library when reuse is not a clean option.
 9. Run a completion audit using `agent-docs/prompts/task-finish-review.md` with full change context.
-10. Final handoff remains gated on green required checks; for Solidity-affecting work, a passing `build:sizes` run is also part of completion.
-11. Do not skip these subagent passes unless the user explicitly instructs to skip them for that turn.
+10. Final handoff must report required-check results; green required checks remain the default completion bar, and for Solidity-affecting work a passing `build:sizes` run is also part of completion.
+11. If a required check fails for a credibly unrelated pre-existing reason, commit your exact touched files and hand off with the failing command, failing target, and why your diff did not cause it. If you cannot defend that separation, treat the failure as blocking.
+12. Do not skip these subagent passes unless the user explicitly instructs to skip them for that turn.
 
 ## Coordination Ledger (Always Required)
 

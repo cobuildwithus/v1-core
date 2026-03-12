@@ -71,7 +71,8 @@ If instructions still conflict after applying this order, ask the user before ac
 ### Commit and Handoff
 
 - Same-turn task completion = acceptance, unless the user explicitly says `review first` or `do not commit`.
-- If you changed files and required checks are green (defined below), you MUST run `scripts/committer "type(scope): summary" path/to/file1 path/to/file2` before sending final handoff.
+- If you changed files, run the required checks defined below before handoff. If they pass, you MUST run `scripts/committer "type(scope): summary" path/to/file1 path/to/file2` before sending final handoff.
+- If a required check fails for a credibly unrelated pre-existing reason, do not leave your scoped work uncommitted solely because the repo is red. Commit your exact touched files after recording the failing command, the failing target, and why your diff did not cause it. If you cannot defend that causal separation, treat the failure as blocking.
 - Do not end with "ready to commit" or "commit pending"; perform the commit in the same turn.
 - Use `scripts/committer` only (no manual `git commit`).
 - Agent-authored commit messages should use Conventional Commits (`feat|fix|refactor|build|ci|chore|docs|style|perf|test`).
