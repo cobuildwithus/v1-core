@@ -56,7 +56,6 @@
   - `src/interfaces/IAllocationStrategy.sol`
   - `src/interfaces/IAllocationPipeline.sol`
   - `src/interfaces/IGoalScopedAllocationStrategy.sol`
-  - `src/interfaces/IGoalLedgerStrategy.sol` (legacy alias only)
 - Flow allocation pipeline modules: `src/hooks/GoalFlowAllocationLedgerPipeline.sol`
 - External-read boundary: `CustomFlow` owns canonical allocation-read helpers; strategies and pipeline previews consume explicit `flow` context instead of inferring it from `msg.sender`.
 

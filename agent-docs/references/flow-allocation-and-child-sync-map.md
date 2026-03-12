@@ -34,7 +34,7 @@
 5. Allocation edits are applied through typed `FlowAllocations` helpers with structural validation and previous-state continuity checks.
 6. After a successful commit, `CustomFlow` invokes the configured allocation pipeline.
 7. With `GoalFlowAllocationLedgerPipeline` configured with a non-zero ledger, checkpoints are written to `BudgetStakeLedger`.
-8. `GoalFlowLedgerMode` validates allocator-neutral ledger ownership only through the goal treasury + flow wiring and the goal-scoped strategy boundary (`IGoalScopedAllocationStrategy`; `IGoalLedgerStrategy` remains a legacy alias).
+8. `GoalFlowLedgerMode` validates allocator-neutral ledger ownership only through the goal treasury + flow wiring and the goal-scoped strategy boundary (`IGoalScopedAllocationStrategy`).
 9. Ledger-mode checkpoint suppression keys off `IGoalTreasury.resolved()`; stake-vault terminal side-effect state is intentionally not part of the flow-substrate validation path.
 10. Pipeline instances with `allocationLedger == 0` remain explicit no-op mode.
 

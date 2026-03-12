@@ -24,6 +24,7 @@ import {
     BudgetTCRChildFlowHarness,
     BudgetTCRStakeLedgerHarness
 } from "test/helpers/BudgetTCRSystemHarnesses.sol";
+import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
@@ -172,15 +173,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         deployer = _deployBudgetTcrDeployer();
         deployer.initializeWithConfig(
             address(harness),
-            IBudgetStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
-                childFlowStrategyTarget: address(fixedStrategy),
-                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-                childFlowRecipientAdmin: safe,
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-                premiumEscrowImplementation: address(0),
-                requireZeroPremiumAndSlashRates: true
-            }),
+            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategy), safe),
             address(0)
         );
 
@@ -224,15 +217,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
         deployerWithEmitter.initializeWithConfig(
             address(harness),
-            IBudgetStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
-                childFlowStrategyTarget: address(fixedStrategy),
-                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-                childFlowRecipientAdmin: safe,
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-                premiumEscrowImplementation: address(0),
-                requireZeroPremiumAndSlashRates: true
-            }),
+            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategy), safe),
             address(discoveryEmitter)
         );
 

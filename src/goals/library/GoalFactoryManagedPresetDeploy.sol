@@ -37,8 +37,7 @@ library GoalFactoryManagedPresetDeploy {
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(out.budgetController),
                 premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-                premiumEscrowImplementation: address(0),
-                requireZeroPremiumAndSlashRates: true
+                premiumEscrowImplementation: address(0)
             }),
             address(0)
         );

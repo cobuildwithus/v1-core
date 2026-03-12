@@ -9,6 +9,7 @@ import {
     BudgetTCRStakeLedgerHarness as MockBudgetStakeLedgerForBudgetTCR,
     BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
 } from "test/helpers/BudgetTCRSystemHarnesses.sol";
+import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 import {FlowSuperfluidFrameworkDeployer} from "test/utils/FlowSuperfluidFrameworkDeployer.sol";
 
@@ -395,12 +396,9 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
-                budgetGatePolicy: budgetGatePolicy,
-                premiumEscrowImplementation: premiumEscrowImplementation,
-                underwriterSlasherRouter: underwriterSlasherRouter,
-                requireZeroPremiumAndSlashRates: false
-            }),
+            riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
+                budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
+            ),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -456,15 +454,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
     ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
-        stackModuleConfig = IBudgetStackDeployer.StackModuleConfig({
-            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
-            childFlowStrategyTarget: address(0),
-            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
-            childFlowRecipientAdmin: address(0),
-            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: premiumEscrowImplementation_,
-            requireZeroPremiumAndSlashRates: false
-        });
+        stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {

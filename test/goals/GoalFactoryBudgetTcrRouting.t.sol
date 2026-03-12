@@ -15,7 +15,6 @@ contract GoalFactoryBudgetTcrRoutingTest is Test {
         assertEq(routing.budgetGatePolicy, address(0));
         assertEq(routing.premiumEscrowImplementation, address(0));
         assertEq(routing.underwriterSlasherRouter, address(0));
-        assertTrue(routing.requireZeroPremiumAndSlashRates);
     }
 
     function test_resolveOpenPresetRouting_usesNoGateAndPreservesRiskWiringWhenSlashIsZero() public pure {
@@ -26,7 +25,6 @@ contract GoalFactoryBudgetTcrRoutingTest is Test {
         assertEq(routing.budgetGatePolicy, address(0));
         assertEq(routing.premiumEscrowImplementation, address(0xCAFE));
         assertEq(routing.underwriterSlasherRouter, address(0xF00D));
-        assertFalse(routing.requireZeroPremiumAndSlashRates);
     }
 
     function test_resolveOpenPresetRouting_preservesGateAndRiskWiringWhenSlashIsEnabled() public pure {
@@ -37,6 +35,5 @@ contract GoalFactoryBudgetTcrRoutingTest is Test {
         assertEq(routing.budgetGatePolicy, address(0xBEEF));
         assertEq(routing.premiumEscrowImplementation, address(0xCAFE));
         assertEq(routing.underwriterSlasherRouter, address(0xF00D));
-        assertFalse(routing.requireZeroPremiumAndSlashRates);
     }
 }

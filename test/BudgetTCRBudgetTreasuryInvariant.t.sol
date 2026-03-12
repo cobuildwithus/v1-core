@@ -11,6 +11,7 @@ import {
     BudgetTCRStakeLedgerHarness as MockBudgetStakeLedgerForBudgetTCR,
     BudgetTCRStakeVaultHarness as MockStakeVaultForBudgetTCR
 } from "test/helpers/BudgetTCRSystemHarnesses.sol";
+import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {BudgetTCRStackActions} from "src/tcr/library/BudgetTCRStackActions.sol";
@@ -117,8 +118,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
             premiumEscrowMode: PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: address(0x4444444444444444444444444444444444444444),
-            requireZeroPremiumAndSlashRates: false
+            premiumEscrowImplementation: address(0x4444444444444444444444444444444444444444)
         });
     }
 
@@ -266,12 +266,9 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
-                budgetGatePolicy: budgetGatePolicy,
-                premiumEscrowImplementation: premiumEscrowImplementation,
-                underwriterSlasherRouter: underwriterSlasherRouter,
-                requireZeroPremiumAndSlashRates: false
-            }),
+            riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
+                budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
+            ),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),

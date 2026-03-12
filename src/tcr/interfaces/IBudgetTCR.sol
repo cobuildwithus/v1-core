@@ -49,7 +49,6 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
         address budgetGatePolicy;
         address premiumEscrowImplementation;
         address underwriterSlasherRouter;
-        bool requireZeroPremiumAndSlashRates;
     }
 
     struct DeploymentConfig {

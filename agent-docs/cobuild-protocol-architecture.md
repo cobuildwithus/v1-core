@@ -417,7 +417,7 @@ Community root routing
     successful sync attempts clear existing debt while skip/failure outcomes do not open debt,
   - successful child sync and permissionless per-budget repair clear debt with `ChildSyncDebtCleared`.
 - Goal-ledger compatible strategy capability is explicitly represented by
-  `src/interfaces/IGoalScopedAllocationStrategy.sol`; `src/interfaces/IGoalLedgerStrategy.sol` remains a legacy alias.
+  `src/interfaces/IGoalScopedAllocationStrategy.sol`.
 
 2. Lifecycle monotonicity
 - Goal/Budget/TCR state transitions should be explicit and non-ambiguous.

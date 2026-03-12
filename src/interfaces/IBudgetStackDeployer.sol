@@ -27,7 +27,6 @@ interface IBudgetStackDeployer {
         address childFlowRecipientAdmin;
         PremiumEscrowMode premiumEscrowMode;
         address premiumEscrowImplementation;
-        bool requireZeroPremiumAndSlashRates;
     }
 
     struct PreparationResult {

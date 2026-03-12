@@ -335,8 +335,7 @@ contract BudgetTCRFactory {
                 premiumEscrowImplementation: requiresPremiumModule
                     ? deploymentConfig.riskModuleRouting.premiumEscrowImplementation
                     : address(0),
-                underwriterSlasherRouter: underwriterSlasherRouter,
-                requireZeroPremiumAndSlashRates: !requiresPremiumModule
+                underwriterSlasherRouter: underwriterSlasherRouter
             }),
             goalFlow: deploymentConfig.goalFlow,
             goalTreasury: deploymentConfig.goalTreasury,
@@ -361,8 +360,7 @@ contract BudgetTCRFactory {
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
             childFlowRecipientAdmin: address(0),
             premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: premiumEscrowImplementation,
-            requireZeroPremiumAndSlashRates: false
+            premiumEscrowImplementation: premiumEscrowImplementation
         });
     }
 
@@ -377,8 +375,7 @@ contract BudgetTCRFactory {
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
             childFlowRecipientAdmin: address(0),
             premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-            premiumEscrowImplementation: address(0),
-            requireZeroPremiumAndSlashRates: true
+            premiumEscrowImplementation: address(0)
         });
     }
 

@@ -35,16 +35,11 @@ library BudgetTCRInitValidation {
             revert IBudgetTCR.INVALID_PPM(deploymentConfig.budgetSlashPpm);
         }
 
-        bool explicitNoPremiumMode = deploymentConfig.riskModuleRouting.requireZeroPremiumAndSlashRates;
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
+        bool omitsPremiumModule = _omitsPremiumModuleWiring(deploymentConfig);
         budgetGatePolicy_ = _validateBudgetGatePolicy(deploymentConfig);
-        if (explicitNoPremiumMode) {
-            if (requiresPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
-            _requireAbsentPremiumModuleWiring(deploymentConfig);
-        } else {
-            if (!requiresPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
-            _requirePremiumModuleWiring(deploymentConfig);
-        }
+        _requirePremiumModuleConsistency(requiresPremiumModule, omitsPremiumModule);
+        if (requiresPremiumModule) _requirePremiumModuleWiring(deploymentConfig);
         if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) {
             revert IBudgetTCR.BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
         }
@@ -69,30 +64,31 @@ library BudgetTCRInitValidation {
         IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = IBudgetStackDeployer(
             deploymentConfig.stackDeployer
         ).stackModuleConfig();
-        bool explicitNoPremiumMode = deploymentConfig.riskModuleRouting.requireZeroPremiumAndSlashRates;
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
-        bool stackRequiresZeroRates = stackModuleConfig.premiumEscrowMode ==
+        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
             IBudgetStackDeployer.PremiumEscrowMode.None;
-        if (explicitNoPremiumMode) {
-            if (requiresPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
-            if (!stackRequiresZeroRates) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
-            return;
-        }
-
-        if (stackRequiresZeroRates) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
+        _requirePremiumModuleConsistency(requiresPremiumModule, stackOmitsPremiumModule);
     }
 
     function _requiresPremiumModule(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure returns (bool) {
         return deploymentConfig.budgetPremiumPpm != 0 || deploymentConfig.budgetSlashPpm != 0;
     }
 
-    function _requireAbsentPremiumModuleWiring(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure {
-        if (deploymentConfig.riskModuleRouting.premiumEscrowImplementation != address(0)) {
-            revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
+    function _omitsPremiumModuleWiring(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private pure returns (bool) {
+        return
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation == address(0) &&
+            deploymentConfig.riskModuleRouting.underwriterSlasherRouter == address(0);
+    }
+
+    function _requirePremiumModuleConsistency(bool requiresPremiumModule, bool omitsPremiumModule) private pure {
+        if (requiresPremiumModule) {
+            if (omitsPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
+            return;
         }
-        if (deploymentConfig.riskModuleRouting.underwriterSlasherRouter != address(0)) {
-            revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
-        }
+
+        if (!omitsPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
     }
 
     function _requirePremiumModuleWiring(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private view {

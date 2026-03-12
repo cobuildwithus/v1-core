@@ -30,6 +30,7 @@ import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 
+import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -1223,7 +1224,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         );
         assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
-        assertTrue(stackDeployer.requireZeroPremiumAndSlashRates());
         assertEq(stackDeployer.discoveryEmitter(), address(factory));
     }
 
@@ -1281,7 +1281,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(), address(0));
         assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
-        assertTrue(stackDeployer.requireZeroPremiumAndSlashRates());
     }
 
     function test_deployBudgetTCRStackForGoal_registersStackDeployerForFactoryDiscoveryCallbacks() public {
@@ -1839,12 +1838,9 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
-            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
-                budgetGatePolicy: address(new StakeCoverageGatePolicy()),
-                premiumEscrowImplementation: address(new _MockImplementation()),
-                underwriterSlasherRouter: address(0),
-                requireZeroPremiumAndSlashRates: false
-            }),
+            riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
+                address(new StakeCoverageGatePolicy()), address(new _MockImplementation()), address(0)
+            ),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,
             goalToken: goalToken,

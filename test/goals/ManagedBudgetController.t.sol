@@ -13,7 +13,7 @@ import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
-import {IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
+import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
@@ -31,6 +31,7 @@ import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSu
 import {TeamFlow} from "src/teamflow/TeamFlow.sol";
 import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
+import {AlwaysEnabledZeroCoverageBudgetGatePolicy} from "test/helpers/ZeroCoverageBudgetGatePolicies.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
@@ -521,7 +522,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
     function test_syncBudgetTreasuries_budgetGatePolicy_allowsZeroCoverageCompatiblePolicy() public {
         (ManagedBudgetController gatedController, TestableCustomFlow gatedGoalFlow) =
-            _deployControllerWithGatePolicy(address(new ManagedBudgetControllerAlwaysEnabledGatePolicy()));
+            _deployControllerWithGatePolicy(address(new AlwaysEnabledZeroCoverageBudgetGatePolicy()));
         bytes32 itemID = bytes32(uint256(1));
 
         vm.prank(safe);
@@ -809,8 +810,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(controller),
                 premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-                premiumEscrowImplementation: address(0),
-                requireZeroPremiumAndSlashRates: true
+                premiumEscrowImplementation: address(0)
             }),
             address(0)
         );
@@ -1342,17 +1342,6 @@ contract ManagedBudgetControllerProbeAwareGatePolicy is IBudgetGatePolicy {
     }
 }
 
-contract ManagedBudgetControllerAlwaysEnabledGatePolicy is IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy {
-    function evaluateBudgetGate(SyncContext calldata) external pure returns (SyncResult memory result) {
-        result.shouldSetRecipientEnabled = true;
-        result.recipientEnabled = true;
-    }
-
-    function supportsZeroCoverageBudgetGate() external pure returns (bool supported) {
-        return true;
-    }
-}
-
 contract ManagedBudgetControllerMockSpendPolicy {}
 
 contract ManagedBudgetControllerMockPremiumEscrow {}
@@ -1465,8 +1454,7 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(this),
             premiumEscrowMode: PremiumEscrowMode.None,
-            premiumEscrowImplementation: address(0),
-            requireZeroPremiumAndSlashRates: true
+            premiumEscrowImplementation: address(0)
         });
     }
 

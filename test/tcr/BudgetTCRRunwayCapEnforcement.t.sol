@@ -3,10 +3,11 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
+import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {BudgetGatePolicyHook} from "src/goals/policies/library/BudgetGatePolicyHook.sol";
+import {NoopZeroCoverageBudgetGatePolicy} from "test/helpers/ZeroCoverageBudgetGatePolicies.sol";
 
 contract BudgetGatePolicyHarness {
     IFlow internal immutable _goalFlow;
@@ -120,26 +121,12 @@ contract RevertingBudgetGatePolicy {
     }
 }
 
-contract RunwayCapNoopBudgetGatePolicy is IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy {
-    function evaluateBudgetGate(IBudgetGatePolicy.SyncContext calldata)
-        external
-        pure
-        returns (IBudgetGatePolicy.SyncResult memory result)
-    {
-        result.failures = new IBudgetGatePolicy.CallFailure[](0);
-    }
-
-    function supportsZeroCoverageBudgetGate() external pure returns (bool supported) {
-        return true;
-    }
-}
-
 contract BudgetTCRRunwayCapEnforcementTest is Test {
     BudgetGatePolicyHarness internal _controller;
     MockGoalFlow internal _goalFlow;
     MockBudgetStakeLedger internal _stakeLedger;
     StakeCoverageGatePolicy internal _stakePolicy;
-    RunwayCapNoopBudgetGatePolicy internal _noopPolicy;
+    NoopZeroCoverageBudgetGatePolicy internal _noopPolicy;
     RevertingBudgetGatePolicy internal _revertingPolicy;
 
     bytes32 internal constant ITEM_ID = bytes32(uint256(0xB0D));
@@ -150,7 +137,7 @@ contract BudgetTCRRunwayCapEnforcementTest is Test {
         _controller = new BudgetGatePolicyHarness(address(_goalFlow));
         _stakeLedger = new MockBudgetStakeLedger();
         _stakePolicy = new StakeCoverageGatePolicy();
-        _noopPolicy = new RunwayCapNoopBudgetGatePolicy();
+        _noopPolicy = new NoopZeroCoverageBudgetGatePolicy();
         _revertingPolicy = new RevertingBudgetGatePolicy();
     }
 

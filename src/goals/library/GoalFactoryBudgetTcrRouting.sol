@@ -11,13 +11,12 @@ library GoalFactoryBudgetTcrRouting {
         address premiumEscrowImplementation,
         address underwriterSlasherRouter
     ) internal pure returns (IBudgetTCR.RiskModuleRouting memory routing) {
-        bool usesExplicitNoPremiumMode = budgetPremiumPpm == 0 && budgetSlashPpm == 0;
+        bool usesNoPremiumMode = budgetPremiumPpm == 0 && budgetSlashPpm == 0;
         return
             IBudgetTCR.RiskModuleRouting({
                 budgetGatePolicy: budgetSlashPpm == 0 ? address(0) : openBudgetGatePolicy,
-                premiumEscrowImplementation: usesExplicitNoPremiumMode ? address(0) : premiumEscrowImplementation,
-                underwriterSlasherRouter: usesExplicitNoPremiumMode ? address(0) : underwriterSlasherRouter,
-                requireZeroPremiumAndSlashRates: usesExplicitNoPremiumMode
+                premiumEscrowImplementation: usesNoPremiumMode ? address(0) : premiumEscrowImplementation,
+                underwriterSlasherRouter: usesNoPremiumMode ? address(0) : underwriterSlasherRouter
             });
     }
 }

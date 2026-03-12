@@ -10,6 +10,7 @@ import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 contract GoalFactoryBudgetTcrDeployTest is Test {
@@ -98,12 +99,8 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
                 challengePeriodDuration: 0
             })
         );
-        request.riskModuleRouting = IBudgetTCR.RiskModuleRouting({
-            budgetGatePolicy: address(0xBEEF),
-            premiumEscrowImplementation: address(0xCAFE),
-            underwriterSlasherRouter: address(0xF00D),
-            requireZeroPremiumAndSlashRates: false
-        });
+        request.riskModuleRouting =
+            BudgetTCRConfigHelpers.openRiskModuleRouting(address(0xBEEF), address(0xCAFE), address(0xF00D));
         request.budgetPremiumPpm = 100_000;
         request.budgetSlashPpm = 0;
 
@@ -118,10 +115,9 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             resolved.riskModuleRouting.underwriterSlasherRouter,
             request.riskModuleRouting.underwriterSlasherRouter
         );
-        assertFalse(resolved.riskModuleRouting.requireZeroPremiumAndSlashRates);
     }
 
-    function test_resolveDeploymentConfig_passesThroughExplicitNoPremiumMode_whenBothRatesAreZero() public pure {
+    function test_resolveDeploymentConfig_passesThroughNoPremiumRouting_whenBothRatesAreZero() public pure {
         GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
             IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: bytes(""),
@@ -134,19 +130,13 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
                 challengePeriodDuration: 0
             })
         );
-        request.riskModuleRouting = IBudgetTCR.RiskModuleRouting({
-            budgetGatePolicy: address(0),
-            premiumEscrowImplementation: address(0),
-            underwriterSlasherRouter: address(0),
-            requireZeroPremiumAndSlashRates: true
-        });
+        request.riskModuleRouting = BudgetTCRConfigHelpers.noPremiumRiskModuleRouting(address(0));
 
         IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
 
         assertEq(resolved.riskModuleRouting.budgetGatePolicy, address(0));
         assertEq(resolved.riskModuleRouting.premiumEscrowImplementation, address(0));
         assertEq(resolved.riskModuleRouting.underwriterSlasherRouter, address(0));
-        assertTrue(resolved.riskModuleRouting.requireZeroPremiumAndSlashRates);
     }
 
     function _baseRequest(IGeneralizedTCRConfig.RegistryPolicy memory registryPolicy)
@@ -163,12 +153,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             defaultAllocationMechanismAdmin: address(0),
             defaultInvalidRoundRewardsSink: address(0),
             defaultSubmissionDepositStrategy: address(0),
-            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
-                budgetGatePolicy: address(0),
-                premiumEscrowImplementation: address(0),
-                underwriterSlasherRouter: address(0),
-                requireZeroPremiumAndSlashRates: false
-            }),
+            riskModuleRouting: BudgetTCRConfigHelpers.noPremiumRiskModuleRouting(address(0)),
             cobuildToken: address(0),
             cobuildDecimals: 0,
             budgetSuccessResolver: address(0),
