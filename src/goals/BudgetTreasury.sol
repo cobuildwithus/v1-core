@@ -2,11 +2,11 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
+import { IBudgetController } from "../interfaces/IBudgetController.sol";
 import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
-import { IBudgetTCR } from "../tcr/interfaces/IBudgetTCR.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { TreasuryBase } from "./TreasuryBase.sol";
@@ -135,7 +135,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
         if (derivedState.state == BudgetState.Funding) {
             if (successResolutionDisabled) {
-                _finalize(BudgetState.Failed);
+                _finalize(BudgetState.Failed, true);
                 return;
             }
             if (treasuryBalance() >= activationThreshold) {
@@ -144,7 +144,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
                     if (_tryFinalizePostDeadline()) return;
                 }
             } else if (derivedState.fundingWindowEnded) {
-                _finalize(BudgetState.Expired);
+                _finalize(BudgetState.Expired, true);
             }
             return;
         }
@@ -159,11 +159,20 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function retryTerminalSideEffects() external override nonReentrant {
         BudgetState terminalState = _state;
         if (!_isTerminalState(terminalState)) revert INVALID_STATE();
-        _runTerminalSideEffects(terminalState);
+        _runTerminalSideEffects(terminalState, true);
     }
 
     function forceFlowRateToZero() external override onlyController nonReentrant {
         _forceFlowRateToZero();
+    }
+
+    function failRemovedBudget() external override onlyController nonReentrant {
+        if (_isTerminalState(_state)) revert INVALID_STATE();
+
+        _forceFlowRateToZero();
+        _disableSuccessResolution();
+        // Controller-orchestrated removals already detached the parent recipient and own the inline goal sync.
+        _finalize(BudgetState.Failed, false);
     }
 
     function resolveSuccess() external override nonReentrant {
@@ -173,7 +182,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         _successAssertions.requirePending();
         _successAssertions.requireTruthful(successResolver, successAssertionLiveness, successAssertionBond);
 
-        _finalize(BudgetState.Succeeded);
+        _finalize(BudgetState.Succeeded, true);
     }
 
     function resolveFailure() external override onlyController nonReentrant {
@@ -181,7 +190,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (currentState != BudgetState.Active && currentState != BudgetState.Funding) revert INVALID_STATE();
 
         if (successResolutionDisabled) {
-            _finalize(BudgetState.Failed);
+            _finalize(BudgetState.Failed, true);
             return;
         }
 
@@ -194,7 +203,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             if (block.timestamp < deadline()) revert DEADLINE_NOT_REACHED();
         }
 
-        _finalize(BudgetState.Failed);
+        _finalize(BudgetState.Failed, true);
     }
 
     function pendingSuccessAssertionId() external view override returns (bytes32) {
@@ -242,6 +251,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     }
 
     function disableSuccessResolution() external override onlyController {
+        _disableSuccessResolution();
+    }
+
+    function _disableSuccessResolution() internal {
         if (successResolutionDisabled) return;
 
         successResolutionDisabled = true;
@@ -381,7 +394,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
     }
 
-    function _finalize(BudgetState finalState) internal {
+    function _finalize(BudgetState finalState, bool attemptParentPrune) internal {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
@@ -391,12 +404,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
 
-        _runTerminalSideEffects(finalState);
+        _runTerminalSideEffects(finalState, attemptParentPrune);
 
         emit BudgetFinalized(finalState);
     }
 
-    function _runTerminalSideEffects(BudgetState finalState) internal {
+    function _runTerminalSideEffects(BudgetState finalState, bool attemptParentPrune) internal {
         _tryClosePremiumEscrow(finalState);
 
         (bool flowStopped, bytes memory flowStopRevertData) = _tryForceFlowRateToZero();
@@ -404,7 +417,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             emit TerminalFlowStopFailed(flowStopRevertData);
         }
 
-        _tryPruneTerminalRecipientFromParent();
+        if (attemptParentPrune) {
+            _tryPruneTerminalRecipientFromParent();
+        }
         _trySettleResidualToParent();
     }
 
@@ -427,7 +442,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         address controller_ = controller;
         if (controller_.code.length == 0) return;
 
-        try IBudgetTCR(controller_).pruneTerminalBudget(address(this)) returns (
+        try IBudgetController(controller_).pruneTerminalBudget(address(this)) returns (
             bool removedFromParent,
             bool goalSynced
         ) {
@@ -497,7 +512,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
         if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
         if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
-            _finalize(BudgetState.Succeeded);
+            _finalize(BudgetState.Succeeded, true);
             return true;
         }
         if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
@@ -509,7 +524,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             return false;
         }
 
-        _finalize(BudgetState.Expired);
+        _finalize(BudgetState.Expired, true);
         return true;
     }
 

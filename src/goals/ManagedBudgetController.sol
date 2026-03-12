@@ -87,14 +87,18 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (initConfig.authority == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.goalTreasury);
         _requireContract(initConfig.goalFlow);
-        _requireContract(initConfig.budgetAllocationLedger);
+        if (initConfig.budgetAllocationLedger != address(0)) {
+            _requireContract(initConfig.budgetAllocationLedger);
+        }
         _requireContract(initConfig.stackDeployer);
         if (initConfig.budgetGatePolicy != address(0)) {
             _requireContract(initConfig.budgetGatePolicy);
         }
         if (initConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.budgetSpendPolicy);
-        _requireContract(initConfig.underwriterSlasherRouter);
+        if (initConfig.underwriterSlasherRouter != address(0)) {
+            _requireContract(initConfig.underwriterSlasherRouter);
+        }
         if (initConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert INVALID_PPM(initConfig.budgetPremiumPpm);
         }
@@ -173,10 +177,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         IManagedBudgetControllerStackDeployer deployer = IManagedBudgetControllerStackDeployer(stackDeployer);
         IManagedBudgetControllerStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            address(this),
-            budgetAllocationLedger,
-            goalFlow,
-            goalTreasury
+            address(this)
         );
 
         _requirePreparedStack(prepared);
@@ -234,17 +235,10 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         );
 
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
-        if (treasury.activatedAt() != 0) {
-            treasury.failRemovedBudget();
-        } else {
-            treasury.disableSuccessResolution();
-            if (!BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury)) {
-                revert TERMINAL_RESOLUTION_FAILED();
-            }
-        }
-
-        terminallyResolved = true;
+        treasury.failRemovedBudget();
         _setItemActive(itemID, false);
+        BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
+        terminallyResolved = true;
         emit ManagedBudgetRemoved(itemID, childFlow_, budgetTreasury_, removedFromParent, terminallyResolved);
     }
 

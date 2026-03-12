@@ -193,8 +193,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
     function test_setBudgetFlowWeights_revertsWhenBudgetIsInactive() public {
         bytes32 itemID = bytes32(uint256(1));
         (address childFlow, address treasury) = _createBudget(itemID, "Budget A");
-        ManagedBudgetControllerMockBudgetTreasury(treasury).setActivatedAt(uint64(block.timestamp));
-
         vm.prank(safe);
         controller.removeBudget(itemID);
 
@@ -284,8 +282,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
             budgetItemID, childRecipientId, childRecipient, _childRecipientMetadata("Budget Recipient")
         );
 
-        ManagedBudgetControllerMockBudgetTreasury(treasury).setActivatedAt(uint64(block.timestamp));
-
         vm.prank(safe);
         controller.removeBudget(budgetItemID);
 
@@ -314,8 +310,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         (address childFlowA, address treasuryA) = _createBudget(itemA, "Budget A");
         (address childFlowB, address treasuryB) = _createBudget(itemB, "Budget B");
         uint256 syncCallCountBefore = goalTreasury.syncCallCount();
-
-        ManagedBudgetControllerMockBudgetTreasury(treasuryA).setActivatedAt(uint64(block.timestamp));
 
         vm.prank(safe);
         (bool removedFromParent, bool terminallyResolved) = controller.removeBudget(itemA);
@@ -392,7 +386,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         bytes32 itemID = bytes32(uint256(1));
         (, address treasury) = _createBudget(itemID, "Budget A");
 
-        ManagedBudgetControllerMockBudgetTreasury(treasury).setActivatedAt(uint64(block.timestamp));
         goalTreasury.setShouldRevertSync(true);
 
         vm.prank(safe);
@@ -609,7 +602,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
     address internal safe = address(new ManagedBudgetControllerDummyContract());
     address internal budgetSuccessResolver = address(new ManagedBudgetControllerDummyContract());
-    address internal underwriterSlasherRouter = address(new ManagedBudgetControllerDummyContract());
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
@@ -783,6 +775,44 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(IFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_removeBudget_realStack_goalSyncFailureRepairsViaRetryTerminalSideEffects() public {
+        bytes32 itemID = bytes32(uint256(1));
+
+        vm.prank(safe);
+        (address childFlow, address budgetTreasury) = controller.createBudget(itemID, _defaultBudgetConfig("Budget A"));
+
+        BudgetTreasury treasury = BudgetTreasury(budgetTreasury);
+        uint256 activationThreshold = treasury.activationThreshold();
+        _mintAndUpgrade(owner, activationThreshold);
+        vm.prank(owner);
+        superToken.transfer(childFlow, activationThreshold);
+        treasury.sync();
+
+        goalTreasury.setShouldRevertSync(true);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        vm.prank(safe);
+        (bool removedFromParent, bool terminallyResolved) = controller.removeBudget(itemID);
+
+        assertTrue(removedFromParent);
+        assertTrue(terminallyResolved);
+        assertEq(controller.activeBudgetCount(), 0);
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
+
+        goalTreasury.setShouldRevertSync(false);
+
+        vm.prank(makeAddr("keeper"));
+        treasury.retryTerminalSideEffects();
+
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertEq(IFlow(childFlow).targetOutflowRate(), 0);
+    }
+
     function test_authorityRotation_keepsBudgetChildAllocatorIdentityOnControllerAndAllowsChildFlowAllocation() public {
         bytes32 budgetItemID = bytes32(uint256(1));
         vm.prank(safe);
@@ -914,7 +944,6 @@ contract ManagedBudgetControllerMockBudgetTreasury {
     address public controller;
     address public flow;
     address public premiumEscrow;
-    uint64 public activatedAt;
     bool public resolved;
     bool public shouldRevertSync;
     uint256 public syncCallCount;
@@ -927,10 +956,6 @@ contract ManagedBudgetControllerMockBudgetTreasury {
         controller = controller_;
         flow = flow_;
         premiumEscrow = premiumEscrow_;
-    }
-
-    function setActivatedAt(uint64 activatedAt_) external {
-        activatedAt = activatedAt_;
     }
 
     function setResolved(bool resolved_) external {

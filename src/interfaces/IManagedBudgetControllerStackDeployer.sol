@@ -12,12 +12,7 @@ interface IManagedBudgetControllerStackDeployer {
 
     error ADDRESS_ZERO();
 
-    function prepareBudgetStack(
-        address controller,
-        address budgetAllocationLedger,
-        address goalFlow,
-        address goalTreasury
-    ) external returns (PreparationResult memory result);
+    function prepareBudgetStack(address controller) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(
         address controller,

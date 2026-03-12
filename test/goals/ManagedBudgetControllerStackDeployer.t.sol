@@ -54,9 +54,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
     NullPremiumEscrow internal premiumEscrowImplementation;
     ManagedBudgetControllerStackDeployer internal deployer;
 
-    address internal budgetAllocationLedger = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal goalFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
-    address internal childFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal successResolver = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal spendPolicy = address(new ManagedBudgetControllerStackDeployerSpendPolicyMock());
 
