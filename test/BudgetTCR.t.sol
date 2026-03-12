@@ -37,7 +37,7 @@ import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
-import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
+import {IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -68,7 +68,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Vm} from "forge-std/Vm.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
-import {NoopBudgetGatePolicy} from "src/goals/policies/NoopBudgetGatePolicy.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
@@ -431,7 +430,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfigWithFreshArbitrator();
-        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(new NoopBudgetGatePolicy());
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(new BudgetTCRZeroCoverageCompatibleGatePolicy());
         deploymentConfig.budgetSlashPpm = 0;
 
         freshTcr.initialize(registryConfig, deploymentConfig);
@@ -3095,6 +3094,16 @@ contract BudgetTCRProbeAwareZeroCoverageGatePolicy is IBudgetGatePolicy {
         result.shouldSetRecipientEnabled = true;
         result.recipientEnabled = false;
         result.failures = new CallFailure[](0);
+    }
+}
+
+contract BudgetTCRZeroCoverageCompatibleGatePolicy is IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata) external pure returns (SyncResult memory result) {
+        result.failures = new CallFailure[](0);
+    }
+
+    function supportsZeroCoverageBudgetGate() external pure returns (bool supported) {
+        return true;
     }
 }
 
