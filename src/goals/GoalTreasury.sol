@@ -25,6 +25,7 @@ import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.s
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
+import { GoalTreasuryTerminalRollover } from "./library/GoalTreasuryTerminalRollover.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
 contract GoalTreasury is IGoalTreasury, TreasuryBase {
@@ -63,6 +64,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     uint256 public override minRaise;
     uint32 public override budgetPremiumPpm;
     uint32 public override budgetSlashPpm;
+    uint64 public override terminalRolloverCooldown;
     address public override successResolver;
     uint64 public override successAssertionLiveness;
     uint256 public override successAssertionBond;
@@ -172,6 +174,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         minRaise = config.minRaise;
         budgetPremiumPpm = config.budgetPremiumPpm;
         budgetSlashPpm = config.budgetSlashPpm;
+        terminalRolloverCooldown = config.terminalRolloverCooldown;
         successResolver = config.successResolver;
         successAssertionLiveness = config.successAssertionLiveness;
         successAssertionBond = config.successAssertionBond;
@@ -212,23 +215,23 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         uint256 sourceAmount
     ) external override nonReentrant returns (HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) {
         if (msg.sender != _hook) revert ONLY_HOOK();
-        if (!_isHookSourceToken(sourceToken)) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
+        if (sourceToken != superToken.getUnderlyingToken()) revert INVALID_HOOK_SOURCE_TOKEN(sourceToken);
         if (sourceAmount == 0) return (HookSplitAction.Deferred, 0, 0);
 
         GoalDerivedState memory derivedState = _deriveGoalDerivedState();
         HookSplitPath path = _deriveHookSplitPath(derivedState);
         if (path == HookSplitPath.FundingIngress) {
-            superTokenAmount = _processFundingIngress(sourceToken, sourceAmount);
+            superTokenAmount = _processFundingIngress(sourceAmount);
             return (HookSplitAction.Funded, superTokenAmount, 0);
         }
 
         if (path == HookSplitPath.SuccessSettlement) {
-            burnAmount = _processSuccessSettlement(sourceAmount);
+            burnAmount = _settleSuccessHookSplit(sourceAmount);
             return (HookSplitAction.SuccessSettled, 0, burnAmount);
         }
 
         if (path == HookSplitPath.TerminalSettlement) {
-            (superTokenAmount, burnAmount) = _processTerminalSettlement(derivedState.state, sourceToken, sourceAmount);
+            (superTokenAmount, burnAmount) = _processTerminalSettlement(derivedState.state, sourceAmount);
             return (HookSplitAction.TerminalSettled, superTokenAmount, burnAmount);
         }
 
@@ -308,9 +311,18 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function clearSuccessAssertion(bytes32 assertionId) external override {
         _requireSuccessResolver();
-        bytes32 clearedAssertionId = TreasurySuccessAssertionLifecycle.clearMatching(_successAssertions, assertionId);
-        _emitSuccessAssertionCleared(clearedAssertionId);
-        _tryActivateReassertGrace(clearedAssertionId);
+        TreasurySuccessAssertionLifecycle.ClearResult memory clearResult = TreasurySuccessAssertionLifecycle
+            .clearMatchingAndTryActivateGrace(
+                _successAssertions,
+                _reassertGrace,
+                assertionId,
+                _canActivateReassertGrace(),
+                REASSERT_GRACE_DURATION
+            );
+        _emitSuccessAssertionCleared(clearResult.clearedAssertionId);
+        if (clearResult.graceActivated) {
+            emit ReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
+        }
     }
 
     function settleLateResidual() external override nonReentrant {
@@ -498,8 +510,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
-        _reassertGrace.clearDeadline();
-        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
+        _emitSuccessAssertionCleared(
+            TreasurySuccessAssertionLifecycle.clearPendingAndResetGrace(_successAssertions, _reassertGrace)
+        );
 
         uint64 finalizedAt = uint64(block.timestamp);
         _setState(finalState);
@@ -566,7 +579,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
                 _reassertGrace,
                 successResolver,
                 successAssertionLiveness,
-                successAssertionBond
+                successAssertionBond,
+                _canActivateReassertGrace(),
+                REASSERT_GRACE_DURATION
             );
 
         if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
@@ -583,7 +598,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             if (resolution.finalizeFailureData.length != 0) {
                 emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
             }
-            _tryActivateReassertGrace(resolution.clearedAssertionId);
+            if (resolution.graceActivated) {
+                emit ReassertGraceActivated(resolution.clearedAssertionId, resolution.graceDeadline);
+            }
             return false;
         }
 
@@ -591,15 +608,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         return true;
     }
 
-    function _tryActivateReassertGrace(bytes32 clearedAssertionId) internal {
-        if (_reassertGrace.used) return;
-        if (_state != GoalState.Active) return;
-        if (block.timestamp < deadline) return;
-
-        (bool activated, uint64 graceDeadline) = _reassertGrace.activateOnce(REASSERT_GRACE_DURATION);
-        if (!activated) return;
-
-        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
+    function _canActivateReassertGrace() internal view returns (bool) {
+        return _state == GoalState.Active && block.timestamp >= deadline;
     }
 
     function _setState(GoalState newState) internal {
@@ -623,12 +633,15 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function _settleResidual(GoalState finalState) internal {
         uint256 settled = _flow.sweepSuperToken(address(this), type(uint256).max);
-        if (settled == 0) {
-            emit ResidualSettled(finalState, 0, 0);
-            return;
-        }
-
         uint256 burnAmount = _settleSuperTokenAmount(finalState, settled);
+        if (settled == 0 && finalState == GoalState.Succeeded && terminalRolloverCooldown != 0) {
+            GoalTreasuryTerminalRollover.queueHeldBalanceIfAny(
+                _requireResolvedDirectory(),
+                cobuildRevnetId,
+                _stakeVault.cobuildToken(),
+                GoalTreasuryTerminalRollover.terminalRolloverReleaseAt(resolvedAt, terminalRolloverCooldown)
+            );
+        }
 
         emit ResidualSettled(finalState, settled, burnAmount);
     }
@@ -648,7 +661,15 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
         uint256 underlyingBefore = underlyingToken.balanceOf(address(this));
         superToken.downgrade(settled);
-        burnAmount = underlyingToken.balanceOf(address(this)) - underlyingBefore;
+        uint256 goalTokenAmount = underlyingToken.balanceOf(address(this)) - underlyingBefore;
+        if (goalTokenAmount == 0) return 0;
+
+        if (finalState == GoalState.Succeeded && terminalRolloverCooldown != 0) {
+            _queueSucceededTerminalRollover(goalTokenAmount);
+            return 0;
+        }
+
+        burnAmount = goalTokenAmount;
         if (burnAmount != 0) {
             _burnViaController(
                 goalRevnetId,
@@ -656,6 +677,24 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
                 finalState == GoalState.Succeeded ? SUCCESS_RESIDUAL_BURN_MEMO : TERMINAL_RESIDUAL_BURN_MEMO
             );
         }
+    }
+
+    function _queueSucceededTerminalRollover(uint256 goalTokenAmount) internal {
+        IJBDirectory directory = _requireResolvedDirectory();
+        IERC20 paymentToken = _stakeVault.cobuildToken();
+        uint64 releaseAt = GoalTreasuryTerminalRollover.terminalRolloverReleaseAt(resolvedAt, terminalRolloverCooldown);
+        GoalTreasuryTerminalRollover.queueHeldBalanceIfAny(directory, cobuildRevnetId, paymentToken, releaseAt);
+        uint256 rolloverAmount = GoalTreasuryTerminalRollover.cashOutAndQueue(
+            directory,
+            goalRevnetId,
+            cobuildRevnetId,
+            paymentToken,
+            superToken.getUnderlyingToken(),
+            goalTokenAmount,
+            releaseAt
+        );
+
+        emit TerminalRolloverQueued(goalRevnetId, goalTokenAmount, rolloverAmount, releaseAt);
     }
 
     function _settleSuccessHookSplit(uint256 sourceAmount) internal returns (uint256 burnAmount) {
@@ -666,26 +705,18 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
     }
 
-    function _processFundingIngress(
-        address sourceToken,
-        uint256 sourceAmount
-    ) internal returns (uint256 superTokenAmount) {
-        superTokenAmount = _moveHeldSourceToFlowAsSuperToken(sourceToken, sourceAmount);
+    function _processFundingIngress(uint256 sourceAmount) internal returns (uint256 superTokenAmount) {
+        superTokenAmount = _moveHeldSourceToFlowAsSuperToken(sourceAmount);
         _requireHookSuperTokenAmountMatches(sourceAmount, superTokenAmount);
         totalRaised += superTokenAmount;
         emit HookFundingRecorded(superTokenAmount, totalRaised);
     }
 
-    function _processSuccessSettlement(uint256 sourceAmount) internal returns (uint256 burnAmount) {
-        burnAmount = _settleSuccessHookSplit(sourceAmount);
-    }
-
     function _processTerminalSettlement(
         GoalState terminalState,
-        address sourceToken,
         uint256 sourceAmount
     ) internal returns (uint256 superTokenAmount, uint256 burnAmount) {
-        superTokenAmount = _convertHeldSourceToSuperToken(sourceToken, sourceAmount);
+        superTokenAmount = _convertHeldSourceToSuperToken(sourceAmount);
         burnAmount = _settleSuperTokenAmount(terminalState, superTokenAmount);
     }
 
@@ -693,7 +724,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         address sourceToken,
         uint256 sourceAmount
     ) internal returns (uint256 superTokenAmount) {
-        superTokenAmount = _convertHeldSourceToSuperToken(sourceToken, sourceAmount);
+        superTokenAmount = _convertHeldSourceToSuperToken(sourceAmount);
         _requireHookSuperTokenAmountMatches(sourceAmount, superTokenAmount);
 
         deferredHookSuperTokenAmount += superTokenAmount;
@@ -706,9 +737,9 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         }
     }
 
-    function _moveHeldSourceToFlowAsSuperToken(address sourceToken, uint256 sourceAmount) internal returns (uint256) {
+    function _moveHeldSourceToFlowAsSuperToken(uint256 sourceAmount) internal returns (uint256) {
         uint256 flowBalanceBefore = IERC20(address(superToken)).balanceOf(address(_flow));
-        uint256 superTokenAmount = _convertHeldSourceToSuperToken(sourceToken, sourceAmount);
+        uint256 superTokenAmount = _convertHeldSourceToSuperToken(sourceAmount);
 
         if (superTokenAmount != 0) {
             IERC20(address(superToken)).safeTransfer(address(_flow), superTokenAmount);
@@ -717,7 +748,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         return IERC20(address(superToken)).balanceOf(address(_flow)) - flowBalanceBefore;
     }
 
-    function _convertHeldSourceToSuperToken(address sourceToken, uint256 sourceAmount) internal returns (uint256) {
+    function _convertHeldSourceToSuperToken(uint256 sourceAmount) internal returns (uint256) {
         IERC20 underlyingToken = IERC20(superToken.getUnderlyingToken());
         _requireTreasuryTokenBalance(underlyingToken, sourceAmount);
 
@@ -728,10 +759,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         underlyingToken.forceApprove(address(superToken), 0);
 
         return IERC20(address(superToken)).balanceOf(address(this)) - superBalanceBefore;
-    }
-
-    function _isHookSourceToken(address token) internal view returns (bool) {
-        return token == superToken.getUnderlyingToken();
     }
 
     function _requireTreasuryTokenBalance(IERC20 token, uint256 amount) internal view {
@@ -880,10 +907,13 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         return (IJBDirectory(address(0)), failureReason);
     }
 
-    function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
-        (IJBDirectory directory, ) = _resolveRevnetDirectory(goalRulesets, _hook);
+    function _requireResolvedDirectory() internal view returns (IJBDirectory directory) {
+        (directory, ) = _resolveRevnetDirectory(goalRulesets, _hook);
         if (address(directory) == address(0)) revert INVALID_REVNET_CONTROLLER(address(0));
+    }
 
+    function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
+        IJBDirectory directory = _requireResolvedDirectory();
         address controller = address(directory.controllerOf(revnetId));
         if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
         IJBController(controller).burnTokensOf(address(this), revnetId, amount, memo);

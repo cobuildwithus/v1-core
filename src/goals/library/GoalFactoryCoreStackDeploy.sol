@@ -70,6 +70,7 @@ library GoalFactoryCoreStackDeploy {
         bytes32 successOracleSpecHash;
         bytes32 successAssertionPolicyHash;
         address goalSpendPolicy;
+        uint64 terminalRolloverCooldown;
     }
 
     struct CoreStackResult {
@@ -182,7 +183,8 @@ library GoalFactoryCoreStackDeploy {
             successAssertionBond: request.successAssertionBond,
             successOracleSpecHash: request.successOracleSpecHash,
             successAssertionPolicyHash: request.successAssertionPolicyHash,
-            spendPolicy: request.goalSpendPolicy
+            spendPolicy: request.goalSpendPolicy,
+            terminalRolloverCooldown: request.terminalRolloverCooldown
         });
 
         out.goalTreasury.initialize(goalCfg);

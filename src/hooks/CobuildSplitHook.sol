@@ -46,6 +46,7 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     error GOAL_PAYMENT_OUTFLOW_MISMATCH(uint256 goalId, uint256 expectedAmount, uint256 actualAmount);
     error NATIVE_VALUE_MISMATCH(uint256 expected, uint256 actual);
     error INSUFFICIENT_HOOK_BALANCE(address token, uint256 expected, uint256 available);
+    error INVALID_QUEUED_ROLLOVER_RELEASE_COUNT();
 
     event RouteSetterConfigured(address indexed routeSetter);
     event GoalRegistryConfigured(address indexed goalRegistry);
@@ -66,6 +67,13 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     event HistoricalBacklogDeferred(uint256 amount, uint256 newBacklogAmount);
     event HistoricalBacklogFlushed(uint256 amount, uint256 remainingBacklogAmount);
     event HistoricalBacklogFlushReset(uint256 indexed epoch, uint256 remainingBacklogAmount);
+    event QueuedRolloverAdded(
+        address indexed sender,
+        uint256 amount,
+        uint64 releaseAt,
+        uint256 newQueuedRolloverAmount
+    );
+    event QueuedRolloversReleased(uint256 releasedAmount, uint256 newHistoricalBacklogAmount);
     event RoutingScoreRecorded(uint256 indexed goalId, uint256 amount, uint256 newRoutingScore);
     event GoalRouted(
         address indexed beneficiary,
@@ -100,6 +108,11 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         uint256 processedGoalCount;
     }
 
+    struct QueuedRollover {
+        uint64 releaseAt;
+        uint256 amount;
+    }
+
     struct PendingRouteExecution {
         address payer;
         address beneficiary;
@@ -119,10 +132,13 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
     mapping(uint256 => uint256) private _routingScoreOf;
     mapping(uint256 => uint256) private _routingScoreUpdatedSeason;
     uint256 public override historicalBacklogAmount;
+    uint256 public override queuedRolloverAmount;
     uint256 public historicalBacklogRoutingEpoch;
 
     PendingRoute private _pendingRoute;
     HistoricalBacklogProgress private _historicalBacklogProgress;
+    QueuedRollover[] private _queuedRollovers;
+    uint256 private _queuedRolloverReleaseCursor;
     mapping(uint256 goalId => uint256 epoch) private _historicalBacklogProcessedAtEpoch;
 
     constructor() {
@@ -224,6 +240,15 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         });
     }
 
+    function queuedRolloverEntryCount() external view override returns (uint256 entryCount) {
+        entryCount = _queuedRollovers.length;
+    }
+
+    function queuedRolloverAt(uint256 index) external view override returns (uint64 releaseAt, uint256 amount) {
+        QueuedRollover storage rollover = _queuedRollovers[index];
+        return (rollover.releaseAt, rollover.amount);
+    }
+
     function historicalRoute()
         external
         view
@@ -274,6 +299,52 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
 
     function cancelPendingRoute() external override onlyRouteSetter {
         _clearPendingRoute();
+    }
+
+    function queueRollover(uint256 amount, uint64 releaseAt) external override nonReentrant {
+        if (amount == 0) return;
+
+        IERC20 token = IERC20(communityToken);
+        token.safeTransferFrom(msg.sender, address(this), amount);
+
+        _queuedRollovers.push(QueuedRollover({ releaseAt: releaseAt, amount: amount }));
+        queuedRolloverAmount += amount;
+
+        emit QueuedRolloverAdded(msg.sender, amount, releaseAt, queuedRolloverAmount);
+    }
+
+    function releaseQueuedRollovers(
+        uint256 maxEntryCount
+    ) external override nonReentrant returns (uint256 releasedAmount) {
+        if (maxEntryCount == 0) revert INVALID_QUEUED_ROLLOVER_RELEASE_COUNT();
+
+        uint256 length = _queuedRollovers.length;
+        if (length == 0) return 0;
+
+        uint256 cursor = _queuedRolloverReleaseCursor;
+        if (cursor >= length) cursor = 0;
+
+        uint256 scanned;
+        uint256 index = cursor;
+        while (index < length && scanned < maxEntryCount) {
+            QueuedRollover storage rollover = _queuedRollovers[index];
+            if (rollover.amount != 0 && rollover.releaseAt <= block.timestamp) {
+                releasedAmount += rollover.amount;
+                queuedRolloverAmount -= rollover.amount;
+                delete _queuedRollovers[index];
+            }
+
+            index++;
+            scanned++;
+        }
+
+        _queuedRolloverReleaseCursor = index >= length ? 0 : index;
+        _trimTrailingQueuedRollovers();
+
+        if (releasedAmount != 0) {
+            _deferHistoricalBacklog(releasedAmount);
+            emit QueuedRolloversReleased(releasedAmount, historicalBacklogAmount);
+        }
     }
 
     function flushHistoricalBacklog(
@@ -664,6 +735,18 @@ contract CobuildSplitHook is ICobuildSplitHook, ReentrancyGuardUpgradeable {
         if (!_historicalBacklogProgress.active) return;
         emit HistoricalBacklogFlushReset(historicalBacklogRoutingEpoch, historicalBacklogAmount);
         _completeHistoricalBacklogProgress();
+    }
+
+    function _trimTrailingQueuedRollovers() internal {
+        while (_queuedRollovers.length != 0) {
+            uint256 lastIndex = _queuedRollovers.length - 1;
+            if (_queuedRollovers[lastIndex].amount != 0) break;
+            _queuedRollovers.pop();
+        }
+
+        if (_queuedRolloverReleaseCursor > _queuedRollovers.length) {
+            _queuedRolloverReleaseCursor = 0;
+        }
     }
 
     function _copyUint256Array(uint256[] storage values) internal view returns (uint256[] memory copied) {

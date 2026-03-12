@@ -30,6 +30,7 @@ import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
+import { GoalFactoryBudgetTcrRouting } from "src/goals/library/GoalFactoryBudgetTcrRouting.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryManagedPresetDeploy } from "src/goals/library/GoalFactoryManagedPresetDeploy.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
@@ -70,7 +71,6 @@ contract GoalFactory {
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
     address public immutable MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL;
-    address public immutable MANAGED_PREMIUM_ESCROW_IMPL;
     address public immutable OPEN_BUDGET_GATE_POLICY;
 
     address public immutable DEFAULT_GOAL_SPEND_POLICY;
@@ -82,6 +82,7 @@ contract GoalFactory {
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     uint24 internal constant BUYBACK_POOL_FEE = 3_000;
     uint32 internal constant BUYBACK_TWAP_WINDOW = 1 hours;
+    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 60 days;
 
     struct FundingContext {
         address paymentToken;
@@ -313,7 +314,6 @@ contract GoalFactory {
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
         MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL = managedBudgetChildStrategyFactoryImplementation;
-        MANAGED_PREMIUM_ESCROW_IMPL = address(0);
         OPEN_BUDGET_GATE_POLICY = openBudgetGatePolicy;
 
         DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy;
@@ -525,7 +525,6 @@ contract GoalFactory {
                 p,
                 core,
                 revnet,
-                predictedBudgetController,
                 paymentToken,
                 paymentTokenDecimals
             );
@@ -670,7 +669,8 @@ contract GoalFactory {
                     successAssertionBond: p.success.successAssertionBond,
                     successOracleSpecHash: p.success.successOracleSpecHash,
                     successAssertionPolicyHash: p.success.successAssertionPolicyHash,
-                    goalSpendPolicy: p.goalSpendPolicy
+                    goalSpendPolicy: p.goalSpendPolicy,
+                    terminalRolloverCooldown: p.preset == GoalPreset.Managed ? MANAGED_TERMINAL_ROLLOVER_COOLDOWN : 0
                 })
             );
     }
@@ -715,10 +715,17 @@ contract GoalFactory {
         DeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
-        address predictedBudgetTCR,
         address paymentToken,
         uint8 paymentTokenDecimals
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
+        GoalFactoryBudgetTcrRouting.Routing memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
+            p.underwriting.budgetPremiumPpm,
+            p.underwriting.budgetSlashPpm,
+            OPEN_BUDGET_GATE_POLICY,
+            PREMIUM_ESCROW_IMPL,
+            core.underwriterSlasherRouter
+        );
+
         return
             GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
                 GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
@@ -739,7 +746,7 @@ contract GoalFactory {
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-                    budgetGatePolicy: OPEN_BUDGET_GATE_POLICY,
+                    budgetGatePolicy: routing.budgetGatePolicy,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
                     budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
@@ -752,8 +759,8 @@ contract GoalFactory {
                     goalToken: revnet.goalToken,
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
-                    premiumEscrowImplementation: PREMIUM_ESCROW_IMPL,
-                    underwriterSlasherRouter: core.underwriterSlasherRouter,
+                    premiumEscrowImplementation: routing.premiumEscrowImplementation,
+                    underwriterSlasherRouter: routing.underwriterSlasherRouter,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm
                 })

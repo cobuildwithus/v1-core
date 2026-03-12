@@ -175,6 +175,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
   - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.
+- Goal terminal residual policy is preset-sensitive:
+  - open goals remain burn-only on `Succeeded` and `Expired`,
+  - managed goals with terminal rollover enabled convert `Succeeded` residual goal-token value into the parent/community token through the canonical goal cash-out terminal, queue it on the canonical community split hook, and release it into historical backlog after the configured cooldown,
+  - managed rollover does not use an explicit-route seed or mutable successor address; it reuses the community hook's existing historical-routing surface.
 - Underwriter withdrawal settlement is caller-scoped (not globally budget-scoped):
   - after `markGoalResolved`, each underwriter must complete `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over append-only registered budgets,
   - preparation blocks only that caller when unresolved exposure remains and executes required `PremiumEscrow.slash(caller)` calls for failed/post-activation-expired budgets,

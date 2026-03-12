@@ -162,7 +162,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertTrue(factory.MANAGED_BUDGET_CONTROLLER_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL().code.length > 0);
-        assertEq(factory.MANAGED_PREMIUM_ESCROW_IMPL(), address(0));
     }
 
     function test_constructor_revertsWhenDefaultGoalSpendPolicyIsInvalid() public {
@@ -222,12 +221,36 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(defaultGoalSpendPolicy));
     }
 
-    function test_deployGoal_openPreset_passesSharedOpenBudgetGatePolicyToBudgetTcrFactory() public {
+    function test_deployGoal_openPreset_usesNoGateAndExplicitNoPremiumModeWhenBothRatesAreZero() public {
         GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
 
         factory.deployGoal(params);
 
+        assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(0));
+        assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(0));
+        assertEq(budgetTcrFactory.lastUnderwriterSlasherRouter(), address(0));
+    }
+
+    function test_deployGoal_openPreset_usesNoGateAndPreservesRiskWiringWhenSlashIsZero() public {
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
+        params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(0));
+        assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(premiumEscrowImpl));
+        assertEq(budgetTcrFactory.lastUnderwriterSlasherRouter(), deployed.underwriterSlasherRouter);
+    }
+
+    function test_deployGoal_openPreset_passesSharedOpenBudgetGatePolicyWhenSlashEnabled() public {
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
+        params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 50_000});
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
         assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(openBudgetGatePolicy));
+        assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(premiumEscrowImpl));
+        assertEq(budgetTcrFactory.lastUnderwriterSlasherRouter(), deployed.underwriterSlasherRouter);
     }
 
     function test_deployGoal_registersCanonicalGoalTreasury() public {
@@ -325,6 +348,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(managedController.budgetSpendPolicy(), params.budgetTCR.budgetSpendPolicy);
         assertEq(IGoalTreasury(deployed.goalTreasury).budgetPremiumPpm(), params.underwriting.budgetPremiumPpm);
         assertEq(IGoalTreasury(deployed.goalTreasury).budgetSlashPpm(), params.underwriting.budgetSlashPpm);
+        assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 60 days);
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
         assertEq(strategy.allocator(), deployed.budgetController);
         assertEq(strategy.goalTreasury(), deployed.goalTreasury);
@@ -340,7 +364,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(uint8(stackConfig.mechanismLayerMode), uint8(IBudgetStackDeployer.MechanismLayerMode.None));
         assertEq(stackConfig.childFlowRecipientAdmin, deployed.budgetController);
         assertEq(uint8(stackConfig.premiumEscrowMode), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
-        assertEq(stackDeployer.premiumEscrowImplementation(), factory.MANAGED_PREMIUM_ESCROW_IMPL());
+        assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
         assertEq(deployed.arbitrator, address(0));
         assertEq(
             FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), deployed.budgetController
@@ -354,6 +378,15 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             deployed.goalFlow
         );
         assertFalse(_sameRuntimeCode(deployed.goalAllocatorStrategy, factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL()));
+    }
+
+    function test_deployGoal_openPreset_keepsTerminalRolloverDisabled() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 0);
     }
 
     function test_deployGoal_managedPreset_usesDefaultSpendPoliciesWhenOmitted() public {
@@ -891,6 +924,8 @@ contract FactoryDeployMockBudgetTcrFactory {
     address public deployedBudgetTcr;
     address public lastBudgetSpendPolicy;
     address public lastBudgetGatePolicy;
+    address public lastPremiumEscrowImplementation;
+    address public lastUnderwriterSlasherRouter;
 
     constructor(address predictedBudgetTcr_, address stackDeployerImplementation_) {
         _predictedBudgetTcr = predictedBudgetTcr_;
@@ -913,6 +948,8 @@ contract FactoryDeployMockBudgetTcrFactory {
     ) external returns (BudgetTCRFactory.DeployedBudgetTCRStack memory deployed) {
         lastBudgetSpendPolicy = deploymentConfig.budgetSpendPolicy;
         lastBudgetGatePolicy = deploymentConfig.budgetGatePolicy;
+        lastPremiumEscrowImplementation = deploymentConfig.premiumEscrowImplementation;
+        lastUnderwriterSlasherRouter = deploymentConfig.underwriterSlasherRouter;
         deployed.budgetTCR = deployedBudgetTcr;
         deployed.arbitrator = address(0xA11CE);
         deployed.token = address(0xCAFE);

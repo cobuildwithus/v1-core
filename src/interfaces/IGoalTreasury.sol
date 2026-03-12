@@ -41,6 +41,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         bytes32 successOracleSpecHash;
         bytes32 successAssertionPolicyHash;
         address spendPolicy;
+        uint64 terminalRolloverCooldown;
     }
 
     struct GoalLifecycleStatus {
@@ -92,6 +93,9 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     error INVALID_HOOK_SOURCE_TOKEN(address token);
     error HOOK_SUPER_TOKEN_AMOUNT_MISMATCH(uint256 expected, uint256 actual);
     error INSUFFICIENT_TREASURY_BALANCE(address token, uint256 needed, uint256 have);
+    error NO_TERMINAL_ROLLOVER_GOAL_CASH_OUT_TERMINAL(uint256 goalId, address token);
+    error INVALID_TERMINAL_ROLLOVER_COMMUNITY_TERMINAL(uint256 communityRevnetId, address terminal);
+    error INVALID_TERMINAL_ROLLOVER_SPLIT_HOOK(uint256 communityRevnetId, address splitHook);
 
     event GoalConfigured(
         address flow,
@@ -140,6 +144,12 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         uint256 superTokenAmount,
         uint256 controllerBurnAmount
     );
+    event TerminalRolloverQueued(
+        uint256 indexed goalRevnetId,
+        uint256 goalTokenAmount,
+        uint256 rolloverAmount,
+        uint64 releaseAt
+    );
 
     function minRaiseDeadline() external view returns (uint64);
     /// @notice Timestamp when the goal transitioned from Funding -> Active.
@@ -151,6 +161,7 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     function minRaise() external view returns (uint256);
     function budgetPremiumPpm() external view returns (uint32);
     function budgetSlashPpm() external view returns (uint32);
+    function terminalRolloverCooldown() external view returns (uint64);
     function totalRaised() external view returns (uint256);
     function goalRulesets() external view returns (IJBRulesets);
     function goalRevnetId() external view returns (uint256);

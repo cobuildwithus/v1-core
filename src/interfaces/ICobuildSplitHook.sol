@@ -34,7 +34,13 @@ interface ICobuildSplitHook is IJBSplitHook {
 
     function historicalBacklogAmount() external view returns (uint256);
 
+    function queuedRolloverAmount() external view returns (uint256);
+
     function historicalBacklogProgress() external view returns (HistoricalBacklogProgressView memory progress);
+
+    function queuedRolloverEntryCount() external view returns (uint256 entryCount);
+
+    function queuedRolloverAt(uint256 index) external view returns (uint64 releaseAt, uint256 amount);
 
     function selectableGoalIds() external view returns (uint256[] memory goalIds);
 
@@ -53,6 +59,10 @@ interface ICobuildSplitHook is IJBSplitHook {
     ) external;
 
     function cancelPendingRoute() external;
+
+    function queueRollover(uint256 amount, uint64 releaseAt) external;
+
+    function releaseQueuedRollovers(uint256 maxEntryCount) external returns (uint256 releasedAmount);
 
     /// @notice Best-effort permissionless backlog flush. Routes at most `maxGoalCount` historical goals in this call.
     /// @dev Returns 0 and leaves backlog parked when no historical route exists.

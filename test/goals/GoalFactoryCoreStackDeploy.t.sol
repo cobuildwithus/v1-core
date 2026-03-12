@@ -156,7 +156,8 @@ contract GoalFactoryCoreStackDeployTest is Test {
             successAssertionBond: 0,
             successOracleSpecHash: keccak256("spec"),
             successAssertionPolicyHash: keccak256("policy"),
-            goalSpendPolicy: goalSpendPolicy
+            goalSpendPolicy: goalSpendPolicy,
+            terminalRolloverCooldown: 0
         });
     }
 }

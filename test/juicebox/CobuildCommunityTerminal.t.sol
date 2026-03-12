@@ -1543,6 +1543,7 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
     address public override routeSetter;
     address public override goalRegistry;
     uint256 public override historicalBacklogAmount;
+    uint256 public override queuedRolloverAmount;
     bool internal _hasPendingRoute;
 
     uint256 public beginPendingRouteCallCount;
@@ -1594,6 +1595,14 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
         progress = HistoricalBacklogProgressView({active: false, epoch: 0, remainingAmount: 0, processedGoalCount: 0});
     }
 
+    function queuedRolloverEntryCount() external pure override returns (uint256 entryCount) {
+        return 0;
+    }
+
+    function queuedRolloverAt(uint256) external pure override returns (uint64 releaseAt, uint256 amount) {
+        return (0, 0);
+    }
+
     function pendingRoute() external view override returns (PendingRouteView memory out) {
         out = PendingRouteView({
             payer: lastPayer,
@@ -1628,6 +1637,16 @@ contract CobuildCommunityTerminalMockSplitHook is ICobuildSplitHook {
     function cancelPendingRoute() external override {
         cancelPendingRouteCallCount += 1;
         _hasPendingRoute = false;
+    }
+
+    function queueRollover(uint256 amount, uint64) external override {
+        queuedRolloverAmount += amount;
+    }
+
+    function releaseQueuedRollovers(uint256) external override returns (uint256 releasedAmount) {
+        releasedAmount = queuedRolloverAmount;
+        historicalBacklogAmount += releasedAmount;
+        queuedRolloverAmount = 0;
     }
 
     function flushHistoricalBacklog(uint256) external override returns (uint256 routedAmount) {

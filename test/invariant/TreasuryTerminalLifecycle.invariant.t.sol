@@ -495,7 +495,8 @@ contract TreasuryTerminalLifecycleInvariantHandler is Test, SpendPolicyTestUtils
                 successAssertionBond: 10e18,
                 successOracleSpecHash: keccak256("goal-oracle-spec"),
                 successAssertionPolicyHash: keccak256("goal-assertion-policy"),
-                spendPolicy: address(goalSpendPolicy)
+                spendPolicy: address(goalSpendPolicy),
+                terminalRolloverCooldown: 0
             })
         );
         goalHook.setTreasury(goalTreasury);

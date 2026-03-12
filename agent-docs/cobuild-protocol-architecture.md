@@ -38,7 +38,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Stake and weight accounting: `src/goals/StakeVault.sol`
 - Pluggable budget controllers / topology registries: `src/tcr/BudgetTCR.sol`, `src/goals/ManagedBudgetController.sol`
 - Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol`, `src/goals/policies/*.sol`
-- Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, `src/goals/NullPremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
+- Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, explicit no-premium absence via `PremiumEscrowMode.None`, `src/goals/UnderwriterSlasherRouter.sol`
 - Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/tcr/BudgetTCRDeployer.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
@@ -90,7 +90,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
-- Premium / risk module: shared stateless `NullPremiumEscrow`
+- Premium / risk module: none by default (`PremiumEscrowMode.None`)
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
@@ -237,11 +237,10 @@ Community root routing
   - premium inflow with zero total coverage is recycled to goal funding via goal flow,
   - on goal `Expired`, `PremiumEscrow.burnOnGoalFailure()` sweeps escrowed premium to goal flow and best-effort triggers `GoalTreasury.settleLateResidual()` burn settlement,
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
-- Managed-preset risk routing keeps the same controller/treasury/escrow seam through `NullPremiumEscrow`:
-  - manager-reward stream still points at an escrow-shaped module,
-  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config and instead hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
-  - `NullPremiumEscrow` is a shared stateless shim and ignores stake-ledger/slasher init inputs,
-  - runtime premium accrual, claims, slashing, and burn-on-failure are intentional no-ops,
+- Managed-preset risk routing now represents premium-module absence explicitly:
+  - manager-reward routing is disabled on managed child-flow deployment,
+  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config and instead hardcodes zero coverage/slash inputs through the shared treasury/gate seams,
+  - no premium escrow is initialized, connected, or authorized for managed budgets by default,
   - nonzero managed premium/slash parameters are rejected at deployment,
   - live budget enablement remains controller/gate-policy driven rather than underwriter-coverage driven.
 - `BudgetTCRFactory` treats submission-deposit capability probing as trusted deployment wiring:
@@ -252,8 +251,9 @@ Community root routing
   - router best-effort converts cobuild -> goal token via goal revnet terminal (failures are observable and retained),
   - router upgrades goal token to goal SuperToken and forwards to goal funding target.
 - Residual settlement behavior:
-  - `Succeeded`: settle goal-flow SuperToken balance and burn 100% via controller.
-  - `Failed`/`Expired`: settle and burn 100% via controller.
+  - open preset `Succeeded`: settle goal-flow SuperToken balance and burn 100% via controller.
+  - managed preset `Succeeded`: settle goal-flow SuperToken balance, cash out residual goal tokens into the parent/community token, and queue that amount onto the canonical community split hook for delayed historical-backlog release after the fixed cooldown.
+  - `Expired`: settle and burn 100% via controller.
 - Post-finalization late inflows can be settled by calling `GoalTreasury.settleLateResidual()` to apply the same state-dependent residual policy.
 - Permissionless `sync()` is the default lifecycle progression path:
   - `Funding`: activate when threshold is met; otherwise expire once funding/deadline windows elapse.
@@ -318,7 +318,12 @@ Community root routing
   - `PremiumEscrow.close` freezes coverage at budget terminalization,
   - `PremiumEscrow.slash` treats `creditDrawn` as first-loss principal attributed to the underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`,
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget `executionDuration`.
-- Managed preset keeps the same seam via shared `NullPremiumEscrow`, but premium, claim, slash, and burn accounting are intentionally inert.
+- Managed preset uses no premium module by default, so premium, claim, slash, and burn accounting paths are absent from managed budget stacks.
+- Managed goal success residuals are not burned immediately:
+  - the managed preset enables a fixed terminal rollover cooldown,
+  - successful goal residuals are converted into the parent/community token through the canonical goal cash-out terminal,
+  - the resulting amount is queued on the canonical community `CobuildSplitHook`,
+  - once the cooldown elapses, anyone may release queued rollover amounts into hook-managed historical backlog for normal decayed-weight routing.
 - Underwriter withdrawals are caller-prepared post-resolution:
   - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
   - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.
@@ -332,7 +337,7 @@ Community root routing
 7. Budget control-plane stack lifecycle
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
 - Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
-- Managed preset budget creations first call a managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)`, which prepares a cloned `BudgetTreasury`, the shared `NullPremiumEscrow`, and a per-budget `BudgetSingleAllocatorStrategy`.
+- Managed preset budget creations first call a managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)`, which prepares a cloned `BudgetTreasury`, no premium module, and a per-budget `BudgetSingleAllocatorStrategy`.
 - Live `goalFlow` and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
 - Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:

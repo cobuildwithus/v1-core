@@ -2313,6 +2313,35 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
     }
 
+    function test_settleLateResidual_succeededManagedCooldown_revertsWhenSplitHookConfigMismatches() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        _resolveGoalSuccess(managedTreasury);
+
+        UnderwritingMockQueuedRolloverHook mismatchedHook =
+            new UnderwritingMockQueuedRolloverHook(IERC20(address(rollover.cobuildToken)), COBUILD_REVNET_ID + 1);
+        UnderwritingMockCommunityTerminal invalidCommunityTerminal = new UnderwritingMockCommunityTerminal(
+            address(mismatchedHook), address(rollover.cobuildToken), COBUILD_REVNET_ID
+        );
+        directory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, address(rollover.cobuildToken), IJBTerminal(address(invalidCommunityTerminal))
+        );
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.INVALID_TERMINAL_ROLLOVER_SPLIT_HOOK.selector,
+                COBUILD_REVNET_ID,
+                address(mismatchedHook)
+            )
+        );
+        managedTreasury.settleLateResidual();
+    }
+
     function test_resolveSuccess_managedCooldownQueueFailure_isRetryable() public {
         ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
         GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
@@ -2877,7 +2906,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         rollover.cobuildToken = new SharedMockUnderlying();
         rollover.cashOutTerminal =
             new UnderwritingMockTerminal(IERC20(address(rollover.cobuildToken)), IERC20(address(underlyingToken)));
-        rollover.rolloverHook = new UnderwritingMockQueuedRolloverHook(IERC20(address(rollover.cobuildToken)));
+        rollover.rolloverHook =
+            new UnderwritingMockQueuedRolloverHook(IERC20(address(rollover.cobuildToken)), COBUILD_REVNET_ID);
         rollover.communityTerminal = new UnderwritingMockCommunityTerminal(
             address(rollover.rolloverHook), address(rollover.cobuildToken), COBUILD_REVNET_ID
         );
@@ -3415,17 +3445,27 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
         error QUEUE_REVERT();
 
         IERC20 internal immutable _token;
+        uint256 internal immutable _communityRevnetId;
         bool internal _shouldRevertQueue;
         uint256 internal _queueCallCount;
         uint256 internal _lastQueuedAmount;
         uint64 internal _lastReleaseAt;
 
-        constructor(IERC20 token_) {
+        constructor(IERC20 token_, uint256 communityRevnetId_) {
             _token = token_;
+            _communityRevnetId = communityRevnetId_;
         }
 
         function setShouldRevertQueue(bool shouldRevertQueue_) external {
             _shouldRevertQueue = shouldRevertQueue_;
+        }
+
+        function communityRevnetId() external view returns (uint256) {
+            return _communityRevnetId;
+        }
+
+        function communityToken() external view returns (address) {
+            return address(_token);
         }
 
         function queueRollover(uint256 amount, uint64 releaseAt) external {
