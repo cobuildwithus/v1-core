@@ -219,7 +219,6 @@ contract TreasuryTerminalInvariantStakeVault {
     error SLASHER_ALREADY_SET();
 
     address public goalTreasury;
-    bool public goalResolved;
     uint256 public markCallCount;
     address public jurorSlasher;
     address public underwriterSlasher;
@@ -252,6 +251,10 @@ contract TreasuryTerminalInvariantStakeVault {
         return 0;
     }
 
+    function goalResolved() external view returns (bool) {
+        return markCallCount != 0;
+    }
+
     function setJurorSlasher(address slasher) external {
         if (msg.sender != goalTreasury) revert ONLY_GOAL_TREASURY();
         if (slasher == address(0)) revert ADDRESS_ZERO();
@@ -267,7 +270,6 @@ contract TreasuryTerminalInvariantStakeVault {
     }
 
     function markGoalResolved() external {
-        goalResolved = true;
         markCallCount += 1;
     }
 }

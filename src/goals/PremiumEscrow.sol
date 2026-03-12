@@ -123,7 +123,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     uint256 public accountedManagerRewardReceived;
     uint256 public totalCoverage;
 
-    bool public closed;
     IBudgetTreasury.BudgetState public finalState;
     uint64 public activatedAt;
     uint64 public closedAt;
@@ -235,21 +234,25 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         return _accountStates[account].slashed;
     }
 
+    function closed() public view returns (bool) {
+        return closedAt != 0;
+    }
+
     function isSlashable() public view returns (bool) {
-        if (!closed) return false;
+        if (closedAt == 0) return false;
         if (activatedAt == 0) return false;
         return finalState == IBudgetTreasury.BudgetState.Failed || finalState == IBudgetTreasury.BudgetState.Expired;
     }
 
     function checkpoint(address account) external override {
-        _checkpoint(account, !closed);
+        _checkpoint(account, closedAt == 0);
     }
 
     function claim(address to) external override nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ADDRESS_ZERO();
 
         // Premium is a success fee and only claimable after budget terminalization as succeeded.
-        if (!closed) revert NOT_CLOSED();
+        if (closedAt == 0) revert NOT_CLOSED();
         IBudgetTreasury.BudgetState budgetFinalState = finalState;
         if (budgetFinalState != IBudgetTreasury.BudgetState.Succeeded) {
             revert BUDGET_NOT_SUCCEEDED(budgetFinalState);
@@ -301,8 +304,9 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         uint64 activatedAt_,
         uint64 closedAt_
     ) external override onlyBudgetTreasury {
-        if (closed) {
-            if (state_ == finalState && activatedAt_ == activatedAt && closedAt_ == closedAt) return;
+        uint64 currentClosedAt = closedAt;
+        if (currentClosedAt != 0) {
+            if (state_ == finalState && activatedAt_ == activatedAt && closedAt_ == currentClosedAt) return;
             revert ALREADY_CLOSED();
         }
         if (state_ == IBudgetTreasury.BudgetState.Funding || state_ == IBudgetTreasury.BudgetState.Active) {
@@ -313,7 +317,6 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
         _checkpointGlobal();
 
-        closed = true;
         finalState = state_;
         activatedAt = activatedAt_;
         closedAt = closedAt_;
@@ -342,7 +345,7 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
 
     function slash(address underwriter) external override nonReentrant returns (uint256 slashWeight) {
         if (underwriter == address(0)) revert ADDRESS_ZERO();
-        if (!closed) revert NOT_CLOSED();
+        if (closedAt == 0) revert NOT_CLOSED();
         if (!isSlashable()) revert NOT_SLASHABLE();
 
         _checkpointGlobal();
@@ -598,12 +601,12 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
     }
 
     function _executionStart() internal view returns (uint64) {
-        if (closed) return activatedAt;
+        if (closedAt != 0) return activatedAt;
         return IBudgetTreasury(budgetTreasury).activatedAt();
     }
 
     function _exposureTimestamp() internal view returns (uint64) {
-        if (closed) return closedAt;
+        if (closedAt != 0) return closedAt;
         return uint64(block.timestamp);
     }
 }

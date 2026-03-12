@@ -47,7 +47,6 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     uint112 public goalWeightSnapshot;
     uint16 public reservedPercentSnapshot;
 
-    bool public override goalResolved;
     uint64 public override goalResolvedAt;
 
     mapping(address => uint256) private _stakedGoal;
@@ -166,8 +165,12 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
         reservedPercentSnapshot = reservedPercent;
     }
 
+    function goalResolved() public view override returns (bool) {
+        return goalResolvedAt != 0;
+    }
+
     function depositGoal(uint256 amount) external override nonReentrant {
-        if (goalResolved) revert GOAL_ALREADY_RESOLVED();
+        if (goalResolvedAt != 0) revert GOAL_ALREADY_RESOLVED();
         if (amount == 0) revert INVALID_AMOUNT();
 
         _safeTransferFromExact(goalToken, msg.sender, amount);
@@ -187,7 +190,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function depositCobuild(uint256 amount) external override nonReentrant {
-        if (goalResolved) revert GOAL_ALREADY_RESOLVED();
+        if (goalResolvedAt != 0) revert GOAL_ALREADY_RESOLVED();
         if (amount == 0) revert INVALID_AMOUNT();
         _requireStakingOpen();
 
@@ -202,7 +205,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function withdrawGoal(uint256 amount, address to) external override nonReentrant {
-        if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        if (goalResolvedAt == 0) revert GOAL_NOT_RESOLVED();
         _requireUnderwriterWithdrawalPrepared(msg.sender);
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
@@ -228,7 +231,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function withdrawCobuild(uint256 amount, address to) external override nonReentrant {
-        if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        if (goalResolvedAt == 0) revert GOAL_NOT_RESOLVED();
         _requireUnderwriterWithdrawalPrepared(msg.sender);
         if (amount == 0) revert INVALID_AMOUNT();
         if (to == address(0)) revert ADDRESS_ZERO();
@@ -284,11 +287,12 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function markGoalResolved() external override {
-        if (goalResolved) revert GOAL_ALREADY_RESOLVED();
+        if (goalResolvedAt != 0) revert GOAL_ALREADY_RESOLVED();
         if (msg.sender != goalTreasury && !_goalTreasuryReportsResolved()) revert GOAL_NOT_RESOLVED();
 
-        goalResolved = true;
-        goalResolvedAt = uint64(block.timestamp);
+        uint64 resolvedAt = uint64(block.timestamp);
+        if (resolvedAt == 0) resolvedAt = 1;
+        goalResolvedAt = resolvedAt;
         emit GoalResolved();
     }
 
@@ -297,11 +301,11 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     function prepareUnderwriterWithdrawal(
         uint256 maxBudgets
     ) external override returns (uint256 nextBudgetIndex, uint256 budgetCount, bool complete) {
-        if (!goalResolved) revert GOAL_NOT_RESOLVED();
+        uint64 resolvedAt = goalResolvedAt;
+        if (resolvedAt == 0) revert GOAL_NOT_RESOLVED();
         if (maxBudgets == 0) revert INVALID_AMOUNT();
 
         address underwriter = msg.sender;
-        uint64 resolvedAt = goalResolvedAt;
         IBudgetStakeLedger budgetStakeLedger = IBudgetStakeLedger(_requireBudgetStakeLedger());
 
         uint256 cursor = _underwriterWithdrawalPrepareCursor[underwriter];
@@ -336,7 +340,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function optInAsJuror(uint256 goalAmount, address delegate) external override nonReentrant {
-        if (goalResolved) revert GOAL_ALREADY_RESOLVED();
+        if (goalResolvedAt != 0) revert GOAL_ALREADY_RESOLVED();
         if (goalAmount == 0) revert INVALID_JUROR_LOCK();
 
         uint256 stakedGoal = _stakedGoal[msg.sender];
@@ -781,7 +785,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function _allocationFrozen() private view returns (bool) {
-        return goalResolved || _goalTreasuryReportsResolved();
+        return goalResolvedAt != 0 || _goalTreasuryReportsResolved();
     }
 
     function _goalTreasuryReportsResolved() private view returns (bool) {

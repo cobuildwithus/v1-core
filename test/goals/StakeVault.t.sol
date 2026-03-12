@@ -1020,6 +1020,28 @@ contract StakeVaultTest is Test {
         assertTrue(signalVault.goalResolved());
     }
 
+    function test_markGoalResolved_normalizesZeroTimestampLatch() public {
+        VaultResolvedSignal signal = new VaultResolvedSignal();
+
+        StakeVault signalVault = new StakeVault(
+            address(signal),
+            IERC20(address(goalToken)),
+            IERC20(address(cobuildToken)),
+            IJBRulesets(address(goalRulesets)),
+            GOAL_PROJECT_ID,
+            18
+        );
+
+        signal.setResolved(true);
+        vm.warp(0);
+
+        vm.prank(bob);
+        signalVault.markGoalResolved();
+
+        assertTrue(signalVault.goalResolved());
+        assertEq(signalVault.goalResolvedAt(), 1);
+    }
+
     function test_markGoalResolved_doesNotForwardLegacyBudgetTreasuryLookup() public {
         VaultResolvedSignal downstreamTreasury = new VaultResolvedSignal();
         downstreamTreasury.setResolved(true);
