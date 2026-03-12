@@ -24,7 +24,7 @@ library GoalFactoryBudgetTcrDeploy {
         address defaultAllocationMechanismAdmin;
         address defaultInvalidRoundRewardsSink;
         address defaultSubmissionDepositStrategy;
-        address budgetGatePolicy;
+        IBudgetTCR.RiskModuleRouting riskModuleRouting;
         address cobuildToken;
         uint8 cobuildDecimals;
         address budgetSuccessResolver;
@@ -37,8 +37,6 @@ library GoalFactoryBudgetTcrDeploy {
         address goalToken;
         IJBRulesets goalRulesets;
         uint256 goalRevnetId;
-        address premiumEscrowImplementation;
-        address underwriterSlasherRouter;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
     }
@@ -46,21 +44,22 @@ library GoalFactoryBudgetTcrDeploy {
     function resolveRegistryConfig(
         BudgetTcrDeployRequest memory request
     ) public pure returns (BudgetTCRFactory.RegistryConfigInput memory out) {
-        out = BudgetTCRFactory.RegistryConfigInput({
-            allocationMechanismAdmin: request.allocationMechanismAdmin == address(0)
-                ? request.defaultAllocationMechanismAdmin
-                : request.allocationMechanismAdmin,
-            invalidRoundRewardsSink: request.invalidRoundRewardsSink == address(0)
-                ? request.defaultInvalidRoundRewardsSink
-                : request.invalidRoundRewardsSink,
-            votingToken: IVotes(request.cobuildToken),
-            submissionDepositStrategy: ISubmissionDepositStrategy(
-                request.submissionDepositStrategy == address(0)
-                    ? request.defaultSubmissionDepositStrategy
-                    : request.submissionDepositStrategy
-            ),
-            registryPolicy: request.registryPolicy
-        });
+        return
+            BudgetTCRFactory.RegistryConfigInput({
+                allocationMechanismAdmin: request.allocationMechanismAdmin == address(0)
+                    ? request.defaultAllocationMechanismAdmin
+                    : request.allocationMechanismAdmin,
+                invalidRoundRewardsSink: request.invalidRoundRewardsSink == address(0)
+                    ? request.defaultInvalidRoundRewardsSink
+                    : request.invalidRoundRewardsSink,
+                votingToken: IVotes(request.cobuildToken),
+                submissionDepositStrategy: ISubmissionDepositStrategy(
+                    request.submissionDepositStrategy == address(0)
+                        ? request.defaultSubmissionDepositStrategy
+                        : request.submissionDepositStrategy
+                ),
+                registryPolicy: request.registryPolicy
+            });
     }
 
     function deployBudgetTcrStack(
@@ -77,25 +76,23 @@ library GoalFactoryBudgetTcrDeploy {
     function resolveDeploymentConfig(
         BudgetTcrDeployRequest memory request
     ) public pure returns (IBudgetTCR.DeploymentConfig memory tcrDeployCfg) {
-        bool usesExplicitNoPremiumMode = request.budgetPremiumPpm == 0 && request.budgetSlashPpm == 0;
-        tcrDeployCfg = IBudgetTCR.DeploymentConfig({
-            stackDeployer: address(0),
-            budgetSuccessResolver: request.budgetSuccessResolver,
-            budgetSpendPolicy: request.budgetSpendPolicy,
-            budgetGatePolicy: request.budgetSlashPpm == 0 ? address(0) : request.budgetGatePolicy,
-            goalFlow: request.goalFlow,
-            goalTreasury: request.goalTreasury,
-            goalToken: IERC20(request.goalToken),
-            cobuildToken: IERC20(request.cobuildToken),
-            goalRulesets: request.goalRulesets,
-            goalRevnetId: request.goalRevnetId,
-            paymentTokenDecimals: request.cobuildDecimals,
-            premiumEscrowImplementation: usesExplicitNoPremiumMode ? address(0) : request.premiumEscrowImplementation,
-            underwriterSlasherRouter: usesExplicitNoPremiumMode ? address(0) : request.underwriterSlasherRouter,
-            budgetPremiumPpm: request.budgetPremiumPpm,
-            budgetSlashPpm: request.budgetSlashPpm,
-            budgetValidationBounds: request.budgetBounds,
-            oracleValidationBounds: request.oracleBounds
-        });
+        return
+            IBudgetTCR.DeploymentConfig({
+                stackDeployer: address(0),
+                budgetSuccessResolver: request.budgetSuccessResolver,
+                budgetSpendPolicy: request.budgetSpendPolicy,
+                riskModuleRouting: request.riskModuleRouting,
+                goalFlow: request.goalFlow,
+                goalTreasury: request.goalTreasury,
+                goalToken: IERC20(request.goalToken),
+                cobuildToken: IERC20(request.cobuildToken),
+                goalRulesets: request.goalRulesets,
+                goalRevnetId: request.goalRevnetId,
+                paymentTokenDecimals: request.cobuildDecimals,
+                budgetPremiumPpm: request.budgetPremiumPpm,
+                budgetSlashPpm: request.budgetSlashPpm,
+                budgetValidationBounds: request.budgetBounds,
+                oracleValidationBounds: request.oracleBounds
+            });
     }
 }

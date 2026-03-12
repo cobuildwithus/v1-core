@@ -19,16 +19,15 @@ import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
-import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
 import { GoalTreasuryTerminalRollover } from "./library/GoalTreasuryTerminalRollover.sol";
+import { TreasurySuccessAssertionMixin } from "./TreasurySuccessAssertionMixin.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
-contract GoalTreasury is IGoalTreasury, TreasuryBase {
+contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     using SafeERC20 for IERC20;
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
@@ -201,6 +200,63 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         );
     }
 
+    function pendingSuccessAssertionId()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bytes32)
+    {
+        return super.pendingSuccessAssertionId();
+    }
+
+    function pendingSuccessAssertionAt()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (uint64)
+    {
+        return super.pendingSuccessAssertionAt();
+    }
+
+    function reassertGraceDeadline()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (uint64)
+    {
+        return super.reassertGraceDeadline();
+    }
+
+    function reassertGraceUsed()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bool)
+    {
+        return super.reassertGraceUsed();
+    }
+
+    function isReassertGraceActive()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bool)
+    {
+        return super.isReassertGraceActive();
+    }
+
+    function resolved() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (bool) {
+        return super.resolved();
+    }
+
+    function flow() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (address) {
+        return super.flow();
+    }
+
+    function treasuryBalance() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (uint256) {
+        return super.treasuryBalance();
+    }
+
     function canAcceptHookFunding() public view override returns (bool) {
         return _canAcceptHookFunding(_deriveGoalDerivedState());
     }
@@ -274,28 +330,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _finalize(GoalState.Succeeded);
     }
 
-    function pendingSuccessAssertionId() external view override returns (bytes32) {
-        return TreasurySuccessAssertions.pendingId(_successAssertions);
-    }
-
     function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
         return ISuccessAssertionTreasury.TreasuryKind.Goal;
-    }
-
-    function pendingSuccessAssertionAt() external view override returns (uint64) {
-        return TreasurySuccessAssertions.pendingAt(_successAssertions);
-    }
-
-    function reassertGraceDeadline() public view override returns (uint64) {
-        return _reassertGrace.deadline;
-    }
-
-    function reassertGraceUsed() public view override returns (bool) {
-        return _reassertGrace.used;
-    }
-
-    function isReassertGraceActive() public view override returns (bool) {
-        return _reassertGrace.isActive();
     }
 
     function registerSuccessAssertion(bytes32 assertionId) external override {
@@ -321,7 +357,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
             );
         _emitSuccessAssertionCleared(clearResult.clearedAssertionId);
         if (clearResult.graceActivated) {
-            emit ReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
+            _emitReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
         }
     }
 
@@ -335,16 +371,8 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         _settleDeferredHookFunding(finalState);
     }
 
-    function resolved() external view override returns (bool) {
-        return _isTerminalState(_state);
-    }
-
     function state() external view override returns (GoalState) {
         return _state;
-    }
-
-    function flow() external view override returns (address) {
-        return address(_flow);
     }
 
     function stakeVault() external view override returns (address) {
@@ -357,10 +385,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function hook() external view override returns (address) {
         return _hook;
-    }
-
-    function treasuryBalance() public view override returns (uint256) {
-        return _treasuryBalance();
     }
 
     function timeRemaining() public view override returns (uint256) {
@@ -448,10 +472,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         });
     }
 
-    function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
-        return ISpendPolicy(spendPolicy).syncMode();
-    }
-
     function _revertInvalidSpendPolicy(address candidate) internal pure override {
         revert INVALID_SPEND_POLICY(candidate);
     }
@@ -510,9 +530,7 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
-        _emitSuccessAssertionCleared(
-            TreasurySuccessAssertionLifecycle.clearPendingAndResetGrace(_successAssertions, _reassertGrace)
-        );
+        _clearPendingSuccessAssertionAndResetGrace();
 
         uint64 finalizedAt = uint64(block.timestamp);
         _setState(finalState);
@@ -573,42 +591,17 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
     }
 
     function _tryFinalizePostDeadline() internal returns (bool) {
-        TreasurySuccessAssertionLifecycle.PostDeadlineResolution memory resolution = TreasurySuccessAssertionLifecycle
-            .resolvePostDeadline(
-                _successAssertions,
-                _reassertGrace,
-                successResolver,
-                successAssertionLiveness,
-                successAssertionBond,
-                _canActivateReassertGrace(),
-                REASSERT_GRACE_DURATION
-            );
-
-        if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-            emit SuccessAssertionResolutionFailClosed(resolution.pendingAssertionId, resolution.failClosedReason);
-        }
-
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
+        PostDeadlineAction action = _resolvePostDeadlineAction(REASSERT_GRACE_DURATION);
+        if (action == PostDeadlineAction.None) return false;
+        if (action == PostDeadlineAction.FinalizeSucceeded) {
             _finalize(GoalState.Succeeded);
             return true;
         }
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
-            _emitSuccessAssertionCleared(resolution.clearedAssertionId);
-            if (resolution.finalizeFailureData.length != 0) {
-                emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
-            }
-            if (resolution.graceActivated) {
-                emit ReassertGraceActivated(resolution.clearedAssertionId, resolution.graceDeadline);
-            }
-            return false;
-        }
-
         _finalize(GoalState.Expired);
         return true;
     }
 
-    function _canActivateReassertGrace() internal view returns (bool) {
+    function _canActivateReassertGrace() internal view override returns (bool) {
         return _state == GoalState.Active && block.timestamp >= deadline;
     }
 
@@ -624,11 +617,6 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
 
     function _isTerminalState(GoalState stateValue) internal pure returns (bool) {
         return stateValue == GoalState.Succeeded || stateValue == GoalState.Expired;
-    }
-
-    function _emitSuccessAssertionCleared(bytes32 clearedAssertionId) internal {
-        if (clearedAssertionId == bytes32(0)) return;
-        emit SuccessAssertionCleared(clearedAssertionId);
     }
 
     function _settleResidual(GoalState finalState) internal {
@@ -917,6 +905,59 @@ contract GoalTreasury is IGoalTreasury, TreasuryBase {
         address controller = address(directory.controllerOf(revnetId));
         if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
         IJBController(controller).burnTokensOf(address(this), revnetId, amount, memo);
+    }
+
+    function _successAssertionsState()
+        internal
+        view
+        override
+        returns (TreasurySuccessAssertions.State storage assertionsState)
+    {
+        assertionsState = _successAssertions;
+    }
+
+    function _reassertGraceState() internal view override returns (TreasuryReassertGrace.State storage graceState) {
+        graceState = _reassertGrace;
+    }
+
+    function _spendPolicy() internal view override returns (address) {
+        return spendPolicy;
+    }
+
+    function _successResolver() internal view override returns (address) {
+        return successResolver;
+    }
+
+    function _successAssertionLiveness() internal view override returns (uint64) {
+        return successAssertionLiveness;
+    }
+
+    function _successAssertionBond() internal view override returns (uint256) {
+        return successAssertionBond;
+    }
+
+    function _isResolvedState() internal view override returns (bool) {
+        return _isTerminalState(_state);
+    }
+
+    function _emitSuccessAssertionCleared(bytes32 assertionId) internal override {
+        if (assertionId == bytes32(0)) return;
+        emit SuccessAssertionCleared(assertionId);
+    }
+
+    function _emitSuccessAssertionResolutionFailClosed(
+        bytes32 assertionId,
+        TreasurySuccessAssertions.FailClosedReason reason
+    ) internal override {
+        emit SuccessAssertionResolutionFailClosed(assertionId, reason);
+    }
+
+    function _emitSuccessAssertionFinalizeFailed(bytes32 assertionId, bytes memory revertData) internal override {
+        emit SuccessAssertionFinalizeFailed(assertionId, revertData);
+    }
+
+    function _emitReassertGraceActivated(bytes32 clearedAssertionId, uint64 graceDeadline) internal override {
+        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
     }
 
     function _mintingStatus() internal view returns (bool known, bool open) {
