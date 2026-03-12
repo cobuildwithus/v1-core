@@ -5,7 +5,6 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
-import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
 
 library GoalFactoryManagedPresetDeploy {
@@ -43,12 +42,5 @@ library GoalFactoryManagedPresetDeploy {
             }),
             address(0)
         );
-    }
-
-    function initializeManagedController(
-        ManagedBudgetController budgetController,
-        IManagedBudgetController.InitConfig memory initConfig
-    ) external {
-        budgetController.initialize(initConfig);
     }
 }

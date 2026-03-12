@@ -114,7 +114,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertTrue(activeA);
         assertEq(topologyA.childFlow, childFlowA);
         assertEq(topologyA.budgetTreasury, treasuryA);
-        assertTrue(topologyA.premiumEscrow != address(0));
+        assertEq(topologyA.premiumEscrow, address(0));
         assertTrue(topologyA.strategy != address(0));
 
         (IBudgetStackTopologyReader.BudgetStackTopology memory topologyB, bool activeB) =
@@ -1409,14 +1409,23 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
 
     function initializeWithConfig(address, StackModuleConfig calldata, address) external {}
 
-    function prepareBudgetStack(address, address, address) external override returns (PreparationResult memory result) {
+    function prepareBudgetStack(address, address) external override returns (PreparationResult memory result) {
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
-        result.premiumEscrow = address(new ManagedBudgetControllerMockPremiumEscrow());
+        result.premiumEscrow = address(0);
         result.childFlowRecipientAdmin = childFlowRecipientAdmin;
     }
 
     function deployBudgetTreasury(
+        address budgetTreasury,
+        IBudgetTreasury.BudgetConfig calldata budgetConfig
+    ) external override returns (address deployedBudgetTreasury) {
+        ManagedBudgetControllerMockBudgetTreasury(budgetTreasury)
+            .configure(address(this), budgetConfig.flow, budgetConfig.premiumEscrow);
+        return budgetTreasury;
+    }
+
+    function deployBudgetTreasuryWithRiskModule(
         address budgetTreasury,
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
         RiskModuleInitConfig calldata
@@ -1438,14 +1447,14 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
             childFlowStrategyTarget: address(0),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(this),
-            premiumEscrowMode: PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: address(0xBEEF),
-            requireZeroPremiumAndSlashRates: false
+            premiumEscrowMode: PremiumEscrowMode.None,
+            premiumEscrowImplementation: address(0),
+            requireZeroPremiumAndSlashRates: true
         });
     }
 
     function premiumEscrowImplementation() external pure returns (address implementation) {
-        implementation = address(0xBEEF);
+        implementation = address(0);
     }
 
     function initialMechanismFactories() external pure returns (address[] memory factories) {

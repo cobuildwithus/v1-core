@@ -57,11 +57,15 @@ interface IBudgetStackDeployer {
 
     function prepareBudgetStack(
         address budgetStakeLedger,
-        address goalFlow,
-        address underwriterSlasherRouter
+        address goalFlow
     ) external returns (PreparationResult memory result);
 
     function deployBudgetTreasury(
+        address budgetTreasury,
+        IBudgetTreasury.BudgetConfig calldata budgetConfig
+    ) external returns (address deployedBudgetTreasury);
+
+    function deployBudgetTreasuryWithRiskModule(
         address budgetTreasury,
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
         RiskModuleInitConfig calldata riskModuleInitConfig

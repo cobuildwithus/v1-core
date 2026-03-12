@@ -9,14 +9,13 @@ import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import { TreasuryBase } from "./TreasuryBase.sol";
 import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
-import { TreasuryPostDeadlineFinalize } from "./library/TreasuryPostDeadlineFinalize.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
+import { TreasurySuccessAssertionMixin } from "./TreasurySuccessAssertionMixin.sol";
 
-contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
+contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
@@ -128,6 +127,63 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return _canAcceptFunding(_deriveBudgetDerivedState());
     }
 
+    function pendingSuccessAssertionId()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bytes32)
+    {
+        return super.pendingSuccessAssertionId();
+    }
+
+    function pendingSuccessAssertionAt()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (uint64)
+    {
+        return super.pendingSuccessAssertionAt();
+    }
+
+    function reassertGraceDeadline()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (uint64)
+    {
+        return super.reassertGraceDeadline();
+    }
+
+    function reassertGraceUsed()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bool)
+    {
+        return super.reassertGraceUsed();
+    }
+
+    function isReassertGraceActive()
+        public
+        view
+        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        returns (bool)
+    {
+        return super.isReassertGraceActive();
+    }
+
+    function resolved() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (bool) {
+        return super.resolved();
+    }
+
+    function flow() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (address) {
+        return super.flow();
+    }
+
+    function treasuryBalance() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (uint256) {
+        return super.treasuryBalance();
+    }
+
     function sync() external override nonReentrant {
         BudgetDerivedState memory derivedState = _deriveBudgetDerivedState();
         if (derivedState.isTerminal) return;
@@ -205,28 +261,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         _finalize(BudgetState.Failed, true);
     }
 
-    function pendingSuccessAssertionId() external view override returns (bytes32) {
-        return TreasurySuccessAssertions.pendingId(_successAssertions);
-    }
-
     function treasuryKind() external pure override returns (ISuccessAssertionTreasury.TreasuryKind) {
         return ISuccessAssertionTreasury.TreasuryKind.Budget;
-    }
-
-    function pendingSuccessAssertionAt() external view override returns (uint64) {
-        return TreasurySuccessAssertions.pendingAt(_successAssertions);
-    }
-
-    function reassertGraceDeadline() public view override returns (uint64) {
-        return _reassertGrace.deadline;
-    }
-
-    function reassertGraceUsed() public view override returns (bool) {
-        return _reassertGrace.used;
-    }
-
-    function isReassertGraceActive() public view override returns (bool) {
-        return _reassertGrace.isActive();
     }
 
     function registerSuccessAssertion(bytes32 assertionId) external override {
@@ -254,7 +290,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             );
         _emitSuccessAssertionCleared(clearResult.clearedAssertionId);
         if (clearResult.graceActivated) {
-            emit ReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
+            _emitReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
         }
     }
 
@@ -275,16 +311,8 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         amount = _settleResidualToParent();
     }
 
-    function resolved() external view override returns (bool) {
-        return _isTerminalState(_state);
-    }
-
     function state() external view override returns (BudgetState) {
         return _state;
-    }
-
-    function flow() external view override returns (address) {
-        return address(_flow);
     }
 
     function authority() external view override returns (address) {
@@ -294,10 +322,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
     function deadline() public view override returns (uint64) {
         if (activatedAt == 0) return 0;
         return _derivedDeadline();
-    }
-
-    function treasuryBalance() public view override returns (uint256) {
-        return _treasuryBalance();
     }
 
     function timeRemaining() public view override returns (uint256) {
@@ -363,10 +387,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             incomingRate: _incomingFlowRate(),
             currentOutflowRate: _flow.targetOutflowRate()
         });
-    }
-
-    function _syncMode() internal view returns (ISpendPolicy.SyncMode) {
-        return ISpendPolicy(spendPolicy).syncMode();
     }
 
     function _revertInvalidSpendPolicy(address candidate) internal pure override {
@@ -497,54 +517,18 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return !derivedState.deadlinePassed;
     }
 
-    function _emitSuccessAssertionCleared(bytes32 clearedAssertionId) internal {
-        if (clearedAssertionId == bytes32(0)) return;
-        emit SuccessAssertionCleared(clearedAssertionId);
-    }
-
-    function _clearPendingSuccessAssertionAndResetGrace() internal {
-        _emitSuccessAssertionCleared(
-            TreasurySuccessAssertionLifecycle.clearPendingAndResetGrace(_successAssertions, _reassertGrace)
-        );
-    }
-
     function _tryFinalizePostDeadline() internal returns (bool) {
-        TreasurySuccessAssertionLifecycle.PostDeadlineResolution memory resolution = TreasurySuccessAssertionLifecycle
-            .resolvePostDeadline(
-                _successAssertions,
-                _reassertGrace,
-                successResolver,
-                successAssertionLiveness,
-                successAssertionBond,
-                _canActivateReassertGrace(),
-                REASSERT_GRACE_DURATION
-            );
-
-        if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
-            emit SuccessAssertionResolutionFailClosed(resolution.pendingAssertionId, resolution.failClosedReason);
-        }
-
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.Wait) return false;
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.FinalizeSucceeded) {
+        PostDeadlineAction action = _resolvePostDeadlineAction(REASSERT_GRACE_DURATION);
+        if (action == PostDeadlineAction.None) return false;
+        if (action == PostDeadlineAction.FinalizeSucceeded) {
             _finalize(BudgetState.Succeeded, true);
             return true;
         }
-        if (resolution.decision == TreasuryPostDeadlineFinalize.Decision.ClearPendingAndActivateGrace) {
-            _emitSuccessAssertionCleared(resolution.clearedAssertionId);
-            if (resolution.finalizeFailureData.length != 0) {
-                emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
-            }
-            if (resolution.graceActivated) {
-                emit ReassertGraceActivated(resolution.clearedAssertionId, resolution.graceDeadline);
-            }
-            return false;
-        }
-
         _finalize(BudgetState.Expired, true);
         return true;
     }
 
-    function _canActivateReassertGrace() internal view returns (bool) {
+    function _canActivateReassertGrace() internal view override returns (bool) {
         if (_state != BudgetState.Active || successResolutionDisabled) return false;
         uint64 deadline_ = deadline();
         return deadline_ != 0 && block.timestamp >= deadline_;
@@ -590,6 +574,59 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
     function _derivedDeadline() internal view returns (uint64) {
         return SafeCast.toUint64(uint256(fundingDeadline) + uint256(executionDuration));
+    }
+
+    function _successAssertionsState()
+        internal
+        view
+        override
+        returns (TreasurySuccessAssertions.State storage assertionsState)
+    {
+        assertionsState = _successAssertions;
+    }
+
+    function _reassertGraceState() internal view override returns (TreasuryReassertGrace.State storage graceState) {
+        graceState = _reassertGrace;
+    }
+
+    function _spendPolicy() internal view override returns (address) {
+        return spendPolicy;
+    }
+
+    function _successResolver() internal view override returns (address) {
+        return successResolver;
+    }
+
+    function _successAssertionLiveness() internal view override returns (uint64) {
+        return successAssertionLiveness;
+    }
+
+    function _successAssertionBond() internal view override returns (uint256) {
+        return successAssertionBond;
+    }
+
+    function _isResolvedState() internal view override returns (bool) {
+        return _isTerminalState(_state);
+    }
+
+    function _emitSuccessAssertionCleared(bytes32 assertionId) internal override {
+        if (assertionId == bytes32(0)) return;
+        emit SuccessAssertionCleared(assertionId);
+    }
+
+    function _emitSuccessAssertionResolutionFailClosed(
+        bytes32 assertionId,
+        TreasurySuccessAssertions.FailClosedReason reason
+    ) internal override {
+        emit SuccessAssertionResolutionFailClosed(assertionId, reason);
+    }
+
+    function _emitSuccessAssertionFinalizeFailed(bytes32 assertionId, bytes memory revertData) internal override {
+        emit SuccessAssertionFinalizeFailed(assertionId, revertData);
+    }
+
+    function _emitReassertGraceActivated(bytes32 clearedAssertionId, uint64 graceDeadline) internal override {
+        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
     }
 
     modifier onlyController() {

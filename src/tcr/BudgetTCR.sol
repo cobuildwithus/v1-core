@@ -14,6 +14,7 @@ import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
@@ -44,9 +45,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         paymentTokenDecimals = deploymentConfig.paymentTokenDecimals;
 
         stackDeployer = deploymentConfig.stackDeployer;
-        premiumEscrowImplementation = deploymentConfig.premiumEscrowImplementation;
+        premiumEscrowImplementation = deploymentConfig.riskModuleRouting.premiumEscrowImplementation;
         _budgetGatePolicy = budgetGatePolicy_;
-        underwriterSlasherRouter = deploymentConfig.underwriterSlasherRouter;
+        underwriterSlasherRouter = deploymentConfig.riskModuleRouting.underwriterSlasherRouter;
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
@@ -298,12 +299,13 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 );
             }
 
-            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
-            bool success;
-            try treasury.sync() {
-                success = true;
+            BudgetControllerSyncLib.SyncAttempt memory attempt = BudgetControllerSyncLib.trySyncBudgetTreasury(
+                itemID,
+                budgetTreasury
+            );
+            if (attempt.success) {
                 succeeded += 1;
-                if (treasury.resolved() && goalFlow_.recipientExists(deployment.childFlow)) {
+                if (attempt.terminal && goalFlow_.recipientExists(deployment.childFlow)) {
                     (bool removedFromParent, bool goalSynced) = _pruneTerminalBudgetLocal(
                         itemID,
                         deployment,
@@ -317,10 +319,8 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                         goalSynced
                     );
                 }
-            } catch (bytes memory reason) {
-                emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
             }
-            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury, success);
+            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury, attempt.success);
         }
     }
 
@@ -334,12 +334,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         BudgetDeployment storage deployment,
         address budgetTreasury
     ) internal returns (bool removedFromParent, bool goalSynced) {
-        removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
+        (removedFromParent, goalSynced) = BudgetControllerSyncLib.pruneTerminalRecipientAndSyncGoal(
             goalFlow,
+            goalTreasury,
             itemID,
-            deployment.childFlow
+            deployment.childFlow,
+            budgetTreasury,
+            true
         );
-        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
         if (!deployment.active && _pendingRemovalFinalizations[itemID]) {
             _pendingRemovalFinalizations[itemID] = false;
         }

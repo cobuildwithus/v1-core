@@ -33,6 +33,7 @@ import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -123,7 +124,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
+        _initializeOpenBudgetTcrDeployer(stackDeployer, tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -501,7 +502,12 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            budgetGatePolicy: budgetGatePolicy,
+            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
+                budgetGatePolicy: budgetGatePolicy,
+                premiumEscrowImplementation: premiumEscrowImplementation,
+                underwriterSlasherRouter: underwriterSlasherRouter,
+                requireZeroPremiumAndSlashRates: false
+            }),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -509,8 +515,6 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
-            premiumEscrowImplementation: premiumEscrowImplementation,
-            underwriterSlasherRouter: underwriterSlasherRouter,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -532,7 +536,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         address customStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(customStackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
+        _initializeOpenBudgetTcrDeployer(customStackDeployer, tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -541,7 +545,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
 
         IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig();
         deploymentConfig.stackDeployer = customStackDeployer;
-        deploymentConfig.budgetGatePolicy = gatePolicy;
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = gatePolicy;
 
         customBudgetTcr = BudgetTCR(tcrInstance);
         customBudgetTcr.initialize(_defaultRegistryConfig(IArbitrator(arbProxy)), deploymentConfig);
@@ -566,6 +570,30 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             address(new BudgetFlowRouterStrategy())
         );
         return BudgetTCRDeployer(Clones.clone(address(implementation)));
+    }
+
+    function _initializeOpenBudgetTcrDeployer(
+        address deployer,
+        address budgetTcr_,
+        address premiumEscrowImplementation_
+    ) internal {
+        BudgetTCRDeployer(deployer).initializeWithConfig(
+            budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
+        );
+    }
+
+    function _openStackModuleConfig(
+        address premiumEscrowImplementation_
+    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+        stackModuleConfig = IBudgetStackDeployer.StackModuleConfig({
+            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+            childFlowStrategyTarget: address(0),
+            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
+            childFlowRecipientAdmin: address(0),
+            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
+            premiumEscrowImplementation: premiumEscrowImplementation_,
+            requireZeroPremiumAndSlashRates: false
+        });
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {

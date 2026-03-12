@@ -14,29 +14,39 @@ library BudgetTCRStackDeploymentLib {
     function deployBudgetTreasury(
         address controller,
         address budgetTreasury,
-        IBudgetTreasury.BudgetConfig memory budgetConfig,
-        IBudgetStackDeployer.RiskModuleInitConfig memory riskModuleInitConfig
+        IBudgetTreasury.BudgetConfig memory budgetConfig
     ) internal returns (address) {
         if (controller == address(0)) revert ADDRESS_ZERO();
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.flow == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.successResolver == address(0)) revert ADDRESS_ZERO();
         if (budgetConfig.spendPolicy == address(0)) revert ADDRESS_ZERO();
-        if (riskModuleInitConfig.goalFlow == address(0)) revert ADDRESS_ZERO();
 
         if (budgetTreasury.code.length == 0) revert INVALID_TREASURY(budgetTreasury);
 
-        address premiumEscrow = budgetConfig.premiumEscrow;
         BudgetTreasury(budgetTreasury).initialize(controller, budgetConfig);
 
         _assertTreasuryConfiguration(
             budgetTreasury,
             controller,
             budgetConfig.flow,
-            premiumEscrow,
+            budgetConfig.premiumEscrow,
             budgetConfig.spendPolicy
         );
-        if (premiumEscrow == address(0)) return budgetTreasury;
+        return budgetTreasury;
+    }
+
+    function deployBudgetTreasuryWithRiskModule(
+        address controller,
+        address budgetTreasury,
+        IBudgetTreasury.BudgetConfig memory budgetConfig,
+        IBudgetStackDeployer.RiskModuleInitConfig memory riskModuleInitConfig
+    ) internal returns (address) {
+        address premiumEscrow = budgetConfig.premiumEscrow;
+        if (premiumEscrow == address(0)) revert ADDRESS_ZERO();
+        if (riskModuleInitConfig.goalFlow == address(0)) revert ADDRESS_ZERO();
+
+        address deployedBudgetTreasury = deployBudgetTreasury(controller, budgetTreasury, budgetConfig);
 
         // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
         IPremiumEscrow(premiumEscrow).initialize(
@@ -46,7 +56,7 @@ library BudgetTCRStackDeploymentLib {
             riskModuleInitConfig.underwriterSlasherRouter,
             riskModuleInitConfig.budgetSlashPpm
         );
-        return budgetTreasury;
+        return deployedBudgetTreasury;
     }
 
     function _assertTreasuryConfiguration(

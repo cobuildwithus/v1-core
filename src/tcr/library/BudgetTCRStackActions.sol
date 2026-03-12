@@ -68,8 +68,7 @@ library BudgetTCRStackActions {
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
-            address(goalFlow),
-            underwriterSlasherRouter
+            address(goalFlow)
         );
 
         address budgetTreasury = prepared.budgetTreasury;
@@ -109,16 +108,18 @@ library BudgetTCRStackActions {
             successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
             spendPolicy: budgetStore.budgetSpendPolicy()
         });
-        address deployedBudgetTreasury = deployer.deployBudgetTreasury(
-            budgetTreasury,
-            budgetConfig,
-            IBudgetStackDeployer.RiskModuleInitConfig({
-                budgetStakeLedger: budgetStakeLedger,
-                goalFlow: address(goalFlow),
-                underwriterSlasherRouter: underwriterSlasherRouter,
-                budgetSlashPpm: budgetSlashPpm
-            })
-        );
+        address deployedBudgetTreasury = hasPremiumEscrow
+            ? deployer.deployBudgetTreasuryWithRiskModule(
+                budgetTreasury,
+                budgetConfig,
+                IBudgetStackDeployer.RiskModuleInitConfig({
+                    budgetStakeLedger: budgetStakeLedger,
+                    goalFlow: address(goalFlow),
+                    underwriterSlasherRouter: underwriterSlasherRouter,
+                    budgetSlashPpm: budgetSlashPpm
+                })
+            )
+            : deployer.deployBudgetTreasury(budgetTreasury, budgetConfig);
 
         if (hasPremiumEscrow) {
             address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());

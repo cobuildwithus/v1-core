@@ -98,20 +98,30 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
                 challengePeriodDuration: 0
             })
         );
-        request.budgetGatePolicy = address(0xBEEF);
-        request.premiumEscrowImplementation = address(0xCAFE);
-        request.underwriterSlasherRouter = address(0xF00D);
+        request.riskModuleRouting = IBudgetTCR.RiskModuleRouting({
+            budgetGatePolicy: address(0xBEEF),
+            premiumEscrowImplementation: address(0xCAFE),
+            underwriterSlasherRouter: address(0xF00D),
+            requireZeroPremiumAndSlashRates: false
+        });
         request.budgetPremiumPpm = 100_000;
         request.budgetSlashPpm = 0;
 
         IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
 
-        assertEq(resolved.budgetGatePolicy, address(0));
-        assertEq(resolved.premiumEscrowImplementation, request.premiumEscrowImplementation);
-        assertEq(resolved.underwriterSlasherRouter, request.underwriterSlasherRouter);
+        assertEq(resolved.riskModuleRouting.budgetGatePolicy, request.riskModuleRouting.budgetGatePolicy);
+        assertEq(
+            resolved.riskModuleRouting.premiumEscrowImplementation,
+            request.riskModuleRouting.premiumEscrowImplementation
+        );
+        assertEq(
+            resolved.riskModuleRouting.underwriterSlasherRouter,
+            request.riskModuleRouting.underwriterSlasherRouter
+        );
+        assertFalse(resolved.riskModuleRouting.requireZeroPremiumAndSlashRates);
     }
 
-    function test_resolveDeploymentConfig_usesExplicitNoPremiumMode_whenBothRatesAreZero() public pure {
+    function test_resolveDeploymentConfig_passesThroughExplicitNoPremiumMode_whenBothRatesAreZero() public pure {
         GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
             IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: bytes(""),
@@ -124,15 +134,19 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
                 challengePeriodDuration: 0
             })
         );
-        request.budgetGatePolicy = address(0xBEEF);
-        request.premiumEscrowImplementation = address(0xCAFE);
-        request.underwriterSlasherRouter = address(0xF00D);
+        request.riskModuleRouting = IBudgetTCR.RiskModuleRouting({
+            budgetGatePolicy: address(0),
+            premiumEscrowImplementation: address(0),
+            underwriterSlasherRouter: address(0),
+            requireZeroPremiumAndSlashRates: true
+        });
 
         IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
 
-        assertEq(resolved.budgetGatePolicy, address(0));
-        assertEq(resolved.premiumEscrowImplementation, address(0));
-        assertEq(resolved.underwriterSlasherRouter, address(0));
+        assertEq(resolved.riskModuleRouting.budgetGatePolicy, address(0));
+        assertEq(resolved.riskModuleRouting.premiumEscrowImplementation, address(0));
+        assertEq(resolved.riskModuleRouting.underwriterSlasherRouter, address(0));
+        assertTrue(resolved.riskModuleRouting.requireZeroPremiumAndSlashRates);
     }
 
     function _baseRequest(IGeneralizedTCRConfig.RegistryPolicy memory registryPolicy)
@@ -149,7 +163,12 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             defaultAllocationMechanismAdmin: address(0),
             defaultInvalidRoundRewardsSink: address(0),
             defaultSubmissionDepositStrategy: address(0),
-            budgetGatePolicy: address(0),
+            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
+                budgetGatePolicy: address(0),
+                premiumEscrowImplementation: address(0),
+                underwriterSlasherRouter: address(0),
+                requireZeroPremiumAndSlashRates: false
+            }),
             cobuildToken: address(0),
             cobuildDecimals: 0,
             budgetSuccessResolver: address(0),
@@ -177,8 +196,6 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             goalToken: address(0),
             goalRulesets: IJBRulesets(address(0)),
             goalRevnetId: 0,
-            premiumEscrowImplementation: address(0),
-            underwriterSlasherRouter: address(0),
             budgetPremiumPpm: 0,
             budgetSlashPpm: 0
         });

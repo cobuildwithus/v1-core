@@ -66,40 +66,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         _disableInitializers();
     }
 
-    function initialize(
-        address budgetTCR_,
-        address premiumEscrowImplementation_,
-        address discoveryEmitter_
-    ) external initializer {
-        _initializeOpenPreset(budgetTCR_, premiumEscrowImplementation_, discoveryEmitter_);
-    }
-
     function initializeWithConfig(
         address budgetTCR_,
         StackModuleConfig calldata stackModuleConfig_,
         address discoveryEmitter_
     ) external initializer {
         _initializeWithConfig(budgetTCR_, stackModuleConfig_, discoveryEmitter_);
-    }
-
-    function _initializeOpenPreset(
-        address budgetTCR_,
-        address premiumEscrowImplementation_,
-        address discoveryEmitter_
-    ) internal {
-        _initializeWithConfig(
-            budgetTCR_,
-            StackModuleConfig({
-                childFlowStrategyMode: ChildFlowStrategyMode.SharedBudgetFlowRouter,
-                childFlowStrategyTarget: address(0),
-                mechanismLayerMode: MechanismLayerMode.AllocationMechanismTCR,
-                childFlowRecipientAdmin: address(0),
-                premiumEscrowMode: PremiumEscrowMode.Clone,
-                premiumEscrowImplementation: premiumEscrowImplementation_,
-                requireZeroPremiumAndSlashRates: false
-            }),
-            discoveryEmitter_
-        );
     }
 
     function _initializeWithConfig(
@@ -124,8 +96,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
 
     function prepareBudgetStack(
         address budgetStakeLedger,
-        address goalFlow,
-        address
+        address goalFlow
     ) external onlyController returns (PreparationResult memory result) {
         if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (goalFlow == address(0)) revert ADDRESS_ZERO();
@@ -144,10 +115,21 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
 
     function deployBudgetTreasury(
         address budgetTreasury,
+        IBudgetTreasury.BudgetConfig calldata budgetConfig
+    ) external onlyController returns (address deployedBudgetTreasury) {
+        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
+            controller,
+            budgetTreasury,
+            budgetConfig
+        );
+    }
+
+    function deployBudgetTreasuryWithRiskModule(
+        address budgetTreasury,
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
         RiskModuleInitConfig calldata riskModuleInitConfig
     ) external onlyController returns (address deployedBudgetTreasury) {
-        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
+        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasuryWithRiskModule(
             controller,
             budgetTreasury,
             budgetConfig,

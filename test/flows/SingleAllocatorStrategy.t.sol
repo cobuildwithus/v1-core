@@ -6,6 +6,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {Test} from "forge-std/Test.sol";
 
+import {ScopedSingleAllocatorStrategyBase} from "src/allocation-strategies/ScopedSingleAllocatorStrategyBase.sol";
 import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {AddressKeyAllocation} from "src/library/AddressKeyAllocation.sol";
@@ -37,7 +38,9 @@ contract SingleAllocatorStrategyTest is Test {
     }
 
     function test_constructor_revertsOnNonContractGoalTreasury() public {
-        vm.expectRevert(abi.encodeWithSelector(SingleAllocatorStrategy.NOT_A_CONTRACT.selector, address(0xBEEF)));
+        vm.expectRevert(
+            abi.encodeWithSelector(ScopedSingleAllocatorStrategyBase.NOT_A_CONTRACT.selector, address(0xBEEF))
+        );
         new SingleAllocatorStrategy(address(0xBEEF), address(controller));
     }
 
@@ -48,7 +51,9 @@ contract SingleAllocatorStrategyTest is Test {
 
     function test_constructor_revertsOnNonContractAllocator() public {
         address eoaController = makeAddr("eoa-controller");
-        vm.expectRevert(abi.encodeWithSelector(SingleAllocatorStrategy.NOT_A_CONTRACT.selector, eoaController));
+        vm.expectRevert(
+            abi.encodeWithSelector(ScopedSingleAllocatorStrategyBase.NOT_A_CONTRACT.selector, eoaController)
+        );
         new SingleAllocatorStrategy(address(goalTreasury), eoaController);
     }
 
@@ -106,7 +111,9 @@ contract SingleAllocatorStrategyTest is Test {
         SingleAllocatorStrategy clone = _cloneStrategy();
         address eoaController = makeAddr("eoa-controller");
 
-        vm.expectRevert(abi.encodeWithSelector(SingleAllocatorStrategy.NOT_A_CONTRACT.selector, eoaController));
+        vm.expectRevert(
+            abi.encodeWithSelector(ScopedSingleAllocatorStrategyBase.NOT_A_CONTRACT.selector, eoaController)
+        );
         clone.initialize(address(goalTreasury), eoaController);
     }
 

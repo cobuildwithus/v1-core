@@ -3,8 +3,10 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
+import {ScopedSingleAllocatorStrategyBase} from "src/allocation-strategies/ScopedSingleAllocatorStrategyBase.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {AddressKeyAllocation} from "src/library/AddressKeyAllocation.sol";
 
@@ -36,7 +38,7 @@ contract BudgetSingleAllocatorStrategyTest is Test {
         assertEq(clone.budgetTreasury(), address(budgetTreasury));
         assertEq(clone.allocator(), allocator);
 
-        vm.expectRevert();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         clone.initialize(address(budgetTreasury), allocator);
     }
 
@@ -46,7 +48,9 @@ contract BudgetSingleAllocatorStrategyTest is Test {
     }
 
     function test_constructor_revertsOnNonContractBudgetTreasury() public {
-        vm.expectRevert(abi.encodeWithSelector(BudgetSingleAllocatorStrategy.NOT_A_CONTRACT.selector, address(0xBEEF)));
+        vm.expectRevert(
+            abi.encodeWithSelector(ScopedSingleAllocatorStrategyBase.NOT_A_CONTRACT.selector, address(0xBEEF))
+        );
         new BudgetSingleAllocatorStrategy(address(0xBEEF), allocator);
     }
 
@@ -58,7 +62,9 @@ contract BudgetSingleAllocatorStrategyTest is Test {
     function test_constructor_revertsOnNonContractAllocator() public {
         address eoaAllocator = makeAddr("eoa-allocator");
 
-        vm.expectRevert(abi.encodeWithSelector(BudgetSingleAllocatorStrategy.NOT_A_CONTRACT.selector, eoaAllocator));
+        vm.expectRevert(
+            abi.encodeWithSelector(ScopedSingleAllocatorStrategyBase.NOT_A_CONTRACT.selector, eoaAllocator)
+        );
         new BudgetSingleAllocatorStrategy(address(budgetTreasury), eoaAllocator);
     }
 

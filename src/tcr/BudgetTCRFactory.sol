@@ -132,8 +132,8 @@ contract BudgetTCRFactory {
         address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
-        bool usesExplicitNoPremiumMode = _usesExplicitNoPremiumMode(deploymentConfig);
-        _initializeStackDeployer(stackDeployer, budgetTCR, deploymentConfig, usesExplicitNoPremiumMode);
+        bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
+        _initializeStackDeployer(stackDeployer, budgetTCR, deploymentConfig, requiresPremiumModule);
         budgetTCRByStackDeployer[stackDeployer] = budgetTCR;
         stackDeployerByBudgetTCR[budgetTCR] = stackDeployer;
 
@@ -155,9 +155,13 @@ contract BudgetTCRFactory {
         address jurorSlasherRouter = _resolveConfiguredJurorSlasherRouter(stakeVault);
         jurorSlasherRouterByBudgetTCR[budgetTCR] = jurorSlasherRouter;
         JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
-        address underwriterSlasherRouter = usesExplicitNoPremiumMode
-            ? address(0)
-            : _resolveUnderwriterSlasherRouter(deploymentConfig.underwriterSlasherRouter, stakeVault, budgetTCR);
+        address underwriterSlasherRouter = requiresPremiumModule
+            ? _resolveUnderwriterSlasherRouter(
+                deploymentConfig.riskModuleRouting.underwriterSlasherRouter,
+                stakeVault,
+                budgetTCR
+            )
+            : address(0);
 
         IGeneralizedTCRConfig.RegistryPolicy memory resolvedPolicy = _resolveRegistryPolicy(
             registryConfig,
@@ -170,7 +174,8 @@ contract BudgetTCRFactory {
         IBudgetTCR.DeploymentConfig memory deploymentConfigFull = _buildDeploymentConfig(
             deploymentConfig,
             stackDeployer,
-            underwriterSlasherRouter
+            underwriterSlasherRouter,
+            requiresPremiumModule
         );
 
         IBudgetTCR(budgetTCR).initialize(initConfig, deploymentConfigFull);
@@ -248,30 +253,21 @@ contract BudgetTCRFactory {
         address stackDeployer,
         address budgetTCR,
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
-        bool usesExplicitNoPremiumMode
+        bool requiresPremiumModule
     ) internal {
-        if (usesExplicitNoPremiumMode) {
-            IBudgetTCRDeployer(stackDeployer).initializeWithConfig(
-                budgetTCR,
-                IBudgetStackDeployer.StackModuleConfig({
-                    childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
-                    childFlowStrategyTarget: address(0),
-                    mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
-                    childFlowRecipientAdmin: address(0),
-                    premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
-                    premiumEscrowImplementation: address(0),
-                    requireZeroPremiumAndSlashRates: true
-                }),
-                address(this)
-            );
-            return;
-        }
-
-        IBudgetTCRDeployer(stackDeployer).initialize(
+        IBudgetTCRDeployer(stackDeployer).initializeWithConfig(
             budgetTCR,
-            deploymentConfig.premiumEscrowImplementation,
+            requiresPremiumModule
+                ? _openStackModuleConfig(deploymentConfig.riskModuleRouting.premiumEscrowImplementation)
+                : _noPremiumStackModuleConfig(),
             address(this)
         );
+    }
+
+    function _requiresPremiumModule(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) internal pure returns (bool) {
+        return deploymentConfig.budgetPremiumPpm != 0 || deploymentConfig.budgetSlashPpm != 0;
     }
 
     function _assertImplementationHasCode(address implementation) internal view {
@@ -284,14 +280,6 @@ contract BudgetTCRFactory {
         router = IStakeVault(stakeVault).jurorSlasher();
         if (router == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
         _validateConfiguredJurorSlasher(router, stakeVault);
-    }
-
-    function _usesExplicitNoPremiumMode(
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig
-    ) internal pure returns (bool) {
-        return
-            deploymentConfig.premiumEscrowImplementation == address(0) &&
-            deploymentConfig.underwriterSlasherRouter == address(0);
     }
 
     function _validateConfiguredJurorSlasher(address configuredSlasher, address stakeVault) internal view {
@@ -335,13 +323,21 @@ contract BudgetTCRFactory {
     function _buildDeploymentConfig(
         IBudgetTCR.DeploymentConfig calldata deploymentConfig,
         address stackDeployer,
-        address underwriterSlasherRouter
+        address underwriterSlasherRouter,
+        bool requiresPremiumModule
     ) internal pure returns (IBudgetTCR.DeploymentConfig memory config) {
         config = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
             budgetSpendPolicy: deploymentConfig.budgetSpendPolicy,
-            budgetGatePolicy: deploymentConfig.budgetGatePolicy,
+            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
+                budgetGatePolicy: deploymentConfig.riskModuleRouting.budgetGatePolicy,
+                premiumEscrowImplementation: requiresPremiumModule
+                    ? deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+                    : address(0),
+                underwriterSlasherRouter: underwriterSlasherRouter,
+                requireZeroPremiumAndSlashRates: !requiresPremiumModule
+            }),
             goalFlow: deploymentConfig.goalFlow,
             goalTreasury: deploymentConfig.goalTreasury,
             goalToken: deploymentConfig.goalToken,
@@ -349,12 +345,40 @@ contract BudgetTCRFactory {
             goalRulesets: deploymentConfig.goalRulesets,
             goalRevnetId: deploymentConfig.goalRevnetId,
             paymentTokenDecimals: deploymentConfig.paymentTokenDecimals,
-            premiumEscrowImplementation: deploymentConfig.premiumEscrowImplementation,
-            underwriterSlasherRouter: underwriterSlasherRouter,
             budgetPremiumPpm: deploymentConfig.budgetPremiumPpm,
             budgetSlashPpm: deploymentConfig.budgetSlashPpm,
             budgetValidationBounds: deploymentConfig.budgetValidationBounds,
             oracleValidationBounds: deploymentConfig.oracleValidationBounds
+        });
+    }
+
+    function _openStackModuleConfig(
+        address premiumEscrowImplementation
+    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
+        config = IBudgetStackDeployer.StackModuleConfig({
+            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+            childFlowStrategyTarget: address(0),
+            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
+            childFlowRecipientAdmin: address(0),
+            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            requireZeroPremiumAndSlashRates: false
+        });
+    }
+
+    function _noPremiumStackModuleConfig()
+        internal
+        pure
+        returns (IBudgetStackDeployer.StackModuleConfig memory config)
+    {
+        config = IBudgetStackDeployer.StackModuleConfig({
+            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+            childFlowStrategyTarget: address(0),
+            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
+            childFlowRecipientAdmin: address(0),
+            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+            premiumEscrowImplementation: address(0),
+            requireZeroPremiumAndSlashRates: true
         });
     }
 

@@ -519,7 +519,19 @@ contract GoalFactory {
 
         address budgetController = predictedBudgetController;
         if (p.preset == GoalPreset.Managed) {
-            _initializeManagedBudgetController(p, core, managedPreset);
+            managedPreset.budgetController.initialize(
+                IManagedBudgetController.InitConfig({
+                    authority: p.managedSafe,
+                    goalTreasury: address(core.goalTreasury),
+                    goalFlow: address(core.goalFlow),
+                    stackDeployer: managedPreset.stackDeployer,
+                    budgetGatePolicy: address(0),
+                    budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
+                    budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
+                    successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
+                    successAssertionBond: p.budgetTCR.oracleBounds.bondAmount
+                })
+            );
         } else {
             BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(
                 p,
@@ -690,27 +702,6 @@ contract GoalFactory {
             );
     }
 
-    function _initializeManagedBudgetController(
-        DeployParams memory p,
-        GoalFactoryCoreStackDeploy.CoreStackResult memory core,
-        GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory managedPreset
-    ) private {
-        GoalFactoryManagedPresetDeploy.initializeManagedController(
-            managedPreset.budgetController,
-            IManagedBudgetController.InitConfig({
-                authority: p.managedSafe,
-                goalTreasury: address(core.goalTreasury),
-                goalFlow: address(core.goalFlow),
-                stackDeployer: managedPreset.stackDeployer,
-                budgetGatePolicy: address(0),
-                budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
-                budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
-                successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
-                successAssertionBond: p.budgetTCR.oracleBounds.bondAmount
-            })
-        );
-    }
-
     function _deployBudgetTcr(
         DeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
@@ -718,7 +709,7 @@ contract GoalFactory {
         address paymentToken,
         uint8 paymentTokenDecimals
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        GoalFactoryBudgetTcrRouting.Routing memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
+        IBudgetTCR.RiskModuleRouting memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
             p.underwriting.budgetPremiumPpm,
             p.underwriting.budgetSlashPpm,
             OPEN_BUDGET_GATE_POLICY,
@@ -746,7 +737,7 @@ contract GoalFactory {
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
-                    budgetGatePolicy: routing.budgetGatePolicy,
+                    riskModuleRouting: routing,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
                     budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
@@ -759,8 +750,6 @@ contract GoalFactory {
                     goalToken: revnet.goalToken,
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
-                    premiumEscrowImplementation: routing.premiumEscrowImplementation,
-                    underwriterSlasherRouter: routing.underwriterSlasherRouter,
                     budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
                     budgetSlashPpm: p.underwriting.budgetSlashPpm
                 })

@@ -45,11 +45,18 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
         IGeneralizedTCRConfig.RegistryConfig tcrConfig;
     }
 
+    struct RiskModuleRouting {
+        address budgetGatePolicy;
+        address premiumEscrowImplementation;
+        address underwriterSlasherRouter;
+        bool requireZeroPremiumAndSlashRates;
+    }
+
     struct DeploymentConfig {
         address stackDeployer;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
-        address budgetGatePolicy;
+        RiskModuleRouting riskModuleRouting;
         IFlow goalFlow;
         IGoalTreasury goalTreasury;
         IERC20 goalToken;
@@ -57,8 +64,6 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
         IJBRulesets goalRulesets;
         uint256 goalRevnetId;
         uint8 paymentTokenDecimals;
-        address premiumEscrowImplementation;
-        address underwriterSlasherRouter;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
         BudgetValidationBounds budgetValidationBounds;

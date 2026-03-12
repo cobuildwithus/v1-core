@@ -9,8 +9,10 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
+import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetTCRTerminalActions } from "src/tcr/library/BudgetTCRTerminalActions.sol";
+import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
@@ -159,11 +161,12 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (IGoalTreasury(goalTreasury).resolved()) revert GOAL_TERMINAL();
         if (_budgetDeployments[itemID].budgetTreasury != address(0)) revert ITEM_ALREADY_EXISTS(itemID);
 
+        IGoalTreasury goalTreasury_ = IGoalTreasury(goalTreasury);
+        address budgetStakeLedger = goalTreasury_.budgetStakeLedger();
         IBudgetStackDeployer deployer = IBudgetStackDeployer(stackDeployer);
         IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            IGoalTreasury(goalTreasury).budgetStakeLedger(),
-            goalFlow,
-            address(0)
+            budgetStakeLedger,
+            goalFlow
         );
 
         _requirePreparedStack(prepared);
@@ -196,16 +199,18 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             successAssertionPolicyHash: config.successAssertionPolicyHash,
             spendPolicy: budgetSpendPolicy
         });
-        budgetTreasury_ = deployer.deployBudgetTreasury(
-            prepared.budgetTreasury,
-            budgetTreasuryConfig,
-            IBudgetStackDeployer.RiskModuleInitConfig({
-                budgetStakeLedger: address(0),
-                goalFlow: goalFlow,
-                underwriterSlasherRouter: address(0),
-                budgetSlashPpm: 0
-            })
-        );
+        budgetTreasury_ = prepared.premiumEscrow == address(0)
+            ? deployer.deployBudgetTreasury(prepared.budgetTreasury, budgetTreasuryConfig)
+            : deployer.deployBudgetTreasuryWithRiskModule(
+                prepared.budgetTreasury,
+                budgetTreasuryConfig,
+                IBudgetStackDeployer.RiskModuleInitConfig({
+                    budgetStakeLedger: budgetStakeLedger,
+                    goalFlow: goalFlow,
+                    underwriterSlasherRouter: IStakeVault(goalTreasury_.stakeVault()).underwriterSlasher(),
+                    budgetSlashPpm: 0
+                })
+            );
         if (budgetTreasury_ != prepared.budgetTreasury) revert ITEM_NOT_DEPLOYED();
 
         _recordBudgetStackTopology(itemID, childFlow_, budgetTreasury_, prepared.premiumEscrow, prepared.strategy);
@@ -365,12 +370,13 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             attempted += 1;
             _applyBudgetGatePolicy(itemID, deployment);
 
-            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
-            bool success;
-            try treasury.sync() {
-                success = true;
+            BudgetControllerSyncLib.SyncAttempt memory attempt = BudgetControllerSyncLib.trySyncBudgetTreasury(
+                itemID,
+                budgetTreasury_
+            );
+            if (attempt.success) {
                 succeeded += 1;
-                if (treasury.resolved()) {
+                if (attempt.terminal) {
                     (bool removedFromParent, bool goalSynced) = _pruneTerminalBudgetLocal(
                         itemID,
                         deployment,
@@ -385,10 +391,8 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
                         goalSynced
                     );
                 }
-            } catch (bytes memory reason) {
-                emit BudgetTreasuryCallFailed(itemID, budgetTreasury_, IBudgetTreasury.sync.selector, reason);
             }
-            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury_, success);
+            emit BudgetTreasuryBatchSyncAttempted(itemID, budgetTreasury_, attempt.success);
 
             unchecked {
                 ++i;
@@ -459,14 +463,14 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         address budgetTreasury_,
         bool detachParentRecipient
     ) private returns (bool removedFromParent, bool goalSynced) {
-        if (detachParentRecipient) {
-            removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
-                IFlow(goalFlow),
-                itemID,
-                deployment.childFlow
-            );
-        }
-        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
+        (removedFromParent, goalSynced) = BudgetControllerSyncLib.pruneTerminalRecipientAndSyncGoal(
+            IFlow(goalFlow),
+            IGoalTreasury(goalTreasury),
+            itemID,
+            deployment.childFlow,
+            budgetTreasury_,
+            detachParentRecipient
+        );
         _setItemActive(itemID, false);
     }
 

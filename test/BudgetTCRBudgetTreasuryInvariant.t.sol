@@ -79,7 +79,7 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function initializeWithConfig(address, StackModuleConfig calldata, address) external {}
 
-    function prepareBudgetStack(address, address, address) external returns (PreparationResult memory result) {
+    function prepareBudgetStack(address, address) external returns (PreparationResult memory result) {
         result = PreparationResult({
             strategy: strategy,
             budgetTreasury: preparedBudgetTreasury,
@@ -90,6 +90,13 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     }
 
     function deployBudgetTreasury(
+        address,
+        IBudgetTreasury.BudgetConfig calldata
+    ) external returns (address budgetTreasury) {
+        budgetTreasury = deployedBudgetTreasury;
+    }
+
+    function deployBudgetTreasuryWithRiskModule(
         address,
         IBudgetTreasury.BudgetConfig calldata,
         IBudgetStackDeployer.RiskModuleInitConfig calldata
@@ -259,7 +266,12 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            budgetGatePolicy: budgetGatePolicy,
+            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
+                budgetGatePolicy: budgetGatePolicy,
+                premiumEscrowImplementation: premiumEscrowImplementation,
+                underwriterSlasherRouter: underwriterSlasherRouter,
+                requireZeroPremiumAndSlashRates: false
+            }),
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),
@@ -267,8 +279,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
-            premiumEscrowImplementation: premiumEscrowImplementation,
-            underwriterSlasherRouter: underwriterSlasherRouter,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({

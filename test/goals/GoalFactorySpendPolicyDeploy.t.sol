@@ -947,9 +947,9 @@ contract FactoryDeployMockBudgetTcrFactory {
         IArbitrator.ArbitratorParams calldata
     ) external returns (BudgetTCRFactory.DeployedBudgetTCRStack memory deployed) {
         lastBudgetSpendPolicy = deploymentConfig.budgetSpendPolicy;
-        lastBudgetGatePolicy = deploymentConfig.budgetGatePolicy;
-        lastPremiumEscrowImplementation = deploymentConfig.premiumEscrowImplementation;
-        lastUnderwriterSlasherRouter = deploymentConfig.underwriterSlasherRouter;
+        lastBudgetGatePolicy = deploymentConfig.riskModuleRouting.budgetGatePolicy;
+        lastPremiumEscrowImplementation = deploymentConfig.riskModuleRouting.premiumEscrowImplementation;
+        lastUnderwriterSlasherRouter = deploymentConfig.riskModuleRouting.underwriterSlasherRouter;
         deployed.budgetTCR = deployedBudgetTcr;
         deployed.arbitrator = address(0xA11CE);
         deployed.token = address(0xCAFE);
