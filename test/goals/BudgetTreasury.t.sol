@@ -1957,6 +1957,96 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         assertTrue(treasury.resolved());
     }
 
+    function test_failRemovedBudget_onlyController() public {
+        vm.prank(outsider);
+        vm.expectRevert(IBudgetTreasury.ONLY_CONTROLLER.selector);
+        treasury.failRemovedBudget();
+    }
+
+    function test_failRemovedBudget_fromActive_disablesSuccessResolution_andKeepsSyncTerminal() public {
+        superToken.mint(address(flow), 100e18);
+        _setIncomingFlowRate(100);
+        treasury.sync();
+        _warpPastFundingDeadline(treasury);
+        _registerSuccessAssertion(treasury);
+
+        bytes32 assertionId = treasury.pendingSuccessAssertionId();
+
+        vm.expectEmit(true, false, false, false, address(treasury));
+        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(false, false, false, false, address(treasury));
+        emit IBudgetTreasury.SuccessResolutionDisabled();
+        vm.prank(owner);
+        treasury.failRemovedBudget();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertTrue(treasury.successResolutionDisabled());
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(flow.targetOutflowRate(), 0);
+
+        superToken.mint(address(flow), 50e18);
+        _setIncomingFlowRate(75);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(treasury.resolved());
+        assertEq(flow.targetOutflowRate(), 0);
+    }
+
+    function test_failRemovedBudget_skipsInlineControllerPrune_butRetryStillRunsIt() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        target.initialize(address(controllerMock), config);
+
+        superToken.mint(address(flow), 100e18);
+        _setIncomingFlowRate(100);
+        target.sync();
+
+        vm.prank(address(controllerMock));
+        target.failRemovedBudget();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(controllerMock.pruneCallCount(), 0);
+
+        vm.prank(outsider);
+        target.retryTerminalSideEffects();
+
+        assertEq(controllerMock.pruneCallCount(), 1);
+        assertEq(controllerMock.lastBudgetTreasury(), address(target));
+    }
+
+    function test_failRemovedBudget_fromFunding_stillSettlesResidualToParent_whileSkippingInlinePrune() public {
+        BudgetTreasuryMockController controllerMock = new BudgetTreasuryMockController();
+
+        BudgetTreasury target = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.activationThreshold = 200e18;
+        target.initialize(address(controllerMock), config);
+
+        uint256 fundedAmount = 100e18;
+        superToken.mint(address(flow), fundedAmount);
+        address parentBefore = flow.parent();
+        uint256 parentBalanceBefore = superToken.balanceOf(parentBefore);
+
+        vm.prank(address(controllerMock));
+        target.failRemovedBudget();
+
+        assertEq(uint256(target.state()), uint256(IBudgetTreasury.BudgetState.Failed));
+        assertTrue(target.resolved());
+        assertEq(target.activatedAt(), 0);
+        assertTrue(target.successResolutionDisabled());
+        assertEq(controllerMock.pruneCallCount(), 0);
+        assertEq(flow.sweepCallCount(), 1);
+        assertEq(flow.lastSweepTo(), parentBefore);
+        assertEq(flow.lastSweepAmount(), fundedAmount);
+        assertEq(superToken.balanceOf(parentBefore) - parentBalanceBefore, fundedAmount);
+        assertEq(superToken.balanceOf(address(flow)), 0);
+    }
+
     function test_resolveFailure_onlyController() public {
         vm.prank(outsider);
         vm.expectRevert(IBudgetTreasury.ONLY_CONTROLLER.selector);
@@ -2299,8 +2389,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         _warpPastFundingDeadline(treasury);
         treasury.sync();
 
-        uint64 expectedDeadline =
-            uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()));
+        uint64 expectedDeadline = uint64(uint256(treasury.fundingDeadline()) + uint256(treasury.executionDuration()));
         IBudgetTreasury.BudgetLifecycleStatus memory activeStatus = treasury.lifecycleStatus();
         assertEq(uint256(activeStatus.currentState), uint256(IBudgetTreasury.BudgetState.Active));
         assertFalse(activeStatus.isResolved);

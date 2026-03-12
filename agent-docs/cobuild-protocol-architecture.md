@@ -228,6 +228,8 @@ Community root routing
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
 - Managed-preset risk routing keeps the same controller/treasury/escrow seam through `NullPremiumEscrow`:
   - manager-reward stream still points at an escrow-shaped module,
+  - managed factory/controller wiring leaves budget-ledger and underwriter-router references unset by default,
+  - `NullPremiumEscrow` keeps budget-treasury/goal-flow identity only and ignores stake-ledger/slasher init inputs,
   - runtime premium accrual, claims, slashing, and burn-on-failure are intentional no-ops,
   - nonzero managed premium/slash parameters are rejected at deployment,
   - live budget enablement remains controller/gate-policy driven rather than underwriter-coverage driven.
@@ -342,8 +344,8 @@ Community root routing
   - pre-activation removals disable budget success resolution and strict-finalize to `Failed`,
   - activation-locked removals preserve normal terminal progression and use `retryRemovedBudgetResolution(...)` for spend-stop plus treasury progression.
 - Managed-preset removal semantics stay on `ManagedBudgetController`:
-  - `removeBudget(...)` removes the goal-flow recipient and fail-closes the treasury on removal,
-  - activated removals use the treasury's controller-only removal terminalization path, so later permissionless `sync()` calls remain terminal no-ops,
+  - `removeBudget(...)` removes the goal-flow recipient, fail-closes the treasury for both funding and activated budgets, and best-effort syncs the goal treasury inline,
+  - the treasury skips its redundant controller-prune callback during that controller-orchestrated removal finalization, so later permissionless `sync()` calls remain terminal no-ops without requiring an immediate retry,
   - `pruneTerminalBudget(...)` remains permissionless through shared `IBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal slasher wiring is initialization-bound:

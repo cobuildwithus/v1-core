@@ -148,8 +148,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - retry progression for delisted activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only,
   - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; same-byte resubmission is only valid when the earlier request was removed before activation deployed a child-flow recipient.
 - Managed-preset controller removals use fail-closed terminalization:
-  - pre-activation removals still strict-finalize to terminal `Failed`,
-  - activated removals call the treasury's controller-only removal fail-close path, terminalize immediately to `Failed`, and keep future `sync()` calls as terminal no-ops.
+  - removals use the treasury's controller-only removal fail-close path for both pre-activation and activated budgets,
+  - the controller removes the goal-flow recipient, marks the topology inactive, and best-effort syncs the goal treasury inline in the same removal transaction,
+  - the treasury skips its redundant controller-prune callback during that removal finalization, while later `retryTerminalSideEffects()` calls still retry the normal terminal side-effect set,
+  - future `sync()` calls remain terminal no-ops after removal.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,
   - flow stop, residual settlement, deferred-hook settlement, budget premium-escrow close, and stake-vault marking are best-effort during finalize and permissionlessly retryable via terminal-side-effect retries.

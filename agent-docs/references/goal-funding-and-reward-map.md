@@ -87,10 +87,11 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 ### Managed preset risk path
 
 - Manager reward stream routes into `NullPremiumEscrow` to satisfy the same escrow seam without doing premium accounting.
-- `NullPremiumEscrow` still records wiring (`budgetTreasury`, `budgetStakeLedger`, `goalFlow`, `underwriterSlasherRouter`, `budgetSlashPpm`) so the topology remains uniform.
+- Managed factory wiring leaves `budgetAllocationLedger` and `underwriterSlasherRouter` unset on `ManagedBudgetController` by default.
+- `NullPremiumEscrow` keeps only the identity it semantically uses (`budgetTreasury`, `goalFlow`) and ignores managed-unused ledger/router/slash init inputs.
 - Runtime premium, claim, slash, and burn operations are intentional no-ops.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
-- Managed removals now fail-close at the treasury layer: `ManagedBudgetController.removeBudget(...)` terminalizes activated removed budgets immediately through the controller-only removal path, so later `BudgetTreasury.sync()` calls cannot restart payout.
+- Managed removals now fail-close at the treasury layer for both funding and activated budgets: `ManagedBudgetController.removeBudget(...)` detaches the parent recipient, terminalizes through the controller-only removal path, and best-effort syncs the goal treasury inline, so later `BudgetTreasury.sync()` calls cannot restart payout.
 
 ## Stake, Coverage, and Reward Semantics
 

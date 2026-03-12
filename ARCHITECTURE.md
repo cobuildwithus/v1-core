@@ -160,7 +160,7 @@ Managed preset
     `executionDuration`.
 - Managed-preset risk wiring keeps the same controller/treasury/escrow seam without live premium accounting:
   - manager-reward stream routes to `NullPremiumEscrow`,
-  - `NullPremiumEscrow` preserves the `IPremiumEscrow` topology seam for budget treasury, stake-ledger, goal-flow, and slasher wiring,
+  - managed controller wiring now leaves budget-ledger/slasher references unset by default, while `NullPremiumEscrow` keeps the `IPremiumEscrow` seam with only budget-treasury/goal-flow identity and ignores ledger/slasher inputs,
   - claim, slash, burn-on-failure, and close side effects are intentional no-ops,
   - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
@@ -260,10 +260,11 @@ Managed preset
   - budget success assertions are pre-deadline by default, with a one-time post-deadline registration exception during active reassert grace,
   - once registered, success can finalize after deadline,
   - pending success assertions block terminalization only while unresolved.
-- Removed budgets are terminalized via `BudgetTCR` removal flows:
-  - removal unregisters the budget from `BudgetStakeLedger` and removes the parent goal-flow recipient,
-  - pre-activation removal disables budget success resolution and strict-finalizes terminal `Failed`,
-  - activation-locked removal enforces spend-stop and preserves normal success/expiry/failure lifecycle progression (no auto-forced failure on removal),
+- Removed-budget terminalization is preset-specific:
+  - open-preset `BudgetTCR` removals unregister the budget from `BudgetStakeLedger` and remove the parent goal-flow recipient,
+  - open-preset pre-activation removal disables budget success resolution and strict-finalizes terminal `Failed`,
+  - open-preset activation-locked removal enforces spend-stop and preserves normal success/expiry/failure lifecycle progression (no auto-forced failure on removal),
+  - managed-preset `ManagedBudgetController` removal detaches the parent recipient, fail-closes through `failRemovedBudget()`, and best-effort syncs the goal treasury inline,
   - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; only pre-activation removals may be resubmitted because no child-flow recipient was deployed yet.
 
 3. Allocation determinism
@@ -344,8 +345,9 @@ Managed preset
   - pre-activation removals retry terminal-only resolution,
   - activation-locked removals retry spend-stop + treasury sync progression.
 - `ManagedBudgetController` fail-closes removals on the managed preset:
-  - pre-activation removals remain strict terminal `Failed`,
-  - activated removals use the treasury's controller-only removal terminalization path, so later `sync()` calls cannot reopen spend after removal.
+  - removals use the treasury's controller-only removal terminalization path for both pre-activation and activated budgets,
+  - the controller finishes parent detachment plus best-effort goal sync inline, while the treasury skips the redundant inline prune callback for that removal finalization,
+  - later `sync()` calls cannot reopen spend after removal.
 - Budget controllers expose permissionless best-effort budget treasury batch sync:
 - open preset (`BudgetTCR.syncBudgetTreasuries`):
   - skips undeployed/inactive item IDs,
