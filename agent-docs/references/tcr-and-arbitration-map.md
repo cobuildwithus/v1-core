@@ -43,10 +43,10 @@
 5. On accepted delisting (on-chain remove/finalize-removed path), `BudgetTCR` clears any pending registration and queues pending removal finalization (`BudgetStackRemovalQueued`) so TCR request resolution remains uncoupled from flow calls.
 6. Any caller can run `finalizeRemovedBudget(...)` to remove parent recipient + stake-ledger mapping and enforce `forceFlowRateToZero`:
    - pre-activation delistings strict-finalize through controller-gated failure resolution,
-   - activation-locked delistings do not auto-force failure.
+   - activation-locked delistings are detach semantics, not implicit fail-close: parent funding stops immediately, already received funds stay under the treasury's normal lifecycle, and removal alone does not auto-force failure.
 7. If a delisted budget remains unresolved after finalization, anyone can call `retryRemovedBudgetResolution(...)`:
    - pre-activation delistings retry terminal-only resolution,
-   - activation-locked delistings retry spend-stop + treasury `sync()` progression.
+   - activation-locked delistings retry spend-stop + treasury `sync()` progression until the detached budget reaches its normal terminal outcome.
 8. Factory-time deployment requires a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, arbitrator, and deployer implementations.
 9. `BudgetTCRFactory` does not use ERC1967 proxy paths for BudgetTCR runtime instances.
 

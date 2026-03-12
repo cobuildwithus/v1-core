@@ -67,6 +67,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - if premium arrives when total budget coverage is zero, it is recycled to the goal funding path (no orphan premium custody),
   - if the goal expires, escrowed premium can be permissionlessly swept via `burnOnGoalFailure()` to goal flow and burned via terminal residual settlement,
   - on budget terminalization, budget treasury best-effort closes escrow with `(finalState, activatedAt, resolvedAt)` metadata.
+  - accepted open-preset removal of an already-activated budget is detachment, not implicit fail-close: parent funding stops immediately, but already received funds stay governed by the treasury's normal terminal path.
+  - goal expiry removes premium upside by making escrowed premium sweepable/burnable, but it does not by itself create a new principal-slash path outside budget terminalization.
 - Community root routing is canonical-terminal-seeded and split-driven:
   - `CobuildCommunityTerminalFactory` is the canonical deployer for the community-scoped split hook:
     - it deterministically derives the split-hook clone address from `(caller, goalRegistry, routeSetter, salt)`,
@@ -124,6 +126,8 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on fixed budget
     `executionDuration`,
   - slashing is idempotent per underwriter per escrow.
+  - budgets that never activated (`activatedAt == 0`), including funding-window misses and pre-activation removals, are not slashable and lose upside only.
+  - activated budgets that were later delisted from the open preset keep normal terminal economics after detachment: terminal `Succeeded` preserves success-side premium eligibility (still subject to goal success), while terminal `Failed` or `Expired` remain slashable.
 - Slashed value recycle path is routed and observable:
   - `PremiumEscrow` calls per-goal `UnderwriterSlasherRouter`,
   - router executes stake-vault underwriter slashing, attempts cobuild->goal conversion via revnet terminal, upgrades to goal SuperToken,
@@ -144,7 +148,10 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Pending assertions block active-state terminalization races only while unresolved.
 - Open-preset accepted budget delistings (on-chain `removeItem`/`finalizeRemovedBudget`) use activation-locked split semantics:
   - pre-activation delisting disables budget success resolution at delist-acceptance and strict-finalizes the budget to terminal `Failed`,
-  - activation-locked delisting stops forward spend/funding while preserving success eligibility and does not auto-force `Failed`,
+  - activation-locked delisting is detach semantics, not implicit fail-close,
+  - activation-locked delisting removes the parent recipient / stake-ledger registration so no new parent funding or governance-backed expansion enters through the open preset after removal,
+  - activation-locked delisting force-zeroes forward spend immediately but preserves already received funds and any pending success assertion,
+  - activation-locked delisting keeps normal treasury terminal progression (`Succeeded`, `Failed`, or `Expired`) through later `sync()` / `retryRemovedBudgetResolution(...)` handling rather than auto-forcing `Failed`,
   - retry progression for delisted activation-locked budgets enforces spend-stop then attempts treasury `sync()`; pre-activation retries remain terminal-only,
   - exact-byte relists are rejected once a stack has ever been deployed for that `itemID`; same-byte resubmission is only valid when the earlier request was removed before activation deployed a child-flow recipient.
 - Managed-preset controller removals use fail-closed terminalization:
