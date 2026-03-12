@@ -36,10 +36,9 @@ This batch must treat those items as fixed inputs and should not reopen them unl
 
 ## Current Launch Blockers
 
-- The remaining concrete dirty-file blocker in the premium batch target set is:
-  - `src/goals/BudgetTreasury.sol`
-- That blocks Worker A right now.
-- Worker B is structurally independent, but Workers C and D still depend on Worker A's core optional-premium shape, so keep the staged launch order.
+- `src/goals/BudgetTreasury.sol` is already dirty from another active lane.
+- Per parent direction, Worker A should layer on top of that live state without reverting unrelated edits.
+- Workers C and D still depend on Worker A's core optional-premium shape, so keep the staged launch order.
 
 ## Proposed Hard-Cut Decisions
 
@@ -133,10 +132,11 @@ This batch must treat those items as fixed inputs and should not reopen them unl
 ### Batch A: safe parallel start
 
 - Worker B
-- Worker A after the `BudgetTreasury` blocker clears
+- Worker A in parallel, layering on top of the dirty `BudgetTreasury.sol` state
 
 Rationale:
-- Worker B can move independently because it stays out of the currently dirty treasury file.
+- Worker B can move independently because it stays out of the dirty treasury file.
+- Worker A is explicitly authorized to work on top of the dirty treasury file instead of blocking on it.
 - Worker A still defines the canonical optional-premium core surface, so Workers C and D should wait for it even if Worker B finishes first.
 
 ### Batch B: after Worker A lands or parent integrates its core surface
