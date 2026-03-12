@@ -61,6 +61,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
         stackDeployer = new ManagedBudgetControllerMockStackDeployer();
+        stackDeployer.setChildFlowRecipientAdmin(address(controller));
         spendPolicy = new ManagedBudgetControllerMockSpendPolicy();
 
         goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
@@ -135,6 +136,16 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(IFlow(childFlowB).recipientAdmin(), address(controller));
         assertEq(IFlow(childFlowB).flowOperator(), treasuryB);
         assertEq(IFlow(childFlowB).sweeper(), treasuryB);
+    }
+
+    function test_createBudget_revertsWhenPreparedChildFlowRecipientAdminIsNotController() public {
+        address childAdmin = address(new ManagedBudgetControllerDummyContract());
+        stackDeployer.setChildFlowRecipientAdmin(childAdmin);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IManagedBudgetController.INVALID_CHILD_FLOW_RECIPIENT_ADMIN.selector, childAdmin)
+        );
+        _createBudget(bytes32(uint256(1)), "Budget A");
     }
 
     function test_controllerCanUpdateLiveBudgetWeights() public {
@@ -575,6 +586,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
         ManagedBudgetControllerMockGoalTreasury deployedGoalTreasury = new ManagedBudgetControllerMockGoalTreasury();
         ManagedBudgetControllerMockStackDeployer deployedStackDeployer = new ManagedBudgetControllerMockStackDeployer();
+        deployedStackDeployer.setChildFlowRecipientAdmin(address(deployedController));
         ManagedBudgetControllerMockSpendPolicy deployedSpendPolicy = new ManagedBudgetControllerMockSpendPolicy();
 
         SingleAllocatorStrategy deployedGoalStrategy =
@@ -594,6 +606,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
             )
         );
         deployedGoalTreasury.setFlow(address(deployedGoalFlow));
+        deployedGoalTreasury.setBudgetStakeLedger(address(new ManagedBudgetControllerMockBudgetStakeLedger()));
 
         deployedController.initialize(
             IManagedBudgetController.InitConfig({
@@ -706,7 +719,8 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
-        childStrategyFactory = new BudgetSingleAllocatorStrategyFactory();
+        childStrategyFactory =
+            new BudgetSingleAllocatorStrategyFactory(address(new BudgetSingleAllocatorStrategy(address(0), address(0))));
         nullPremiumEscrowImplementation = new NullPremiumEscrow();
         BudgetTCRDeployer deployerImplementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
@@ -1172,6 +1186,12 @@ contract ManagedBudgetControllerMockBudgetTreasury {
 }
 
 contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
+    address public childFlowRecipientAdmin;
+
+    function setChildFlowRecipientAdmin(address childFlowRecipientAdmin_) external {
+        childFlowRecipientAdmin = childFlowRecipientAdmin_;
+    }
+
     function controller() external view returns (address controller_) {
         controller_ = address(this);
     }
@@ -1182,6 +1202,7 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
         result.premiumEscrow = address(new ManagedBudgetControllerMockPremiumEscrow());
+        result.childFlowRecipientAdmin = childFlowRecipientAdmin;
     }
 
     function deployBudgetTreasury(

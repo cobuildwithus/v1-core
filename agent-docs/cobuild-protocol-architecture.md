@@ -39,7 +39,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Pluggable budget controllers / topology registries: `src/tcr/BudgetTCR.sol`, `src/goals/ManagedBudgetController.sol`
 - Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol`, `src/goals/policies/*.sol`
 - Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, `src/goals/NullPremiumEscrow.sol`, `src/goals/UnderwriterSlasherRouter.sol`
-- Managed budget stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`
+- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/tcr/BudgetTCRDeployer.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
 - Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`
@@ -90,7 +90,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
-- Premium / risk module: `NullPremiumEscrow`
+- Premium / risk module: shared stateless `NullPremiumEscrow`
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
@@ -240,7 +240,7 @@ Community root routing
 - Managed-preset risk routing keeps the same controller/treasury/escrow seam through `NullPremiumEscrow`:
   - manager-reward stream still points at an escrow-shaped module,
   - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config and instead hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
-  - `NullPremiumEscrow` keeps budget-treasury/goal-flow identity only and ignores stake-ledger/slasher init inputs,
+  - `NullPremiumEscrow` is a shared stateless shim and ignores stake-ledger/slasher init inputs,
   - runtime premium accrual, claims, slashing, and burn-on-failure are intentional no-ops,
   - nonzero managed premium/slash parameters are rejected at deployment,
   - live budget enablement remains controller/gate-policy driven rather than underwriter-coverage driven.
@@ -318,7 +318,7 @@ Community root routing
   - `PremiumEscrow.close` freezes coverage at budget terminalization,
   - `PremiumEscrow.slash` treats `creditDrawn` as first-loss principal attributed to the underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and dispatches to `UnderwriterSlasherRouter`,
   - slash uses `min(creditDrawn, peakCov * budgetSlashPpm / 1e6)` and does not depend on budget `executionDuration`.
-- Managed preset keeps the same seam via `NullPremiumEscrow`, but premium, claim, slash, and burn accounting are intentionally inert.
+- Managed preset keeps the same seam via shared `NullPremiumEscrow`, but premium, claim, slash, and burn accounting are intentionally inert.
 - Underwriter withdrawals are caller-prepared post-resolution:
   - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
   - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.
@@ -332,7 +332,7 @@ Community root routing
 7. Budget control-plane stack lifecycle
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
 - Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
-- Managed preset budget creations first call `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)`, which only prepares a cloned `BudgetTreasury`, a cloned `NullPremiumEscrow`, and a per-budget `BudgetSingleAllocatorStrategy`.
+- Managed preset budget creations first call a managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)`, which prepares a cloned `BudgetTreasury`, the shared `NullPremiumEscrow`, and a per-budget `BudgetSingleAllocatorStrategy`.
 - Live `goalFlow` and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
 - Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:
@@ -347,8 +347,9 @@ Community root routing
   - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy resolves effective budget address via `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.
 - Stack deployers are mechanical:
-  - `BudgetTCRDeployer` is `onlyBudgetTCR`,
-  - `ManagedBudgetControllerStackDeployer` is `ONLY_CONTROLLER`.
+  - `BudgetTCRDeployer` is the shared `IBudgetStackDeployer` implementation,
+  - open preset clones are `onlyController` for `BudgetTCR`,
+  - managed preset clones are `onlyController` for `ManagedBudgetController`.
 - Stack deployers use clone-first treasury setup and initialize the treasury after child-flow creation.
 - Runtime parent-flow recipient add/remove operations are executed by the active budget controller.
 - Open-preset removal semantics stay on `BudgetTCR`:

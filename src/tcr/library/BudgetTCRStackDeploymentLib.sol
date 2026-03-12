@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrow } from "src/interfaces/IPremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
@@ -12,63 +12,44 @@ library BudgetTCRStackDeploymentLib {
     error INVALID_TREASURY_CONFIGURATION(address treasury);
 
     function deployBudgetTreasury(
-        address budgetTCR,
+        address controller,
         address budgetTreasury,
-        address premiumEscrow,
-        address childFlow,
-        address budgetStakeLedger,
-        address goalFlow,
-        address underwriterSlasherRouter,
-        uint32 budgetSlashPpm,
-        IBudgetTCR.BudgetListing memory listing,
-        address successResolver,
-        address spendPolicy,
-        uint64 successAssertionLiveness,
-        uint256 successAssertionBond
+        IBudgetTreasury.BudgetConfig memory budgetConfig,
+        IBudgetStackDeployer.RiskModuleInitConfig memory riskModuleInitConfig
     ) internal returns (address) {
-        if (budgetTCR == address(0)) revert ADDRESS_ZERO();
+        if (controller == address(0)) revert ADDRESS_ZERO();
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
-        if (premiumEscrow == address(0)) revert ADDRESS_ZERO();
-        if (childFlow == address(0)) revert ADDRESS_ZERO();
-        if (goalFlow == address(0)) revert ADDRESS_ZERO();
-        if (successResolver == address(0)) revert ADDRESS_ZERO();
-        if (spendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (budgetConfig.flow == address(0)) revert ADDRESS_ZERO();
+        if (budgetConfig.premiumEscrow == address(0)) revert ADDRESS_ZERO();
+        if (budgetConfig.successResolver == address(0)) revert ADDRESS_ZERO();
+        if (budgetConfig.spendPolicy == address(0)) revert ADDRESS_ZERO();
+        if (riskModuleInitConfig.goalFlow == address(0)) revert ADDRESS_ZERO();
 
         if (budgetTreasury.code.length == 0) revert INVALID_TREASURY(budgetTreasury);
 
-        BudgetTreasury(budgetTreasury).initialize(
-            budgetTCR,
-            IBudgetTreasury.BudgetConfig({
-                flow: childFlow,
-                premiumEscrow: premiumEscrow,
-                fundingDeadline: listing.fundingDeadline,
-                executionDuration: listing.executionDuration,
-                activationThreshold: listing.activationThreshold,
-                runwayCap: listing.runwayCap,
-                successResolver: successResolver,
-                successAssertionLiveness: successAssertionLiveness,
-                successAssertionBond: successAssertionBond,
-                successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-                successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
-                spendPolicy: spendPolicy
-            })
-        );
+        BudgetTreasury(budgetTreasury).initialize(controller, budgetConfig);
 
-        _assertTreasuryConfiguration(budgetTreasury, budgetTCR, childFlow, premiumEscrow, spendPolicy);
-        // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
-        IPremiumEscrow(premiumEscrow).initialize(
+        _assertTreasuryConfiguration(
             budgetTreasury,
-            budgetStakeLedger,
-            goalFlow,
-            underwriterSlasherRouter,
-            budgetSlashPpm
+            controller,
+            budgetConfig.flow,
+            budgetConfig.premiumEscrow,
+            budgetConfig.spendPolicy
+        );
+        // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
+        IPremiumEscrow(budgetConfig.premiumEscrow).initialize(
+            budgetTreasury,
+            riskModuleInitConfig.budgetStakeLedger,
+            riskModuleInitConfig.goalFlow,
+            riskModuleInitConfig.underwriterSlasherRouter,
+            riskModuleInitConfig.budgetSlashPpm
         );
         return budgetTreasury;
     }
 
     function _assertTreasuryConfiguration(
         address budgetTreasury,
-        address budgetTCR,
+        address controller,
         address childFlow,
         address premiumEscrow,
         address spendPolicy
@@ -101,7 +82,7 @@ library BudgetTCRStackDeploymentLib {
         }
 
         if (
-            configuredController != budgetTCR ||
+            configuredController != controller ||
             configuredFlow != childFlow ||
             configuredPremiumEscrow != premiumEscrow ||
             configuredSpendPolicy != spendPolicy

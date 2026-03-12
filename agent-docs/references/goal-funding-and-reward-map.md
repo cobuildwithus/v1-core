@@ -67,14 +67,14 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 1. `ManagedBudgetController` is the budget controller, topology registry, and goal-level allocator identity.
 2. `GoalFactoryManagedPresetDeploy` wires:
    - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
-   - `ManagedBudgetControllerStackDeployer` for budget child stacks
+   - a cloned `BudgetTCRDeployer` configured through `IBudgetStackDeployer` for budget child stacks
    - no managed gate-policy module by default (`budgetGatePolicy = address(0)`)
-   - `NullPremiumEscrow`
-3. `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` only prepares the controller-scoped managed stack pieces:
+   - shared stateless `NullPremiumEscrow`
+3. The managed stack deployer clone only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
-   - cloned `NullPremiumEscrow`
-   - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
-   The later `deployBudgetTreasury(...)` step wires live `goalFlow` and goal-treasury-derived runtime context after the child flow exists.
+   - shared `NullPremiumEscrow`
+   - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy` from `BudgetSingleAllocatorStrategyFactory`
+   The later `deployBudgetTreasury(...)` step wires neutral treasury config plus managed risk-init no-ops after the child flow exists.
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
 6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes recipient/topology state locally in that same batch instead of relying on the treasury's callback reentry path.
@@ -101,7 +101,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 
 - Manager reward stream routes into `NullPremiumEscrow` to satisfy the same escrow seam without doing premium accounting.
 - Managed controller no longer stores `budgetAllocationLedger`, `underwriterSlasherRouter`, `budgetPremiumPpm`, or `budgetSlashPpm`.
-- `NullPremiumEscrow` keeps only the identity it semantically uses (`budgetTreasury`, `goalFlow`) and ignores managed-unused ledger/router/slash init inputs.
+- `NullPremiumEscrow` is a stateless shared shim; it ignores all init inputs and exposes only inert premium / claim / slash behavior.
 - Runtime premium, claim, slash, and burn operations are intentional no-ops.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
 - Managed removals now fail-close at the treasury layer for both funding and activated budgets: `ManagedBudgetController.removeBudget(...)` detaches the parent recipient, terminalizes through the controller-only removal path, and best-effort syncs the goal treasury inline, so later `BudgetTreasury.sync()` calls cannot restart payout.
@@ -129,9 +129,9 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/NullPremiumEscrow.sol`
 - `src/goals/ManagedBudgetController.sol`
-- `src/goals/ManagedBudgetControllerStackDeployer.sol`
 - `src/tcr/BudgetTCR.sol`
 - `src/tcr/BudgetTCRDeployer.sol`
+- `src/interfaces/IBudgetStackDeployer.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
 - `src/juicebox/CobuildExitRouter.sol`
 - `src/juicebox/CobuildGoalTerminal.sol`

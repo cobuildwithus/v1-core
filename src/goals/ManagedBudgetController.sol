@@ -160,11 +160,14 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         );
 
         _requirePreparedStack(prepared);
+        if (prepared.childFlowRecipientAdmin != address(this)) {
+            revert INVALID_CHILD_FLOW_RECIPIENT_ADMIN(prepared.childFlowRecipientAdmin);
+        }
 
         (, childFlow_) = ICustomFlow(goalFlow).addFlowRecipient(
             itemID,
             config.metadata,
-            address(this),
+            prepared.childFlowRecipientAdmin,
             prepared.budgetTreasury,
             prepared.budgetTreasury,
             prepared.premiumEscrow,

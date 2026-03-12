@@ -15,6 +15,15 @@ import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
@@ -30,7 +39,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     GoalFactory internal factory;
     MockBudgetTcrFactory internal budgetTcrFactory;
-    MockBudgetTcrStackDeployerMetadata internal budgetTcrStackDeployerMetadata;
+    BudgetTCRDeployer internal budgetTcrStackDeployerImplementation;
     MockDirectory internal revnetDirectory;
     MockTokens internal revnetTokens;
     MockController internal revnetController;
@@ -64,8 +73,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revDeployer = new MockRevDeployer(address(revnetDirectory), address(revnetController));
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
         paymentToken = new MockToken();
-        budgetTcrStackDeployerMetadata = new MockBudgetTcrStackDeployerMetadata(address(new DummyContract()));
-        budgetTcrFactory = new MockBudgetTcrFactory(address(budgetTcrStackDeployerMetadata));
+        budgetTcrStackDeployerImplementation = _deployBudgetTcrDeployerImplementation();
+        budgetTcrFactory = new MockBudgetTcrFactory(address(budgetTcrStackDeployerImplementation));
 
         configuredJbMultiTerminal = address(new DummyContract());
         configuredGoalTreasuryImpl = address(new DummyContract());
@@ -438,6 +447,25 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revDeployer.setExpectedJbMultiTerminal(configuredJbMultiTerminal);
         revDeployer.setExpectedBuybackHooks(configuredBuybackHookDataHook, configuredBuybackHook);
         revDeployer.setRevertWithObserved(true);
+    }
+
+    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetTCRDeployer implementation) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
+        implementation = new BudgetTCRDeployer(
+            address(new DummyContract()),
+            roundFactory,
+            roundFactory,
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy())
+        );
     }
 
     function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {

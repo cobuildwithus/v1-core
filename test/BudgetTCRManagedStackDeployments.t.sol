@@ -9,6 +9,7 @@ import {BudgetTCRStorageV1} from "src/tcr/storage/BudgetTCRStorageV1.sol";
 import {GeneralizedTCRStorageV1} from "src/tcr/storage/GeneralizedTCRStorageV1.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
@@ -174,11 +175,12 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         deployer = _deployBudgetTcrDeployer();
         deployer.initializeWithConfig(
             address(harness),
-            IBudgetTCRStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetTCRStackDeployer.ChildFlowStrategyMode.Fixed,
+            IBudgetStackDeployer.StackModuleConfig({
+                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
                 childFlowStrategyTarget: address(fixedStrategy),
-                mechanismLayerMode: IBudgetTCRStackDeployer.MechanismLayerMode.None,
+                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
                 premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
                 requireZeroPremiumAndSlashRates: true
             }),
@@ -221,8 +223,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         assertEq(budgetStakeLedger.budgetForRecipient(itemID), deployment.budgetTreasury);
         assertTrue(underwriterSlasherRouter.isAuthorizedPremiumEscrow(deployment.premiumEscrow));
 
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetTreasury(), deployment.budgetTreasury);
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).goalFlow(), address(goalFlow));
+        assertEq(deployment.premiumEscrow, address(nullPremiumEscrowImplementation));
     }
 
     function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {
@@ -230,11 +231,12 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
         deployerWithEmitter.initializeWithConfig(
             address(harness),
-            IBudgetTCRStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetTCRStackDeployer.ChildFlowStrategyMode.Fixed,
+            IBudgetStackDeployer.StackModuleConfig({
+                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
                 childFlowStrategyTarget: address(fixedStrategy),
-                mechanismLayerMode: IBudgetTCRStackDeployer.MechanismLayerMode.None,
+                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
                 premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
                 requireZeroPremiumAndSlashRates: true
             }),

@@ -14,6 +14,7 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
 import { BudgetSingleAllocatorStrategyFactory } from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
+import { BudgetSingleAllocatorStrategy } from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
 import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
@@ -284,7 +285,12 @@ contract GoalFactory {
         address managedGoalAllocatorStrategyImplementation = address(
             new SingleAllocatorStrategy(address(0), address(0))
         );
-        address managedBudgetChildStrategyFactoryImplementation = address(new BudgetSingleAllocatorStrategyFactory());
+        address managedBudgetChildStrategyImplementation = address(
+            new BudgetSingleAllocatorStrategy(address(0), address(0))
+        );
+        address managedBudgetChildStrategyFactoryImplementation = address(
+            new BudgetSingleAllocatorStrategyFactory(managedBudgetChildStrategyImplementation)
+        );
         address managedPremiumEscrowImplementation = address(new NullPremiumEscrow());
 
         REV_DEPLOYER = revDeployer;

@@ -300,7 +300,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             try treasury.sync() {
                 success = true;
                 succeeded += 1;
-                if (treasury.resolved()) {
+                if (treasury.resolved() && goalFlow_.recipientExists(deployment.childFlow)) {
                     (bool removedFromParent, bool goalSynced) = _pruneTerminalBudgetLocal(
                         itemID,
                         deployment,

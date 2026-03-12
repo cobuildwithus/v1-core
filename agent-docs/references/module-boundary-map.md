@@ -31,8 +31,8 @@
 - Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses no managed gate policy / `address(0)`)
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
-- Premium / risk module: `src/goals/NullPremiumEscrow.sol`
-- Stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`
+- Premium / risk module: shared stateless `src/goals/NullPremiumEscrow.sol`
+- Stack deployer: configured clone of `src/tcr/BudgetTCRDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass
 - Child-flow `recipientAdmin`: `src/goals/ManagedBudgetController.sol`
 
@@ -71,8 +71,8 @@
   - `src/goals/PremiumEscrow.sol`
   - `src/goals/NullPremiumEscrow.sol`
   - `src/goals/ManagedBudgetController.sol`
-  - `src/goals/ManagedBudgetControllerStackDeployer.sol`
   - `src/goals/UnderwriterSlasherRouter.sol`
+  - `src/goals/SuccessAssertionDocumentRegistry.sol`
   - `src/goals/UMATreasurySuccessResolver.sol`
   - `src/goals/policies/*.sol`
 - Libraries: `src/goals/library/*.sol`
@@ -89,8 +89,11 @@
   - `src/interfaces/IBudgetGatePolicy.sol`
   - `src/interfaces/IBudgetStackTopologyReader.sol`
   - `src/interfaces/ISpendPolicy.sol`
+  - `src/interfaces/ISuccessAssertionDocumentRegistry.sol`
   - `src/interfaces/IStakeVault.sol`
   - `src/interfaces/IBudgetStakeLedger.sol`
+  - `src/interfaces/IBudgetStackDeployer.sol`
+  - `src/interfaces/IBudgetStackChildFlowStrategyFactory.sol`
   - `src/interfaces/IPremiumEscrow.sol`
   - `src/interfaces/IUnderwriterSlasherRouter.sol`
   - `src/interfaces/ITreasuryAuthority.sol`
@@ -98,10 +101,10 @@
   - `src/interfaces/ICobuildSplitHook.sol`
 - Community-routing boundary: `CommunityGoalRegistry` owns selectable-goal membership plus metadata, `GoalDeploymentRegistry` owns canonical `goalId -> goalTreasury`, `CobuildCommunityTerminalFactory` owns canonical split-hook deployment plus same-tx community-terminal registration, `CobuildCommunityTerminal` owns per-community pay routing plus community-layer cash-outs, `CobuildGoalTerminal` owns per-goal funding-context resolution, and `CobuildExitRouter` owns inferred multi-hop goal exit settlement.
 
-### TCR / arbitration / open-stack deployment domain
+### TCR / arbitration / stack deployment domain
 
 - Core: `src/tcr/GeneralizedTCR.sol`, `src/tcr/ERC20VotesArbitrator.sol`, `src/tcr/BudgetTCR.sol`, `src/tcr/CommunityGoalRegistry.sol`
-- Open budget stack orchestration: `src/tcr/BudgetTCRDeployer.sol`, `src/tcr/BudgetTCRFactory.sol`
+- Shared budget stack orchestration: `src/tcr/BudgetTCRDeployer.sol`, `src/tcr/BudgetTCRFactory.sol`
 - Mechanism registry / factory boundary: `src/tcr/AllocationMechanismTCR.sol`, `src/tcr/interfaces/IAllocationMechanismFactory.sol`
 - Supporting modules: `src/tcr/interfaces/**`, `src/tcr/storage/**`, `src/tcr/library/**`, `src/tcr/utils/**`, `src/tcr/strategies/**`
 

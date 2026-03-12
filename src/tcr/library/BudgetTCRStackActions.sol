@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IBudgetTCRStackDeployer } from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import { IERC20VotesArbitrator } from "src/tcr/interfaces/IERC20VotesArbitrator.sol";
@@ -11,7 +10,9 @@ import { BudgetTCRStorageV1 } from "src/tcr/storage/BudgetTCRStorageV1.sol";
 import { GeneralizedTCRStorageV1 } from "src/tcr/storage/GeneralizedTCRStorageV1.sol";
 import { BudgetTCRItems } from "src/tcr/library/BudgetTCRItems.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
+import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -56,16 +57,16 @@ library BudgetTCRStackActions {
         if (budgetStakeLedger == address(0)) revert IBudgetTCR.BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
 
         IFlow goalFlow = budgetStore.goalFlow();
-        IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(budgetStore.stackDeployer());
+        IBudgetStackDeployer deployer = IBudgetStackDeployer(budgetStore.stackDeployer());
         address underwriterSlasherRouter = budgetStore.underwriterSlasherRouter();
-        IBudgetTCRStackDeployer.StackModuleConfig memory stackModuleConfig = deployer.stackModuleConfig();
+        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = deployer.stackModuleConfig();
         uint32 budgetPremiumPpm = budgetStore.budgetPremiumPpm();
         uint32 budgetSlashPpm = budgetStore.budgetSlashPpm();
         if (stackModuleConfig.requireZeroPremiumAndSlashRates && (budgetPremiumPpm != 0 || budgetSlashPpm != 0)) {
             revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
         }
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
-        IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+        IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
             address(goalFlow),
             underwriterSlasherRouter
@@ -93,19 +94,29 @@ library BudgetTCRStackActions {
         deployer.emitBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, prepared.strategy);
 
         (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
+        IBudgetTreasury.BudgetConfig memory budgetConfig = IBudgetTreasury.BudgetConfig({
+            flow: childFlow,
+            premiumEscrow: premiumEscrow,
+            fundingDeadline: listing.fundingDeadline,
+            executionDuration: listing.executionDuration,
+            activationThreshold: listing.activationThreshold,
+            runwayCap: listing.runwayCap,
+            successResolver: budgetStore.budgetSuccessResolver(),
+            successAssertionLiveness: oracleLiveness,
+            successAssertionBond: oracleBondAmount,
+            successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
+            successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
+            spendPolicy: budgetStore.budgetSpendPolicy()
+        });
         address deployedBudgetTreasury = deployer.deployBudgetTreasury(
             budgetTreasury,
-            premiumEscrow,
-            childFlow,
-            budgetStakeLedger,
-            address(goalFlow),
-            underwriterSlasherRouter,
-            budgetSlashPpm,
-            listing,
-            budgetStore.budgetSuccessResolver(),
-            budgetStore.budgetSpendPolicy(),
-            oracleLiveness,
-            oracleBondAmount
+            budgetConfig,
+            IBudgetStackDeployer.RiskModuleInitConfig({
+                budgetStakeLedger: budgetStakeLedger,
+                goalFlow: address(goalFlow),
+                underwriterSlasherRouter: underwriterSlasherRouter,
+                budgetSlashPpm: budgetSlashPpm
+            })
         );
 
         address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
@@ -163,7 +174,7 @@ library BudgetTCRStackActions {
     }
 
     function _initializeBudgetAllocationMechanism(
-        IBudgetTCRStackDeployer deployer,
+        IBudgetStackDeployer deployer,
         address allocationMechanism,
         address budgetTreasury,
         IGoalTreasury goalTreasury,

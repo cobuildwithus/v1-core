@@ -40,6 +40,8 @@ import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/inte
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
+import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
 contract BudgetTCRInvariantPremiumEscrowConnectMock {
     function connectManagerRewardPool(address) external {}
@@ -71,6 +73,12 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
         _mechanismArbitratorImplementation = address(new ERC20VotesArbitrator());
     }
 
+    function controller() external view returns (address controller_) {
+        controller_ = address(this);
+    }
+
+    function initializeWithConfig(address, StackModuleConfig calldata, address) external {}
+
     function prepareBudgetStack(address, address, address) external returns (PreparationResult memory result) {
         result = PreparationResult({
             strategy: strategy,
@@ -83,17 +91,8 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function deployBudgetTreasury(
         address,
-        address,
-        address,
-        address,
-        address,
-        address,
-        uint32,
-        IBudgetTCR.BudgetListing calldata,
-        address,
-        address,
-        uint64,
-        uint256
+        IBudgetTreasury.BudgetConfig calldata,
+        IBudgetStackDeployer.RiskModuleInitConfig calldata
     ) external returns (address budgetTreasury) {
         budgetTreasury = deployedBudgetTreasury;
     }
@@ -110,9 +109,14 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
             childFlowStrategyTarget: address(0x2222222222222222222222222222222222222222),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
+            premiumEscrowMode: PremiumEscrowMode.Clone,
             premiumEscrowImplementation: address(0x4444444444444444444444444444444444444444),
             requireZeroPremiumAndSlashRates: false
         });
+    }
+
+    function premiumEscrowImplementation() external view returns (address implementation) {
+        implementation = premiumEscrow;
     }
 
     function roundFactory() external view returns (address) {

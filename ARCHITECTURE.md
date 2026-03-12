@@ -1,6 +1,6 @@
 # Cobuild Protocol Architecture
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 
 See `agent-docs/index.md` for the canonical documentation map.
 
@@ -40,6 +40,7 @@ cobuild-protocol/
 - Shared treasury mechanics base: `src/goals/TreasuryBase.sol`.
 - Goal lifecycle treasury: `src/goals/GoalTreasury.sol`.
 - Canonical deployed-goal registry: `src/goals/GoalDeploymentRegistry.sol`.
+- Canonical success-assertion document registry: `src/goals/SuccessAssertionDocumentRegistry.sol`.
 - Budget lifecycle treasury: `src/goals/BudgetTreasury.sol`.
 - Optional treasury spend-policy modules: `src/goals/policies/*.sol`.
 - Goal stake vault: `src/goals/StakeVault.sol`.
@@ -55,8 +56,8 @@ cobuild-protocol/
   - `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol` (managed-preset child-budget strategy scoped to one budget treasury flow).
 - Budget premium / risk modules:
   - `src/goals/PremiumEscrow.sol` (open preset)
-  - `src/goals/NullPremiumEscrow.sol` (managed preset)
-- Managed budget stack deployer: `src/goals/ManagedBudgetControllerStackDeployer.sol`.
+  - shared stateless `src/goals/NullPremiumEscrow.sol` (managed preset)
+- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` implemented by `src/tcr/BudgetTCRDeployer.sol`.
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 - Shared goal funding terminal: `src/juicebox/CobuildGoalTerminal.sol`.
@@ -103,7 +104,7 @@ Managed preset
 - Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
-- Premium / risk module: `NullPremiumEscrow`
+- Premium / risk module: shared stateless `NullPremiumEscrow`
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
@@ -162,6 +163,7 @@ Managed preset
 - Managed-preset risk wiring keeps the same controller/treasury/escrow seam without live premium accounting:
   - manager-reward stream routes to `NullPremiumEscrow`,
   - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config; managed budget deployment hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
+  - `NullPremiumEscrow` is a shared stateless shim and ignores init inputs,
   - claim, slash, burn-on-failure, and close side effects are intentional no-ops,
   - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
@@ -259,7 +261,12 @@ Managed preset
   - immutable `successResolver` (per treasury) controls `registerSuccessAssertion`/`clearSuccessAssertion`,
   - goal treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful,
   - budget treasury `resolveSuccess` is success-resolver-only and succeeds only when the pending assertion verifies truthful.
-- Budget listing oracle config is hash-only:
+- Canonical success-assertion documents are hash-addressed and onchain-retrievable:
+  - treasuries and budget listings still store only `specHash` / `policyHash`,
+  - `SuccessAssertionDocumentRegistry` stores the exact UTF-8 text under `keccak256(bytes(text))`,
+  - `UMATreasurySuccessResolver.assertSuccess(...)` requires both treasury hashes to already exist in that registry,
+  - non-empty evidence text is auto-registered at assertion time, with the UMA claim carrying the registry address plus `evidenceHash`.
+- Budget listing oracle config remains hash-only:
   - `BudgetTCRValidationLib` requires non-zero `listing.oracleConfig.oracleSpecHash` and
     non-zero `listing.oracleConfig.assertionPolicyHash`.
 - Policy C deadline semantics are enforced at treasury level:
@@ -314,7 +321,7 @@ Managed preset
 - Goal allocation pipeline budget-risk hook:
   - open preset: after `BudgetStakeLedger.checkpointAllocation(...)` reports changed budget treasuries, the pipeline checkpoints each
     budget's `PremiumEscrow` for the allocating account,
-  - managed preset: the same seam resolves to `NullPremiumEscrow`, preserving topology compatibility without real premium accounting,
+  - managed preset: the same seam resolves to shared `NullPremiumEscrow`, preserving topology compatibility without real premium accounting,
   - `previewChildSyncRequirements(...)` derives changed budgets from the ledger preview path instead of reimplementing merge semantics,
   - checkpoint failures still fail closed on allocation commit so the configured premium/risk seam cannot silently diverge from ledger state.
 
@@ -364,8 +371,9 @@ Managed preset
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
 - `BudgetStakeLedger.registerBudget(...)` treats goal-flow `recipientAdmin` (the per-goal budget controller implementing `IBudgetStackTopologyReader`) as the canonical budget topology source and keeps a lightweight runtime cross-check against `budgetTreasury.flow()` and child-parent wiring before coverage tracking is admitted.
 - Stack deployers remain mechanical helpers:
-  - `BudgetTCRDeployer` is `onlyBudgetTCR` and serves the open preset,
-  - `ManagedBudgetControllerStackDeployer` is `ONLY_CONTROLLER` and serves the managed preset.
+  - `BudgetTCRDeployer` is a generic `IBudgetStackDeployer` implementation,
+  - open preset clones use `onlyController` with `BudgetTCR`,
+  - managed preset clones use the same `onlyController` path with `ManagedBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal stack slasher wiring is init-only and fail-fast:
   - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them into `GoalTreasury.initialize`,
@@ -384,7 +392,7 @@ Managed preset
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - Stack deployers use clone-first treasury setup:
   - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
-  - `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with a cloned `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
+  - managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with shared `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
   - budget treasury initialization still happens after child-flow creation in both stacks.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 

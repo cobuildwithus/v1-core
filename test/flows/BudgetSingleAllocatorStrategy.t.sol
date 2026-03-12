@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
@@ -24,6 +25,19 @@ contract BudgetSingleAllocatorStrategyTest is Test {
     function test_constructor_setsBudgetScopeAndAllocator() public view {
         assertEq(strategy.budgetTreasury(), address(budgetTreasury));
         assertEq(strategy.allocator(), allocator);
+    }
+
+    function test_implementationDeployment_allowsZeroZeroAndCloneInitialization() public {
+        BudgetSingleAllocatorStrategy implementation = new BudgetSingleAllocatorStrategy(address(0), address(0));
+        BudgetSingleAllocatorStrategy clone = BudgetSingleAllocatorStrategy(Clones.clone(address(implementation)));
+
+        clone.initialize(address(budgetTreasury), allocator);
+
+        assertEq(clone.budgetTreasury(), address(budgetTreasury));
+        assertEq(clone.allocator(), allocator);
+
+        vm.expectRevert();
+        clone.initialize(address(budgetTreasury), allocator);
     }
 
     function test_constructor_revertsOnZeroBudgetTreasury() public {
