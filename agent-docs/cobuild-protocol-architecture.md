@@ -43,6 +43,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
 - Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`
+- Goal/community exit settlement: `src/juicebox/CobuildExitRouter.sol`
 
 ### Curation and arbitration domain
 
@@ -86,7 +87,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Goal allocator: `SingleAllocatorStrategy`
 - Goal allocator identity: `ManagedBudgetController`
 - Budget controller / topology registry: `ManagedBudgetController`
-- Budget gate policy: current preset wiring uses `NoopBudgetGatePolicy`
+- Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: `NullPremiumEscrow`
@@ -124,6 +125,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - open preset: `BudgetTCR.syncBudgetTreasuries(...)`
   - managed preset: `ManagedBudgetController.syncBudgetTreasuries(...)`
   - both continue when individual treasury `sync()` calls fail.
+  - when a successful treasury `sync()` leaves the budget terminal, the controller also runs local prune fallback in that same batch instead of depending only on the treasury callback reentry path.
 - Flow rate mutators are role-gated:
   - `setTargetOutflowRate` and `refreshTargetOutflowRate`: flow-operator/parent.
 - `TeamFlow` is itself the payout flow runtime:
@@ -149,6 +151,11 @@ Community root routing
   - if that upstream native terminal is the same shared terminal, the conversion path stays internal and self-source-safe,
   - direct payment-token pays use that same terminal-store recording path without the intermediate conversion step,
   - the shared terminal fulfills normal JB payment accounting and pay-hook semantics before it flushes reserved tokens into splits.
+- The shared terminal is also the canonical community cash-out surface for its registered payment-token/native layer:
+  - `cashOutTokensOf(...)` records reclaim through the JB terminal store,
+  - burns the holder's community tokens through the controller,
+  - transfers reclaim plus any configured cash-out-hook forwards from held terminal liquidity,
+  - intentionally restricts authority to `holder == msg.sender`, which matches router-mediated lineage hops where the router itself holds the intermediate tokens.
 - The shared terminal optionally decodes community pay metadata as `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)`:
   - explicit `goalIds`/`weights` seed a one-shot explicit route on `CobuildSplitHook`,
   - embedded `jbMetadata` is forwarded unchanged into terminal-store accounting and pay-hook `payerMetadata`,
@@ -161,6 +168,10 @@ Community root routing
   state behind.
 - Direct goal funding uses the shared `CobuildGoalTerminal`, which resolves each goal's payment token and source revnet
   from the registered goal treasury + stake vault before converting native ETH or forwarding direct payment-token pays.
+- Canonical goal exits use `CobuildExitRouter`, which:
+  - accepts goal tokens from the caller,
+  - cashes out the goal into its immediate upstream payment layer derived from `goalTreasury.cobuildRevnetId()` plus `StakeVault.cobuildToken()`,
+  - walks registered `CobuildCommunityTerminal.communityConfigOf(...)` lineage upward in bounded hops until it reaches the requested community, COBUILD, or native exit target.
 - `CommunityGoalRegistry` is the canonical onchain source of donor-visible community goals:
   - community-listed goals use standard `GeneralizedTCR` request/challenge/arbitration flow,
   - canonical item identity is `bytes32(goalId)`,

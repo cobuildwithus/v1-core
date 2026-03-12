@@ -255,11 +255,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (!treasury.resolved()) revert ITEM_NOT_TERMINAL();
 
         address childFlow = deployment.childFlow;
-        removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(goalFlow, itemID, childFlow);
-        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
-        if (!deployment.active && _pendingRemovalFinalizations[itemID]) {
-            _pendingRemovalFinalizations[itemID] = false;
-        }
+        (removedFromParent, goalSynced) = _pruneTerminalBudgetLocal(itemID, deployment, budgetTreasury);
 
         emit BudgetTerminalRecipientPruned(itemID, childFlow, budgetTreasury, removedFromParent, goalSynced);
     }
@@ -299,10 +295,25 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 gatePolicy
             );
 
+            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
             bool success;
-            try IBudgetTreasury(budgetTreasury).sync() {
+            try treasury.sync() {
                 success = true;
                 succeeded += 1;
+                if (treasury.resolved()) {
+                    (bool removedFromParent, bool goalSynced) = _pruneTerminalBudgetLocal(
+                        itemID,
+                        deployment,
+                        budgetTreasury
+                    );
+                    emit BudgetTerminalRecipientPruned(
+                        itemID,
+                        deployment.childFlow,
+                        budgetTreasury,
+                        removedFromParent,
+                        goalSynced
+                    );
+                }
             } catch (bytes memory reason) {
                 emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IBudgetTreasury.sync.selector, reason);
             }
@@ -313,6 +324,22 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function _budgetStakeLedger() internal view returns (address ledger) {
         ledger = goalTreasury.budgetStakeLedger();
         if (ledger == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
+    }
+
+    function _pruneTerminalBudgetLocal(
+        bytes32 itemID,
+        BudgetDeployment storage deployment,
+        address budgetTreasury
+    ) internal returns (bool removedFromParent, bool goalSynced) {
+        removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
+            goalFlow,
+            itemID,
+            deployment.childFlow
+        );
+        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(goalTreasury, itemID, budgetTreasury);
+        if (!deployment.active && _pendingRemovalFinalizations[itemID]) {
+            _pendingRemovalFinalizations[itemID] = false;
+        }
     }
 
     function _budgetStackTopologyFromDeployment(

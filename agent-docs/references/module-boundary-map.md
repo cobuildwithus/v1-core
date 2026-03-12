@@ -28,7 +28,7 @@
 - Goal allocator: `src/allocation-strategies/SingleAllocatorStrategy.sol`
 - Goal allocator identity: `src/goals/ManagedBudgetController.sol`
 - Budget controller / topology registry: `src/goals/ManagedBudgetController.sol`
-- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses `src/goals/policies/NoopBudgetGatePolicy.sol`)
+- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses no managed gate policy / `address(0)`)
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
 - Premium / risk module: `src/goals/NullPremiumEscrow.sol`
@@ -79,6 +79,7 @@
 - Hook ingress: `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`
 - Shared payment terminals:
   - `src/juicebox/CobuildGoalTerminal.sol`
+  - `src/juicebox/CobuildExitRouter.sol`
   - `src/juicebox/CobuildCommunityTerminal.sol`
   - `src/juicebox/CobuildCommunityTerminalFactory.sol`
 - Interfaces:
@@ -93,8 +94,9 @@
   - `src/interfaces/IPremiumEscrow.sol`
   - `src/interfaces/IUnderwriterSlasherRouter.sol`
   - `src/interfaces/ITreasuryAuthority.sol`
+  - `src/interfaces/ICobuildCommunityTerminal.sol`
   - `src/interfaces/ICobuildSplitHook.sol`
-- Community-routing boundary: `CommunityGoalRegistry` owns selectable-goal membership plus metadata, `GoalDeploymentRegistry` owns canonical `goalId -> goalTreasury`, `CobuildCommunityTerminalFactory` owns canonical split-hook deployment plus same-tx community-terminal registration, `CobuildCommunityTerminal` owns per-community pay routing, and `CobuildGoalTerminal` owns per-goal funding-context resolution.
+- Community-routing boundary: `CommunityGoalRegistry` owns selectable-goal membership plus metadata, `GoalDeploymentRegistry` owns canonical `goalId -> goalTreasury`, `CobuildCommunityTerminalFactory` owns canonical split-hook deployment plus same-tx community-terminal registration, `CobuildCommunityTerminal` owns per-community pay routing plus community-layer cash-outs, `CobuildGoalTerminal` owns per-goal funding-context resolution, and `CobuildExitRouter` owns inferred multi-hop goal exit settlement.
 
 ### TCR / arbitration / open-stack deployment domain
 

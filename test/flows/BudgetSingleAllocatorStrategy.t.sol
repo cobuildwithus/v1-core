@@ -10,7 +10,7 @@ import {AddressKeyAllocation} from "src/library/AddressKeyAllocation.sol";
 contract BudgetSingleAllocatorStrategyTest is Test {
     address internal constant FLOW = address(0xF10);
 
-    address internal allocator = makeAddr("allocator");
+    address internal allocator = address(new BudgetSingleAllocatorStrategyTestAllocator());
     address internal outsider = makeAddr("outsider");
 
     BudgetSingleAllocatorStrategy internal strategy;
@@ -39,6 +39,13 @@ contract BudgetSingleAllocatorStrategyTest is Test {
     function test_constructor_revertsOnZeroAllocator() public {
         vm.expectRevert(IAllocationStrategy.ADDRESS_ZERO.selector);
         new BudgetSingleAllocatorStrategy(address(budgetTreasury), address(0));
+    }
+
+    function test_constructor_revertsOnNonContractAllocator() public {
+        address eoaAllocator = makeAddr("eoa-allocator");
+
+        vm.expectRevert(abi.encodeWithSelector(BudgetSingleAllocatorStrategy.NOT_A_CONTRACT.selector, eoaAllocator));
+        new BudgetSingleAllocatorStrategy(address(budgetTreasury), eoaAllocator);
     }
 
     function test_allocationKey_roundTripsThroughAllocatorAddress() public view {
@@ -89,3 +96,5 @@ contract BudgetSingleAllocatorStrategyTestBudgetTreasury {
         flow = flow_;
     }
 }
+
+contract BudgetSingleAllocatorStrategyTestAllocator {}

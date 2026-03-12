@@ -19,7 +19,6 @@ import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
 import { ManagedBudgetControllerStackDeployer } from "src/goals/ManagedBudgetControllerStackDeployer.sol";
-import { NoopBudgetGatePolicy } from "src/goals/policies/NoopBudgetGatePolicy.sol";
 import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
@@ -74,7 +73,6 @@ contract GoalFactory {
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
-    address public immutable MANAGED_BUDGET_GATE_POLICY;
     address public immutable MANAGED_STACK_DEPLOYER;
     address public immutable OPEN_BUDGET_GATE_POLICY;
 
@@ -295,7 +293,6 @@ contract GoalFactory {
         address managedGoalAllocatorStrategyImplementation = address(
             new SingleAllocatorStrategy(address(0), address(0))
         );
-        address managedBudgetGatePolicy = address(new NoopBudgetGatePolicy());
         address managedPremiumEscrowImplementation = address(new NullPremiumEscrow());
         address managedStackDeployer = address(
             new ManagedBudgetControllerStackDeployer(budgetTreasuryImplementation, managedPremiumEscrowImplementation)
@@ -322,7 +319,6 @@ contract GoalFactory {
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
-        MANAGED_BUDGET_GATE_POLICY = managedBudgetGatePolicy;
         MANAGED_STACK_DEPLOYER = managedStackDeployer;
         OPEN_BUDGET_GATE_POLICY = openBudgetGatePolicy;
 
@@ -714,9 +710,7 @@ contract GoalFactory {
                 goalTreasury,
                 GoalFactoryManagedPresetDeploy.ManagedPresetBootstrapConfig({
                     budgetControllerImplementation: MANAGED_BUDGET_CONTROLLER_IMPL,
-                    goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL,
-                    gatePolicy: MANAGED_BUDGET_GATE_POLICY,
-                    stackDeployer: MANAGED_STACK_DEPLOYER
+                    goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL
                 })
             );
     }
@@ -732,8 +726,8 @@ contract GoalFactory {
                 authority: p.managedSafe,
                 goalTreasury: address(core.goalTreasury),
                 goalFlow: address(core.goalFlow),
-                stackDeployer: managedPreset.stackDeployer,
-                budgetGatePolicy: managedPreset.gatePolicy,
+                stackDeployer: MANAGED_STACK_DEPLOYER,
+                budgetGatePolicy: address(0),
                 budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
                 budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
                 successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,

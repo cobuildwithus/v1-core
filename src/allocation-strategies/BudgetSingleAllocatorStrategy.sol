@@ -21,6 +21,7 @@ contract BudgetSingleAllocatorStrategy is AddressKeyAllocationStrategy {
         if (budgetTreasury_ == address(0)) revert IAllocationStrategy.ADDRESS_ZERO();
         if (budgetTreasury_.code.length == 0) revert NOT_A_CONTRACT(budgetTreasury_);
         if (allocator_ == address(0)) revert IAllocationStrategy.ADDRESS_ZERO();
+        if (allocator_.code.length == 0) revert NOT_A_CONTRACT(allocator_);
 
         budgetTreasury = budgetTreasury_;
         allocator = allocator_;
@@ -42,6 +43,10 @@ contract BudgetSingleAllocatorStrategy is AddressKeyAllocationStrategy {
     }
 
     function _usesAllocatorKey(address flow, uint256 key) internal view returns (bool) {
-        return key == uint256(uint160(allocator)) && flow == IBudgetTreasury(budgetTreasury).flow();
+        return key == _allocationKeyForAllocator() && flow == IBudgetTreasury(budgetTreasury).flow();
+    }
+
+    function _allocationKeyForAllocator() internal view returns (uint256) {
+        return uint256(uint160(allocator));
     }
 }

@@ -11,15 +11,11 @@ library GoalFactoryManagedPresetDeploy {
     struct ManagedPresetBundle {
         ManagedBudgetController budgetController;
         address goalAllocatorStrategy;
-        address gatePolicy;
-        address stackDeployer;
     }
 
     struct ManagedPresetBootstrapConfig {
         address budgetControllerImplementation;
         address goalAllocatorStrategyImplementation;
-        address gatePolicy;
-        address stackDeployer;
     }
 
     function bootstrapManagedPreset(
@@ -29,8 +25,6 @@ library GoalFactoryManagedPresetDeploy {
         out.budgetController = ManagedBudgetController(Clones.clone(config.budgetControllerImplementation));
         out.goalAllocatorStrategy = Clones.clone(config.goalAllocatorStrategyImplementation);
         SingleAllocatorStrategy(out.goalAllocatorStrategy).initialize(goalTreasury, address(out.budgetController));
-        out.gatePolicy = config.gatePolicy;
-        out.stackDeployer = config.stackDeployer;
     }
 
     function initializeManagedController(

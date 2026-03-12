@@ -30,6 +30,16 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - the explicit one-shot route seeded by the terminal for the current pay, or
    - hook-managed backlog for later permissionless flush.
 
+## Goal Exit Path
+
+1. A holder sends goal tokens to `CobuildExitRouter` and chooses one of three user-facing targets: immediate community token, COBUILD token, or native ETH.
+2. The router resolves the goal's immediate upstream denomination from `goalTreasury.cobuildRevnetId()` and `StakeVault.cobuildToken()`.
+3. The router cashes out the goal into that immediate layer through the goal project's canonical cash-out terminal.
+4. If the requested target is above that first layer, the router walks `CobuildCommunityTerminal.communityConfigOf(...)` upward in bounded hops:
+   - `exitToCobuildToken(...)` stops once the lineage reaches the configured COBUILD root.
+   - `exitToEth(...)` stops at a direct-native community root or cashes the COBUILD root out into native ETH.
+5. Each community hop is redeemed through `CobuildCommunityTerminal.cashOutTokensOf(...)`, which burns the router-held intermediate community tokens and settles reclaim value from held terminal liquidity.
+
 ## Goal Funding Path
 
 1. Goal funding enters through `GoalRevnetSplitHook.processSplitWith(...)` or direct donation helpers on `GoalTreasury`.
@@ -58,7 +68,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 2. `GoalFactoryManagedPresetDeploy` wires:
    - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
    - `ManagedBudgetControllerStackDeployer` for budget child stacks
-   - `NoopBudgetGatePolicy`
+   - no managed gate-policy module by default (`budgetGatePolicy = address(0)`)
    - `NullPremiumEscrow`
 3. `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
@@ -85,6 +95,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - Manager reward stream routes into `PremiumEscrow` at `budgetPremiumPpm`.
 - `PremiumEscrow` checkpoints live coverage from `BudgetStakeLedger`, accrues premium, gates claims on goal success, and can slash underwriters through `UnderwriterSlasherRouter`.
 - Coverage-based recipient enable / disable remains part of the live routing path.
+- When `BudgetTCR.syncBudgetTreasuries(...)` terminalizes a budget after a successful treasury sync, the controller also prunes the parent recipient and best-effort syncs the goal treasury locally in that same batch; the treasury callback remains a retryable fallback path.
 
 ### Managed preset risk path
 
@@ -122,5 +133,6 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - `src/tcr/BudgetTCR.sol`
 - `src/tcr/BudgetTCRDeployer.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
+- `src/juicebox/CobuildExitRouter.sol`
 - `src/juicebox/CobuildGoalTerminal.sol`
 - `src/juicebox/CobuildCommunityTerminal.sol`

@@ -153,7 +153,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_constructor_deploysSharedManagedPresetInfra() public view {
         assertTrue(factory.MANAGED_BUDGET_CONTROLLER_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL().code.length > 0);
-        assertTrue(factory.MANAGED_BUDGET_GATE_POLICY().code.length > 0);
         assertTrue(factory.MANAGED_STACK_DEPLOYER().code.length > 0);
         assertTrue(
             ManagedBudgetControllerStackDeployer(factory.MANAGED_STACK_DEPLOYER()).premiumEscrowImplementation().code
@@ -307,7 +306,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(strategy.allocator(), deployed.budgetController);
         assertEq(strategy.goalTreasury(), deployed.goalTreasury);
         assertEq(managedController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
-        assertEq(managedController.budgetGatePolicy(), factory.MANAGED_BUDGET_GATE_POLICY());
+        assertEq(managedController.budgetGatePolicy(), address(0));
         assertTrue(deployed.budgetController != factory.MANAGED_BUDGET_CONTROLLER_IMPL());
         assertTrue(deployed.goalAllocatorStrategy != factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL());
         assertEq(deployed.arbitrator, address(0));
@@ -375,8 +374,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
         assertEq(firstController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
         assertEq(secondController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
-        assertEq(firstController.budgetGatePolicy(), factory.MANAGED_BUDGET_GATE_POLICY());
-        assertEq(secondController.budgetGatePolicy(), factory.MANAGED_BUDGET_GATE_POLICY());
+        assertEq(firstController.budgetGatePolicy(), address(0));
+        assertEq(secondController.budgetGatePolicy(), address(0));
 
         assertEq(firstController.goalTreasury(), first.goalTreasury);
         assertEq(firstController.goalFlow(), first.goalFlow);

@@ -60,6 +60,7 @@ cobuild-protocol/
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 - Shared goal funding terminal: `src/juicebox/CobuildGoalTerminal.sol`.
+- Goal/community exit settlement router: `src/juicebox/CobuildExitRouter.sol`.
 - Community reserved-token routing layer: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`.
 
 ### TCR and arbitration system
@@ -99,7 +100,7 @@ Managed preset
 - Goal allocator: `SingleAllocatorStrategy`
 - Goal allocator identity: `ManagedBudgetController`
 - Budget controller / topology registry: `ManagedBudgetController`
-- Budget gate policy: current preset wiring uses `NoopBudgetGatePolicy`
+- Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: `NullPremiumEscrow`
@@ -191,11 +192,13 @@ Managed preset
     - it must also prove on-chain that `controller.sendReservedTokensToSplitsOf(communityRevnetId)` will hit the registered hook by validating that the current reserved split group contains exactly one nonzero split for that hook,
     - each community binds `(splitHook, paymentToken, paymentSourceRevnetId, directNativeAllowed)` exactly once either through a direct community-project-owner call or the approved factory path,
     - `pay(...).metadata` now carries `abi.encode(uint256[] goalIds, uint32[] weights, bytes jbMetadata)` so one-shot explicit routing and downstream JB payer metadata travel together,
+    - it is also the canonical community cash-out surface for registered payment-token/native exits through `cashOutTokensOf(...)`,
     - when `directNativeAllowed` is enabled, registration requires `paymentSourceRevnetId == communityRevnetId`,
     - native ETH either records a canonical JB pay directly on that terminal when `directNativeAllowed` is enabled or first buys the configured payment token from `paymentSourceRevnetId`,
     - if the upstream native terminal is this same shared terminal, the conversion path stays internal instead of re-entering through an external `pay(...)` call,
     - direct payment-token pays are likewise recorded on the shared terminal without the intermediate conversion step,
     - community pays are recorded through the JB terminal store so pause/weight/base-currency rules and pay-hook fulfillment stay aligned with standard terminal semantics,
+    - community cash-outs record terminal-store reclaim semantics, burn holder tokens, transfer reclaim value, fulfill cash-out hooks, and intentionally restrict authority to `holder == msg.sender`,
     - after the community pay, the terminal synchronously calls the community controller's `sendReservedTokensToSplitsOf(...)` when that pay created reserved tokens.
   - `CommunityGoalRegistry` is the canonical onchain source of donor-visible goals:
     - community-listed goals go through `GeneralizedTCR` request/challenge/arbitration flow using canonical `bytes32(goalId)` item IDs,
@@ -211,6 +214,10 @@ Managed preset
     - it resolves each goal's payment token and source revnet from the registered goal treasury + stake vault at pay time,
     - native ETH pays the resolved source revnet's native terminal to acquire the goal's funding token before forwarding,
     - direct payment-token funding uses the same resolved token and forwards to the goal's primary terminal for that token.
+  - `CobuildExitRouter` is the canonical shared goal exit settlement surface:
+    - it accepts goal tokens, cashes out the goal into its immediate upstream payment layer, and infers any additional community ancestry onchain,
+    - `exitToCommunityToken(...)` stops at the first upstream community denomination,
+    - `exitToCobuildToken(...)` and `exitToEth(...)` continue through bounded community lineage until they reach COBUILD or a direct-native root, then finish the final cash-out hop.
   - `CobuildSplitHook` is controller-gated for the configured community revnet, keeps only a fixed init-time
     contract `routeSetter` plus fixed init-time goal-registry reference and deployment-registry reference, validates
     explicit routes against `CommunityGoalRegistry.isSelectable(goalId)`, routes only its explicit callback slice into the
