@@ -62,8 +62,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         controller = _requireNonZeroController(initialController);
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         address premiumEscrow_ = config.premiumEscrow;
-        if (premiumEscrow_ == address(0)) revert ADDRESS_ZERO();
-        if (premiumEscrow_.code.length == 0) revert NOT_A_CONTRACT(premiumEscrow_);
+        if (premiumEscrow_ != address(0) && premiumEscrow_.code.length == 0) revert NOT_A_CONTRACT(premiumEscrow_);
         if (config.successResolver == address(0)) revert ADDRESS_ZERO();
         if (config.spendPolicy == address(0)) revert ADDRESS_ZERO();
         if (config.spendPolicy.code.length == 0) revert NOT_A_CONTRACT(config.spendPolicy);
@@ -245,9 +244,18 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
 
     function clearSuccessAssertion(bytes32 assertionId) external override {
         if (msg.sender != successResolver) revert ONLY_SUCCESS_RESOLVER();
-        bytes32 clearedAssertionId = TreasurySuccessAssertionLifecycle.clearMatching(_successAssertions, assertionId);
-        _emitSuccessAssertionCleared(clearedAssertionId);
-        _tryActivateReassertGrace(clearedAssertionId);
+        TreasurySuccessAssertionLifecycle.ClearResult memory clearResult = TreasurySuccessAssertionLifecycle
+            .clearMatchingAndTryActivateGrace(
+                _successAssertions,
+                _reassertGrace,
+                assertionId,
+                _canActivateReassertGrace(),
+                REASSERT_GRACE_DURATION
+            );
+        _emitSuccessAssertionCleared(clearResult.clearedAssertionId);
+        if (clearResult.graceActivated) {
+            emit ReassertGraceActivated(clearResult.clearedAssertionId, clearResult.graceDeadline);
+        }
     }
 
     function disableSuccessResolution() external override onlyController {
@@ -258,8 +266,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (successResolutionDisabled) return;
 
         successResolutionDisabled = true;
-        _reassertGrace.clearDeadline();
-        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
+        _clearPendingSuccessAssertionAndResetGrace();
         emit SuccessResolutionDisabled();
     }
 
@@ -398,8 +405,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         if (!_isTerminalState(finalState)) revert INVALID_STATE();
         if (_isTerminalState(_state)) revert INVALID_STATE();
 
-        _reassertGrace.clearDeadline();
-        _emitSuccessAssertionCleared(TreasurySuccessAssertionLifecycle.clearPending(_successAssertions));
+        _clearPendingSuccessAssertionAndResetGrace();
 
         _setState(finalState);
         resolvedAt = uint64(block.timestamp);
@@ -496,6 +502,12 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         emit SuccessAssertionCleared(clearedAssertionId);
     }
 
+    function _clearPendingSuccessAssertionAndResetGrace() internal {
+        _emitSuccessAssertionCleared(
+            TreasurySuccessAssertionLifecycle.clearPendingAndResetGrace(_successAssertions, _reassertGrace)
+        );
+    }
+
     function _tryFinalizePostDeadline() internal returns (bool) {
         TreasurySuccessAssertionLifecycle.PostDeadlineResolution memory resolution = TreasurySuccessAssertionLifecycle
             .resolvePostDeadline(
@@ -503,7 +515,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
                 _reassertGrace,
                 successResolver,
                 successAssertionLiveness,
-                successAssertionBond
+                successAssertionBond,
+                _canActivateReassertGrace(),
+                REASSERT_GRACE_DURATION
             );
 
         if (resolution.failClosedReason != TreasurySuccessAssertions.FailClosedReason.None) {
@@ -520,7 +534,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
             if (resolution.finalizeFailureData.length != 0) {
                 emit SuccessAssertionFinalizeFailed(resolution.clearedAssertionId, resolution.finalizeFailureData);
             }
-            _tryActivateReassertGrace(resolution.clearedAssertionId);
+            if (resolution.graceActivated) {
+                emit ReassertGraceActivated(resolution.clearedAssertionId, resolution.graceDeadline);
+            }
             return false;
         }
 
@@ -528,16 +544,10 @@ contract BudgetTreasury is IBudgetTreasury, TreasuryBase {
         return true;
     }
 
-    function _tryActivateReassertGrace(bytes32 clearedAssertionId) internal {
-        if (_reassertGrace.used) return;
-        if (_state != BudgetState.Active || successResolutionDisabled) return;
+    function _canActivateReassertGrace() internal view returns (bool) {
+        if (_state != BudgetState.Active || successResolutionDisabled) return false;
         uint64 deadline_ = deadline();
-        if (deadline_ == 0 || block.timestamp < deadline_) return;
-
-        (bool activated, uint64 graceDeadline) = _reassertGrace.activateOnce(REASSERT_GRACE_DURATION);
-        if (!activated) return;
-
-        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
+        return deadline_ != 0 && block.timestamp >= deadline_;
     }
 
     function _flowContract() internal view override returns (IFlow) {

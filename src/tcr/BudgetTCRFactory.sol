@@ -12,6 +12,7 @@ import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
@@ -131,11 +132,8 @@ contract BudgetTCRFactory {
         address budgetTCR = Clones.cloneDeterministic(budgetTCRImplementation, budgetTCRSalt);
         address arbitrator = Clones.clone(arbitratorImplementation);
         address stackDeployer = Clones.clone(stackDeployerImplementation);
-        IBudgetTCRDeployer(stackDeployer).initialize(
-            budgetTCR,
-            deploymentConfig.premiumEscrowImplementation,
-            address(this)
-        );
+        bool usesExplicitNoPremiumMode = _usesExplicitNoPremiumMode(deploymentConfig);
+        _initializeStackDeployer(stackDeployer, budgetTCR, deploymentConfig, usesExplicitNoPremiumMode);
         budgetTCRByStackDeployer[stackDeployer] = budgetTCR;
         stackDeployerByBudgetTCR[budgetTCR] = stackDeployer;
 
@@ -157,11 +155,9 @@ contract BudgetTCRFactory {
         address jurorSlasherRouter = _resolveConfiguredJurorSlasherRouter(stakeVault);
         jurorSlasherRouterByBudgetTCR[budgetTCR] = jurorSlasherRouter;
         JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
-        address underwriterSlasherRouter = _resolveUnderwriterSlasherRouter(
-            deploymentConfig.underwriterSlasherRouter,
-            stakeVault,
-            budgetTCR
-        );
+        address underwriterSlasherRouter = usesExplicitNoPremiumMode
+            ? address(0)
+            : _resolveUnderwriterSlasherRouter(deploymentConfig.underwriterSlasherRouter, stakeVault, budgetTCR);
 
         IGeneralizedTCRConfig.RegistryPolicy memory resolvedPolicy = _resolveRegistryPolicy(
             registryConfig,
@@ -248,6 +244,36 @@ contract BudgetTCRFactory {
         JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(allocationMechanismArbitrator, true);
     }
 
+    function _initializeStackDeployer(
+        address stackDeployer,
+        address budgetTCR,
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        bool usesExplicitNoPremiumMode
+    ) internal {
+        if (usesExplicitNoPremiumMode) {
+            IBudgetTCRDeployer(stackDeployer).initializeWithConfig(
+                budgetTCR,
+                IBudgetStackDeployer.StackModuleConfig({
+                    childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+                    childFlowStrategyTarget: address(0),
+                    mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
+                    childFlowRecipientAdmin: address(0),
+                    premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+                    premiumEscrowImplementation: address(0),
+                    requireZeroPremiumAndSlashRates: true
+                }),
+                address(this)
+            );
+            return;
+        }
+
+        IBudgetTCRDeployer(stackDeployer).initialize(
+            budgetTCR,
+            deploymentConfig.premiumEscrowImplementation,
+            address(this)
+        );
+    }
+
     function _assertImplementationHasCode(address implementation) internal view {
         if (implementation.code.length == 0) {
             revert IMPLEMENTATION_HAS_NO_CODE(implementation);
@@ -258,6 +284,14 @@ contract BudgetTCRFactory {
         router = IStakeVault(stakeVault).jurorSlasher();
         if (router == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
         _validateConfiguredJurorSlasher(router, stakeVault);
+    }
+
+    function _usesExplicitNoPremiumMode(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) internal pure returns (bool) {
+        return
+            deploymentConfig.premiumEscrowImplementation == address(0) &&
+            deploymentConfig.underwriterSlasherRouter == address(0);
     }
 
     function _validateConfiguredJurorSlasher(address configuredSlasher, address stakeVault) internal view {
