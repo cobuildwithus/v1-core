@@ -1,6 +1,6 @@
 # Completion Workflow
 
-Last verified: 2026-02-24
+Last verified: 2026-03-12
 
 ## Sequence
 
@@ -14,9 +14,11 @@ Non-docs rule: for any change that touches production code or tests, all three s
 4. Run a test-coverage audit pass using `agent-docs/prompts/test-coverage-audit.md` with full change context.
 5. The coverage-audit subagent should implement the highest-impact missing tests it identifies (especially edge cases, failure modes, and invariants) before handoff.
 6. Re-run required checks after the simplify + test-coverage sequence (even if no new tests were added).
-7. Run a completion audit using `agent-docs/prompts/task-finish-review.md` with full change context.
-8. Final handoff remains gated on green required checks; completing audits does not waive verification requirements.
-9. Do not skip these subagent passes unless the user explicitly instructs to skip them for that turn.
+7. For any change that touches `.sol`, run `pnpm -s build:sizes` before final handoff.
+8. If `build:sizes` reports an over-limit contract, or your diff materially increases pressure on a near-limit contract, reduce size before handoff. Prefer the existing `Flow.sol` pattern: move heavy helper logic into existing libraries with `external` or `public` helpers when a current boundary fits, and only add a new library when reuse is not a clean option.
+9. Run a completion audit using `agent-docs/prompts/task-finish-review.md` with full change context.
+10. Final handoff remains gated on green required checks; for Solidity-affecting work, a passing `build:sizes` run is also part of completion.
+11. Do not skip these subagent passes unless the user explicitly instructs to skip them for that turn.
 
 ## Coordination Ledger (Always Required)
 
