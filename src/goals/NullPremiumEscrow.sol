@@ -20,23 +20,13 @@ contract NullPremiumEscrow is IPremiumEscrow, Initializable {
         _disableInitializers();
     }
 
-    function initialize(
-        address budgetTreasury_,
-        address budgetStakeLedger_,
-        address goalFlow_,
-        address underwriterSlasherRouter_,
-        uint32 budgetSlashPpm_
-    ) external initializer {
+    /// @dev Unused managed-premium inputs stay in the signature for `IPremiumEscrow` symmetry.
+    function initialize(address budgetTreasury_, address, address goalFlow_, address, uint32) external initializer {
         if (budgetTreasury_ == address(0)) revert ADDRESS_ZERO();
-        if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (goalFlow_ == address(0)) revert ADDRESS_ZERO();
-        if (underwriterSlasherRouter_ == address(0)) revert ADDRESS_ZERO();
 
         budgetTreasury = budgetTreasury_;
-        budgetStakeLedger = budgetStakeLedger_;
         goalFlow = goalFlow_;
-        underwriterSlasherRouter = underwriterSlasherRouter_;
-        budgetSlashPpm = budgetSlashPpm_;
     }
 
     function connectManagerRewardPool(address) external pure override {}

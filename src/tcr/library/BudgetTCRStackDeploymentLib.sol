@@ -30,9 +30,7 @@ library BudgetTCRStackDeploymentLib {
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (premiumEscrow == address(0)) revert ADDRESS_ZERO();
         if (childFlow == address(0)) revert ADDRESS_ZERO();
-        if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (goalFlow == address(0)) revert ADDRESS_ZERO();
-        if (underwriterSlasherRouter == address(0)) revert ADDRESS_ZERO();
         if (successResolver == address(0)) revert ADDRESS_ZERO();
         if (spendPolicy == address(0)) revert ADDRESS_ZERO();
 
@@ -57,6 +55,7 @@ library BudgetTCRStackDeploymentLib {
         );
 
         _assertTreasuryConfiguration(budgetTreasury, budgetTCR, childFlow, premiumEscrow, spendPolicy);
+        // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
         IPremiumEscrow(premiumEscrow).initialize(
             budgetTreasury,
             budgetStakeLedger,

@@ -189,6 +189,14 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(spendPolicy));
     }
 
+    function test_deployGoal_usesDefaultGoalSpendPolicyWhenOmitted() public {
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(0));
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(defaultGoalSpendPolicy));
+    }
+
     function test_deployGoal_registersCanonicalGoalTreasury() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
 
@@ -237,6 +245,16 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         factory.deployGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(configuredBudgetSpendPolicy));
+    }
+
+    function test_deployGoal_passesDefaultBudgetSpendPolicyToBudgetTcrFactoryWhenOmitted() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        params.budgetTCR.budgetSpendPolicy = address(0);
+
+        factory.deployGoal(params);
+
+        assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
     }
 
     function test_deployGoal_revertsWhenBudgetControllerDeploymentMismatchesPrediction() public {
@@ -297,6 +315,20 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
         assertEq(stackDeployer.premiumEscrowImplementation(), factory.MANAGED_PREMIUM_ESCROW_IMPL());
         assertFalse(_sameRuntimeCode(deployed.goalAllocatorStrategy, factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL()));
+    }
+
+    function test_deployGoal_managedPreset_usesDefaultSpendPoliciesWhenOmitted() public {
+        GoalFactory.DeployParams memory params = _baseDeployParams(address(0));
+        address managedSafe = address(new FactoryDeployDummyContract());
+        params.preset = GoalFactory.GoalPreset.Managed;
+        params.managedSafe = managedSafe;
+        params.budgetTCR.budgetSpendPolicy = address(0);
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+
+        ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
+        assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(defaultGoalSpendPolicy));
+        assertEq(managedController.budgetSpendPolicy(), address(defaultBudgetSpendPolicy));
     }
 
     function test_deployGoal_managedPreset_reusesSharedInfraAcrossMultipleDeployments() public {

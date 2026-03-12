@@ -442,8 +442,7 @@ contract GoalFactory {
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
-        if (p.goalSpendPolicy == address(0)) revert ADDRESS_ZERO();
-        if (p.goalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.goalSpendPolicy);
+        p.goalSpendPolicy = _resolveSpendPolicyOrDefault(p.goalSpendPolicy, DEFAULT_GOAL_SPEND_POLICY);
         if (p.preset == GoalPreset.Managed) {
             if (p.managedSafe == address(0)) revert MANAGED_SAFE_REQUIRED();
             if (p.managedSafe.code.length == 0) revert MANAGED_SAFE_NOT_CONTRACT(p.managedSafe);
@@ -453,8 +452,10 @@ contract GoalFactory {
         if (p.budgetTCR.budgetSuccessResolver.code.length == 0) {
             revert NOT_A_CONTRACT(p.budgetTCR.budgetSuccessResolver);
         }
-        if (p.budgetTCR.budgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
-        if (p.budgetTCR.budgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(p.budgetTCR.budgetSpendPolicy);
+        p.budgetTCR.budgetSpendPolicy = _resolveSpendPolicyOrDefault(
+            p.budgetTCR.budgetSpendPolicy,
+            DEFAULT_BUDGET_SPEND_POLICY
+        );
 
         if (
             p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
@@ -722,12 +723,12 @@ contract GoalFactory {
                 authority: p.managedSafe,
                 goalTreasury: address(core.goalTreasury),
                 goalFlow: address(core.goalFlow),
-                budgetAllocationLedger: address(core.budgetStakeLedger),
+                budgetAllocationLedger: address(0),
                 stackDeployer: managedPreset.stackDeployer,
                 budgetGatePolicy: managedPreset.gatePolicy,
                 budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
                 budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
-                underwriterSlasherRouter: core.underwriterSlasherRouter,
+                underwriterSlasherRouter: address(0),
                 successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
                 successAssertionBond: p.budgetTCR.oracleBounds.bondAmount,
                 budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
@@ -797,5 +798,13 @@ contract GoalFactory {
             revert INVALID_MIN_RAISE_WINDOW(resolved, durationSeconds);
         }
         return resolved;
+    }
+
+    function _resolveSpendPolicyOrDefault(
+        address configuredPolicy,
+        address defaultPolicy
+    ) private view returns (address spendPolicy) {
+        spendPolicy = configuredPolicy == address(0) ? defaultPolicy : configuredPolicy;
+        if (spendPolicy.code.length == 0) revert NOT_A_CONTRACT(spendPolicy);
     }
 }

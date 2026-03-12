@@ -137,8 +137,8 @@ contract ManagedBudgetStackActionsHarness is BudgetTCRStorageV1, GeneralizedTCRS
 }
 
 contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
-    uint32 internal constant BUDGET_PREMIUM_PPM = 50_000;
-    uint32 internal constant BUDGET_SLASH_PPM = 40_000;
+    uint32 internal constant MANAGED_BUDGET_PREMIUM_PPM = 0;
+    uint32 internal constant MANAGED_BUDGET_SLASH_PPM = 0;
 
     ManagedBudgetStackActionsHarness internal harness;
     BudgetTCRDeployer internal deployer;
@@ -179,7 +179,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 childFlowStrategyTarget: address(fixedStrategy),
                 mechanismLayerMode: IBudgetTCRStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation)
+                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                requireZeroPremiumAndSlashRates: true
             }),
             address(0)
         );
@@ -189,8 +190,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             address(goalTreasury),
             address(deployer),
             address(underwriterSlasherRouter),
-            BUDGET_PREMIUM_PPM,
-            BUDGET_SLASH_PPM,
+            MANAGED_BUDGET_PREMIUM_PPM,
+            MANAGED_BUDGET_SLASH_PPM,
             budgetSuccessResolver,
             budgetSpendPolicy,
             IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
@@ -221,12 +222,10 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         assertTrue(underwriterSlasherRouter.isAuthorizedPremiumEscrow(deployment.premiumEscrow));
 
         assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetTreasury(), deployment.budgetTreasury);
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetStakeLedger(), address(budgetStakeLedger));
+        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetStakeLedger(), address(0));
         assertEq(NullPremiumEscrow(deployment.premiumEscrow).goalFlow(), address(goalFlow));
-        assertEq(
-            NullPremiumEscrow(deployment.premiumEscrow).underwriterSlasherRouter(), address(underwriterSlasherRouter)
-        );
-        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetSlashPpm(), BUDGET_SLASH_PPM);
+        assertEq(NullPremiumEscrow(deployment.premiumEscrow).underwriterSlasherRouter(), address(0));
+        assertEq(NullPremiumEscrow(deployment.premiumEscrow).budgetSlashPpm(), MANAGED_BUDGET_SLASH_PPM);
     }
 
     function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {
@@ -239,7 +238,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 childFlowStrategyTarget: address(fixedStrategy),
                 mechanismLayerMode: IBudgetTCRStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation)
+                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                requireZeroPremiumAndSlashRates: true
             }),
             address(discoveryEmitter)
         );
@@ -249,8 +249,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             address(goalTreasury),
             address(deployerWithEmitter),
             address(underwriterSlasherRouter),
-            BUDGET_PREMIUM_PPM,
-            BUDGET_SLASH_PPM,
+            MANAGED_BUDGET_PREMIUM_PPM,
+            MANAGED_BUDGET_SLASH_PPM,
             budgetSuccessResolver,
             budgetSpendPolicy,
             IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
@@ -279,6 +279,23 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 logs, keccak256("BudgetAllocationMechanismDeployed(bytes32,address,address,address)"), itemID
             )
         );
+    }
+
+    function test_managedStackDeploy_revertsWhenNullEscrowConfigRequiresZeroRates() public {
+        harness.configure(
+            address(goalFlow),
+            address(goalTreasury),
+            address(deployer),
+            address(underwriterSlasherRouter),
+            50_000,
+            40_000,
+            budgetSuccessResolver,
+            budgetSpendPolicy,
+            IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
+        );
+
+        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
+        harness.deploy(keccak256("managed-budget-nonzero-rates"), abi.encode(_defaultListing()));
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {
