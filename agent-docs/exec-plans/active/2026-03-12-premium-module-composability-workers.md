@@ -9,6 +9,17 @@ Updated: 2026-03-12
 - Make "no premium / no underwriting module" a first-class configuration so managed goals do not need `NullPremiumEscrow` just to satisfy shared wiring.
 - Improve protocol composability by representing absence directly with `address(0)` / explicit deployer mode instead of a fake escrow contract.
 
+## Already Done In Tree
+
+- Open-lane `BudgetTCR.syncBudgetTreasuries(...)` already has local terminal-prune fallback with later-sweep idempotence.
+- Managed deployment already converges on the generic `IBudgetStackDeployer` / `BudgetTCRDeployer` path.
+- The shared deploy seam already uses neutral `IBudgetTreasury.BudgetConfig` plus `RiskModuleInitConfig`.
+- `NullPremiumEscrow` is already a shared stateless shim.
+- `BudgetSingleAllocatorStrategy` is already cloneable / initializable and its factory already uses clones.
+- Spend-policy validation is already centralized and hardened.
+
+This batch must treat those items as fixed inputs and should not reopen them unless required as tiny fallout for the optional-premium cut.
+
 ## Design Target
 
 - Managed preset should be able to deploy and operate with no premium module contract at all.
@@ -25,13 +36,10 @@ Updated: 2026-03-12
 
 ## Current Launch Blockers
 
-- The live tree already has in-flight budget-stack refactor edits in files this batch wants to touch, including:
-  - `src/tcr/BudgetTCRDeployer.sol`
-  - `src/tcr/library/BudgetTCRStackDeploymentLib.sol`
-  - `src/tcr/library/BudgetTCRStackActions.sol`
-  - `src/goals/library/GoalFactoryManagedPresetDeploy.sol`
-  - `src/goals/NullPremiumEscrow.sol`
-- Do not launch child workers until the parent either commits/integrates that work or narrows ownership cleanly in `COORDINATION_LEDGER.md`.
+- The remaining concrete dirty-file blocker in the premium batch target set is:
+  - `src/goals/BudgetTreasury.sol`
+- That blocks Worker A right now.
+- Worker B is structurally independent, but Workers C and D still depend on Worker A's core optional-premium shape, so keep the staged launch order.
 
 ## Proposed Hard-Cut Decisions
 
@@ -124,12 +132,12 @@ Updated: 2026-03-12
 
 ### Batch A: safe parallel start
 
-- Worker A
 - Worker B
+- Worker A after the `BudgetTreasury` blocker clears
 
 Rationale:
-- these scopes are disjoint
-- Worker B can adopt the planned "zero premium module is valid" semantics without touching the deployer/factory files
+- Worker B can move independently because it stays out of the currently dirty treasury file.
+- Worker A still defines the canonical optional-premium core surface, so Workers C and D should wait for it even if Worker B finishes first.
 
 ### Batch B: after Worker A lands or parent integrates its core surface
 
@@ -183,3 +191,9 @@ workspace-docs/bin/codex-workers \
 - Whether to allow open preset absence mode immediately for zero-premium / zero-slash configs, or first limit absence mode to managed only.
 - Whether `NullPremiumEscrow` should stay in-tree as dead compatibility scaffolding for one turn, or be deleted in the same batch once tests are updated.
 - Whether `StakeVault` should treat zero premium module as automatically prepared for withdrawal, or require an additional explicit check on goal underwriting config.
+
+## Recommended Answers
+
+- Allow open preset absence mode immediately, but only for explicit `budgetPremiumPpm == 0 && budgetSlashPpm == 0`.
+- Make `NullPremiumEscrow` unused first, then delete it in a tiny follow-up cleanup unless a worker can prove all imports/tests are already owned and updated safely.
+- Treat zero premium module as "no underwriting side effects exist here"; do not block withdrawal preparation solely because no escrow contract exists.
