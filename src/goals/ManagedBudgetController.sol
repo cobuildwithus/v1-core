@@ -9,7 +9,6 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
-import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetTCRTerminalActions } from "src/tcr/library/BudgetTCRTerminalActions.sol";
 import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
@@ -173,6 +172,9 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (prepared.childFlowRecipientAdmin != address(this)) {
             revert INVALID_CHILD_FLOW_RECIPIENT_ADMIN(prepared.childFlowRecipientAdmin);
         }
+        if (prepared.premiumEscrow != address(0)) {
+            revert INVALID_PREMIUM_ESCROW(prepared.premiumEscrow);
+        }
 
         (, childFlow_) = ICustomFlow(goalFlow).addFlowRecipient(
             itemID,
@@ -199,18 +201,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             successAssertionPolicyHash: config.successAssertionPolicyHash,
             spendPolicy: budgetSpendPolicy
         });
-        budgetTreasury_ = prepared.premiumEscrow == address(0)
-            ? deployer.deployBudgetTreasury(prepared.budgetTreasury, budgetTreasuryConfig)
-            : deployer.deployBudgetTreasuryWithRiskModule(
-                prepared.budgetTreasury,
-                budgetTreasuryConfig,
-                IBudgetStackDeployer.RiskModuleInitConfig({
-                    budgetStakeLedger: budgetStakeLedger,
-                    goalFlow: goalFlow,
-                    underwriterSlasherRouter: IStakeVault(goalTreasury_.stakeVault()).underwriterSlasher(),
-                    budgetSlashPpm: 0
-                })
-            );
+        budgetTreasury_ = deployer.deployBudgetTreasury(prepared.budgetTreasury, budgetTreasuryConfig);
         if (budgetTreasury_ != prepared.budgetTreasury) revert ITEM_NOT_DEPLOYED();
 
         _recordBudgetStackTopology(itemID, childFlow_, budgetTreasury_, prepared.premiumEscrow, prepared.strategy);

@@ -183,6 +183,17 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         controller.createBudget(bytes32(0), _defaultBudgetConfig("Budget Zero"));
     }
 
+    function test_createBudget_revertsWhenStackDeployerReturnsPremiumEscrow() public {
+        address premiumEscrow = makeAddr("managed-premium-escrow");
+        stackDeployer.setPreparedPremiumEscrow(premiumEscrow);
+
+        vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.INVALID_PREMIUM_ESCROW.selector, premiumEscrow));
+        vm.prank(safe);
+        controller.createBudget(bytes32(uint256(1)), _defaultBudgetConfig("Budget A"));
+
+        assertEq(controller.activeBudgetCount(), 0);
+    }
+
     function test_setBudgetFlowWeights_revertsWhenCallerIsNotAuthority() public {
         bytes32 itemID = bytes32(uint256(1));
         _createBudget(itemID, "Budget A");
@@ -1398,9 +1409,14 @@ contract ManagedBudgetControllerMockBudgetTreasury {
 
 contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
     address public childFlowRecipientAdmin;
+    address public preparedPremiumEscrow;
 
     function setChildFlowRecipientAdmin(address childFlowRecipientAdmin_) external {
         childFlowRecipientAdmin = childFlowRecipientAdmin_;
+    }
+
+    function setPreparedPremiumEscrow(address preparedPremiumEscrow_) external {
+        preparedPremiumEscrow = preparedPremiumEscrow_;
     }
 
     function controller() external view returns (address controller_) {
@@ -1412,14 +1428,15 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
     function prepareBudgetStack(address, address) external override returns (PreparationResult memory result) {
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
-        result.premiumEscrow = address(0);
+        result.premiumEscrow = preparedPremiumEscrow;
         result.childFlowRecipientAdmin = childFlowRecipientAdmin;
     }
 
-    function deployBudgetTreasury(
-        address budgetTreasury,
-        IBudgetTreasury.BudgetConfig calldata budgetConfig
-    ) external override returns (address deployedBudgetTreasury) {
+    function deployBudgetTreasury(address budgetTreasury, IBudgetTreasury.BudgetConfig calldata budgetConfig)
+        external
+        override
+        returns (address deployedBudgetTreasury)
+    {
         ManagedBudgetControllerMockBudgetTreasury(budgetTreasury)
             .configure(address(this), budgetConfig.flow, budgetConfig.premiumEscrow);
         return budgetTreasury;
