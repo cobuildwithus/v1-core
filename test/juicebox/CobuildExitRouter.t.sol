@@ -2,104 +2,128 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import {CobuildExitRouter} from "src/juicebox/CobuildExitRouter.sol";
-import {ICobuildCommunityTerminal} from "src/interfaces/ICobuildCommunityTerminal.sol";
+import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
+import {CobuildSplitHook} from "src/hooks/CobuildSplitHook.sol";
 import {ICobuildSplitHook} from "src/interfaces/ICobuildSplitHook.sol";
-import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
+import {CobuildCommunityTerminal} from "src/juicebox/CobuildCommunityTerminal.sol";
+import {CobuildExitRouter} from "src/juicebox/CobuildExitRouter.sol";
+import {CommunityGoalRegistry} from "src/tcr/CommunityGoalRegistry.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
+import {MockTerminalStore} from "test/juicebox/helpers/MockTerminalStore.sol";
+import {
+    AsyncDirectory,
+    AsyncReservedController,
+    GoalRecordingTerminal,
+    GoalTreasuryStub,
+    StakeVaultStub
+} from "test/juicebox/CobuildCommunityTerminalCoreIntegration.t.sol";
+import {MockVotesToken} from "test/mocks/MockVotesToken.sol";
+import {RoundTestArbitrator} from "test/rounds/helpers/RoundTestMocks.sol";
 
-import {IJBController} from "@bananapus/core-v5/interfaces/IJBController.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
+import {IJBCashOutHook} from "@bananapus/core-v5/interfaces/IJBCashOutHook.sol";
 import {IJBCashOutTerminal} from "@bananapus/core-v5/interfaces/IJBCashOutTerminal.sol";
+import {IJBSplitHook} from "@bananapus/core-v5/interfaces/IJBSplitHook.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
+import {IJBTerminalStore} from "@bananapus/core-v5/interfaces/IJBTerminalStore.sol";
 import {JBAccountingContext} from "@bananapus/core-v5/structs/JBAccountingContext.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
+
+uint32 constant TEST_ACCOUNTING_CURRENCY = 1;
 
 contract CobuildExitRouterTest is Test {
     uint256 internal constant GOAL_ID = 1;
     uint256 internal constant CHILD_COMMUNITY_ID = 2;
     uint256 internal constant COMMUNITY_ID = 3;
     uint256 internal constant COBUILD_ID = 4;
+    uint256 internal constant UNREGISTERED_COMMUNITY_ID = 5;
+    uint256 internal constant ARBITRATION_COST = 1e14;
+    uint256 internal constant CHALLENGE_PERIOD = 7 days;
+    uint256 internal constant SUBMISSION_DEPOSIT = 1e18;
 
-    CobuildExitRouterMockToken internal goalToken;
-    CobuildExitRouterMockToken internal childCommunityToken;
-    CobuildExitRouterMockToken internal communityToken;
-    CobuildExitRouterMockToken internal cobuildToken;
+    address internal multisig = makeAddr("multisig");
 
-    CobuildExitRouterMockDirectory internal directory;
-    CobuildExitRouterMockTokens internal tokens;
-    CobuildExitRouterMockController internal controller;
-    CobuildExitRouterMockGoalDeploymentRegistry internal goalDeploymentRegistry;
-    CobuildExitRouterMockGoalTreasury internal goalTreasury;
-    CobuildExitRouterMockStakeVault internal stakeVault;
-    CobuildExitRouterMockCommunityTerminal internal communityTerminal;
+    RouterAsyncDirectory internal directory;
+    RouterAsyncReservedController internal controller;
+    MockTerminalStore internal terminalStore;
+    GoalDeploymentRegistry internal goalDeploymentRegistry;
+    CobuildCommunityTerminal internal sharedTerminal;
+    CobuildSplitHook internal hookImplementation;
+    CommunityGoalRegistry internal registryImplementation;
 
-    CobuildExitRouterMockCashOutTerminal internal goalToChildTerminal;
-    CobuildExitRouterMockCashOutTerminal internal goalToCommunityTerminal;
-    CobuildExitRouterMockCashOutTerminal internal goalToCobuildTerminal;
-    CobuildExitRouterMockCashOutTerminal internal childToCommunityTerminal;
-    CobuildExitRouterMockCashOutTerminal internal communityToChildTerminal;
-    CobuildExitRouterMockCashOutTerminal internal communityToCobuildTerminal;
-    CobuildExitRouterMockCashOutTerminal internal communityToNativeTerminal;
-    CobuildExitRouterMockCashOutTerminal internal cobuildToNativeTerminal;
+    MockVotesToken internal goalToken;
+    MockVotesToken internal childCommunityToken;
+    MockVotesToken internal communityToken;
+    MockVotesToken internal cobuildToken;
+    MockVotesToken internal unregisteredCommunityToken;
+
+    SeededCashOutTerminal internal goalCashOutTerminal;
 
     CobuildExitRouter internal router;
 
     function setUp() public {
-        goalToken = new CobuildExitRouterMockToken("Goal", "GOAL");
-        childCommunityToken = new CobuildExitRouterMockToken("Child Community", "CHILD");
-        communityToken = new CobuildExitRouterMockToken("Community", "COMM");
-        cobuildToken = new CobuildExitRouterMockToken("Cobuild", "COBUILD");
+        vm.deal(address(this), 200 ether);
 
-        directory = new CobuildExitRouterMockDirectory();
-        tokens = new CobuildExitRouterMockTokens();
-        controller = new CobuildExitRouterMockController(tokens);
-        goalDeploymentRegistry = new CobuildExitRouterMockGoalDeploymentRegistry();
-        stakeVault = new CobuildExitRouterMockStakeVault();
-        goalTreasury = new CobuildExitRouterMockGoalTreasury();
-        communityTerminal = new CobuildExitRouterMockCommunityTerminal(tokens);
+        directory = new RouterAsyncDirectory();
+        controller = new RouterAsyncReservedController(directory);
+        terminalStore = new MockTerminalStore(IJBDirectory(address(directory)));
+        goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(this));
+        sharedTerminal = new CobuildCommunityTerminal(
+            IJBDirectory(address(directory)), IJBTerminalStore(address(terminalStore)), address(0)
+        );
+        hookImplementation = new CobuildSplitHook();
+        registryImplementation = new CommunityGoalRegistry();
 
-        goalToChildTerminal = new CobuildExitRouterMockCashOutTerminal(goalToken);
-        goalToCommunityTerminal = new CobuildExitRouterMockCashOutTerminal(goalToken);
-        goalToCobuildTerminal = new CobuildExitRouterMockCashOutTerminal(goalToken);
-        childToCommunityTerminal = new CobuildExitRouterMockCashOutTerminal(childCommunityToken);
-        communityToChildTerminal = new CobuildExitRouterMockCashOutTerminal(communityToken);
-        communityToCobuildTerminal = new CobuildExitRouterMockCashOutTerminal(communityToken);
-        communityToNativeTerminal = new CobuildExitRouterMockCashOutTerminal(communityToken);
-        cobuildToNativeTerminal = new CobuildExitRouterMockCashOutTerminal(cobuildToken);
+        (uint256 goalId, MockVotesToken goalToken_) = controller.createProject(multisig, 0, "Goal", "GOAL");
+        (uint256 childId, MockVotesToken childToken_) =
+            controller.createProject(multisig, 0, "Child Community", "CHILD");
+        (uint256 communityId, MockVotesToken communityToken_) =
+            controller.createProject(multisig, 0, "Community", "COMM");
+        (uint256 cobuildId, MockVotesToken cobuildToken_) =
+            controller.createProject(multisig, 0, "Cobuild", "COBUILD");
+        (uint256 unregisteredId, MockVotesToken unregisteredToken_) =
+            controller.createProject(multisig, 0, "Unregistered Community", "UNREG");
 
-        tokens.setTokenOf(GOAL_ID, address(goalToken));
-        tokens.setTokenOf(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        tokens.setTokenOf(COMMUNITY_ID, address(communityToken));
-        tokens.setTokenOf(COBUILD_ID, address(cobuildToken));
+        assertEq(goalId, GOAL_ID);
+        assertEq(childId, CHILD_COMMUNITY_ID);
+        assertEq(communityId, COMMUNITY_ID);
+        assertEq(cobuildId, COBUILD_ID);
+        assertEq(unregisteredId, UNREGISTERED_COMMUNITY_ID);
 
-        directory.setController(GOAL_ID, IJBController(address(controller)));
-        directory.setController(CHILD_COMMUNITY_ID, IJBController(address(controller)));
-        directory.setController(COMMUNITY_ID, IJBController(address(controller)));
-        directory.setController(COBUILD_ID, IJBController(address(controller)));
+        goalToken = goalToken_;
+        childCommunityToken = childToken_;
+        communityToken = communityToken_;
+        cobuildToken = cobuildToken_;
+        unregisteredCommunityToken = unregisteredToken_;
 
-        goalDeploymentRegistry.setGoalTreasury(GOAL_ID, address(goalTreasury));
+        goalCashOutTerminal = new SeededCashOutTerminal(controller, GOAL_ID);
+
+        vm.prank(multisig);
+        controller.setProjectTerminal(GOAL_ID, address(goalCashOutTerminal), true);
 
         router = new CobuildExitRouter(
             IJBDirectory(address(directory)),
-            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
-            ICobuildCommunityTerminal(address(communityTerminal)),
+            goalDeploymentRegistry,
+            sharedTerminal,
             cobuildToken,
             COBUILD_ID
         );
-
-        vm.deal(address(cobuildToNativeTerminal), 20 ether);
-        vm.deal(address(communityTerminal), 20 ether);
-        vm.deal(address(communityToNativeTerminal), 20 ether);
     }
 
     function test_exitToCommunityToken_transfersImmediateCommunityToken() public {
-        _configureGoal(COMMUNITY_ID, address(communityToken));
-        communityTerminal.setConfig(COMMUNITY_ID, address(cobuildToken), COBUILD_ID, false, true);
-        directory.setPrimaryTerminal(GOAL_ID, address(communityToken), IJBTerminal(address(goalToCommunityTerminal)));
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(communityToken));
+        _seedGoalCashOut(COMMUNITY_ID, 5 ether);
+        _mintGoalTokens(address(this), 5 ether);
 
-        goalToken.mint(address(this), 5 ether);
         goalToken.approve(address(router), 5 ether);
 
         address beneficiary = makeAddr("beneficiary");
@@ -113,17 +137,16 @@ contract CobuildExitRouterTest is Test {
     }
 
     function test_exitToCobuildToken_walksConfiguredCommunityLineage() public {
-        _configureGoal(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        communityTerminal.setConfig(CHILD_COMMUNITY_ID, address(communityToken), COMMUNITY_ID, false, true);
-        communityTerminal.setConfig(COMMUNITY_ID, address(cobuildToken), COBUILD_ID, false, true);
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 4 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 4 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 4 ether);
+        _mintGoalTokens(address(this), 4 ether);
 
-        directory.setPrimaryTerminal(GOAL_ID, address(childCommunityToken), IJBTerminal(address(goalToChildTerminal)));
-        directory.setPrimaryTerminal(
-            CHILD_COMMUNITY_ID, address(communityToken), IJBTerminal(address(communityTerminal))
-        );
-        directory.setPrimaryTerminal(COMMUNITY_ID, address(cobuildToken), IJBTerminal(address(communityTerminal)));
-
-        goalToken.mint(address(this), 4 ether);
         goalToken.approve(address(router), 4 ether);
 
         address beneficiary = makeAddr("beneficiary");
@@ -138,20 +161,17 @@ contract CobuildExitRouterTest is Test {
     }
 
     function test_exitToEth_cashesOutFinalRootToNative() public {
-        _configureGoal(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        communityTerminal.setConfig(CHILD_COMMUNITY_ID, address(communityToken), COMMUNITY_ID, false, true);
-        communityTerminal.setConfig(COMMUNITY_ID, address(cobuildToken), COBUILD_ID, false, true);
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 3 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 3 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 3 ether);
+        _seedSharedNativeCashOut(COBUILD_ID, 3 ether);
+        _mintGoalTokens(address(this), 3 ether);
 
-        directory.setPrimaryTerminal(GOAL_ID, address(childCommunityToken), IJBTerminal(address(goalToChildTerminal)));
-        directory.setPrimaryTerminal(
-            CHILD_COMMUNITY_ID, address(communityToken), IJBTerminal(address(communityTerminal))
-        );
-        directory.setPrimaryTerminal(COMMUNITY_ID, address(cobuildToken), IJBTerminal(address(communityTerminal)));
-        directory.setPrimaryTerminal(
-            COBUILD_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(cobuildToNativeTerminal))
-        );
-
-        goalToken.mint(address(this), 3 ether);
         goalToken.approve(address(router), 3 ether);
 
         address payable beneficiary = payable(makeAddr("beneficiary"));
@@ -168,10 +188,12 @@ contract CobuildExitRouterTest is Test {
     }
 
     function test_exitToCommunityToken_revertsWhenImmediateLayerIsCobuildRoot() public {
-        _configureGoal(COBUILD_ID, address(cobuildToken));
-        directory.setPrimaryTerminal(GOAL_ID, address(cobuildToken), IJBTerminal(address(goalToCobuildTerminal)));
+        _registerGoal(COBUILD_ID, cobuildToken);
+        _registerCobuildRoot();
+        _setGoalPrimaryTerminal(address(cobuildToken));
+        _seedGoalCashOut(COBUILD_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
 
-        goalToken.mint(address(this), 1 ether);
         goalToken.approve(address(router), 1 ether);
 
         vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.NO_COMMUNITY_LAYER.selector, GOAL_ID));
@@ -179,16 +201,52 @@ contract CobuildExitRouterTest is Test {
     }
 
     function test_exitToCommunityToken_revertsWhenImmediateLayerIsNotRegisteredCommunity() public {
-        _configureGoal(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        directory.setPrimaryTerminal(GOAL_ID, address(childCommunityToken), IJBTerminal(address(goalToChildTerminal)));
+        _registerGoal(UNREGISTERED_COMMUNITY_ID, unregisteredCommunityToken);
+        _setGoalPrimaryTerminal(address(unregisteredCommunityToken));
+        _seedGoalCashOut(UNREGISTERED_COMMUNITY_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
 
-        goalToken.mint(address(this), 1 ether);
         goalToken.approve(address(router), 1 ether);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CobuildExitRouter.INVALID_COMMUNITY_LAYER.selector, CHILD_COMMUNITY_ID, address(childCommunityToken)
+                CobuildExitRouter.INVALID_COMMUNITY_LAYER.selector,
+                UNREGISTERED_COMMUNITY_ID,
+                address(unregisteredCommunityToken)
             )
+        );
+        router.exitToCommunityToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToCommunityToken_revertsWhenImmediateLayerTokenDoesNotMatchRegisteredCommunityToken() public {
+        _registerGoal(COMMUNITY_ID, childCommunityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
+
+        goalToken.approve(address(router), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildExitRouter.INVALID_COMMUNITY_LAYER.selector, COMMUNITY_ID, address(childCommunityToken)
+            )
+        );
+        router.exitToCommunityToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToCommunityToken_revertsWhenGoalPrimaryTerminalIsNotCashOutTerminal() public {
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+
+        GoalRecordingTerminal goalRecordingTerminal = new GoalRecordingTerminal(address(communityToken));
+        directory.setPrimaryTerminalOf(GOAL_ID, address(communityToken), IJBTerminal(address(goalRecordingTerminal)));
+        _mintGoalTokens(address(this), 1 ether);
+
+        goalToken.approve(address(router), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildExitRouter.TERMINAL_NOT_CASH_OUT.selector, address(goalRecordingTerminal))
         );
         router.exitToCommunityToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
     }
@@ -198,14 +256,21 @@ contract CobuildExitRouterTest is Test {
         router.exitToCommunityToken(GOAL_ID, 1 ether, 0, address(router), block.timestamp + 1, bytes("goal-exit"));
     }
 
+    function test_exitToCommunityToken_revertsWhenDeadlineExpired() public {
+        uint256 deadline = block.timestamp - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.DEADLINE_EXPIRED.selector, deadline, block.timestamp));
+        router.exitToCommunityToken(GOAL_ID, 1 ether, 0, address(this), deadline, bytes("goal-exit"));
+    }
+
     function test_exitToEth_supportsDirectNativeCommunityRoot() public {
-        _configureGoal(COMMUNITY_ID, address(communityToken));
-        communityTerminal.setConfig(COMMUNITY_ID, address(communityToken), COMMUNITY_ID, true, true);
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(communityToken));
+        _seedGoalCashOut(COMMUNITY_ID, 2 ether);
+        _seedSharedNativeCashOut(COMMUNITY_ID, 2 ether);
+        _mintGoalTokens(address(this), 2 ether);
 
-        directory.setPrimaryTerminal(GOAL_ID, address(communityToken), IJBTerminal(address(goalToCommunityTerminal)));
-        directory.setPrimaryTerminal(COMMUNITY_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(communityTerminal)));
-
-        goalToken.mint(address(this), 2 ether);
         goalToken.approve(address(router), 2 ether);
 
         address payable beneficiary = payable(makeAddr("beneficiary"));
@@ -222,34 +287,42 @@ contract CobuildExitRouterTest is Test {
         router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(router)), block.timestamp + 1, bytes("goal-exit"));
     }
 
-    function test_exitToEth_supportsMaxCommunityHopsBeforeCobuild() public {
-        uint256[] memory hopIds = new uint256[](8);
-        CobuildExitRouterMockToken[] memory hopTokens = new CobuildExitRouterMockToken[](8);
+    function test_exitToEth_revertsWhenCobuildNativeTerminalMissing() public {
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
 
-        for (uint256 i; i < hopIds.length; i++) {
-            uint256 hopId = 100 + i;
-            hopIds[i] = hopId;
-            hopTokens[i] = new CobuildExitRouterMockToken("Hop", "HOP");
+        directory.clearPrimaryTerminalOf(COBUILD_ID, JBConstants.NATIVE_TOKEN);
+        directory.setTerminalsOf(COBUILD_ID, new IJBTerminal[](0));
 
-            tokens.setTokenOf(hopId, address(hopTokens[i]));
-            directory.setController(hopId, IJBController(address(controller)));
-        }
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 1 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 1 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
 
-        for (uint256 i; i < hopIds.length; i++) {
-            address paymentToken = i + 1 == hopIds.length ? address(cobuildToken) : address(hopTokens[i + 1]);
-            uint256 paymentSourceRevnetId = i + 1 == hopIds.length ? COBUILD_ID : hopIds[i + 1];
+        goalToken.approve(address(router), 1 ether);
 
-            communityTerminal.setConfig(hopIds[i], paymentToken, paymentSourceRevnetId, false, true);
-            directory.setPrimaryTerminal(hopIds[i], paymentToken, IJBTerminal(address(communityTerminal)));
-        }
-
-        _configureGoal(hopIds[0], address(hopTokens[0]));
-        directory.setPrimaryTerminal(GOAL_ID, address(hopTokens[0]), IJBTerminal(address(goalToChildTerminal)));
-        directory.setPrimaryTerminal(
-            COBUILD_ID, JBConstants.NATIVE_TOKEN, IJBTerminal(address(cobuildToNativeTerminal))
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildExitRouter.TERMINAL_NOT_FOUND.selector, COBUILD_ID, JBConstants.NATIVE_TOKEN)
         );
+        router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(this)), block.timestamp + 1, bytes("goal-exit"));
+    }
 
-        goalToken.mint(address(this), 1 ether);
+    function test_exitToEth_supportsMaxCommunityHopsBeforeCobuild() public {
+        _registerCobuildRoot();
+
+        uint256 hopCount = router.MAX_COMMUNITY_HOPS();
+        (uint256[] memory hopIds, MockVotesToken[] memory hopTokens) = _createCobuildHopLineage(hopCount);
+
+        _registerGoal(hopIds[0], hopTokens[0]);
+        _setGoalPrimaryTerminal(address(hopTokens[0]));
+        _seedGoalCashOut(hopIds[0], 1 ether);
+        _seedCobuildHopCashOuts(hopIds, 1 ether);
+        _seedSharedNativeCashOut(COBUILD_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
+
         goalToken.approve(address(router), 1 ether);
 
         address payable beneficiary = payable(makeAddr("beneficiary"));
@@ -262,12 +335,12 @@ contract CobuildExitRouterTest is Test {
     }
 
     function test_exitToCobuildToken_revertsWhenCommunityRootOnlySupportsDirectNativeExit() public {
-        _configureGoal(COMMUNITY_ID, address(communityToken));
-        communityTerminal.setConfig(COMMUNITY_ID, address(communityToken), COMMUNITY_ID, true, true);
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(communityToken));
+        _seedGoalCashOut(COMMUNITY_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
 
-        directory.setPrimaryTerminal(GOAL_ID, address(communityToken), IJBTerminal(address(goalToCommunityTerminal)));
-
-        goalToken.mint(address(this), 1 ether);
         goalToken.approve(address(router), 1 ether);
 
         vm.expectRevert(
@@ -278,16 +351,37 @@ contract CobuildExitRouterTest is Test {
         router.exitToCobuildToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
     }
 
+    function test_exitToCobuildToken_revertsWhenOutputBelowMinimum() public {
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 4 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 4 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 4 ether);
+        _mintGoalTokens(address(this), 4 ether);
+
+        goalToken.approve(address(router), 4 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.UNDER_MIN_OUTPUT.selector, 4 ether, 4 ether + 1));
+        router.exitToCobuildToken(GOAL_ID, 4 ether, 4 ether + 1, address(this), block.timestamp + 1, bytes("goal-exit"));
+    }
+
     function test_exitToCobuildToken_revertsWhenCommunityHopTerminalIsRetargeted() public {
-        _configureGoal(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        communityTerminal.setConfig(CHILD_COMMUNITY_ID, address(communityToken), COMMUNITY_ID, false, true);
-
-        directory.setPrimaryTerminal(GOAL_ID, address(childCommunityToken), IJBTerminal(address(goalToChildTerminal)));
-        directory.setPrimaryTerminal(
-            CHILD_COMMUNITY_ID, address(communityToken), IJBTerminal(address(childToCommunityTerminal))
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 1 ether);
+        SeededCashOutTerminal rogueCommunityCashOutTerminal = new SeededCashOutTerminal(controller, CHILD_COMMUNITY_ID);
+        vm.prank(multisig);
+        controller.setProjectTerminal(CHILD_COMMUNITY_ID, address(rogueCommunityCashOutTerminal), true);
+        directory.setPrimaryTerminalOf(
+            CHILD_COMMUNITY_ID, address(communityToken), IJBTerminal(address(rogueCommunityCashOutTerminal))
         );
+        _mintGoalTokens(address(this), 1 ether);
 
-        goalToken.mint(address(this), 1 ether);
         goalToken.approve(address(router), 1 ether);
 
         vm.expectRevert(
@@ -295,26 +389,24 @@ contract CobuildExitRouterTest is Test {
                 CobuildExitRouter.INVALID_COMMUNITY_TERMINAL.selector,
                 CHILD_COMMUNITY_ID,
                 address(communityToken),
-                address(childToCommunityTerminal)
+                address(rogueCommunityCashOutTerminal)
             )
         );
         router.exitToCobuildToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
     }
 
-    function test_exitToCobuildToken_revertsWhenCommunityLineageLoopsPastMaxHops() public {
-        _configureGoal(CHILD_COMMUNITY_ID, address(childCommunityToken));
-        communityTerminal.setConfig(CHILD_COMMUNITY_ID, address(communityToken), COMMUNITY_ID, false, true);
-        communityTerminal.setConfig(COMMUNITY_ID, address(childCommunityToken), CHILD_COMMUNITY_ID, false, true);
+    function test_exitToCobuildToken_revertsWhenCommunityLineageExceedsMaxHops() public {
+        _registerCobuildRoot();
 
-        directory.setPrimaryTerminal(GOAL_ID, address(childCommunityToken), IJBTerminal(address(goalToChildTerminal)));
-        directory.setPrimaryTerminal(
-            CHILD_COMMUNITY_ID, address(communityToken), IJBTerminal(address(communityTerminal))
-        );
-        directory.setPrimaryTerminal(
-            COMMUNITY_ID, address(childCommunityToken), IJBTerminal(address(communityTerminal))
-        );
+        uint256 hopCount = router.MAX_COMMUNITY_HOPS() + 1;
+        (uint256[] memory hopIds, MockVotesToken[] memory hopTokens) = _createCobuildHopLineage(hopCount);
 
-        goalToken.mint(address(this), 1 ether);
+        _registerGoal(hopIds[0], hopTokens[0]);
+        _setGoalPrimaryTerminal(address(hopTokens[0]));
+        _seedGoalCashOut(hopIds[0], 1 ether);
+        _seedCobuildHopCashOuts(hopIds, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
+
         goalToken.approve(address(router), 1 ether);
 
         vm.expectRevert(
@@ -323,238 +415,192 @@ contract CobuildExitRouterTest is Test {
         router.exitToCobuildToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
     }
 
-    function _configureGoal(uint256 paymentRevnetId, address paymentToken) internal {
-        goalTreasury.setCobuildRevnetId(paymentRevnetId);
-        goalTreasury.setStakeVault(address(stakeVault));
-        stakeVault.setCobuildToken(paymentToken);
-    }
-}
-
-contract CobuildExitRouterMockDirectory {
-    mapping(uint256 => mapping(address => IJBTerminal)) internal _primaryTerminalOf;
-    mapping(uint256 => IJBController) internal _controllerOf;
-
-    function setPrimaryTerminal(uint256 projectId, address token, IJBTerminal terminal) external {
-        _primaryTerminalOf[projectId][token] = terminal;
+    function _registerGoal(uint256 cobuildRevnetId, MockVotesToken paymentToken) internal {
+        GoalTreasuryStub goalTreasury =
+            new GoalTreasuryStub(GOAL_ID, cobuildRevnetId, address(new StakeVaultStub(address(paymentToken))));
+        goalDeploymentRegistry.registerGoal(GOAL_ID, address(goalTreasury));
     }
 
-    function primaryTerminalOf(uint256 projectId, address token) external view returns (IJBTerminal) {
-        return _primaryTerminalOf[projectId][token];
+    function _registerCobuildRoot() internal {
+        _registerCommunityProject(COBUILD_ID, cobuildToken, address(cobuildToken), COBUILD_ID, true);
     }
 
-    function setController(uint256 projectId, IJBController controller_) external {
-        _controllerOf[projectId] = controller_;
-    }
-
-    function controllerOf(uint256 projectId) external view returns (IJBController) {
-        return _controllerOf[projectId];
-    }
-}
-
-contract CobuildExitRouterMockTokens {
-    mapping(uint256 => address) internal _tokenOf;
-
-    function setTokenOf(uint256 projectId, address token) external {
-        _tokenOf[projectId] = token;
-    }
-
-    function tokenOf(uint256 projectId) external view returns (address) {
-        return _tokenOf[projectId];
-    }
-}
-
-contract CobuildExitRouterMockController {
-    CobuildExitRouterMockTokens internal immutable _tokens;
-
-    constructor(CobuildExitRouterMockTokens tokens_) {
-        _tokens = tokens_;
-    }
-
-    function TOKENS() external view returns (CobuildExitRouterMockTokens) {
-        return _tokens;
-    }
-}
-
-contract CobuildExitRouterMockGoalDeploymentRegistry {
-    mapping(uint256 => address) internal _goalTreasuryOf;
-
-    function setGoalTreasury(uint256 goalId, address goalTreasury) external {
-        _goalTreasuryOf[goalId] = goalTreasury;
-    }
-
-    function goalTreasuryOf(uint256 goalId) external view returns (address) {
-        return _goalTreasuryOf[goalId];
-    }
-}
-
-contract CobuildExitRouterMockGoalTreasury {
-    uint256 public cobuildRevnetId;
-    address public stakeVault;
-
-    function setCobuildRevnetId(uint256 cobuildRevnetId_) external {
-        cobuildRevnetId = cobuildRevnetId_;
-    }
-
-    function setStakeVault(address stakeVault_) external {
-        stakeVault = stakeVault_;
-    }
-}
-
-contract CobuildExitRouterMockStakeVault {
-    address public cobuildToken;
-
-    function setCobuildToken(address cobuildToken_) external {
-        cobuildToken = cobuildToken_;
-    }
-}
-
-contract CobuildExitRouterMockCommunityTerminal is ICobuildCommunityTerminal, IJBCashOutTerminal {
-    CobuildExitRouterMockTokens internal immutable _tokens;
-
-    struct CommunityConfig {
-        address paymentToken;
-        uint256 paymentSourceRevnetId;
-        bool directNativeAllowed;
-        bool exists;
-    }
-
-    mapping(uint256 => CommunityConfig) internal _configOf;
-
-    constructor(CobuildExitRouterMockTokens tokens_) {
-        _tokens = tokens_;
-    }
-
-    receive() external payable {}
-
-    function setConfig(
+    function _registerCommunityProject(
         uint256 communityRevnetId,
+        MockVotesToken communityProjectToken,
         address paymentToken,
         uint256 paymentSourceRevnetId,
-        bool directNativeAllowed,
-        bool exists
-    ) external {
-        _configOf[communityRevnetId] = CommunityConfig({
-            paymentToken: paymentToken,
-            paymentSourceRevnetId: paymentSourceRevnetId,
-            directNativeAllowed: directNativeAllowed,
-            exists: exists
+        bool directNativeAllowed
+    ) internal {
+        directory.setPrimaryTerminalOf(communityRevnetId, paymentToken, IJBTerminal(address(sharedTerminal)));
+        directory.setPrimaryTerminalOf(communityRevnetId, JBConstants.NATIVE_TOKEN, IJBTerminal(address(sharedTerminal)));
+
+        vm.prank(multisig);
+        controller.setProjectTerminal(communityRevnetId, address(sharedTerminal), true);
+
+        CommunityGoalRegistry registry =
+            _deployCommunityGoalRegistry(communityRevnetId, IVotes(address(communityProjectToken)));
+        CobuildSplitHook hook = CobuildSplitHook(payable(Clones.clone(address(hookImplementation))));
+        hook.initialize(
+            IJBDirectory(address(directory)),
+            communityRevnetId,
+            address(communityProjectToken),
+            address(sharedTerminal),
+            registry
+        );
+
+        vm.prank(multisig);
+        controller.setReservedSplitHook(communityRevnetId, IJBSplitHook(address(hook)));
+
+        vm.prank(multisig);
+        sharedTerminal.registerCommunity(
+            communityRevnetId, ICobuildSplitHook(address(hook)), paymentToken, paymentSourceRevnetId, directNativeAllowed
+        );
+    }
+
+    function _deployCommunityGoalRegistry(
+        uint256 communityRevnetId,
+        IVotes votingToken
+    ) internal returns (CommunityGoalRegistry registry) {
+        registry = CommunityGoalRegistry(Clones.clone(address(registryImplementation)));
+
+        RoundTestArbitrator arbitrator =
+            new RoundTestArbitrator(votingToken, address(registry), 1, 1, 1, ARBITRATION_COST);
+        EscrowSubmissionDepositStrategy depositStrategy = new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)));
+
+        registry.initialize(
+            CommunityGoalRegistry.InitConfig({
+                tcrConfig: _registryConfig(arbitrator, votingToken, depositStrategy),
+                directory: IJBDirectory(address(directory)),
+                goalDeploymentRegistry: goalDeploymentRegistry,
+                communityRevnetId: communityRevnetId,
+                communityToken: address(votingToken)
+            })
+        );
+    }
+
+    function _registryConfig(
+        RoundTestArbitrator arbitrator,
+        IVotes votingToken,
+        EscrowSubmissionDepositStrategy depositStrategy
+    ) internal pure returns (IGeneralizedTCRConfig.RegistryConfig memory config) {
+        config = IGeneralizedTCRConfig.RegistryConfig({
+            arbitrator: arbitrator,
+            votingToken: votingToken,
+            submissionDepositStrategy: depositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://registration",
+                clearingMetaEvidence: "ipfs://clearing",
+                submissionBaseDeposit: SUBMISSION_DEPOSIT,
+                removalBaseDeposit: SUBMISSION_DEPOSIT,
+                submissionChallengeBaseDeposit: SUBMISSION_DEPOSIT,
+                removalChallengeBaseDeposit: SUBMISSION_DEPOSIT,
+                challengePeriodDuration: CHALLENGE_PERIOD
+            })
         });
     }
 
-    function communityConfigOf(uint256 communityRevnetId)
-        external
-        view
-        returns (
-            ICobuildSplitHook splitHook,
-            address paymentToken,
-            uint256 paymentSourceRevnetId,
-            bool directNativeAllowed,
-            bool exists
-        )
+    function _setGoalPrimaryTerminal(address token) internal {
+        directory.setPrimaryTerminalOf(GOAL_ID, token, IJBTerminal(address(goalCashOutTerminal)));
+    }
+
+    function _createCobuildHopLineage(uint256 hopCount)
+        internal
+        returns (uint256[] memory hopIds, MockVotesToken[] memory hopTokens)
     {
-        CommunityConfig memory config = _configOf[communityRevnetId];
-        splitHook = ICobuildSplitHook(address(0));
-        paymentToken = config.paymentToken;
-        paymentSourceRevnetId = config.paymentSourceRevnetId;
-        directNativeAllowed = config.directNativeAllowed;
-        exists = config.exists;
-    }
+        hopIds = new uint256[](hopCount);
+        hopTokens = new MockVotesToken[](hopCount);
 
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-        return interfaceId == type(ICobuildCommunityTerminal).interfaceId
-            || interfaceId == type(IJBCashOutTerminal).interfaceId || interfaceId == type(IJBTerminal).interfaceId;
-    }
-
-    function cashOutTokensOf(
-        address holder,
-        uint256 projectId,
-        uint256 cashOutCount,
-        address tokenToReclaim,
-        uint256 minTokensReclaimed,
-        address payable beneficiary,
-        bytes calldata metadata
-    ) external override returns (uint256 reclaimAmount) {
-        CobuildExitRouterMockToken(_tokens.tokenOf(projectId)).burn(holder, cashOutCount);
-        reclaimAmount = cashOutCount;
-        require(reclaimAmount >= minTokensReclaimed, "MIN");
-
-        if (tokenToReclaim == JBConstants.NATIVE_TOKEN) {
-            (bool success,) = beneficiary.call{value: reclaimAmount}("");
-            require(success, "NATIVE");
-        } else {
-            CobuildExitRouterMockToken(tokenToReclaim).mint(beneficiary, reclaimAmount);
+        for (uint256 i; i < hopCount; i++) {
+            (hopIds[i], hopTokens[i]) = controller.createProject(multisig, 0, "Hop", "HOP");
         }
 
-        emit CashOutTokens(1, 1, projectId, holder, beneficiary, cashOutCount, 0, reclaimAmount, metadata, msg.sender);
+        for (uint256 i = hopCount; i > 0; i--) {
+            uint256 hopIndex = i - 1;
+            address paymentToken = hopIndex + 1 == hopCount ? address(cobuildToken) : address(hopTokens[hopIndex + 1]);
+            uint256 paymentSourceRevnetId = hopIndex + 1 == hopCount ? COBUILD_ID : hopIds[hopIndex + 1];
+
+            _registerCommunityProject(
+                hopIds[hopIndex], hopTokens[hopIndex], paymentToken, paymentSourceRevnetId, false
+            );
+        }
     }
 
-    function accountingContextForTokenOf(uint256, address token)
-        external
-        pure
-        override
-        returns (JBAccountingContext memory context)
-    {
-        context = JBAccountingContext({token: token, decimals: 18, currency: uint32(uint160(token))});
+    function _mintGoalTokens(address beneficiary, uint256 amount) internal {
+        _mintProjectTokens(GOAL_ID, beneficiary, amount);
     }
 
-    function accountingContextsOf(uint256) external pure override returns (JBAccountingContext[] memory contexts) {
-        contexts = new JBAccountingContext[](0);
+    function _mintProjectTokens(uint256 projectId, address beneficiary, uint256 amount) internal {
+        vm.prank(multisig);
+        controller.mintTokensOf(projectId, amount, beneficiary, false);
     }
 
-    function currentSurplusOf(uint256, JBAccountingContext[] memory, uint256, uint256)
-        external
-        pure
-        override
-        returns (uint256)
-    {
-        return 0;
+    function _seedGoalCashOut(uint256 paymentProjectId, uint256 amount) internal {
+        _mintProjectTokens(paymentProjectId, address(goalCashOutTerminal), amount);
     }
 
-    function addAccountingContextsFor(uint256, JBAccountingContext[] calldata) external override {}
-
-    function addToBalanceOf(uint256, address, uint256, bool, string calldata, bytes calldata)
-        external
-        payable
-        override
-    {}
-
-    function migrateBalanceOf(uint256, address, IJBTerminal) external pure override returns (uint256) {
-        return 0;
+    function _seedCobuildHopCashOuts(uint256[] memory hopIds, uint256 amount) internal {
+        uint256 hopCount = hopIds.length;
+        for (uint256 i; i < hopCount; i++) {
+            uint256 paymentProjectId = i + 1 == hopCount ? COBUILD_ID : hopIds[i + 1];
+            _seedSharedTokenCashOut(hopIds[i], paymentProjectId, amount);
+        }
     }
 
-    function pay(uint256, address, uint256 amount, address, uint256, string calldata, bytes calldata)
-        external
-        payable
-        override
-        returns (uint256)
-    {
-        return amount;
-    }
-}
-
-contract CobuildExitRouterMockToken is ERC20 {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
-
-    function mint(address account, uint256 amount) external {
-        _mint(account, amount);
+    function _seedSharedTokenCashOut(uint256 projectId, uint256 paymentProjectId, uint256 amount) internal {
+        MockVotesToken paymentToken = controller.TOKENS().tokenOf(paymentProjectId);
+        _mintProjectTokens(paymentProjectId, address(this), amount);
+        paymentToken.approve(address(sharedTerminal), amount);
+        sharedTerminal.addToBalanceOf(projectId, address(paymentToken), amount, false, "seed", bytes(""));
+        terminalStore.setCashOutConfig(
+            projectId, address(paymentToken), amount, 0, IJBCashOutHook(address(0)), 0, bytes("")
+        );
     }
 
-    function burn(address account, uint256 amount) external {
-        _burn(account, amount);
+    function _seedSharedNativeCashOut(uint256 projectId, uint256 amount) internal {
+        sharedTerminal.addToBalanceOf{value: amount}(projectId, JBConstants.NATIVE_TOKEN, amount, false, "seed", bytes(""));
+        terminalStore.setCashOutConfig(
+            projectId, JBConstants.NATIVE_TOKEN, amount, 0, IJBCashOutHook(address(0)), 0, bytes("")
+        );
     }
 }
 
-contract CobuildExitRouterMockCashOutTerminal is IJBCashOutTerminal {
-    CobuildExitRouterMockToken internal immutable _projectToken;
+contract RouterAsyncDirectory is AsyncDirectory {
+    function clearPrimaryTerminalOf(uint256 projectId, address token) external {
+        delete _primaryTerminalOf[projectId][token];
+    }
+}
 
-    constructor(CobuildExitRouterMockToken projectToken_) {
-        _projectToken = projectToken_;
+contract RouterAsyncReservedController is AsyncReservedController {
+    constructor(AsyncDirectory directory_) AsyncReservedController(directory_) {}
+
+    function burnTokensOf(address holder, uint256 projectId, uint256 tokenCount, string calldata) external {
+        ProjectConfig storage config = _projectConfigOf[projectId];
+        if (address(config.token) == address(0)) revert INVALID_PROJECT();
+        if (msg.sender != config.owner && !_isProjectTerminal[projectId][msg.sender]) revert UNAUTHORIZED();
+        config.token.burn(holder, tokenCount);
+    }
+}
+
+contract SeededCashOutTerminal is IJBCashOutTerminal {
+    using SafeERC20 for IERC20;
+
+    RouterAsyncReservedController internal immutable _controller;
+    uint256 internal immutable _projectId;
+
+    constructor(RouterAsyncReservedController controller_, uint256 projectId_) {
+        _controller = controller_;
+        _projectId = projectId_;
     }
 
     receive() external payable {}
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IJBCashOutTerminal).interfaceId || interfaceId == type(IJBTerminal).interfaceId;
+        return
+            interfaceId == type(IJBCashOutTerminal).interfaceId ||
+            interfaceId == type(IJBTerminal).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
     }
 
     function cashOutTokensOf(
@@ -566,7 +612,9 @@ contract CobuildExitRouterMockCashOutTerminal is IJBCashOutTerminal {
         address payable beneficiary,
         bytes calldata metadata
     ) external override returns (uint256 reclaimAmount) {
-        _projectToken.burn(holder, cashOutCount);
+        require(projectId == _projectId, "INVALID_PROJECT");
+
+        _controller.burnTokensOf(holder, projectId, cashOutCount, "");
         reclaimAmount = cashOutCount;
         require(reclaimAmount >= minTokensReclaimed, "MIN");
 
@@ -574,19 +622,23 @@ contract CobuildExitRouterMockCashOutTerminal is IJBCashOutTerminal {
             (bool success,) = beneficiary.call{value: reclaimAmount}("");
             require(success, "NATIVE");
         } else {
-            CobuildExitRouterMockToken(tokenToReclaim).mint(beneficiary, reclaimAmount);
+            IERC20(tokenToReclaim).safeTransfer(beneficiary, reclaimAmount);
         }
 
         emit CashOutTokens(1, 1, projectId, holder, beneficiary, cashOutCount, 0, reclaimAmount, metadata, msg.sender);
     }
 
-    function accountingContextForTokenOf(uint256, address token)
+    function accountingContextForTokenOf(uint256 projectId, address token)
         external
         pure
         override
         returns (JBAccountingContext memory context)
     {
-        context = JBAccountingContext({token: token, decimals: 18, currency: uint32(uint160(token))});
+        if (projectId == 0 || token == address(0)) {
+            return JBAccountingContext({token: address(0), decimals: 0, currency: 0});
+        }
+
+        context = JBAccountingContext({token: token, decimals: 18, currency: TEST_ACCOUNTING_CURRENCY});
     }
 
     function accountingContextsOf(uint256) external pure override returns (JBAccountingContext[] memory contexts) {
