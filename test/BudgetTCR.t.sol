@@ -237,6 +237,20 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initialize_reverts_when_budget_spend_policy_reports_malformed_sync_mode_abi() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetSpendPolicy = address(new BudgetTCRMalformedSyncModeAbiSpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy)
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_goal_flow_is_zero() public {
         (
             BudgetTCR freshTcr,
@@ -2780,6 +2794,19 @@ contract BudgetTCRInvalidSyncModeSpendPolicy is ISpendPolicy {
         assembly ("memory-safe") {
             mstore(0x00, 2)
             return(0x00, 0x20)
+        }
+    }
+}
+
+contract BudgetTCRMalformedSyncModeAbiSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 1;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        assembly ("memory-safe") {
+            mstore(0x00, 1)
+            return(0x1f, 0x01)
         }
     }
 }

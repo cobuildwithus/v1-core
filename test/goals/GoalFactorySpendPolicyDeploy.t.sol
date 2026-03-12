@@ -196,6 +196,15 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         _deployFactoryWithDefaultPolicies(invalidDefaultSpendPolicy, address(defaultBudgetSpendPolicy));
     }
 
+    function test_constructor_revertsWhenDefaultSpendPolicyReportsMalformedSyncModeAbi() public {
+        address invalidDefaultSpendPolicy = address(new GoalFactoryMalformedSyncModeAbiSpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.INVALID_DEFAULT_SPEND_POLICY.selector, invalidDefaultSpendPolicy)
+        );
+        _deployFactoryWithDefaultPolicies(invalidDefaultSpendPolicy, address(defaultBudgetSpendPolicy));
+    }
+
     function test_deployGoal_setsConfiguredSpendPolicyOnDeployedGoalTreasury() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
 
@@ -857,6 +866,19 @@ contract GoalFactoryInvalidSyncModeSpendPolicy is ISpendPolicy {
         assembly ("memory-safe") {
             mstore(0x00, 2)
             return(0x00, 0x20)
+        }
+    }
+}
+
+contract GoalFactoryMalformedSyncModeAbiSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 1;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        assembly ("memory-safe") {
+            mstore(0x00, 1)
+            return(0x1f, 0x01)
         }
     }
 }
