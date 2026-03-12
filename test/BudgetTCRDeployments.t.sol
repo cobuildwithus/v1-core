@@ -530,6 +530,9 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         address treasuryAnchor = harness.deployTreasuryClone(address(budgetTreasuryImplementation));
         NullPremiumEscrow nullPremiumEscrowImplementation = new NullPremiumEscrow();
         address premiumEscrow = Clones.clone(address(nullPremiumEscrowImplementation));
+        address ignoredBudgetStakeLedger = makeAddr("ignoredBudgetStakeLedger");
+        address ignoredUnderwriterSlasherRouter = makeAddr("ignoredUnderwriterSlasherRouter");
+        uint32 ignoredBudgetSlashPpm = 123_456;
 
         BudgetTCRStackDeploymentLibMockChildFlow childFlow =
             new BudgetTCRStackDeploymentLibMockChildFlow(makeAddr("safe"), address(goalToken), address(sharedStrategy));
@@ -541,10 +544,10 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
             treasuryAnchor,
             premiumEscrow,
             address(childFlow),
-            address(0),
+            ignoredBudgetStakeLedger,
             address(goalFlow),
-            address(0),
-            0,
+            ignoredUnderwriterSlasherRouter,
+            ignoredBudgetSlashPpm,
             _defaultListing(),
             budgetTCR,
             budgetSpendPolicy,
@@ -553,10 +556,15 @@ contract BudgetTCRStackDeploymentLibTest is Test, SpendPolicyTestUtils {
         );
 
         assertEq(NullPremiumEscrow(premiumEscrow).budgetTreasury(), budgetTreasury);
-        assertEq(NullPremiumEscrow(premiumEscrow).budgetStakeLedger(), address(0));
         assertEq(NullPremiumEscrow(premiumEscrow).goalFlow(), address(goalFlow));
-        assertEq(NullPremiumEscrow(premiumEscrow).underwriterSlasherRouter(), address(0));
-        assertEq(NullPremiumEscrow(premiumEscrow).budgetSlashPpm(), 0);
+        (bool budgetStakeLedgerGetterPresent,) = premiumEscrow.staticcall(abi.encodeWithSignature("budgetStakeLedger()"));
+        (bool underwriterSlasherRouterGetterPresent,) =
+            premiumEscrow.staticcall(abi.encodeWithSignature("underwriterSlasherRouter()"));
+        (bool budgetSlashPpmGetterPresent,) = premiumEscrow.staticcall(abi.encodeWithSignature("budgetSlashPpm()"));
+
+        assertFalse(budgetStakeLedgerGetterPresent);
+        assertFalse(underwriterSlasherRouterGetterPresent);
+        assertFalse(budgetSlashPpmGetterPresent);
 
         NullPremiumEscrow(premiumEscrow).connectManagerRewardPool(makeAddr("managerRewardPool"));
         NullPremiumEscrow(premiumEscrow).checkpoint(address(this));

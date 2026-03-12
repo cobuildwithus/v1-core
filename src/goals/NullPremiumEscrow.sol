@@ -11,10 +11,7 @@ contract NullPremiumEscrow is IPremiumEscrow, Initializable {
     error ADDRESS_ZERO();
 
     address public budgetTreasury;
-    address public budgetStakeLedger;
     address public goalFlow;
-    address public underwriterSlasherRouter;
-    uint32 public budgetSlashPpm;
 
     constructor() {
         _disableInitializers();
