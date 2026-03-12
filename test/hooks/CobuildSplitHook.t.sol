@@ -194,6 +194,103 @@ contract CobuildSplitHookTest is Test {
         assertEq(hook.currentRoutingMass(), 100e18);
     }
 
+    function test_queueRollover_storesCommunityTokensUntilReleased() public {
+        uint256 amount = 12e18;
+        uint64 releaseAt = uint64(block.timestamp + 60 days);
+
+        communityToken.mint(address(this), amount);
+        communityToken.approve(address(hook), amount);
+
+        hook.queueRollover(amount, releaseAt);
+
+        assertEq(hook.queuedRolloverAmount(), amount);
+        assertEq(hook.queuedRolloverEntryCount(), 1);
+        (uint64 storedReleaseAt, uint256 storedAmount) = hook.queuedRolloverAt(0);
+        assertEq(storedReleaseAt, releaseAt);
+        assertEq(storedAmount, amount);
+        assertEq(hook.historicalBacklogAmount(), 0);
+        assertEq(communityToken.balanceOf(address(hook)), amount);
+    }
+
+    function test_releaseQueuedRollovers_movesMaturedAmountIntoHistoricalBacklog() public {
+        uint256 firstAmount = 12e18;
+        uint256 secondAmount = 7e18;
+        uint64 firstReleaseAt = uint64(block.timestamp + 7 days);
+        uint64 secondReleaseAt = uint64(block.timestamp + 60 days);
+
+        communityToken.mint(address(this), firstAmount + secondAmount);
+        communityToken.approve(address(hook), firstAmount + secondAmount);
+        hook.queueRollover(firstAmount, firstReleaseAt);
+        hook.queueRollover(secondAmount, secondReleaseAt);
+
+        vm.warp(firstReleaseAt);
+        uint256 releasedAmount = hook.releaseQueuedRollovers(2);
+
+        assertEq(releasedAmount, firstAmount);
+        assertEq(hook.queuedRolloverAmount(), secondAmount);
+        assertEq(hook.historicalBacklogAmount(), firstAmount);
+        (uint64 releasedEntryAt, uint256 releasedEntryAmount) = hook.queuedRolloverAt(0);
+        assertEq(releasedEntryAt, 0);
+        assertEq(releasedEntryAmount, 0);
+        (uint64 queuedEntryAt, uint256 queuedEntryAmount) = hook.queuedRolloverAt(1);
+        assertEq(queuedEntryAt, secondReleaseAt);
+        assertEq(queuedEntryAmount, secondAmount);
+        assertEq(communityToken.balanceOf(address(hook)), firstAmount + secondAmount);
+    }
+
+    function test_releaseQueuedRollovers_chunksPermissionlesslyAcrossCalls() public {
+        uint256 firstAmount = 5e18;
+        uint256 secondAmount = 7e18;
+        uint256 thirdAmount = 11e18;
+        uint64 delayedReleaseAt = uint64(block.timestamp + 60 days);
+
+        communityToken.mint(address(this), firstAmount + secondAmount + thirdAmount);
+        communityToken.approve(address(hook), firstAmount + secondAmount + thirdAmount);
+        hook.queueRollover(firstAmount, delayedReleaseAt);
+        hook.queueRollover(secondAmount, uint64(block.timestamp));
+        hook.queueRollover(thirdAmount, uint64(block.timestamp));
+
+        vm.prank(makeAddr("releaser-one"));
+        uint256 releasedAmount = hook.releaseQueuedRollovers(1);
+
+        assertEq(releasedAmount, 0);
+        assertEq(hook.historicalBacklogAmount(), 0);
+        assertEq(hook.queuedRolloverAmount(), firstAmount + secondAmount + thirdAmount);
+        assertEq(hook.queuedRolloverEntryCount(), 3);
+
+        vm.prank(makeAddr("releaser-two"));
+        releasedAmount = hook.releaseQueuedRollovers(1);
+
+        assertEq(releasedAmount, secondAmount);
+        assertEq(hook.historicalBacklogAmount(), secondAmount);
+        assertEq(hook.queuedRolloverAmount(), firstAmount + thirdAmount);
+
+        vm.prank(makeAddr("releaser-three"));
+        releasedAmount = hook.releaseQueuedRollovers(1);
+
+        assertEq(releasedAmount, thirdAmount);
+        assertEq(hook.historicalBacklogAmount(), secondAmount + thirdAmount);
+        assertEq(hook.queuedRolloverAmount(), firstAmount);
+        assertEq(hook.queuedRolloverEntryCount(), 1);
+        (uint64 storedReleaseAt, uint256 storedAmount) = hook.queuedRolloverAt(0);
+        assertEq(storedReleaseAt, delayedReleaseAt);
+        assertEq(storedAmount, firstAmount);
+
+        vm.warp(delayedReleaseAt);
+        vm.prank(makeAddr("releaser-four"));
+        releasedAmount = hook.releaseQueuedRollovers(1);
+
+        assertEq(releasedAmount, firstAmount);
+        assertEq(hook.historicalBacklogAmount(), firstAmount + secondAmount + thirdAmount);
+        assertEq(hook.queuedRolloverAmount(), 0);
+        assertEq(hook.queuedRolloverEntryCount(), 0);
+    }
+
+    function test_releaseQueuedRollovers_revertsWhenMaxEntryCountIsZero() public {
+        vm.expectRevert(CobuildSplitHook.INVALID_QUEUED_ROLLOVER_RELEASE_COUNT.selector);
+        hook.releaseQueuedRollovers(0);
+    }
+
     function test_processSplitWith_routesOnlyPendingExplicitDelta_andDefersSnapshottedBacklog() public {
         vm.prank(routeSetter);
         hook.beginPendingRoute(beneficiary, beneficiary, 40e18, _goalIds(), _weights(1, 3));

@@ -1524,7 +1524,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     successAssertionBond: 10e18,
                     successOracleSpecHash: keccak256("underwriting-real-goal-success-oracle-spec"),
                     successAssertionPolicyHash: keccak256("underwriting-real-goal-success-policy"),
-                    spendPolicy: defaultGoalSpendPolicy
+                    spendPolicy: defaultGoalSpendPolicy,
+                    terminalRolloverCooldown: 0
                 })
             );
 
@@ -1768,6 +1769,8 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
 contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 9001;
+    uint256 internal constant COBUILD_REVNET_ID = 9002;
+    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 60 days;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
     uint8 internal constant DIRECTORY_FAILURE_INVALID = 1;
@@ -1793,6 +1796,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     GoalTreasury internal goalTreasuryImplementation;
     GoalTreasury internal treasury;
     address internal defaultGoalSpendPolicy;
+
+    struct ManagedTerminalRolloverRuntime {
+        SharedMockUnderlying cobuildToken;
+        UnderwritingMockTerminal cashOutTerminal;
+        UnderwritingMockQueuedRolloverHook rolloverHook;
+        UnderwritingMockCommunityTerminal communityTerminal;
+    }
 
     function setUp() public {
         underlyingToken = new SharedMockUnderlying();
@@ -2168,6 +2178,154 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
         assertEq(controller.lastBurnAmount(), residual);
         assertEq(controller.lastBurnMemoHash(), TERMINAL_BURN_MEMO_HASH);
+    }
+
+    function test_settleLateResidual_succeededManagedCooldown_queuesCommunityRolloverInsteadOfBurn() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        _resolveGoalSuccess(managedTreasury);
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        managedTreasury.settleLateResidual();
+
+        assertEq(superToken.balanceOf(address(flow)), 0);
+        assertEq(controller.burnCallCount(), 0);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 2);
+        assertEq(rollover.cashOutTerminal.lastCashOutCount(), residual);
+        assertEq(rollover.rolloverHook.queueCallCount(), 2);
+        assertEq(rollover.rolloverHook.lastQueuedAmount(), residual);
+        assertEq(
+            uint256(rollover.rolloverHook.lastReleaseAt()),
+            uint256(managedTreasury.resolvedAt()) + MANAGED_TERMINAL_ROLLOVER_COOLDOWN
+        );
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 109e18);
+        assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
+    }
+
+    function test_settleLateResidual_succeededManagedCooldown_queuesHeldCommunityBalanceWhenNoGoalResidualRemains() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        _resolveGoalSuccess(managedTreasury);
+
+        uint256 residual = 9e18;
+        rollover.cobuildToken.mint(address(managedTreasury), residual);
+        managedTreasury.settleLateResidual();
+
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 1);
+        assertEq(rollover.rolloverHook.queueCallCount(), 2);
+        assertEq(rollover.rolloverHook.lastQueuedAmount(), residual);
+        assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 109e18);
+    }
+
+    function test_settleLateResidual_succeededManagedCooldown_revertsWithoutGoalCashOutTerminal() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        _resolveGoalSuccess(managedTreasury);
+
+        directory.setPrimaryTerminal(GOAL_REVNET_ID, address(rollover.cobuildToken), IJBTerminal(address(0)));
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.NO_TERMINAL_ROLLOVER_GOAL_CASH_OUT_TERMINAL.selector,
+                GOAL_REVNET_ID,
+                address(rollover.cobuildToken)
+            )
+        );
+        managedTreasury.settleLateResidual();
+
+        assertEq(superToken.balanceOf(address(flow)), residual);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 1);
+        assertEq(rollover.rolloverHook.queueCallCount(), 1);
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 100e18);
+        assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
+    }
+
+    function test_settleLateResidual_succeededManagedCooldown_revertsWithoutCanonicalCommunitySplitHook() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        _resolveGoalSuccess(managedTreasury);
+
+        UnderwritingMockCommunityTerminal invalidCommunityTerminal =
+            new UnderwritingMockCommunityTerminal(address(0), address(rollover.cobuildToken), COBUILD_REVNET_ID);
+        directory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, address(rollover.cobuildToken), IJBTerminal(address(invalidCommunityTerminal))
+        );
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGoalTreasury.INVALID_TERMINAL_ROLLOVER_SPLIT_HOOK.selector, COBUILD_REVNET_ID, address(0)
+            )
+        );
+        managedTreasury.settleLateResidual();
+
+        assertEq(superToken.balanceOf(address(flow)), residual);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 1);
+        assertEq(rollover.rolloverHook.queueCallCount(), 1);
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 100e18);
+        assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
+    }
+
+    function test_resolveSuccess_managedCooldownQueueFailure_isRetryable() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
+
+        _activateGoal(managedTreasury);
+        rollover.rolloverHook.setShouldRevertQueue(true);
+
+        bytes32 assertionId = keccak256(abi.encodePacked("goal-success", address(managedTreasury)));
+
+        vm.prank(address(successResolverConfig));
+        managedTreasury.registerSuccessAssertion(assertionId);
+        _setGoalTruthfulAssertion(
+            assertionId,
+            managedTreasury.pendingSuccessAssertionAt(),
+            managedTreasury.successAssertionLiveness(),
+            managedTreasury.successAssertionBond()
+        );
+
+        vm.expectEmit(false, false, false, true, address(managedTreasury));
+        emit IGoalTreasury.TerminalResidualSettlementFailed(
+            abi.encodeWithSelector(UnderwritingMockQueuedRolloverHook.QUEUE_REVERT.selector)
+        );
+        vm.prank(address(successResolverConfig));
+        managedTreasury.resolveSuccess();
+
+        assertEq(uint256(managedTreasury.state()), uint256(IGoalTreasury.GoalState.Succeeded));
+        assertEq(superToken.balanceOf(address(flow)), 100e18);
+        assertEq(rollover.rolloverHook.queueCallCount(), 0);
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 0);
+
+        rollover.rolloverHook.setShouldRevertQueue(false);
+        managedTreasury.retryTerminalSideEffects();
+
+        assertEq(superToken.balanceOf(address(flow)), 0);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 1);
+        assertEq(rollover.cashOutTerminal.lastCashOutCount(), 100e18);
+        assertEq(rollover.rolloverHook.queueCallCount(), 1);
+        assertEq(rollover.rolloverHook.lastQueuedAmount(), 100e18);
+        assertEq(
+            uint256(rollover.rolloverHook.lastReleaseAt()),
+            uint256(managedTreasury.resolvedAt()) + MANAGED_TERMINAL_ROLLOVER_COOLDOWN
+        );
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 100e18);
+        assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
     }
 
     function test_sync_atDeadline_flowStopFailure_emitsTerminalFlowStopFailed() public {
@@ -2594,6 +2752,54 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Active));
     }
 
+    function _resolveGoalSuccess(GoalTreasury targetTreasury) internal {
+        bytes32 assertionId = keccak256(abi.encodePacked("goal-success", address(targetTreasury)));
+
+        vm.prank(address(successResolverConfig));
+        targetTreasury.registerSuccessAssertion(assertionId);
+        _setGoalTruthfulAssertion(
+            assertionId,
+            targetTreasury.pendingSuccessAssertionAt(),
+            targetTreasury.successAssertionLiveness(),
+            targetTreasury.successAssertionBond()
+        );
+        vm.prank(address(successResolverConfig));
+        targetTreasury.resolveSuccess();
+
+        assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Succeeded));
+    }
+
+    function _setGoalTruthfulAssertion(
+        bytes32 assertionId,
+        uint64 assertedAt,
+        uint64 liveness,
+        uint256 bond
+    ) internal {
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: address(successResolverConfig),
+                    escalationManager: address(0)
+                }),
+                asserter: address(successResolverConfig),
+                assertionTime: assertedAt,
+                settled: true,
+                currency: successResolverConfig.assertionCurrency(),
+                expirationTime: assertedAt + liveness,
+                settlementResolution: true,
+                domainId: bytes32(0),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: bond,
+                callbackRecipient: address(successResolverConfig),
+                disputer: address(0)
+            })
+        );
+    }
+
     function _fundGoalViaHook(GoalTreasury targetTreasury, uint256 amount) internal {
         (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
             _processGoalHookSplit(targetTreasury, amount);
@@ -2619,6 +2825,43 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         config.successResolver = resolver;
 
         candidateTreasury.initialize(config);
+    }
+
+    function _deployGoalTreasuryWithTerminalRollover(
+        uint64 cooldown
+    ) internal returns (GoalTreasury candidateTreasury) {
+        candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.terminalRolloverCooldown = cooldown;
+
+        candidateTreasury.initialize(config);
+    }
+
+    function _configureManagedTerminalRolloverPath()
+        internal
+        returns (ManagedTerminalRolloverRuntime memory rollover)
+    {
+        rollover.cobuildToken = new SharedMockUnderlying();
+        rollover.cashOutTerminal =
+            new UnderwritingMockTerminal(IERC20(address(rollover.cobuildToken)), IERC20(address(underlyingToken)));
+        rollover.rolloverHook = new UnderwritingMockQueuedRolloverHook(IERC20(address(rollover.cobuildToken)));
+        rollover.communityTerminal = new UnderwritingMockCommunityTerminal(
+            address(rollover.rolloverHook), address(rollover.cobuildToken), COBUILD_REVNET_ID
+        );
+
+        stakeVault.setCobuildToken(IERC20(address(rollover.cobuildToken)));
+        directory.setController(COBUILD_REVNET_ID, address(controller));
+        directory.setPrimaryTerminal(
+            GOAL_REVNET_ID, address(rollover.cobuildToken), IJBTerminal(address(rollover.cashOutTerminal))
+        );
+        directory.setPrimaryTerminal(
+            COBUILD_REVNET_ID, address(rollover.cobuildToken), IJBTerminal(address(rollover.communityTerminal))
+        );
+        tokens.setProjectIdOf(address(rollover.cobuildToken), COBUILD_REVNET_ID);
+
+        rollover.cobuildToken.mint(address(rollover.cashOutTerminal), 1_000_000e18);
     }
 
     function _deployLinearSpendPolicy(
@@ -2672,7 +2915,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             successAssertionBond: 10e18,
             successOracleSpecHash: keccak256("goal-oracle-spec"),
             successAssertionPolicyHash: keccak256("goal-assertion-policy"),
-            spendPolicy: defaultGoalSpendPolicy
+            spendPolicy: defaultGoalSpendPolicy,
+            terminalRolloverCooldown: 0
         });
     }
 }
@@ -3091,6 +3335,8 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
         IERC20 public immutable goalToken;
 
         uint256 public payCallCount;
+        uint256 public cashOutCallCount;
+        uint256 public lastCashOutCount;
 
         constructor(IERC20 cobuildToken_, IERC20 goalToken_) {
             cobuildToken = cobuildToken_;
@@ -3111,5 +3357,82 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
             cobuildToken.transferFrom(msg.sender, address(this), amount);
             goalToken.transfer(beneficiary, amount);
             return amount;
+        }
+
+        function cashOutTokensOf(
+            address holder,
+            uint256,
+            uint256 cashOutCount,
+            address tokenToReclaim,
+            uint256 minTokensReclaimed,
+            address payable beneficiary,
+            bytes calldata
+        ) external returns (uint256 reclaimAmount) {
+            require(tokenToReclaim == address(cobuildToken), "INVALID_RECLAIM_TOKEN");
+
+            cashOutCallCount += 1;
+            lastCashOutCount = cashOutCount;
+
+            goalToken.transferFrom(holder, address(this), cashOutCount);
+            reclaimAmount = cashOutCount;
+            require(reclaimAmount >= minTokensReclaimed, "MIN_RECLAIM");
+            cobuildToken.transfer(beneficiary, reclaimAmount);
+        }
+    }
+
+    contract UnderwritingMockQueuedRolloverHook {
+        error QUEUE_REVERT();
+
+        IERC20 internal immutable _token;
+        bool internal _shouldRevertQueue;
+        uint256 internal _queueCallCount;
+        uint256 internal _lastQueuedAmount;
+        uint64 internal _lastReleaseAt;
+
+        constructor(IERC20 token_) {
+            _token = token_;
+        }
+
+        function setShouldRevertQueue(bool shouldRevertQueue_) external {
+            _shouldRevertQueue = shouldRevertQueue_;
+        }
+
+        function queueRollover(uint256 amount, uint64 releaseAt) external {
+            if (_shouldRevertQueue) revert QUEUE_REVERT();
+
+            _queueCallCount += 1;
+            _lastQueuedAmount = amount;
+            _lastReleaseAt = releaseAt;
+            _token.transferFrom(msg.sender, address(this), amount);
+        }
+
+        function queueCallCount() external view returns (uint256) {
+            return _queueCallCount;
+        }
+
+        function lastQueuedAmount() external view returns (uint256) {
+            return _lastQueuedAmount;
+        }
+
+        function lastReleaseAt() external view returns (uint64) {
+            return _lastReleaseAt;
+        }
+    }
+
+    contract UnderwritingMockCommunityTerminal {
+        address internal immutable _splitHook;
+        address internal immutable _paymentToken;
+        uint256 internal immutable _paymentSourceRevnetId;
+
+        constructor(address splitHook_, address paymentToken_, uint256 paymentSourceRevnetId_) {
+            _splitHook = splitHook_;
+            _paymentToken = paymentToken_;
+            _paymentSourceRevnetId = paymentSourceRevnetId_;
+        }
+
+        function communityConfigOf(
+            uint256
+        ) external view returns (address splitHook, address paymentToken, uint256 paymentSourceRevnetId, bool, bool exists) {
+            return (_splitHook, _paymentToken, _paymentSourceRevnetId, false, true);
         }
     }
