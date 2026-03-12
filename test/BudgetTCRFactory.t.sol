@@ -341,7 +341,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             IERC20(address(votingToken)),
             IERC20(address(votingToken))
         );
-        deploymentConfig.underwriterSlasherRouter = address(0);
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(0);
 
         vm.expectRevert(BudgetTCRFactory.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
@@ -382,7 +382,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             IERC20(address(votingToken)),
             IERC20(address(votingToken))
         );
-        deploymentConfig.underwriterSlasherRouter = makeAddr("no-code-underwriter-router");
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = makeAddr("no-code-underwriter-router");
 
         vm.expectRevert(BudgetTCRFactory.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
@@ -424,7 +424,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             IERC20(address(votingToken))
         );
         address unsupportedRouter = address(new _MockImplementation());
-        deploymentConfig.underwriterSlasherRouter = unsupportedRouter;
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = unsupportedRouter;
 
         vm.expectRevert(
             abi.encodeWithSelector(BudgetTCRFactory.UNSUPPORTED_UNDERWRITER_SLASHER.selector, unsupportedRouter)
@@ -475,7 +475,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             address(registryConfig.votingToken)
         );
         address unexpectedAuthority = makeAddr("unexpected-underwriter-authority");
-        deploymentConfig.underwriterSlasherRouter =
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter =
             address(new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), unexpectedAuthority));
 
         vm.expectRevert(
@@ -530,7 +530,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         );
         address routerWithoutStakeVault =
             address(new _MockUnderwriterSlasherRouterWithoutStakeVaultForFactory(expectedBudgetTCR));
-        deploymentConfig.underwriterSlasherRouter = routerWithoutStakeVault;
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = routerWithoutStakeVault;
 
         vm.expectRevert(
             abi.encodeWithSelector(BudgetTCRFactory.UNSUPPORTED_UNDERWRITER_SLASHER.selector, routerWithoutStakeVault)
@@ -582,7 +582,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         );
         _MockGoalTreasuryForFactory otherGoalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
         _MockStakeVaultForFactory otherStakeVault = new _MockStakeVaultForFactory(address(otherGoalTreasury));
-        deploymentConfig.underwriterSlasherRouter = address(
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(
             new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(otherStakeVault)), expectedBudgetTCR)
         );
 
@@ -642,7 +642,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         );
         address mismatchedRouter =
             address(new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), expectedBudgetTCR));
-        deploymentConfig.underwriterSlasherRouter = mismatchedRouter;
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = mismatchedRouter;
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -854,15 +854,15 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         JurorSlasherRouter router = JurorSlasherRouter(configuredSlasher);
         assertEq(router.authority(), address(factory));
         assertTrue(router.isAuthorizedSlasher(deployed.arbitrator));
-        assertEq(goalTreasury.configuredUnderwriterSlasher(), deploymentConfig.underwriterSlasherRouter);
-        assertEq(stakeVault.underwriterSlasher(), deploymentConfig.underwriterSlasherRouter);
+        assertEq(goalTreasury.configuredUnderwriterSlasher(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
+        assertEq(stakeVault.underwriterSlasher(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         ERC20VotesArbitrator deployedArbitrator = ERC20VotesArbitrator(deployed.arbitrator);
         assertEq(deployedArbitrator.stakeVault(), address(stakeVault));
         assertEq(deployedArbitrator.wrongOrMissedSlashBps(), arbitratorParams.wrongOrMissedSlashBps);
         assertEq(deployedArbitrator.slashCallerBountyBps(), arbitratorParams.slashCallerBountyBps);
-        assertEq(BudgetTCR(deployed.budgetTCR).underwriterSlasherRouter(), deploymentConfig.underwriterSlasherRouter);
+        assertEq(BudgetTCR(deployed.budgetTCR).underwriterSlasherRouter(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         assertEq(
-            BudgetTCR(deployed.budgetTCR).premiumEscrowImplementation(), deploymentConfig.premiumEscrowImplementation
+            BudgetTCR(deployed.budgetTCR).premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation
         );
         assertEq(BudgetTCR(deployed.budgetTCR).budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
 
@@ -1171,7 +1171,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertFalse(ok);
     }
 
-    function test_deployBudgetTCRStackForGoal_allowsExplicitNoPremiumMode_withoutUnderwriterRouter() public {
+    function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfigToNoPremiumMode() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
@@ -1206,12 +1206,70 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             IERC20(address(votingToken)),
             IERC20(address(votingToken))
         );
-        deploymentConfig.budgetGatePolicy = address(0);
-        deploymentConfig.premiumEscrowImplementation = address(0);
-        deploymentConfig.underwriterSlasherRouter = address(0);
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
         deploymentConfig.budgetPremiumPpm = 0;
         deploymentConfig.budgetSlashPpm = 0;
+
+        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
+            factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+        BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
+        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(deployedBudgetTCR.stackDeployer());
+
+        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
+        assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
+        assertEq(
+            _MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(),
+            deploymentConfig.riskModuleRouting.underwriterSlasherRouter
+        );
+        assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
+        assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
+        assertTrue(stackDeployer.requireZeroPremiumAndSlashRates());
+        assertEq(stackDeployer.discoveryEmitter(), address(factory));
+    }
+
+    function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfig_withoutValidPremiumWiring()
+        public
+    {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            allocationMechanismAdmin: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            votingToken: IVotes(address(votingToken)),
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
+        );
         goalTreasury.configureUnderwriterSlasher(address(0));
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
+        deploymentConfig.riskModuleRouting.premiumEscrowImplementation = makeAddr("stale-no-code-premium-implementation");
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = makeAddr("stale-no-code-underwriter-router");
+        deploymentConfig.budgetPremiumPpm = 0;
+        deploymentConfig.budgetSlashPpm = 0;
 
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
@@ -1224,7 +1282,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
         assertTrue(stackDeployer.requireZeroPremiumAndSlashRates());
-        assertEq(stackDeployer.discoveryEmitter(), address(factory));
     }
 
     function test_deployBudgetTCRStackForGoal_registersStackDeployerForFactoryDiscoveryCallbacks() public {
@@ -1383,9 +1440,9 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             deploymentConfig.goalRevnetId,
             address(registryConfig.votingToken)
         );
-        deploymentConfig.underwriterSlasherRouter =
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter =
             address(new _MockUnderwriterSlasherRouterForFactory(IStakeVault(address(stakeVault)), expectedBudgetTCR));
-        goalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
+        goalTreasury.configureUnderwriterSlasher(deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
 
         IArbitrator.ArbitratorParams memory arbitratorParams = _defaultArbitratorParams();
 
@@ -1419,8 +1476,8 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(deployedBudgetTCR.goalRevnetId(), deploymentConfig.goalRevnetId);
         assertEq(deployedBudgetTCR.paymentTokenDecimals(), deploymentConfig.paymentTokenDecimals);
         assertEq(deployedBudgetTCR.budgetSuccessResolver(), deploymentConfig.budgetSuccessResolver);
-        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), deploymentConfig.premiumEscrowImplementation);
-        assertEq(deployedBudgetTCR.underwriterSlasherRouter(), deploymentConfig.underwriterSlasherRouter);
+        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation);
+        assertEq(deployedBudgetTCR.underwriterSlasherRouter(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         assertEq(deployedBudgetTCR.budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
         assertEq(deployedBudgetTCR.budgetSlashPpm(), deploymentConfig.budgetSlashPpm);
 
@@ -1782,7 +1839,12 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
-            budgetGatePolicy: address(new StakeCoverageGatePolicy()),
+            riskModuleRouting: IBudgetTCR.RiskModuleRouting({
+                budgetGatePolicy: address(new StakeCoverageGatePolicy()),
+                premiumEscrowImplementation: address(new _MockImplementation()),
+                underwriterSlasherRouter: address(0),
+                requireZeroPremiumAndSlashRates: false
+            }),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,
             goalToken: goalToken,
@@ -1790,8 +1852,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             goalRulesets: IJBRulesets(address(new _MockImplementation())),
             goalRevnetId: 1,
             paymentTokenDecimals: 18,
-            premiumEscrowImplementation: address(new _MockImplementation()),
-            underwriterSlasherRouter: address(0),
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -1817,10 +1877,10 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         if (_MockStakeVaultForFactory(address(stakeVault)).jurorSlasher() == address(0)) {
             mockGoalTreasury.configureJurorSlasher(address(new JurorSlasherRouter(stakeVault, address(factory))));
         }
-        deploymentConfig.underwriterSlasherRouter =
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter =
             address(new _MockUnderwriterSlasherRouterForFactory(stakeVault, expectedBudgetTCR));
         if (_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher() == address(0)) {
-            mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.underwriterSlasherRouter);
+            mockGoalTreasury.configureUnderwriterSlasher(deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         }
     }
 
