@@ -17,7 +17,7 @@ contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAll
     uint256 public constant VIRTUAL_WEIGHT = 1e24;
     string public constant STRATEGY_KEY = "SingleAllocator";
 
-    event AllocatorChanged(address indexed oldAllocator, address indexed newAllocator);
+    event AllocatorInitialized(address indexed allocator);
 
     constructor(address goalTreasury_, address allocator_) {
         if (goalTreasury_ == address(0) && allocator_ == address(0)) {
@@ -55,7 +55,7 @@ contract SingleAllocatorStrategy is AddressKeyAllocationStrategy, IGoalScopedAll
         goalTreasury = goalTreasury_;
         allocator = allocator_;
 
-        emit AllocatorChanged(address(0), allocator_);
+        emit AllocatorInitialized(allocator_);
     }
 
     function _usesAllocatorKey(address flow, uint256 key) internal view returns (bool) {

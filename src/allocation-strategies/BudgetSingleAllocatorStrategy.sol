@@ -15,7 +15,7 @@ contract BudgetSingleAllocatorStrategy is AddressKeyAllocationStrategy {
     uint256 public constant VIRTUAL_WEIGHT = 1e24;
     string public constant STRATEGY_KEY = "BudgetSingleAllocator";
 
-    event AllocatorChanged(address indexed oldAllocator, address indexed newAllocator);
+    event AllocatorInitialized(address indexed allocator);
 
     constructor(address budgetTreasury_, address allocator_) {
         if (budgetTreasury_ == address(0)) revert IAllocationStrategy.ADDRESS_ZERO();
@@ -25,7 +25,7 @@ contract BudgetSingleAllocatorStrategy is AddressKeyAllocationStrategy {
         budgetTreasury = budgetTreasury_;
         allocator = allocator_;
 
-        emit AllocatorChanged(address(0), allocator_);
+        emit AllocatorInitialized(allocator_);
     }
 
     function currentWeight(address flow, uint256 key) external view override returns (uint256) {
