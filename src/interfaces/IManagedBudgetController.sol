@@ -43,7 +43,6 @@ interface IManagedBudgetController is IBudgetController {
     error ITEM_NOT_TERMINAL();
     error INVALID_PPM(uint32 ppmValue);
     error GOAL_TERMINAL();
-    error TERMINAL_RESOLUTION_FAILED();
 
     event AuthorityTransferStarted(address indexed authority, address indexed pendingAuthority);
     event AuthorityTransferred(address indexed previousAuthority, address indexed nextAuthority);
