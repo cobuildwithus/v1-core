@@ -377,7 +377,7 @@ Managed preset
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - Stack deployers use clone-first treasury setup:
   - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
-  - `ManagedBudgetControllerStackDeployer` does the same for managed budgets and pairs that clone with `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`,
+  - `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with a cloned `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
   - budget treasury initialization still happens after child-flow creation in both stacks.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 

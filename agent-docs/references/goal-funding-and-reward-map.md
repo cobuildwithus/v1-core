@@ -60,10 +60,11 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - `ManagedBudgetControllerStackDeployer` for budget child stacks
    - `NoopBudgetGatePolicy`
    - `NullPremiumEscrow`
-3. `ManagedBudgetControllerStackDeployer` prepares each managed budget stack with:
+3. `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
    - cloned `NullPremiumEscrow`
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
+   The later `deployBudgetTreasury(...)` step wires live `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context after the child flow exists.
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
 6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes ledger/recipient state locally in that same batch instead of relying on the treasury's callback reentry path.

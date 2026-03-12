@@ -321,7 +321,8 @@ Community root routing
 7. Budget control-plane stack lifecycle
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
 - Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
-- Managed preset budget creations deploy child flow + budget treasury + `NullPremiumEscrow` stack through `ManagedBudgetControllerStackDeployer` and use per-budget `BudgetSingleAllocatorStrategy`.
+- Managed preset budget creations first call `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)`, which only prepares a cloned `BudgetTreasury`, a cloned `NullPremiumEscrow`, and a per-budget `BudgetSingleAllocatorStrategy`.
+- Live `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
 - Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:
   - open preset registry: `BudgetTCR`
