@@ -39,6 +39,7 @@ import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {FakeUMATreasurySuccessResolver} from "src/mocks/FakeUMATreasurySuccessResolver.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
+import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract DeployGoalFactoryImplementations is DeployScript {
     string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
@@ -77,6 +78,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal linearSpendPolicyImplOut;
 
     address internal defaultSubmissionDepositStrategyOut;
+    address internal defaultOpenBudgetGatePolicyOut;
     address internal defaultGoalSpendPolicyOut;
     address internal defaultBudgetSpendPolicyOut;
     uint256 internal escrowBondBpsOut;
@@ -162,6 +164,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         PrizePoolSubmissionDepositStrategy defaultSubmissionDepositStrategy =
             PrizePoolSubmissionDepositStrategy(Clones.clone(address(prizePoolSubmissionDepositStrategyImpl)));
         defaultSubmissionDepositStrategy.initialize(IERC20(cobuildTokenAddressOut), BURN);
+        StakeCoverageGatePolicy defaultOpenBudgetGatePolicy = new StakeCoverageGatePolicy();
         LinearSpendPolicy defaultGoalSpendPolicy = LinearSpendPolicy(Clones.clone(address(linearSpendPolicyImpl)));
         defaultGoalSpendPolicy.initialize(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
         LinearSpendPolicy defaultBudgetSpendPolicy = LinearSpendPolicy(Clones.clone(address(linearSpendPolicyImpl)));
@@ -194,6 +197,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         linearSpendPolicyImplOut = address(linearSpendPolicyImpl);
 
         defaultSubmissionDepositStrategyOut = address(defaultSubmissionDepositStrategy);
+        defaultOpenBudgetGatePolicyOut = address(defaultOpenBudgetGatePolicy);
         defaultGoalSpendPolicyOut = address(defaultGoalSpendPolicy);
         defaultBudgetSpendPolicyOut = address(defaultBudgetSpendPolicy);
         fakeUmaResolverOut = address(fakeUmaResolver);
@@ -231,6 +235,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("TeamFlowFactory impl:", teamFlowFactoryImplOut);
         console2.log("LinearSpendPolicy impl:", linearSpendPolicyImplOut);
         console2.log("DefaultSubmissionDepositStrategy:", defaultSubmissionDepositStrategyOut);
+        console2.log("DefaultOpenBudgetGatePolicy:", defaultOpenBudgetGatePolicyOut);
         console2.log("DefaultGoalSpendPolicy:", defaultGoalSpendPolicyOut);
         console2.log("DefaultBudgetSpendPolicy:", defaultBudgetSpendPolicyOut);
         console2.log("--- Fake resolver ---");
@@ -290,6 +295,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "LinearSpendPolicyImpl", linearSpendPolicyImplOut);
 
         _writeAddressLine(filePath, "DefaultSubmissionDepositStrategy", defaultSubmissionDepositStrategyOut);
+        _writeAddressLine(filePath, "DefaultOpenBudgetGatePolicy", defaultOpenBudgetGatePolicyOut);
         _writeAddressLine(filePath, "DefaultGoalSpendPolicy", defaultGoalSpendPolicyOut);
         _writeAddressLine(filePath, "DefaultBudgetSpendPolicy", defaultBudgetSpendPolicyOut);
         _writeUintLine(filePath, "ESCROW_BOND_BPS", escrowBondBpsOut);
@@ -498,6 +504,9 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "submissionDepositStrategy = \"",
             vm.toString(defaultSubmissionDepositStrategyOut),
+            "\"\n",
+            "openBudgetGatePolicy = \"",
+            vm.toString(defaultOpenBudgetGatePolicyOut),
             "\"\n",
             "goalSpendPolicy = \"",
             vm.toString(defaultGoalSpendPolicyOut),

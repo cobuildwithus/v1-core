@@ -23,6 +23,7 @@ import { NoopBudgetGatePolicy } from "src/goals/policies/NoopBudgetGatePolicy.so
 import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
+import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -33,6 +34,7 @@ import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
 import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
 import { GoalFactoryCoreStackDeploy } from "src/goals/library/GoalFactoryCoreStackDeploy.sol";
 import { GoalFactoryManagedPresetDeploy } from "src/goals/library/GoalFactoryManagedPresetDeploy.sol";
+import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
@@ -267,6 +269,9 @@ contract GoalFactory {
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
         if (openBudgetGatePolicy.code.length == 0) revert NOT_A_CONTRACT(openBudgetGatePolicy);
+        if (!BudgetGatePolicyHook.supportsBudgetGatePolicy(IBudgetGatePolicy(openBudgetGatePolicy))) {
+            revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(openBudgetGatePolicy);
+        }
         if (defaultGoalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultGoalSpendPolicy);
         if (defaultBudgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultBudgetSpendPolicy);
         if (goalPaymentTerminal.code.length == 0) revert NOT_A_CONTRACT(goalPaymentTerminal);

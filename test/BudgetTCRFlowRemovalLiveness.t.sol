@@ -49,6 +49,7 @@ import {TestToken} from "@superfluid-finance/ethereum-contracts/contracts/utils/
 import {SuperToken} from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     uint256 internal constant INITIAL_WEIGHT = 12e24;
@@ -96,6 +97,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
+    address internal budgetGatePolicy;
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -127,6 +129,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
+        budgetGatePolicy = address(new StakeCoverageGatePolicy());
         BudgetTCRDeployer(stackDeployer).initialize(tcrInstance, premiumEscrowImplementation, address(0));
 
         goalFlowImpl = new CustomFlow();
@@ -391,7 +394,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
             stackDeployer: stackDeployer,
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
-            budgetGatePolicy: address(0),
+            budgetGatePolicy: budgetGatePolicy,
             goalFlow: IFlow(address(goalFlow)),
             goalTreasury: IGoalTreasury(address(goalTreasury)),
             goalToken: IERC20(address(goalToken)),

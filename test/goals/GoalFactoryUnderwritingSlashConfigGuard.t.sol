@@ -11,6 +11,8 @@ import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.so
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -51,6 +53,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredUnderwriterSlasherRouterImpl;
     address internal configuredBuybackHookDataHook;
     address internal configuredBuybackHook;
+    address internal configuredOpenBudgetGatePolicy;
     address internal configuredDefaultGoalSpendPolicy;
     address internal configuredDefaultBudgetSpendPolicy;
 
@@ -79,6 +82,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
+        configuredOpenBudgetGatePolicy = address(new StakeCoverageGatePolicy());
         configuredDefaultGoalSpendPolicy = address(new MockSpendPolicy());
         configuredDefaultBudgetSpendPolicy = address(new MockSpendPolicy());
 
@@ -105,6 +109,15 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeGoalPaymentTerminal = address(0xC0B1D);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeGoalPaymentTerminal));
         _deployFactory(noCodeGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenOpenBudgetGatePolicyIsNotABudgetGatePolicy() public {
+        configuredOpenBudgetGatePolicy = address(new DummyContract());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, configuredOpenBudgetGatePolicy)
+        );
+        _deployFactory(configuredGoalPaymentTerminal);
     }
 
     function test_constructor_revertsWhenGoalPaymentTerminalDirectoryMismatch() public {
@@ -485,6 +498,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredPremiumEscrowImpl,
             configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
+            configuredOpenBudgetGatePolicy,
             configuredDefaultGoalSpendPolicy,
             configuredDefaultBudgetSpendPolicy,
             configuredDefaultSubmissionDepositStrategy,

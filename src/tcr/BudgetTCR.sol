@@ -4,6 +4,8 @@ pragma solidity ^0.8.34;
 import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
+import { BudgetTCRInitValidation } from "./library/BudgetTCRInitValidation.sol";
+import { BudgetTCRGateSync } from "./library/BudgetTCRGateSync.sol";
 import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { BudgetTCRStackActions } from "./library/BudgetTCRStackActions.sol";
 import { BudgetTCRTerminalActions } from "./library/BudgetTCRTerminalActions.sol";
@@ -12,10 +14,6 @@ import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
-import { StakeCoverageGatePolicy } from "src/goals/policies/StakeCoverageGatePolicy.sol";
-import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
@@ -29,56 +27,10 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         InitConfig calldata initConfig,
         DeploymentConfig calldata deploymentConfig
     ) external initializer {
-        if (deploymentConfig.stackDeployer == address(0)) revert ADDRESS_ZERO();
-        if (deploymentConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
-        if (deploymentConfig.budgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
-        if (address(deploymentConfig.goalFlow) == address(0)) revert ADDRESS_ZERO();
-        if (address(deploymentConfig.goalTreasury) == address(0)) revert ADDRESS_ZERO();
-        if (address(deploymentConfig.goalToken) == address(0)) revert ADDRESS_ZERO();
-        if (address(deploymentConfig.cobuildToken) == address(0)) revert ADDRESS_ZERO();
-        if (address(deploymentConfig.goalRulesets) == address(0)) revert ADDRESS_ZERO();
-        if (deploymentConfig.budgetSpendPolicy.code.length == 0) {
-            revert NOT_A_CONTRACT(deploymentConfig.budgetSpendPolicy);
-        }
-        address budgetGatePolicy_ = deploymentConfig.budgetGatePolicy;
-        if (budgetGatePolicy_ == address(0)) {
-            budgetGatePolicy_ = address(new StakeCoverageGatePolicy());
-        } else if (budgetGatePolicy_.code.length == 0) {
-            revert INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
-        }
-        if (!BudgetGatePolicyHook.supportsBudgetGatePolicy(IBudgetGatePolicy(budgetGatePolicy_))) {
-            revert INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
-        }
-        if (deploymentConfig.premiumEscrowImplementation == address(0)) {
-            revert INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address(0));
-        }
-        if (deploymentConfig.premiumEscrowImplementation.code.length == 0) {
-            revert INVALID_PREMIUM_ESCROW_IMPLEMENTATION(deploymentConfig.premiumEscrowImplementation);
-        }
-        address underwriterSlasherRouter_ = deploymentConfig.underwriterSlasherRouter;
-        if (underwriterSlasherRouter_ == address(0) || underwriterSlasherRouter_.code.length == 0) {
-            revert UNDERWRITER_SLASHER_NOT_CONFIGURED();
-        }
-        if (deploymentConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_PPM(deploymentConfig.budgetPremiumPpm);
-        }
-        if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_PPM(deploymentConfig.budgetSlashPpm);
-        }
-        if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) {
-            revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
-        }
-        if (initConfig.allocationMechanismAdmin == address(0)) revert ADDRESS_ZERO();
-        _requireValidBudgetSpendPolicy(deploymentConfig.budgetSpendPolicy);
+        address budgetGatePolicy_ = BudgetTCRInitValidation.validateInitialization(initConfig, deploymentConfig);
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
-
-        if (budgetBounds.maxExecutionDuration < budgetBounds.minExecutionDuration) revert INVALID_BOUNDS();
-        if (budgetBounds.maxActivationThreshold < budgetBounds.minActivationThreshold) revert INVALID_BOUNDS();
-        if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0) {
-            revert INVALID_BOUNDS();
-        }
 
         goalFlow = deploymentConfig.goalFlow;
         goalTreasury = deploymentConfig.goalTreasury;
@@ -93,7 +45,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         stackDeployer = deploymentConfig.stackDeployer;
         premiumEscrowImplementation = deploymentConfig.premiumEscrowImplementation;
         _budgetGatePolicy = budgetGatePolicy_;
-        underwriterSlasherRouter = underwriterSlasherRouter_;
+        underwriterSlasherRouter = deploymentConfig.underwriterSlasherRouter;
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;
         budgetSlashPpm = deploymentConfig.budgetSlashPpm;
         budgetSuccessResolver = deploymentConfig.budgetSuccessResolver;
@@ -123,14 +75,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function isRemovalPending(bytes32 itemId) external view override returns (bool pending) {
         pending = _pendingRemovalFinalizations[itemId];
-    }
-
-    function budgetSpendPolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
-        policy = super.budgetSpendPolicy();
-    }
-
-    function budgetGatePolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
-        policy = super.budgetGatePolicy();
     }
 
     function budgetStackTopology(
@@ -169,6 +113,14 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function itemIdForChildFlow(address childFlow) external view override returns (bytes32 itemID) {
         itemID = _validatedItemIdForChildFlow(childFlow);
+    }
+
+    function budgetSpendPolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
+        policy = super.budgetSpendPolicy();
+    }
+
+    function budgetGatePolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
+        policy = super.budgetGatePolicy();
     }
 
     // slither-disable-next-line reentrancy-no-eth
@@ -337,29 +289,15 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
 
             attempted += 1;
-            IBudgetGatePolicy.SyncResult memory gateResult = BudgetGatePolicyHook.evaluateBudgetGate(
-                gatePolicy,
-                IBudgetGatePolicy.SyncContext({
-                    itemID: itemID,
-                    goalFlow: goalFlow_,
-                    childFlow: deployment.childFlow,
-                    budgetTreasury: budgetTreasury,
-                    coverageSource: budgetStakeLedger,
-                    coverageToCreditPpm: slashPpm
-                })
+            BudgetTCRGateSync.applyBudgetGate(
+                itemID,
+                budgetTreasury,
+                deployment.childFlow,
+                budgetStakeLedger,
+                slashPpm,
+                goalFlow_,
+                gatePolicy
             );
-            _emitBudgetGateFailures(itemID, budgetTreasury, gateResult.failures);
-            if (gateResult.shouldSetRecipientEnabled) {
-                try goalFlow_.setRecipientEnabled(itemID, gateResult.recipientEnabled) {} catch (bytes memory reason) {
-                    emit BudgetCreditCapEnforcementFailed(
-                        itemID,
-                        budgetTreasury,
-                        address(goalFlow_),
-                        IFlow.setRecipientEnabled.selector,
-                        reason
-                    );
-                }
-            }
 
             bool success;
             try IBudgetTreasury(budgetTreasury).sync() {
@@ -375,23 +313,6 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function _budgetStakeLedger() internal view returns (address ledger) {
         ledger = goalTreasury.budgetStakeLedger();
         if (ledger == address(0)) revert BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
-    }
-
-    function _emitBudgetGateFailures(
-        bytes32 itemID,
-        address budgetTreasury,
-        IBudgetGatePolicy.CallFailure[] memory failures
-    ) internal {
-        uint256 count = failures.length;
-        for (uint256 i = 0; i < count; i++) {
-            emit BudgetCreditCapEnforcementFailed(
-                itemID,
-                budgetTreasury,
-                failures[i].callTarget,
-                failures[i].selector,
-                failures[i].reason
-            );
-        }
     }
 
     function _budgetStackTopologyFromDeployment(
@@ -417,32 +338,5 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         itemID = _itemIdByChildFlow[childFlow];
         if (itemID == bytes32(0)) return bytes32(0);
         if (_budgetDeployments[itemID].childFlow != childFlow) return bytes32(0);
-    }
-
-    function _requireValidBudgetSpendPolicy(address candidate) private view {
-        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                revert INVALID_BUDGET_SPEND_POLICY(candidate);
-            }
-        } catch {
-            revert INVALID_BUDGET_SPEND_POLICY(candidate);
-        }
-
-        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
-            revert INVALID_BUDGET_SPEND_POLICY(candidate);
-        }
-    }
-
-    function _spendPolicyValidationContext() private view returns (ISpendPolicy.SpendContext memory ctx) {
-        uint64 nowTs = uint64(block.timestamp);
-        ctx = ISpendPolicy.SpendContext({
-            nowTs: nowTs,
-            activatedAt: nowTs,
-            deadline: nowTs + 1,
-            treasuryBalance: 1,
-            timeRemaining: 1,
-            incomingRate: 0,
-            currentOutflowRate: 0
-        });
     }
 }

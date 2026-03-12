@@ -94,6 +94,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             defaultAllocationMechanismAdmin: address(0),
             defaultInvalidRoundRewardsSink: address(0),
             defaultSubmissionDepositStrategy: address(0),
+            budgetGatePolicy: address(0),
             cobuildToken: address(0),
             cobuildDecimals: 0,
             budgetSuccessResolver: address(0),

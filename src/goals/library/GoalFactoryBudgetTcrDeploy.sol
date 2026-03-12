@@ -24,6 +24,7 @@ library GoalFactoryBudgetTcrDeploy {
         address defaultAllocationMechanismAdmin;
         address defaultInvalidRoundRewardsSink;
         address defaultSubmissionDepositStrategy;
+        address budgetGatePolicy;
         address cobuildToken;
         uint8 cobuildDecimals;
         address budgetSuccessResolver;
@@ -69,7 +70,7 @@ library GoalFactoryBudgetTcrDeploy {
             stackDeployer: address(0),
             budgetSuccessResolver: request.budgetSuccessResolver,
             budgetSpendPolicy: request.budgetSpendPolicy,
-            budgetGatePolicy: address(0),
+            budgetGatePolicy: request.budgetGatePolicy,
             goalFlow: request.goalFlow,
             goalTreasury: request.goalTreasury,
             goalToken: IERC20(request.goalToken),

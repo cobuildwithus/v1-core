@@ -288,6 +288,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             address expectedFakeResolver = vm.parseTomlAddress(latestToml, "$.fakeUma.resolver");
             address expectedBuybackHookDataHook = vm.parseTomlAddress(latestToml, "$.core.buybackHookDataHook");
             address expectedBuybackHook = vm.parseTomlAddress(latestToml, "$.core.buybackHook");
+            address expectedDefaultOpenBudgetGatePolicy =
+                vm.parseTomlAddress(latestToml, "$.defaults.openBudgetGatePolicy");
             address expectedDefaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
             address expectedDefaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
             assertEq(expectedBuybackHookDataHook, buybackHookDataHookAddress);
@@ -325,6 +327,12 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, "LinearSpendPolicyImpl: 0x"));
             assertTrue(
                 _stringContains(
+                    artifact,
+                    string.concat("DefaultOpenBudgetGatePolicy: ", vm.toString(expectedDefaultOpenBudgetGatePolicy))
+                )
+            );
+            assertTrue(
+                _stringContains(
                     artifact, string.concat("DefaultGoalSpendPolicy: ", vm.toString(expectedDefaultGoalSpendPolicy))
                 )
             );
@@ -355,6 +363,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "DefaultOpenBudgetGatePolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultGoalSpendPolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultBudgetSpendPolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "FakeUMATreasurySuccessResolver: 0x"));
@@ -407,8 +416,10 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
             string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
             address linearSpendPolicyImpl = vm.parseTomlAddress(latestToml, "$.implementations.linearSpendPolicy");
+            address openBudgetGatePolicy = vm.parseTomlAddress(latestToml, "$.defaults.openBudgetGatePolicy");
             address defaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
             address defaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
+            assertEq(deployedFactory.OPEN_BUDGET_GATE_POLICY(), openBudgetGatePolicy);
             assertEq(
                 deployedFactory.DEFAULT_GOAL_SPEND_POLICY(),
                 defaultGoalSpendPolicy

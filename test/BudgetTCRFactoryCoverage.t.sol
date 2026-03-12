@@ -40,6 +40,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
@@ -349,7 +350,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
             stackDeployer: makeAddr("placeholder-stack-deployer"),
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
-            budgetGatePolicy: address(0),
+            budgetGatePolicy: address(new StakeCoverageGatePolicy()),
             goalFlow: IFlow(address(new _MockImplementation())),
             goalTreasury: goalTreasury,
             goalToken: goalToken,
