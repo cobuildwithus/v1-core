@@ -1361,6 +1361,60 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(emittedGoalSynced, goalSynced);
     }
 
+    function test_pruneTerminalBudget_inactivePendingRemoval_clearsRemovalPendingAfterLateTerminalization() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(1_000);
+        superToken.mint(childFlow, 1_000e18);
+        treasury.sync();
+
+        _queueRemovalRequest(itemID);
+        budgetTcr.executeRequest(itemID);
+
+        bool terminallyResolved = budgetTcr.finalizeRemovedBudget(itemID);
+        assertFalse(terminallyResolved);
+        assertTrue(budgetTcr.isRemovalPending(itemID));
+        (, bool removedAfterFinalize) = goalFlow.recipients(itemID);
+        assertTrue(removedAfterFinalize);
+
+        bytes memory pruneFailureReason = abi.encodeWithSignature("Error(string)", "PARENT_PRUNE_FAILED");
+        vm.mockCallRevert(
+            address(budgetTcr),
+            abi.encodeWithSelector(IBudgetController.pruneTerminalBudget.selector, budgetTreasury),
+            pruneFailureReason
+        );
+
+        _warpRoll(treasury.deadline() + 1);
+        treasury.sync();
+
+        assertTrue(treasury.resolved());
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertTrue(budgetTcr.isRemovalPending(itemID));
+
+        vm.clearMockedCalls();
+
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (bool removedFromParent, bool goalSynced) = budgetTcr.pruneTerminalBudget(budgetTreasury);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertFalse(removedFromParent);
+        assertTrue(goalSynced);
+        assertFalse(budgetTcr.isRemovalPending(itemID));
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+
+        (bool found, bool emittedRemovedFromParent, bool emittedGoalSynced) =
+            _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
+        assertTrue(found);
+        assertEq(emittedRemovedFromParent, removedFromParent);
+        assertEq(emittedGoalSynced, goalSynced);
+    }
+
     function test_finalizeRemovedBudget_handlesAlreadyPrunedRecipient() public {
         bytes32 itemID = _registerDefaultListing();
         (address childFlow,) = goalFlow.recipients(itemID);
