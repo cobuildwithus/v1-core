@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
+import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
@@ -59,6 +60,31 @@ library BudgetTCRInitValidation {
         }
         if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0) {
             revert IBudgetTCR.INVALID_BOUNDS();
+        }
+    }
+
+    function validateStackModuleCompatibility(IBudgetTCR.DeploymentConfig calldata deploymentConfig) external view {
+        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = IBudgetStackDeployer(
+            deploymentConfig.stackDeployer
+        ).stackModuleConfig();
+        bool explicitNoPremiumMode = _usesExplicitNoPremiumMode(deploymentConfig);
+        bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
+
+        if (stackModuleConfig.requireZeroPremiumAndSlashRates && requiresPremiumModule) {
+            revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
+        }
+
+        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
+            IBudgetStackDeployer.PremiumEscrowMode.None;
+        if (stackOmitsPremiumModule) {
+            if (!stackModuleConfig.requireZeroPremiumAndSlashRates || !explicitNoPremiumMode) {
+                revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
+            }
+            return;
+        }
+
+        if (explicitNoPremiumMode) {
+            revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
         }
     }
 

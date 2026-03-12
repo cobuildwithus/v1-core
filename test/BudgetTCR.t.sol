@@ -491,6 +491,68 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initializeWithConfig_reverts_when_no_premium_mode_does_not_require_zero_rates() public {
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = _noPremiumStackModuleConfig();
+        stackModuleConfig.requireZeroPremiumAndSlashRates = false;
+
+        vm.expectRevert(BudgetTCRDeployer.INVALID_STACK_MODULE_CONFIG.selector);
+        BudgetTCRDeployer(freshStackDeployer).initializeWithConfig(address(this), stackModuleConfig, address(0));
+    }
+
+    function test_initialize_reverts_when_stack_deployer_omits_premium_module_for_present_config() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetTCRDeployer(freshStackDeployer)
+            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        deploymentConfig.stackDeployer = freshStackDeployer;
+        deploymentConfig.budgetGatePolicy = address(0);
+        deploymentConfig.budgetPremiumPpm = 0;
+        deploymentConfig.budgetSlashPpm = 0;
+
+        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_stack_deployer_provides_premium_module_for_absent_config() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetGatePolicy = address(0);
+        deploymentConfig.premiumEscrowImplementation = address(0);
+        deploymentConfig.underwriterSlasherRouter = address(0);
+        deploymentConfig.budgetPremiumPpm = 0;
+        deploymentConfig.budgetSlashPpm = 0;
+
+        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_stack_deployer_requires_zero_rates_for_present_premium_module() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = _noPremiumStackModuleConfig();
+        stackModuleConfig.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
+        stackModuleConfig.premiumEscrowImplementation = premiumEscrowImplementation;
+        BudgetTCRDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), stackModuleConfig, address(0));
+        deploymentConfig.stackDeployer = freshStackDeployer;
+
+        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_budget_premium_ppm_exceeds_scale() public {
         (
             BudgetTCR freshTcr,

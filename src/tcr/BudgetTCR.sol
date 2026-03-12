@@ -28,6 +28,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         DeploymentConfig calldata deploymentConfig
     ) external initializer {
         address budgetGatePolicy_ = BudgetTCRInitValidation.validateInitialization(initConfig, deploymentConfig);
+        BudgetTCRInitValidation.validateStackModuleCompatibility(deploymentConfig);
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;

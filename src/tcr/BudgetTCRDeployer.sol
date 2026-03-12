@@ -237,7 +237,10 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
 
     function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
         if (stackModuleConfig_.premiumEscrowMode == PremiumEscrowMode.None) {
-            if (stackModuleConfig_.premiumEscrowImplementation != address(0)) {
+            if (
+                stackModuleConfig_.premiumEscrowImplementation != address(0) ||
+                !stackModuleConfig_.requireZeroPremiumAndSlashRates
+            ) {
                 revert INVALID_STACK_MODULE_CONFIG();
             }
         } else {
