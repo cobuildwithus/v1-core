@@ -22,6 +22,7 @@ import { ManagedBudgetControllerStackDeployer } from "src/goals/ManagedBudgetCon
 import { NoopBudgetGatePolicy } from "src/goals/policies/NoopBudgetGatePolicy.sol";
 import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
+import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
@@ -72,8 +73,8 @@ contract GoalFactory {
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
     address public immutable MANAGED_BUDGET_GATE_POLICY;
-    address public immutable MANAGED_PREMIUM_ESCROW_IMPL;
     address public immutable MANAGED_STACK_DEPLOYER;
+    address public immutable OPEN_BUDGET_GATE_POLICY;
 
     address public immutable DEFAULT_GOAL_SPEND_POLICY;
     address public immutable DEFAULT_BUDGET_SPEND_POLICY;
@@ -223,6 +224,7 @@ contract GoalFactory {
         address premiumEscrowImpl,
         address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
+        address openBudgetGatePolicy,
         address defaultGoalSpendPolicy,
         address defaultBudgetSpendPolicy,
         address defaultSubmissionDepositStrategy,
@@ -246,6 +248,7 @@ contract GoalFactory {
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
+        if (openBudgetGatePolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultGoalSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultBudgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultSubmissionDepositStrategy == address(0)) revert ADDRESS_ZERO();
@@ -263,6 +266,7 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
+        if (openBudgetGatePolicy.code.length == 0) revert NOT_A_CONTRACT(openBudgetGatePolicy);
         if (defaultGoalSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultGoalSpendPolicy);
         if (defaultBudgetSpendPolicy.code.length == 0) revert NOT_A_CONTRACT(defaultBudgetSpendPolicy);
         if (goalPaymentTerminal.code.length == 0) revert NOT_A_CONTRACT(goalPaymentTerminal);
@@ -314,8 +318,8 @@ contract GoalFactory {
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
         MANAGED_BUDGET_GATE_POLICY = managedBudgetGatePolicy;
-        MANAGED_PREMIUM_ESCROW_IMPL = managedPremiumEscrowImplementation;
         MANAGED_STACK_DEPLOYER = managedStackDeployer;
+        OPEN_BUDGET_GATE_POLICY = openBudgetGatePolicy;
 
         DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy;
         DEFAULT_BUDGET_SPEND_POLICY = defaultBudgetSpendPolicy;
@@ -719,20 +723,16 @@ contract GoalFactory {
     ) private {
         GoalFactoryManagedPresetDeploy.initializeManagedController(
             managedPreset.budgetController,
-            GoalFactoryManagedPresetDeploy.ManagedControllerInitRequest({
+            IManagedBudgetController.InitConfig({
                 authority: p.managedSafe,
                 goalTreasury: address(core.goalTreasury),
                 goalFlow: address(core.goalFlow),
-                budgetAllocationLedger: address(0),
                 stackDeployer: managedPreset.stackDeployer,
                 budgetGatePolicy: managedPreset.gatePolicy,
                 budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
                 budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
-                underwriterSlasherRouter: address(0),
                 successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
-                successAssertionBond: p.budgetTCR.oracleBounds.bondAmount,
-                budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
-                budgetSlashPpm: p.underwriting.budgetSlashPpm
+                successAssertionBond: p.budgetTCR.oracleBounds.bondAmount
             })
         );
     }
@@ -765,6 +765,7 @@ contract GoalFactory {
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
+                    budgetGatePolicy: OPEN_BUDGET_GATE_POLICY,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
                     budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,

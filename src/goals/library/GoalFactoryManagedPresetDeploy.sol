@@ -22,22 +22,6 @@ library GoalFactoryManagedPresetDeploy {
         address stackDeployer;
     }
 
-    struct ManagedControllerInitRequest {
-        address authority;
-        address goalTreasury;
-        address goalFlow;
-        address budgetAllocationLedger;
-        address stackDeployer;
-        address budgetGatePolicy;
-        address budgetSuccessResolver;
-        address budgetSpendPolicy;
-        address underwriterSlasherRouter;
-        uint64 successAssertionLiveness;
-        uint256 successAssertionBond;
-        uint32 budgetPremiumPpm;
-        uint32 budgetSlashPpm;
-    }
-
     function bootstrapManagedPreset(
         address goalTreasury,
         ManagedPresetBootstrapConfig memory config
@@ -51,24 +35,8 @@ library GoalFactoryManagedPresetDeploy {
 
     function initializeManagedController(
         ManagedBudgetController budgetController,
-        ManagedControllerInitRequest memory request
+        IManagedBudgetController.InitConfig memory initConfig
     ) external {
-        budgetController.initialize(
-            IManagedBudgetController.InitConfig({
-                authority: request.authority,
-                goalTreasury: request.goalTreasury,
-                goalFlow: request.goalFlow,
-                budgetAllocationLedger: request.budgetAllocationLedger,
-                stackDeployer: request.stackDeployer,
-                budgetGatePolicy: request.budgetGatePolicy,
-                budgetSuccessResolver: request.budgetSuccessResolver,
-                budgetSpendPolicy: request.budgetSpendPolicy,
-                underwriterSlasherRouter: request.underwriterSlasherRouter,
-                successAssertionLiveness: request.successAssertionLiveness,
-                successAssertionBond: request.successAssertionBond,
-                budgetPremiumPpm: request.budgetPremiumPpm,
-                budgetSlashPpm: request.budgetSlashPpm
-            })
-        );
+        budgetController.initialize(initConfig);
     }
 }

@@ -130,15 +130,14 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
         deployer.prepareBudgetStack(controller);
     }
 
-    function test_deployBudgetTreasury_allowsZeroManagedLedgerAndRouterForNullEscrow() public {
+    function test_deployBudgetTreasury_wiresNullEscrowWithManagedGoalFlowOnly() public {
         IManagedBudgetControllerStackDeployer.PreparationResult memory prepared =
             deployer.prepareBudgetStack(address(this));
         ManagedBudgetControllerStackDeployerParentFlowMock parentFlow =
             new ManagedBudgetControllerStackDeployerParentFlowMock();
-        ManagedBudgetControllerStackDeployerChildFlowMock budgetFlow =
-            new ManagedBudgetControllerStackDeployerChildFlowMock(
-                address(new ManagedBudgetControllerStackDeployerDummyContract()), address(parentFlow)
-            );
+        ManagedBudgetControllerStackDeployerChildFlowMock budgetFlow = new ManagedBudgetControllerStackDeployerChildFlowMock(
+            address(new ManagedBudgetControllerStackDeployerDummyContract()), address(parentFlow)
+        );
         budgetFlow.setFlowOperator(prepared.budgetTreasury);
         budgetFlow.setSweeper(prepared.budgetTreasury);
 
@@ -147,10 +146,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
             prepared.budgetTreasury,
             prepared.premiumEscrow,
             address(budgetFlow),
-            address(0),
             goalFlow,
-            address(0),
-            0,
             _defaultBudgetConfig(),
             successResolver,
             spendPolicy,
@@ -160,10 +156,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
 
         assertEq(deployedBudgetTreasury, prepared.budgetTreasury);
         assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetTreasury(), prepared.budgetTreasury);
-        assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetStakeLedger(), address(0));
         assertEq(NullPremiumEscrow(prepared.premiumEscrow).goalFlow(), goalFlow);
-        assertEq(NullPremiumEscrow(prepared.premiumEscrow).underwriterSlasherRouter(), address(0));
-        assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetSlashPpm(), 0);
     }
 
     function test_deployBudgetTreasury_revertsWhenCallerIsNotController() public {
@@ -179,10 +172,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
             address(1),
             address(2),
             address(3),
-            address(4),
             address(5),
-            address(6),
-            0,
             _defaultBudgetConfig(),
             address(7),
             address(8),
