@@ -2,13 +2,13 @@
 pragma solidity ^0.8.34;
 
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
+import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
-import { IManagedBudgetControllerStackDeployer } from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetTCRTerminalActions } from "src/tcr/library/BudgetTCRTerminalActions.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
@@ -23,7 +23,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         address budgetTreasury;
         address premiumEscrow;
         address strategy;
-        bool active;
     }
 
     event BudgetTerminalRecipientPruned(
@@ -112,7 +111,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         topology = _budgetStackTopologyFromDeployment(deployment);
-        active = deployment.active;
+        active = _isItemActive(itemID);
     }
 
     function budgetStackTopologyForBudgetTreasury(
@@ -123,7 +122,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         topology = _budgetStackTopologyFromDeployment(deployment);
-        active = deployment.active;
+        active = _isItemActive(itemID);
     }
 
     function budgetStackTopologyForChildFlow(
@@ -134,7 +133,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         topology = _budgetStackTopologyFromDeployment(deployment);
-        active = deployment.active;
+        active = _isItemActive(itemID);
     }
 
     function itemIdForBudgetTreasury(address budgetTreasury_) external view override returns (bytes32 itemID) {
@@ -153,9 +152,11 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (IGoalTreasury(goalTreasury).resolved()) revert GOAL_TERMINAL();
         if (_budgetDeployments[itemID].budgetTreasury != address(0)) revert ITEM_ALREADY_EXISTS(itemID);
 
-        IManagedBudgetControllerStackDeployer deployer = IManagedBudgetControllerStackDeployer(stackDeployer);
-        IManagedBudgetControllerStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            address(this)
+        IBudgetStackDeployer deployer = IBudgetStackDeployer(stackDeployer);
+        IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+            IGoalTreasury(goalTreasury).budgetStakeLedger(),
+            goalFlow,
+            address(0)
         );
 
         _requirePreparedStack(prepared);
@@ -171,17 +172,29 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             IAllocationStrategy(prepared.strategy)
         );
 
+        IBudgetTreasury.BudgetConfig memory budgetTreasuryConfig = IBudgetTreasury.BudgetConfig({
+            flow: childFlow_,
+            premiumEscrow: prepared.premiumEscrow,
+            fundingDeadline: config.fundingDeadline,
+            executionDuration: config.executionDuration,
+            activationThreshold: config.activationThreshold,
+            runwayCap: config.runwayCap,
+            successResolver: budgetSuccessResolver,
+            successAssertionLiveness: successAssertionLiveness,
+            successAssertionBond: successAssertionBond,
+            successOracleSpecHash: config.successOracleSpecHash,
+            successAssertionPolicyHash: config.successAssertionPolicyHash,
+            spendPolicy: budgetSpendPolicy
+        });
         budgetTreasury_ = deployer.deployBudgetTreasury(
-            address(this),
             prepared.budgetTreasury,
-            prepared.premiumEscrow,
-            childFlow_,
-            goalFlow,
-            config,
-            budgetSuccessResolver,
-            budgetSpendPolicy,
-            successAssertionLiveness,
-            successAssertionBond
+            budgetTreasuryConfig,
+            IBudgetStackDeployer.RiskModuleInitConfig({
+                budgetStakeLedger: address(0),
+                goalFlow: goalFlow,
+                underwriterSlasherRouter: address(0),
+                budgetSlashPpm: 0
+            })
         );
         if (budgetTreasury_ != prepared.budgetTreasury) revert ITEM_NOT_DEPLOYED();
 
@@ -196,7 +209,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     ) external override onlyAuthority nonReentrant returns (bool removedFromParent, bool terminallyResolved) {
         BudgetDeployment storage deployment = _budgetDeployments[itemID];
         if (deployment.budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
-        if (!deployment.active) revert ITEM_NOT_ACTIVE();
+        if (!_isItemActive(itemID)) revert ITEM_NOT_ACTIVE();
 
         address childFlow_ = deployment.childFlow;
         address budgetTreasury_ = deployment.budgetTreasury;
@@ -227,7 +240,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; ) {
-            if (!_budgetDeployments[itemIDs[i]].active) revert ITEM_NOT_ACTIVE();
+            if (!_isItemActive(itemIDs[i])) revert ITEM_NOT_ACTIVE();
             unchecked {
                 ++i;
             }
@@ -331,7 +344,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
                 continue;
             }
 
-            if (!deployment.active) {
+            if (!_isItemActive(itemID)) {
                 emit BudgetTreasuryBatchSyncSkipped(itemID, budgetTreasury_, _SYNC_SKIP_STACK_INACTIVE);
                 unchecked {
                     ++i;
@@ -444,9 +457,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             );
         }
         goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
-        if (deployment.active) {
-            _setItemActive(itemID, false);
-        }
+        _setItemActive(itemID, false);
     }
 
     function _validatedItemIdForBudgetTreasury(address budgetTreasury_) private view returns (bytes32 itemID) {
@@ -464,7 +475,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     function _requireActiveBudgetDeployment(bytes32 itemID) private view returns (BudgetDeployment storage deployment) {
         deployment = _budgetDeployments[itemID];
         if (deployment.budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
-        if (!deployment.active) revert ITEM_NOT_ACTIVE();
+        if (!_isItemActive(itemID)) revert ITEM_NOT_ACTIVE();
     }
 
     function _budgetStackTopologyFromDeployment(
@@ -481,9 +492,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     }
 
     function _setItemActive(bytes32 itemID, bool active) private {
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        deployment.active = active;
-
         uint256 indexPlusOne = _activeBudgetIndexPlusOne[itemID];
         if (active) {
             if (indexPlusOne != 0) return;
@@ -506,9 +514,11 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         delete _activeBudgetIndexPlusOne[itemID];
     }
 
-    function _requirePreparedStack(
-        IManagedBudgetControllerStackDeployer.PreparationResult memory prepared
-    ) private pure {
+    function _isItemActive(bytes32 itemID) private view returns (bool) {
+        return _activeBudgetIndexPlusOne[itemID] != 0;
+    }
+
+    function _requirePreparedStack(IBudgetStackDeployer.PreparationResult memory prepared) private pure {
         if (prepared.strategy == address(0)) revert ADDRESS_ZERO();
         if (prepared.budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (prepared.premiumEscrow == address(0)) revert ADDRESS_ZERO();

@@ -3,10 +3,10 @@ pragma solidity ^0.8.34;
 
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
 
 library BudgetTCRInitValidation {
     function validateInitialization(
@@ -71,29 +71,8 @@ library BudgetTCRInitValidation {
     }
 
     function _requireValidBudgetSpendPolicy(address candidate) private view {
-        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                revert IBudgetTCR.INVALID_BUDGET_SPEND_POLICY(candidate);
-            }
-        } catch {
+        if (!SpendPolicyValidationLib.passesValidationProbe(candidate)) {
             revert IBudgetTCR.INVALID_BUDGET_SPEND_POLICY(candidate);
         }
-
-        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
-            revert IBudgetTCR.INVALID_BUDGET_SPEND_POLICY(candidate);
-        }
-    }
-
-    function _spendPolicyValidationContext() private view returns (ISpendPolicy.SpendContext memory ctx) {
-        uint64 nowTs = uint64(block.timestamp);
-        ctx = ISpendPolicy.SpendContext({
-            nowTs: nowTs,
-            activatedAt: nowTs,
-            deadline: nowTs + 1,
-            treasuryBalance: 1,
-            timeRemaining: 1,
-            incomingRate: 0,
-            currentOutflowRate: 0
-        });
     }
 }

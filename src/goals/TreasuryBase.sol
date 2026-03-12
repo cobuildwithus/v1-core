@@ -2,8 +2,8 @@
 pragma solidity ^0.8.34;
 
 import { IFlow } from "../interfaces/IFlow.sol";
-import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ITreasuryDonations } from "../interfaces/ITreasuryDonations.sol";
+import { SpendPolicyValidationLib } from "../library/SpendPolicyValidationLib.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import { TreasuryDonations } from "./library/TreasuryDonations.sol";
@@ -75,30 +75,9 @@ abstract contract TreasuryBase is ReentrancyGuardUpgradeable, ITreasuryDonations
     }
 
     function _requireValidSpendPolicy(address candidate) internal view {
-        try ISpendPolicy(candidate).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                _revertInvalidSpendPolicy(candidate);
-            }
-        } catch {
+        if (!SpendPolicyValidationLib.passesValidationProbe(candidate)) {
             _revertInvalidSpendPolicy(candidate);
         }
-
-        try ISpendPolicy(candidate).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
-            _revertInvalidSpendPolicy(candidate);
-        }
-    }
-
-    function _spendPolicyValidationContext() internal view returns (ISpendPolicy.SpendContext memory ctx) {
-        uint64 nowTs = uint64(block.timestamp);
-        ctx = ISpendPolicy.SpendContext({
-            nowTs: nowTs,
-            activatedAt: nowTs,
-            deadline: nowTs + 1,
-            treasuryBalance: 1,
-            timeRemaining: 1,
-            incomingRate: 0,
-            currentOutflowRate: 0
-        });
     }
 
     function _flowContract() internal view virtual returns (IFlow);

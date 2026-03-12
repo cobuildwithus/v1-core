@@ -129,6 +129,15 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         candidate.initialize(owner, config);
     }
 
+    function test_initialize_revertsWhenSpendPolicyReportsInvalidSyncMode() public {
+        BudgetTreasury candidate = _cloneBudgetTreasury();
+        IBudgetTreasury.BudgetConfig memory config = _defaultBudgetConfig();
+        config.spendPolicy = address(new BudgetTreasuryInvalidSyncModeSpendPolicy());
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTreasury.INVALID_SPEND_POLICY.selector, config.spendPolicy));
+        candidate.initialize(owner, config);
+    }
+
     function test_initialize_revertsOnImplementation() public {
         BudgetTreasury implementation = new BudgetTreasury();
 
@@ -2606,6 +2615,19 @@ contract RevertingOptimisticOracleResolverConfig is IUMATreasurySuccessResolverC
 
         function syncMode() external pure returns (SyncMode) {
             return SyncMode.Capped;
+        }
+    }
+
+    contract BudgetTreasuryInvalidSyncModeSpendPolicy is ISpendPolicy {
+        function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+            return 1;
+        }
+
+        function syncMode() external pure returns (SyncMode) {
+            assembly ("memory-safe") {
+                mstore(0x00, 2)
+                return(0x00, 0x20)
+            }
         }
     }
 

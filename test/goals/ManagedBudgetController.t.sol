@@ -5,20 +5,29 @@ import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
-import {ManagedBudgetControllerStackDeployer} from "src/goals/ManagedBudgetControllerStackDeployer.sol";
 import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
 import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
-import {IManagedBudgetControllerStackDeployer} from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
@@ -194,6 +203,34 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
         assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
         assertEq(controller.itemIdForChildFlow(childFlow), itemID);
+    }
+
+    function test_setBudgetWeights_revertsWhenBudgetIsInactiveButStillDiscoverable() public {
+        bytes32 itemA = bytes32(uint256(1));
+        bytes32 itemB = bytes32(uint256(2));
+        (address childFlowA, address treasuryA) = _createBudget(itemA, "Budget A");
+        _createBudget(itemB, "Budget B");
+
+        vm.prank(safe);
+        controller.removeBudget(itemA);
+
+        bytes32[] memory itemIDs = new bytes32[](2);
+        itemIDs[0] = itemA;
+        itemIDs[1] = itemB;
+
+        uint32[] memory ppm = new uint32[](2);
+        ppm[0] = 500_000;
+        ppm[1] = 500_000;
+
+        vm.expectRevert(IManagedBudgetController.ITEM_NOT_ACTIVE.selector);
+        vm.prank(safe);
+        controller.setBudgetWeights(itemIDs, ppm);
+
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) =
+            controller.budgetStackTopologyForBudgetTreasury(treasuryA);
+        assertFalse(active);
+        assertEq(topology.childFlow, childFlowA);
+        assertEq(topology.budgetTreasury, treasuryA);
     }
 
     function test_safeRotationChangesAuthorityButNotAllocatorIdentity() public {
@@ -611,15 +648,12 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
     function test_initialize_trimmedControllerDoesNotExposeRemovedCoverageOrSlashGetters() public {
         controller.initialize(_baseInitConfig());
 
-        (bool hasBudgetAllocationLedgerGetter,) = address(controller).staticcall(
-            abi.encodeWithSignature("budgetAllocationLedger()")
-        );
-        (bool hasUnderwriterSlasherRouterGetter,) = address(controller).staticcall(
-            abi.encodeWithSignature("underwriterSlasherRouter()")
-        );
-        (bool hasBudgetPremiumPpmGetter,) = address(controller).staticcall(
-            abi.encodeWithSignature("budgetPremiumPpm()")
-        );
+        (bool hasBudgetAllocationLedgerGetter,) =
+            address(controller).staticcall(abi.encodeWithSignature("budgetAllocationLedger()"));
+        (bool hasUnderwriterSlasherRouterGetter,) =
+            address(controller).staticcall(abi.encodeWithSignature("underwriterSlasherRouter()"));
+        (bool hasBudgetPremiumPpmGetter,) =
+            address(controller).staticcall(abi.encodeWithSignature("budgetPremiumPpm()"));
         (bool hasBudgetSlashPpmGetter,) = address(controller).staticcall(abi.encodeWithSignature("budgetSlashPpm()"));
 
         assertFalse(hasBudgetAllocationLedgerGetter);
@@ -654,7 +688,9 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
-    ManagedBudgetControllerStackDeployer internal stackDeployer;
+    BudgetTCRDeployer internal stackDeployer;
+    BudgetSingleAllocatorStrategyFactory internal childStrategyFactory;
+    NullPremiumEscrow internal nullPremiumEscrowImplementation;
     SingleAllocatorStrategy internal goalStrategy;
     TestableCustomFlow internal goalFlow;
     address internal spendPolicy;
@@ -670,8 +706,31 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
-        stackDeployer =
-            new ManagedBudgetControllerStackDeployer(address(new BudgetTreasury()), address(new NullPremiumEscrow()));
+        childStrategyFactory = new BudgetSingleAllocatorStrategyFactory();
+        nullPremiumEscrowImplementation = new NullPremiumEscrow();
+        BudgetTCRDeployer deployerImplementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            address(
+                new RoundFactory(
+                    address(new RoundSubmissionTCR()),
+                    address(new RoundPrizeVault()),
+                    address(new PrizePoolSubmissionDepositStrategy()),
+                    address(new ERC20VotesArbitrator())
+                )
+            ),
+            address(
+                new RoundFactory(
+                    address(new RoundSubmissionTCR()),
+                    address(new RoundPrizeVault()),
+                    address(new PrizePoolSubmissionDepositStrategy()),
+                    address(new ERC20VotesArbitrator())
+                )
+            ),
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy())
+        );
+        stackDeployer = BudgetTCRDeployer(Clones.clone(address(deployerImplementation)));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
@@ -690,6 +749,21 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
             )
         );
         goalTreasury.setFlow(address(goalFlow));
+        goalTreasury.setBudgetStakeLedger(address(new ManagedBudgetControllerMockBudgetStakeLedger()));
+
+        stackDeployer.initializeWithConfig(
+            address(controller),
+            IBudgetStackDeployer.StackModuleConfig({
+                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Factory,
+                childFlowStrategyTarget: address(childStrategyFactory),
+                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
+                childFlowRecipientAdmin: address(controller),
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
+                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                requireZeroPremiumAndSlashRates: true
+            }),
+            address(0)
+        );
 
         controller.initialize(
             IManagedBudgetController.InitConfig({
@@ -766,9 +840,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(treasury.successAssertionPolicyHash(), config.successAssertionPolicyHash);
         assertEq(treasury.spendPolicy(), spendPolicy);
 
-        NullPremiumEscrow premiumEscrow = NullPremiumEscrow(topology.premiumEscrow);
-        assertEq(premiumEscrow.budgetTreasury(), budgetTreasury);
-        assertEq(premiumEscrow.goalFlow(), address(goalFlow));
+        assertEq(topology.premiumEscrow, address(nullPremiumEscrowImplementation));
     }
 
     function test_removeBudget_realStackFailClosesActivatedBudgetAndKeepsSyncTerminal() public {
@@ -1011,12 +1083,17 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
 contract ManagedBudgetControllerMockGoalTreasury {
     address public flow;
+    address public budgetStakeLedger;
     bool public resolved;
     bool public shouldRevertSync;
     uint256 public syncCallCount;
 
     function setFlow(address flow_) external {
         flow = flow_;
+    }
+
+    function setBudgetStakeLedger(address budgetStakeLedger_) external {
+        budgetStakeLedger = budgetStakeLedger_;
     }
 
     function setResolved(bool resolved_) external {
@@ -1094,28 +1171,69 @@ contract ManagedBudgetControllerMockBudgetTreasury {
     }
 }
 
-contract ManagedBudgetControllerMockStackDeployer is IManagedBudgetControllerStackDeployer {
-    function prepareBudgetStack(address) external override returns (PreparationResult memory result) {
+contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
+    function controller() external view returns (address controller_) {
+        controller_ = address(this);
+    }
+
+    function initializeWithConfig(address, StackModuleConfig calldata, address) external {}
+
+    function prepareBudgetStack(address, address, address) external override returns (PreparationResult memory result) {
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
         result.premiumEscrow = address(new ManagedBudgetControllerMockPremiumEscrow());
     }
 
     function deployBudgetTreasury(
-        address controller,
         address budgetTreasury,
-        address premiumEscrow,
-        address childFlow,
-        address,
-        IManagedBudgetController.BudgetConfig calldata,
-        address,
-        address,
-        uint64,
-        uint256
+        IBudgetTreasury.BudgetConfig calldata budgetConfig,
+        RiskModuleInitConfig calldata
     ) external override returns (address deployedBudgetTreasury) {
-        ManagedBudgetControllerMockBudgetTreasury(budgetTreasury).configure(controller, childFlow, premiumEscrow);
+        ManagedBudgetControllerMockBudgetTreasury(budgetTreasury).configure(
+            address(this), budgetConfig.flow, budgetConfig.premiumEscrow
+        );
         return budgetTreasury;
     }
+
+    function registerChildFlowRecipient(bytes32, address) external {}
+
+    function emitBudgetStackDeployed(bytes32, address, address, address, address) external {}
+
+    function emitBudgetAllocationMechanismDeployed(bytes32, address, address, address) external {}
+
+    function stackModuleConfig() external view returns (StackModuleConfig memory config) {
+        config = StackModuleConfig({
+            childFlowStrategyMode: ChildFlowStrategyMode.Fixed,
+            childFlowStrategyTarget: address(0),
+            mechanismLayerMode: MechanismLayerMode.None,
+            childFlowRecipientAdmin: address(this),
+            premiumEscrowMode: PremiumEscrowMode.Clone,
+            premiumEscrowImplementation: address(0xBEEF),
+            requireZeroPremiumAndSlashRates: false
+        });
+    }
+
+    function premiumEscrowImplementation() external pure returns (address implementation) {
+        implementation = address(0xBEEF);
+    }
+
+    function initialMechanismFactories() external pure returns (address[] memory factories) {
+        factories = new address[](0);
+    }
+
+    function roundFactory() external pure returns (address) {
+        return address(0);
+    }
+
+    function allocationMechanismTcrImplementation() external pure returns (address) {
+        return address(0);
+    }
+
+    function allocationMechanismArbitratorImplementation() external pure returns (address) {
+        return address(0);
+    }
 }
+
+contract ManagedBudgetControllerMockBudgetStakeLedger {}
 
 contract ManagedBudgetControllerDummyContract {}

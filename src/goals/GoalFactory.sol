@@ -13,18 +13,17 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
+import { BudgetSingleAllocatorStrategyFactory } from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
-import { ManagedBudgetControllerStackDeployer } from "src/goals/ManagedBudgetControllerStackDeployer.sol";
 import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
-import { ISpendPolicy } from "src/interfaces/ISpendPolicy.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
@@ -36,14 +35,11 @@ import { GoalFactoryManagedPresetDeploy } from "src/goals/library/GoalFactoryMan
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
+import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
 
 interface IGoalFundingTerminalConfig {
     function DIRECTORY() external view returns (IJBDirectory);
     function GOAL_DEPLOYMENT_REGISTRY() external view returns (IGoalDeploymentRegistry);
-}
-
-interface IBudgetTcrStackDeployerMetadata {
-    function budgetTreasuryImplementation() external view returns (address);
 }
 
 contract GoalFactory {
@@ -73,7 +69,8 @@ contract GoalFactory {
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
-    address public immutable MANAGED_STACK_DEPLOYER;
+    address public immutable MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL;
+    address public immutable MANAGED_PREMIUM_ESCROW_IMPL;
     address public immutable OPEN_BUDGET_GATE_POLICY;
 
     address public immutable DEFAULT_GOAL_SPEND_POLICY;
@@ -283,20 +280,12 @@ contract GoalFactory {
         _requireValidDefaultSpendPolicy(defaultBudgetSpendPolicy);
         _validateGoalTerminalConfig(revDeployer, goalDeploymentRegistry, goalPaymentTerminal);
 
-        address budgetTreasuryImplementation = IBudgetTcrStackDeployerMetadata(
-            budgetTcrFactory.stackDeployerImplementation()
-        ).budgetTreasuryImplementation();
-        if (budgetTreasuryImplementation == address(0)) revert ADDRESS_ZERO();
-        if (budgetTreasuryImplementation.code.length == 0) revert NOT_A_CONTRACT(budgetTreasuryImplementation);
-
         address managedBudgetControllerImplementation = address(new ManagedBudgetController());
         address managedGoalAllocatorStrategyImplementation = address(
             new SingleAllocatorStrategy(address(0), address(0))
         );
+        address managedBudgetChildStrategyFactoryImplementation = address(new BudgetSingleAllocatorStrategyFactory());
         address managedPremiumEscrowImplementation = address(new NullPremiumEscrow());
-        address managedStackDeployer = address(
-            new ManagedBudgetControllerStackDeployer(budgetTreasuryImplementation, managedPremiumEscrowImplementation)
-        );
 
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;
@@ -319,7 +308,8 @@ contract GoalFactory {
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
-        MANAGED_STACK_DEPLOYER = managedStackDeployer;
+        MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL = managedBudgetChildStrategyFactoryImplementation;
+        MANAGED_PREMIUM_ESCROW_IMPL = managedPremiumEscrowImplementation;
         OPEN_BUDGET_GATE_POLICY = openBudgetGatePolicy;
 
         DEFAULT_GOAL_SPEND_POLICY = defaultGoalSpendPolicy;
@@ -382,30 +372,9 @@ contract GoalFactory {
     }
 
     function _requireValidDefaultSpendPolicy(address policy) private view {
-        try ISpendPolicy(policy).syncMode() returns (ISpendPolicy.SyncMode mode) {
-            if (uint8(mode) > uint8(ISpendPolicy.SyncMode.LinearSpendDownFallback)) {
-                revert INVALID_DEFAULT_SPEND_POLICY(policy);
-            }
-        } catch {
+        if (!SpendPolicyValidationLib.passesValidationProbe(policy)) {
             revert INVALID_DEFAULT_SPEND_POLICY(policy);
         }
-
-        try ISpendPolicy(policy).targetFlowRate(_spendPolicyValidationContext()) returns (int96) {} catch {
-            revert INVALID_DEFAULT_SPEND_POLICY(policy);
-        }
-    }
-
-    function _spendPolicyValidationContext() private view returns (ISpendPolicy.SpendContext memory ctx) {
-        uint64 nowTs = uint64(block.timestamp);
-        ctx = ISpendPolicy.SpendContext({
-            nowTs: nowTs,
-            activatedAt: nowTs,
-            deadline: nowTs + 1,
-            treasuryBalance: 1,
-            timeRemaining: 1,
-            incomingRate: 0,
-            currentOutflowRate: 0
-        });
     }
 
     function _resolveFundingContext(
@@ -710,7 +679,10 @@ contract GoalFactory {
                 goalTreasury,
                 GoalFactoryManagedPresetDeploy.ManagedPresetBootstrapConfig({
                     budgetControllerImplementation: MANAGED_BUDGET_CONTROLLER_IMPL,
-                    goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL
+                    goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL,
+                    stackDeployerImplementation: BUDGET_TCR_FACTORY.stackDeployerImplementation(),
+                    budgetChildStrategyFactoryImplementation: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL,
+                    premiumEscrowImplementation: MANAGED_PREMIUM_ESCROW_IMPL
                 })
             );
     }
@@ -726,7 +698,7 @@ contract GoalFactory {
                 authority: p.managedSafe,
                 goalTreasury: address(core.goalTreasury),
                 goalFlow: address(core.goalFlow),
-                stackDeployer: MANAGED_STACK_DEPLOYER,
+                stackDeployer: managedPreset.stackDeployer,
                 budgetGatePolicy: address(0),
                 budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
                 budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,

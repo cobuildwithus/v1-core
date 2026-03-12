@@ -223,6 +223,20 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initialize_reverts_when_budget_spend_policy_reports_invalid_sync_mode() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetSpendPolicy = address(new BudgetTCRInvalidSyncModeSpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy)
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_goal_flow_is_zero() public {
         (
             BudgetTCR freshTcr,
@@ -2238,6 +2252,20 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertTrue(found);
         assertTrue(removedFromParent);
         assertTrue(goalSynced);
+
+        uint256 syncCallCountAfterFirstSweep = goalTreasury.syncCallCount();
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attemptedSecond, uint256 succeededSecond) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory secondLogs = vm.getRecordedLogs();
+
+        assertEq(attemptedSecond, 1);
+        assertEq(succeededSecond, 1);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountAfterFirstSweep);
+
+        (bool foundOnSecondSweep,,) = _getBudgetTerminalRecipientPruned(secondLogs, itemID, childFlow, budgetTreasury);
+        assertFalse(foundOnSecondSweep);
     }
 
     function test_syncBudgetTreasuries_permissionless_goalSyncFailureRepairsViaRetryTerminalSideEffects() public {
@@ -2271,6 +2299,21 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertTrue(found);
         assertTrue(removedFromParent);
         assertFalse(goalSynced);
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attemptedSecond, uint256 succeededSecond) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory secondLogs = vm.getRecordedLogs();
+
+        assertEq(attemptedSecond, 1);
+        assertEq(succeededSecond, 1);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
+        assertFalse(
+            _hasBudgetSyncCallFailed(secondLogs, itemID, budgetTreasury, IGoalTreasury.sync.selector, expectedReason)
+        );
+
+        (bool foundOnSecondSweep,,) = _getBudgetTerminalRecipientPruned(secondLogs, itemID, childFlow, budgetTreasury);
+        assertFalse(foundOnSecondSweep);
 
         goalTreasury.setShouldRevertSync(false);
 
@@ -2725,6 +2768,19 @@ contract BudgetTCRZeroContextOnlySpendPolicy is ISpendPolicy {
 
     function syncMode() external pure returns (SyncMode) {
         return SyncMode.Capped;
+    }
+}
+
+contract BudgetTCRInvalidSyncModeSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 1;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        assembly ("memory-safe") {
+            mstore(0x00, 2)
+            return(0x00, 0x20)
+        }
     }
 }
 

@@ -30,10 +30,11 @@ import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
-import {ManagedBudgetControllerStackDeployer} from "src/goals/ManagedBudgetControllerStackDeployer.sol";
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
 import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
+import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalDeploymentRegistry} from "src/interfaces/IGoalDeploymentRegistry.sol";
@@ -46,6 +47,14 @@ import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
+import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
+import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
+import {RoundFactory} from "src/rounds/RoundFactory.sol";
+import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
+import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
+import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
@@ -70,7 +79,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     FactoryDeployMockSuperTokenFactory internal superTokenFactory;
     FactoryDeployMockSuperfluidHost internal superfluidHost;
     FactoryDeployMockBudgetTcrFactory internal budgetTcrFactory;
-    FactoryDeployBudgetTcrStackDeployerMetadataMock internal budgetTcrStackDeployerMetadata;
+    BudgetTCRDeployer internal budgetTcrStackDeployerImplementation;
     FactoryDeployDummyContract internal successResolver;
     FactoryDeployDummyContract internal jbMultiTerminal;
     FactoryDeployDummyContract internal buybackHookDataHook;
@@ -100,10 +109,9 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         revDeployer = new FactoryDeployMockRevDeployer(address(directory), address(controller), GOAL_REVNET_ID);
         superTokenFactory = new FactoryDeployMockSuperTokenFactory();
         superfluidHost = new FactoryDeployMockSuperfluidHost(address(superTokenFactory));
-        budgetTcrStackDeployerMetadata =
-            new FactoryDeployBudgetTcrStackDeployerMetadataMock(address(new BudgetTreasury()));
+        budgetTcrStackDeployerImplementation = _deployBudgetTcrDeployerImplementation();
         budgetTcrFactory =
-            new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR, address(budgetTcrStackDeployerMetadata));
+            new FactoryDeployMockBudgetTcrFactory(PREDICTED_BUDGET_TCR, address(budgetTcrStackDeployerImplementation));
         successResolver = new FactoryDeployDummyContract();
         jbMultiTerminal = new FactoryDeployDummyContract();
         buybackHookDataHook = new FactoryDeployDummyContract();
@@ -153,11 +161,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_constructor_deploysSharedManagedPresetInfra() public view {
         assertTrue(factory.MANAGED_BUDGET_CONTROLLER_IMPL().code.length > 0);
         assertTrue(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL().code.length > 0);
-        assertTrue(factory.MANAGED_STACK_DEPLOYER().code.length > 0);
-        assertTrue(
-            ManagedBudgetControllerStackDeployer(factory.MANAGED_STACK_DEPLOYER()).premiumEscrowImplementation().code
-                .length > 0
-        );
+        assertTrue(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL().code.length > 0);
+        assertTrue(factory.MANAGED_PREMIUM_ESCROW_IMPL().code.length > 0);
     }
 
     function test_constructor_revertsWhenDefaultGoalSpendPolicyIsInvalid() public {
@@ -180,6 +185,15 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             )
         );
         _deployFactoryWithDefaultPolicies(address(defaultGoalSpendPolicy), address(invalidDefaultBudgetSpendPolicy));
+    }
+
+    function test_constructor_revertsWhenDefaultSpendPolicyReportsInvalidSyncMode() public {
+        address invalidDefaultSpendPolicy = address(new GoalFactoryInvalidSyncModeSpendPolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.INVALID_DEFAULT_SPEND_POLICY.selector, invalidDefaultSpendPolicy)
+        );
+        _deployFactoryWithDefaultPolicies(invalidDefaultSpendPolicy, address(defaultBudgetSpendPolicy));
     }
 
     function test_deployGoal_setsConfiguredSpendPolicyOnDeployedGoalTreasury() public {
@@ -292,8 +306,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
         ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
         SingleAllocatorStrategy strategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
-        ManagedBudgetControllerStackDeployer stackDeployer =
-            ManagedBudgetControllerStackDeployer(managedController.stackDeployer());
+        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(managedController.stackDeployer());
+        IBudgetStackDeployer.StackModuleConfig memory stackConfig = stackDeployer.stackModuleConfig();
 
         assertEq(managedController.authority(), managedSafe);
         assertEq(managedController.goalTreasury(), deployed.goalTreasury);
@@ -305,10 +319,19 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
         assertEq(strategy.allocator(), deployed.budgetController);
         assertEq(strategy.goalTreasury(), deployed.goalTreasury);
-        assertEq(managedController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
         assertEq(managedController.budgetGatePolicy(), address(0));
         assertTrue(deployed.budgetController != factory.MANAGED_BUDGET_CONTROLLER_IMPL());
         assertTrue(deployed.goalAllocatorStrategy != factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL());
+        assertTrue(managedController.stackDeployer() != address(0));
+        assertTrue(managedController.stackDeployer() != address(budgetTcrStackDeployerImplementation));
+        assertFalse(_sameRuntimeCode(managedController.stackDeployer(), address(budgetTcrStackDeployerImplementation)));
+        assertEq(stackDeployer.controller(), deployed.budgetController);
+        assertEq(uint8(stackConfig.childFlowStrategyMode), uint8(IBudgetStackDeployer.ChildFlowStrategyMode.Factory));
+        assertEq(stackConfig.childFlowStrategyTarget, factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL());
+        assertEq(uint8(stackConfig.mechanismLayerMode), uint8(IBudgetStackDeployer.MechanismLayerMode.None));
+        assertEq(stackConfig.childFlowRecipientAdmin, deployed.budgetController);
+        assertEq(uint8(stackConfig.premiumEscrowMode), uint8(IBudgetStackDeployer.PremiumEscrowMode.Shared));
+        assertEq(stackDeployer.premiumEscrowImplementation(), factory.MANAGED_PREMIUM_ESCROW_IMPL());
         assertEq(deployed.arbitrator, address(0));
         assertEq(
             FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), deployed.budgetController
@@ -321,7 +344,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             FactoryDeployMockUnderwriterSlasherRouter(deployed.underwriterSlasherRouter).goalFundingTarget(),
             deployed.goalFlow
         );
-        assertTrue(stackDeployer.premiumEscrowImplementation().code.length > 0);
         assertFalse(_sameRuntimeCode(deployed.goalAllocatorStrategy, factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL()));
     }
 
@@ -372,8 +394,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(goalDeploymentRegistry.goalTreasuryOf(first.goalRevnetId), first.goalTreasury);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(second.goalRevnetId), second.goalTreasury);
 
-        assertEq(firstController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
-        assertEq(secondController.stackDeployer(), factory.MANAGED_STACK_DEPLOYER());
         assertEq(firstController.budgetGatePolicy(), address(0));
         assertEq(secondController.budgetGatePolicy(), address(0));
 
@@ -390,8 +410,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertTrue(first.goalAllocatorStrategy != second.goalAllocatorStrategy);
         assertTrue(first.goalTreasury != second.goalTreasury);
         assertTrue(first.goalFlow != second.goalFlow);
+        assertTrue(firstController.stackDeployer() != secondController.stackDeployer());
         assertTrue(_sameRuntimeCode(first.budgetController, second.budgetController));
         assertTrue(_sameRuntimeCode(first.goalAllocatorStrategy, second.goalAllocatorStrategy));
+        assertTrue(_sameRuntimeCode(firstController.stackDeployer(), secondController.stackDeployer()));
     }
 
     function test_deployGoal_managedPreset_canCreateMultipleBudgetsAndUpdateWeights() public {
@@ -649,6 +671,25 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
     }
 
+    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetTCRDeployer implementation) {
+        address roundFactory = address(
+            new RoundFactory(
+                address(new RoundSubmissionTCR()),
+                address(new RoundPrizeVault()),
+                address(new PrizePoolSubmissionDepositStrategy()),
+                address(new ERC20VotesArbitrator())
+            )
+        );
+        implementation = new BudgetTCRDeployer(
+            address(new BudgetTreasury()),
+            roundFactory,
+            roundFactory,
+            address(new AllocationMechanismTCR(address(new MechanismFundingEscrow()))),
+            address(new ERC20VotesArbitrator()),
+            address(new BudgetFlowRouterStrategy())
+        );
+    }
+
     function _baseDeployParams(address goalSpendPolicy) internal returns (GoalFactory.DeployParams memory p) {
         p.preset = GoalFactory.GoalPreset.Open;
         p.managedSafe = address(0);
@@ -804,6 +845,19 @@ contract ZeroContextOnlySpendPolicy is ISpendPolicy {
 
     function syncMode() external pure returns (SyncMode) {
         return SyncMode.Capped;
+    }
+}
+
+contract GoalFactoryInvalidSyncModeSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 1;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        assembly ("memory-safe") {
+            mstore(0x00, 2)
+            return(0x00, 0x20)
+        }
     }
 }
 
