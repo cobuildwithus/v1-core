@@ -6,6 +6,21 @@ import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {UnderwritingCoverageCapIntegrationTest} from "test/goals/UnderwritingIntegration.t.sol";
 
 contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapIntegrationTest {
+    function test_initializeAllowsZeroUnderwriterSlasherWhenPremiumAndSlashAreZero() public {
+        GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(0);
+
+        clone.initialize(config);
+
+        assertEq(uint256(clone.budgetPremiumPpm()), 0);
+        assertEq(uint256(clone.budgetSlashPpm()), 0);
+        assertEq(stakeVault.jurorSlasher(), config.jurorSlasher);
+        assertEq(stakeVault.underwriterSlasher(), address(0));
+    }
+
     function test_initializeRevertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
@@ -22,11 +37,36 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         clone.initialize(config);
     }
 
+    function test_initializeRevertsWhenPremiumEnabledAndUnderwriterSlasherIsZero() public {
+        GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(0);
+        config.budgetPremiumPpm = 100_000;
+        config.budgetSlashPpm = 0;
+
+        vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
+        clone.initialize(config);
+    }
+
+    function test_initializeRevertsWhenZeroPremiumAndUnderwriterSlasherIsNonZero() public {
+        GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(hook);
+
+        vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
+        clone.initialize(config);
+    }
+
     function test_initializeAllowsSlashEnabledWhenPremiumIsNonZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(hook);
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
@@ -57,6 +97,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(hook);
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
@@ -71,6 +112,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
 
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(hook);
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 50_000;
 
@@ -83,11 +125,8 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
     function test_processHookSplit_atOrAfterDeadline_defersFunding_insteadOfReverting() public {
         vm.warp(treasury.deadline());
 
-        (
-            IGoalTreasury.HookSplitAction action,
-            uint256 superTokenAmount,
-            uint256 burnAmount
-        ) = _processGoalHookSplit(treasury, 1e18);
+        (IGoalTreasury.HookSplitAction action, uint256 superTokenAmount, uint256 burnAmount) =
+            _processGoalHookSplit(treasury, 1e18);
 
         assertEq(uint256(action), uint256(IGoalTreasury.HookSplitAction.Deferred));
         assertEq(superTokenAmount, 1e18);

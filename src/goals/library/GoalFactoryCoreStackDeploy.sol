@@ -165,6 +165,8 @@ library GoalFactoryCoreStackDeploy {
                 address(out.goalFlow)
             );
             out.underwriterSlasherRouter = address(underwriterSlasherRouter);
+        } else {
+            out.underwriterSlasherRouter = address(0);
         }
 
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({

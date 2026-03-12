@@ -66,9 +66,12 @@ contract GoalFactoryCoreStackDeployTest is Test {
 
     function test_initializeCoreStack_forwardsGoalSpendPolicyIntoGoalTreasuryConfig() public {
         address goalSpendPolicy = address(0xBEEF);
-        GoalFactoryCoreStackDeploy.CoreStackResult memory core = GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
 
-        GoalFactoryCoreStackDeploy.finalizeCoreStack(core, _baseFinalizeRequest(goalSpendPolicy, address(core.stakeVault)));
+        GoalFactoryCoreStackDeploy.finalizeCoreStack(
+            core, _baseFinalizeRequest(goalSpendPolicy, address(core.stakeVault))
+        );
 
         assertEq(goalTreasury.lastSpendPolicy(), goalSpendPolicy);
     }
@@ -94,20 +97,62 @@ contract GoalFactoryCoreStackDeployTest is Test {
     }
 
     function test_finalizeCoreStack_usesExplicitGoalFlowStrategy() public {
-        GoalFactoryCoreStackDeploy.CoreStackResult memory core = GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
         MockGoalFactoryExplicitStrategy explicitStrategy = new MockGoalFactoryExplicitStrategy();
 
-        GoalFactoryCoreStackDeploy.finalizeCoreStack(core, _baseFinalizeRequest(address(0xBEEF), address(explicitStrategy)));
+        GoalFactoryCoreStackDeploy.finalizeCoreStack(
+            core, _baseFinalizeRequest(address(0xBEEF), address(explicitStrategy))
+        );
 
         assertTrue(address(core.stakeVault) != address(0));
         assertEq(goalFlow.lastStrategy(), address(explicitStrategy));
     }
 
-    function _baseBaseRequest()
-        internal
-        view
-        returns (GoalFactoryCoreStackDeploy.CoreBaseRequest memory request)
-    {
+    function test_finalizeCoreStack_omitsUnderwriterRouterForCanonicalZeroPremiumGoals() public {
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory finalized = GoalFactoryCoreStackDeploy.finalizeCoreStack(
+            core, _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault))
+        );
+
+        assertEq(finalized.underwriterSlasherRouter, address(0));
+        assertEq(goalTreasury.lastConfiguredUnderwriterSlasher(), address(0));
+    }
+
+    function test_finalizeCoreStack_clearsSeededUnderwriterRouterForCanonicalZeroPremiumGoals() public {
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        core.underwriterSlasherRouter = address(0xBEEF);
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory finalized = GoalFactoryCoreStackDeploy.finalizeCoreStack(
+            core, _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault))
+        );
+
+        assertEq(finalized.underwriterSlasherRouter, address(0));
+        assertEq(goalTreasury.lastConfiguredUnderwriterSlasher(), address(0));
+    }
+
+    function test_finalizeCoreStack_deploysUnderwriterRouterWhenPremiumEnabled() public {
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request =
+            _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault));
+        request.budgetPremiumPpm = 100_000;
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory finalized =
+            GoalFactoryCoreStackDeploy.finalizeCoreStack(core, request);
+
+        assertTrue(finalized.underwriterSlasherRouter != address(0));
+        assertEq(goalTreasury.lastConfiguredUnderwriterSlasher(), finalized.underwriterSlasherRouter);
+        assertEq(
+            MockGoalFactoryUnderwriterSlasherRouter(finalized.underwriterSlasherRouter).goalFundingTarget(),
+            address(goalFlow)
+        );
+    }
+
+    function _baseBaseRequest() internal view returns (GoalFactoryCoreStackDeploy.CoreBaseRequest memory request) {
         request = GoalFactoryCoreStackDeploy.CoreBaseRequest({
             goalTreasury: GoalTreasury(address(goalTreasury)),
             splitHook: GoalRevnetSplitHook(payable(address(splitHook))),
@@ -126,10 +171,11 @@ contract GoalFactoryCoreStackDeployTest is Test {
         });
     }
 
-    function _baseFinalizeRequest(
-        address goalSpendPolicy,
-        address goalAllocatorStrategy
-    ) internal view returns (GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request) {
+    function _baseFinalizeRequest(address goalSpendPolicy, address goalAllocatorStrategy)
+        internal
+        view
+        returns (GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request)
+    {
         request = GoalFactoryCoreStackDeploy.CoreFinalizeRequest({
             goalAllocatorStrategy: goalAllocatorStrategy,
             budgetController: address(0xB6D9E7),
@@ -175,11 +221,13 @@ contract MockGoalToken is ERC20 {
 contract MockGoalFactoryGoalTreasury {
     address public lastSpendPolicy;
     address public lastFlow;
+    address public lastConfiguredUnderwriterSlasher;
     ISuperToken public lastSuperToken;
 
     function initialize(IGoalTreasury.GoalConfig calldata config) external {
         lastSpendPolicy = config.spendPolicy;
         lastFlow = config.flow;
+        lastConfiguredUnderwriterSlasher = config.underwriterSlasher;
         lastSuperToken = ISuperToken(MockGoalFactoryFlow(config.flow).lastSuperToken());
     }
 

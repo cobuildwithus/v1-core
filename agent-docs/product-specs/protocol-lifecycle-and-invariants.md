@@ -61,6 +61,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - unsolicited third-party inbound streams to the budget flow must not increase the trusted incoming component.
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
+  - goal-level `UnderwriterSlasherRouter` deployment is conditional on goal underwriting being enabled at all; canonical `budgetPremiumPpm == 0 && budgetSlashPpm == 0` goals omit that router and leave the stake-vault underwriter slasher unset,
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
   - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure,
   - premium claims are allowed only while parent goal state is `Succeeded`,

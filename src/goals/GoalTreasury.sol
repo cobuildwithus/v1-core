@@ -106,9 +106,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
         if (config.jurorSlasher == address(0)) revert ADDRESS_ZERO();
-        if (config.underwriterSlasher == address(0)) revert ADDRESS_ZERO();
         if (config.jurorSlasher.code.length == 0) revert NOT_A_CONTRACT(config.jurorSlasher);
-        if (config.underwriterSlasher.code.length == 0) revert NOT_A_CONTRACT(config.underwriterSlasher);
         if (config.budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (config.budgetStakeLedger.code.length == 0) revert NOT_A_CONTRACT(config.budgetStakeLedger);
         if (config.hook == address(0)) revert ADDRESS_ZERO();
@@ -133,6 +131,13 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         if (config.budgetSlashPpm != 0 && config.budgetPremiumPpm == 0) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(config.budgetPremiumPpm, config.budgetSlashPpm);
         }
+        if (config.budgetPremiumPpm == 0) {
+            if (config.underwriterSlasher != address(0)) revert ADDRESS_ZERO();
+        } else if (config.underwriterSlasher == address(0)) {
+            revert ADDRESS_ZERO();
+        } else if (config.underwriterSlasher.code.length == 0) {
+            revert NOT_A_CONTRACT(config.underwriterSlasher);
+        }
 
         uint256 nowTs = block.timestamp;
         if (config.minRaiseDeadline == 0 || config.minRaiseDeadline < nowTs) revert INVALID_DEADLINES();
@@ -156,7 +161,9 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
             revert BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address(this), ledgerGoalTreasury);
         }
         _stakeVault.setJurorSlasher(config.jurorSlasher);
-        _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
+        if (config.budgetPremiumPpm != 0) {
+            _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
+        }
 
         superToken = _flow.superToken();
         if (address(superToken) == address(0)) revert ADDRESS_ZERO();

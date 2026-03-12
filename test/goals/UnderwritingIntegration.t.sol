@@ -1850,7 +1850,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
     function test_initialize_wiresConfiguredSlashersOnStakeVault() public view {
         assertEq(stakeVault.jurorSlasher(), address(successResolverConfig));
-        assertEq(stakeVault.underwriterSlasher(), address(hook));
+        assertEq(stakeVault.underwriterSlasher(), address(0));
     }
 
     function test_goalTreasuryCloneInitialize_emitsGoalConfiguredEvent() public {
@@ -2207,7 +2207,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
     }
 
-    function test_settleLateResidual_succeededManagedCooldown_queuesHeldCommunityBalanceWhenNoGoalResidualRemains() public {
+    function test_settleLateResidual_succeededManagedCooldown_queuesHeldCommunityBalanceWhenNoGoalResidualRemains()
+        public
+    {
         ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
         GoalTreasury managedTreasury = _deployGoalTreasuryWithTerminalRollover(MANAGED_TERMINAL_ROLLOVER_COOLDOWN);
 
@@ -2334,9 +2336,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGoalTreasury.INVALID_TERMINAL_ROLLOVER_SPLIT_HOOK.selector,
-                COBUILD_REVNET_ID,
-                address(mismatchedHook)
+                IGoalTreasury.INVALID_TERMINAL_ROLLOVER_SPLIT_HOOK.selector, COBUILD_REVNET_ID, address(mismatchedHook)
             )
         );
         managedTreasury.settleLateResidual();
@@ -2361,9 +2361,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         );
 
         vm.expectEmit(false, false, false, true, address(managedTreasury));
-        emit IGoalTreasury.TerminalResidualSettlementFailed(
-            abi.encodeWithSelector(UnderwritingMockQueuedRolloverHook.QUEUE_REVERT.selector)
-        );
+        emit IGoalTreasury.TerminalResidualSettlementFailed(abi.encodeWithSelector(
+                UnderwritingMockQueuedRolloverHook.QUEUE_REVERT.selector
+            ));
         vm.prank(address(successResolverConfig));
         managedTreasury.resolveSuccess();
 
@@ -2829,12 +2829,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(uint256(targetTreasury.state()), uint256(IGoalTreasury.GoalState.Succeeded));
     }
 
-    function _setGoalTruthfulAssertion(
-        bytes32 assertionId,
-        uint64 assertedAt,
-        uint64 liveness,
-        uint256 bond
-    ) internal {
+    function _setGoalTruthfulAssertion(bytes32 assertionId, uint64 assertedAt, uint64 liveness, uint256 bond) internal {
         assertionOracle.setAssertion(
             assertionId,
             OptimisticOracleV3Interface.Assertion({
@@ -2887,9 +2882,10 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
     }
 
-    function _deployGoalTreasuryWithTerminalRollover(
-        uint64 cooldown
-    ) internal returns (GoalTreasury candidateTreasury) {
+    function _deployGoalTreasuryWithTerminalRollover(uint64 cooldown)
+        internal
+        returns (GoalTreasury candidateTreasury)
+    {
         candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
@@ -2899,10 +2895,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         candidateTreasury.initialize(config);
     }
 
-    function _configureManagedTerminalRolloverPath()
-        internal
-        returns (ManagedTerminalRolloverRuntime memory rollover)
-    {
+    function _configureManagedTerminalRolloverPath() internal returns (ManagedTerminalRolloverRuntime memory rollover) {
         rollover.cobuildToken = new SharedMockUnderlying();
         rollover.cashOutTerminal =
             new UnderwritingMockTerminal(IERC20(address(rollover.cobuildToken)), IERC20(address(underlyingToken)));
@@ -2962,7 +2955,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
             flow: address(flow),
             stakeVault: address(stakeVault),
             jurorSlasher: address(successResolverConfig),
-            underwriterSlasher: hookAddr,
+            underwriterSlasher: address(0),
             budgetStakeLedger: budgetStakeLedgerAddr,
             hook: hookAddr,
             goalRulesets: rulesetsAddr,
@@ -3501,9 +3494,11 @@ contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySucc
             _paymentSourceRevnetId = paymentSourceRevnetId_;
         }
 
-        function communityConfigOf(
-            uint256
-        ) external view returns (address splitHook, address paymentToken, uint256 paymentSourceRevnetId, bool, bool exists) {
+        function communityConfigOf(uint256)
+            external
+            view
+            returns (address splitHook, address paymentToken, uint256 paymentSourceRevnetId, bool, bool exists)
+        {
             return (_splitHook, _paymentToken, _paymentSourceRevnetId, false, true);
         }
     }

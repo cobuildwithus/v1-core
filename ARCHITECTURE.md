@@ -58,7 +58,7 @@ cobuild-protocol/
   - `src/goals/PremiumEscrow.sol` (open preset)
   - explicit absence via `premiumEscrow = address(0)` / `PremiumEscrowMode.None` (managed preset and zero-premium open mode)
 - Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` implemented by `src/tcr/BudgetTCRDeployer.sol`.
-- Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol`.
+- Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol` for premium-enabled goals; canonical `0/0` goals omit the goal-level router entirely.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 - Shared goal funding terminal: `src/juicebox/CobuildGoalTerminal.sol`.
 - Goal/community exit settlement router: `src/juicebox/CobuildExitRouter.sol`.
@@ -164,6 +164,7 @@ Managed preset
 - Managed-preset risk wiring now represents premium-module absence explicitly:
   - manager-reward routing is disabled on managed child-flow deployment,
   - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config; managed budget deployment hardcodes zero coverage/slash inputs through the shared treasury/gate seams,
+  - canonical `0/0` goals also omit the goal-level `UnderwriterSlasherRouter` and leave `StakeVault.underwriterSlasher()` unset,
   - no premium escrow is initialized, connected, or authorized for managed budgets by default,
   - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
@@ -376,8 +377,8 @@ Managed preset
   - managed preset clones use the same `onlyController` path with `ManagedBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal stack slasher wiring is init-only and fail-fast:
-  - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them into `GoalTreasury.initialize`,
-  - `GoalTreasury.initialize` sets both StakeVault slashers exactly once,
+  - `GoalFactoryCoreStackDeploy` always deploys the juror slasher router and deploys the goal-level underwriter slasher router only when `budgetPremiumPpm != 0 || budgetSlashPpm != 0`,
+  - `GoalTreasury.initialize` always sets the juror slasher and sets the underwriter slasher only when configured,
   - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
   - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
   - `RoundFactory` round arbitrators keep stake-vault voting but are intentionally deployed as non-slashing and are never added to the router allowlist.
