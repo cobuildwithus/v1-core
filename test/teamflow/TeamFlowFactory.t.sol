@@ -194,6 +194,84 @@ contract TeamFlowFactoryTest is Test {
         assertEq(teamFlow.maxTotalRate(), 150);
     }
 
+    function test_teamFlow_managerTransferUsesTwoStepHandoff() public {
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+        address rotatedManager = makeAddr("rotated-manager");
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        teamFlow.transferManager(rotatedManager);
+
+        vm.prank(manager);
+        teamFlow.transferManager(rotatedManager);
+
+        assertEq(teamFlow.manager(), manager);
+        assertEq(teamFlow.pendingManager(), rotatedManager);
+
+        vm.expectRevert(TeamFlow.ONLY_PENDING_MANAGER.selector);
+        teamFlow.acceptManager();
+
+        vm.prank(rotatedManager);
+        teamFlow.acceptManager();
+
+        assertEq(teamFlow.manager(), rotatedManager);
+        assertEq(teamFlow.pendingManager(), address(0));
+
+        vm.prank(manager);
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        teamFlow.addMember(alice, _recipientMetadata("Alice"));
+
+        vm.prank(rotatedManager);
+        teamFlow.addMember(alice, _recipientMetadata("Alice"));
+        assertEq(teamFlow.activeMemberCount(), 1);
+    }
+
+    function test_teamFlow_managerTransfer_onlyLatestPendingManagerCanAccept() public {
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+        address firstPendingManager = makeAddr("first-pending-manager");
+        address finalPendingManager = makeAddr("final-pending-manager");
+
+        vm.prank(manager);
+        teamFlow.transferManager(firstPendingManager);
+
+        vm.prank(manager);
+        teamFlow.setRateConfig(125, 175);
+
+        assertEq(teamFlow.manager(), manager);
+        assertEq(teamFlow.pendingManager(), firstPendingManager);
+        assertEq(teamFlow.perSeatRate(), 125);
+        assertEq(teamFlow.maxTotalRate(), 175);
+
+        vm.prank(manager);
+        teamFlow.transferManager(finalPendingManager);
+        assertEq(teamFlow.pendingManager(), finalPendingManager);
+
+        vm.expectRevert(TeamFlow.ONLY_PENDING_MANAGER.selector);
+        vm.prank(firstPendingManager);
+        teamFlow.acceptManager();
+
+        vm.prank(finalPendingManager);
+        teamFlow.acceptManager();
+
+        assertEq(teamFlow.manager(), finalPendingManager);
+        assertEq(teamFlow.pendingManager(), address(0));
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        vm.prank(manager);
+        teamFlow.setRateConfig(150, 200);
+
+        vm.prank(finalPendingManager);
+        teamFlow.setRateConfig(150, 200);
+
+        assertEq(teamFlow.perSeatRate(), 150);
+        assertEq(teamFlow.maxTotalRate(), 200);
+    }
+
     function test_teamFlow_revertsOnDuplicateInactiveAndNestedRecipientOperations() public {
         IAllocationMechanismFactory.DeployedMechanism memory deployed =
             factory.deployForBudget(MECHANISM_ID, address(budgetTreasury), abi.encode(_defaultConfig(100, 150)));

@@ -19,6 +19,7 @@ import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
@@ -27,6 +28,8 @@ import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
 import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
+import {TeamFlow} from "src/teamflow/TeamFlow.sol";
+import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
@@ -1058,6 +1061,166 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertTrue(ICustomFlow(childFlow).canAllocate(controllerKey, address(controller)));
         assertFalse(ICustomFlow(childFlow).canAllocate(safeKey, safe));
         assertFalse(ICustomFlow(childFlow).canAllocate(newSafeKey, rotatedSafe));
+    }
+
+    function test_safeManagedTeamFlow_canBeDeployedDirectlyAndAttachedThroughGenericRecipientApis() public {
+        bytes32 budgetItemID = bytes32(uint256(1));
+        vm.prank(safe);
+        (address childFlow, address budgetTreasury) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
+        TeamFlowFactory.AllocationMechanismConfig memory cfg = TeamFlowFactory.AllocationMechanismConfig({
+            manager: safe,
+            perSeatRate: 100,
+            maxTotalRate: 250,
+            flowMetadata: _childRecipientMetadata("Managed TeamFlow")
+        });
+
+        vm.prank(safe);
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            teamFlowFactory.deployForBudget(bytes32(uint256(101)), budgetTreasury, abi.encode(cfg));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+        bytes32 teamRecipientId = bytes32(uint256(11));
+
+        assertEq(deployed.mechanism, deployed.payoutRecipient);
+        assertEq(teamFlow.manager(), safe);
+        assertEq(teamFlow.pendingManager(), address(0));
+        assertEq(teamFlow.mechanismId(), bytes32(uint256(101)));
+
+        vm.prank(safe);
+        controller.addBudgetFlowRecipient(
+            budgetItemID,
+            teamRecipientId,
+            deployed.payoutRecipient,
+            _childRecipientMetadata("Managed TeamFlow")
+        );
+
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = teamRecipientId;
+        uint32[] memory ppm = new uint32[](1);
+        ppm[0] = 1_000_000;
+
+        vm.prank(safe);
+        controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
+
+        FlowTypes.FlowRecipient memory childRecipient = TestableCustomFlow(childFlow).getRecipientById(teamRecipientId);
+        assertEq(childRecipient.recipient, deployed.payoutRecipient);
+        assertFalse(childRecipient.isRemoved);
+
+        vm.prank(safe);
+        bytes32 memberRecipientId = teamFlow.addMember(makeAddr("team-member"), _childRecipientMetadata("Seat A"));
+        assertTrue(memberRecipientId != bytes32(0));
+        assertEq(teamFlow.activeMemberCount(), 1);
+
+        address rotatedSafe = makeAddr("rotated-safe");
+
+        vm.prank(safe);
+        controller.transferAuthority(rotatedSafe);
+        vm.prank(rotatedSafe);
+        controller.acceptAuthority();
+
+        vm.prank(safe);
+        teamFlow.transferManager(rotatedSafe);
+        vm.prank(rotatedSafe);
+        teamFlow.acceptManager();
+
+        assertEq(controller.authority(), rotatedSafe);
+        assertEq(teamFlow.manager(), rotatedSafe);
+        assertEq(teamFlow.pendingManager(), address(0));
+
+        vm.prank(rotatedSafe);
+        teamFlow.addMember(makeAddr("team-member-2"), _childRecipientMetadata("Seat B"));
+
+        assertEq(teamFlow.activeMemberCount(), 2);
+    }
+
+    function test_safeManagedTeamFlow_authorityRotationDoesNotImplicitlyRotateMechanismManager() public {
+        bytes32 budgetItemID = bytes32(uint256(1));
+        vm.prank(safe);
+        (address childFlow, address budgetTreasury) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+
+        TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
+        TeamFlowFactory.AllocationMechanismConfig memory cfg = TeamFlowFactory.AllocationMechanismConfig({
+            manager: safe,
+            perSeatRate: 100,
+            maxTotalRate: 250,
+            flowMetadata: _childRecipientMetadata("Managed TeamFlow")
+        });
+
+        vm.prank(safe);
+        IAllocationMechanismFactory.DeployedMechanism memory deployed =
+            teamFlowFactory.deployForBudget(bytes32(uint256(102)), budgetTreasury, abi.encode(cfg));
+
+        TeamFlow teamFlow = TeamFlow(deployed.payoutRecipient);
+        bytes32 teamRecipientId = bytes32(uint256(12));
+        bytes32[] memory recipientIds = new bytes32[](1);
+        recipientIds[0] = teamRecipientId;
+        uint32[] memory ppm = new uint32[](1);
+        ppm[0] = 1_000_000;
+        address rotatedSafe = makeAddr("rotated-safe");
+
+        vm.prank(safe);
+        controller.addBudgetFlowRecipient(
+            budgetItemID,
+            teamRecipientId,
+            deployed.payoutRecipient,
+            _childRecipientMetadata("Managed TeamFlow")
+        );
+
+        vm.prank(safe);
+        controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
+
+        FlowTypes.FlowRecipient memory attachedRecipient = TestableCustomFlow(childFlow).getRecipientById(teamRecipientId);
+        assertEq(attachedRecipient.recipient, deployed.payoutRecipient);
+        assertEq(uint8(attachedRecipient.recipientType), uint8(FlowTypes.RecipientType.ExternalAccount));
+        assertEq(IFlow(childFlow).recipientAdmin(), address(controller));
+
+        vm.prank(safe);
+        controller.transferAuthority(rotatedSafe);
+        vm.prank(rotatedSafe);
+        controller.acceptAuthority();
+
+        assertEq(controller.authority(), rotatedSafe);
+        assertEq(teamFlow.manager(), safe);
+        assertEq(teamFlow.pendingManager(), address(0));
+
+        vm.prank(rotatedSafe);
+        controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
+
+        vm.expectRevert(IManagedBudgetController.ONLY_AUTHORITY.selector);
+        vm.prank(safe);
+        controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        vm.prank(rotatedSafe);
+        teamFlow.addMember(makeAddr("team-member-rotated"), _childRecipientMetadata("Seat B"));
+
+        vm.prank(safe);
+        teamFlow.transferManager(rotatedSafe);
+
+        vm.prank(safe);
+        teamFlow.addMember(makeAddr("team-member-safe"), _childRecipientMetadata("Seat A"));
+        assertEq(teamFlow.activeMemberCount(), 1);
+        assertEq(teamFlow.pendingManager(), rotatedSafe);
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        vm.prank(rotatedSafe);
+        teamFlow.addMember(makeAddr("team-member-rotated"), _childRecipientMetadata("Seat B"));
+
+        vm.prank(rotatedSafe);
+        teamFlow.acceptManager();
+
+        vm.expectRevert(TeamFlow.ONLY_MANAGER.selector);
+        vm.prank(safe);
+        teamFlow.addMember(makeAddr("team-member-old-safe"), _childRecipientMetadata("Seat C"));
+
+        vm.prank(rotatedSafe);
+        teamFlow.addMember(makeAddr("team-member-rotated"), _childRecipientMetadata("Seat B"));
+
+        assertEq(teamFlow.manager(), rotatedSafe);
+        assertEq(teamFlow.pendingManager(), address(0));
+        assertEq(teamFlow.activeMemberCount(), 2);
     }
 
     function _defaultBudgetConfig(string memory title)
