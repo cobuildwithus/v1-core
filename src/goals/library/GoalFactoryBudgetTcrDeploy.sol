@@ -66,11 +66,23 @@ library GoalFactoryBudgetTcrDeploy {
     function deployBudgetTcrStack(
         BudgetTcrDeployRequest memory request
     ) external returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
-        IBudgetTCR.DeploymentConfig memory tcrDeployCfg = IBudgetTCR.DeploymentConfig({
+        return
+            request.budgetTcrFactory.deployBudgetTCRStackForGoal(
+                resolveRegistryConfig(request),
+                resolveDeploymentConfig(request),
+                request.arbitratorParams
+            );
+    }
+
+    function resolveDeploymentConfig(
+        BudgetTcrDeployRequest memory request
+    ) public pure returns (IBudgetTCR.DeploymentConfig memory tcrDeployCfg) {
+        bool usesExplicitNoPremiumMode = request.budgetPremiumPpm == 0 && request.budgetSlashPpm == 0;
+        tcrDeployCfg = IBudgetTCR.DeploymentConfig({
             stackDeployer: address(0),
             budgetSuccessResolver: request.budgetSuccessResolver,
             budgetSpendPolicy: request.budgetSpendPolicy,
-            budgetGatePolicy: request.budgetGatePolicy,
+            budgetGatePolicy: request.budgetSlashPpm == 0 ? address(0) : request.budgetGatePolicy,
             goalFlow: request.goalFlow,
             goalTreasury: request.goalTreasury,
             goalToken: IERC20(request.goalToken),
@@ -78,19 +90,12 @@ library GoalFactoryBudgetTcrDeploy {
             goalRulesets: request.goalRulesets,
             goalRevnetId: request.goalRevnetId,
             paymentTokenDecimals: request.cobuildDecimals,
-            premiumEscrowImplementation: request.premiumEscrowImplementation,
-            underwriterSlasherRouter: request.underwriterSlasherRouter,
+            premiumEscrowImplementation: usesExplicitNoPremiumMode ? address(0) : request.premiumEscrowImplementation,
+            underwriterSlasherRouter: usesExplicitNoPremiumMode ? address(0) : request.underwriterSlasherRouter,
             budgetPremiumPpm: request.budgetPremiumPpm,
             budgetSlashPpm: request.budgetSlashPpm,
             budgetValidationBounds: request.budgetBounds,
             oracleValidationBounds: request.oracleBounds
         });
-
-        return
-            request.budgetTcrFactory.deployBudgetTCRStackForGoal(
-                resolveRegistryConfig(request),
-                tcrDeployCfg,
-                request.arbitratorParams
-            );
     }
 }

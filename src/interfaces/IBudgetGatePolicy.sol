@@ -27,3 +27,7 @@ interface IBudgetGatePolicy {
 
     function evaluateBudgetGate(SyncContext calldata context) external view returns (SyncResult memory result);
 }
+
+interface IZeroCoverageBudgetGatePolicy {
+    function supportsZeroCoverageBudgetGate() external view returns (bool supported);
+}

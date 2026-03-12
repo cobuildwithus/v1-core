@@ -13,10 +13,11 @@ library BudgetTCRInitValidation {
         IBudgetTCR.InitConfig calldata initConfig,
         IBudgetTCR.DeploymentConfig calldata deploymentConfig
     ) external view returns (address budgetGatePolicy_) {
-        if (deploymentConfig.stackDeployer == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
+        if (deploymentConfig.stackDeployer == address(0)) {
+            revert IGeneralizedTCR.ADDRESS_ZERO();
+        }
         if (deploymentConfig.budgetSuccessResolver == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (deploymentConfig.budgetSpendPolicy == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
-        if (deploymentConfig.budgetGatePolicy == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (address(deploymentConfig.goalFlow) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (address(deploymentConfig.goalTreasury) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (address(deploymentConfig.goalToken) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
@@ -26,20 +27,14 @@ library BudgetTCRInitValidation {
             revert IBudgetTCR.NOT_A_CONTRACT(deploymentConfig.budgetSpendPolicy);
         }
 
-        budgetGatePolicy_ = deploymentConfig.budgetGatePolicy;
-        if (budgetGatePolicy_.code.length == 0) {
-            revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
-        }
-        if (!BudgetGatePolicyHook.supportsBudgetGatePolicy(IBudgetGatePolicy(budgetGatePolicy_))) {
-            revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
-        }
-
         if (deploymentConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
             revert IBudgetTCR.INVALID_PPM(deploymentConfig.budgetPremiumPpm);
         }
         if (deploymentConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
             revert IBudgetTCR.INVALID_PPM(deploymentConfig.budgetSlashPpm);
         }
+
+        budgetGatePolicy_ = _validateBudgetGatePolicy(deploymentConfig);
         if (_usesExplicitNoPremiumMode(deploymentConfig)) {
             if (_requiresPremiumModule(deploymentConfig)) {
                 revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
@@ -96,6 +91,26 @@ library BudgetTCRInitValidation {
     function _requireValidBudgetSpendPolicy(address candidate) private view {
         if (!SpendPolicyValidationLib.passesValidationProbe(candidate)) {
             revert IBudgetTCR.INVALID_BUDGET_SPEND_POLICY(candidate);
+        }
+    }
+
+    function _validateBudgetGatePolicy(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private view returns (address budgetGatePolicy_) {
+        budgetGatePolicy_ = deploymentConfig.budgetGatePolicy;
+        if (budgetGatePolicy_ == address(0)) {
+            if (deploymentConfig.budgetSlashPpm == 0) return address(0);
+            revert IGeneralizedTCR.ADDRESS_ZERO();
+        }
+        if (budgetGatePolicy_.code.length == 0) {
+            revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
+        }
+
+        bool compatible = deploymentConfig.budgetSlashPpm == 0
+            ? BudgetGatePolicyHook.supportsZeroCoverageBudgetGatePolicy(IBudgetGatePolicy(budgetGatePolicy_))
+            : BudgetGatePolicyHook.supportsBudgetGatePolicy(IBudgetGatePolicy(budgetGatePolicy_));
+        if (!compatible) {
+            revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(budgetGatePolicy_);
         }
     }
 }

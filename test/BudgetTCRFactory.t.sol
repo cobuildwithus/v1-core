@@ -1206,6 +1206,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             IERC20(address(votingToken)),
             IERC20(address(votingToken))
         );
+        deploymentConfig.budgetGatePolicy = address(0);
         deploymentConfig.premiumEscrowImplementation = address(0);
         deploymentConfig.underwriterSlasherRouter = address(0);
         deploymentConfig.budgetPremiumPpm = 0;

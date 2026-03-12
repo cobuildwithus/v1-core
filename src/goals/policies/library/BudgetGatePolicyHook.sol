@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
+import { IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 
 library BudgetGatePolicyHook {
     function supportsBudgetGatePolicy(IBudgetGatePolicy policy) internal view returns (bool supported) {
-        try
-            policy.evaluateBudgetGate(
-                IBudgetGatePolicy.SyncContext({
-                    itemID: bytes32(0),
-                    goalFlow: IFlow(address(0)),
-                    childFlow: address(0),
-                    budgetTreasury: address(0),
-                    coverageSource: address(0),
-                    coverageToCreditPpm: 0
-                })
-            )
-        returns (IBudgetGatePolicy.SyncResult memory) {
+        try policy.evaluateBudgetGate(_zeroCoverageProbeContext()) returns (IBudgetGatePolicy.SyncResult memory) {
             return true;
         } catch {
             return false;
         }
+    }
+
+    function supportsZeroCoverageBudgetGatePolicy(IBudgetGatePolicy policy) internal view returns (bool compatible) {
+        try IZeroCoverageBudgetGatePolicy(address(policy)).supportsZeroCoverageBudgetGate() returns (bool supported) {
+            if (!supported) return false;
+        } catch {
+            return false;
+        }
+
+        IBudgetGatePolicy.SyncResult memory result = evaluateBudgetGate(policy, _zeroCoverageProbeContext());
+        if (result.failures.length != 0) return false;
+        return !result.shouldSetRecipientEnabled || result.recipientEnabled;
     }
 
     function evaluateBudgetGate(
@@ -38,5 +39,16 @@ library BudgetGatePolicyHook {
                 reason: reason
             });
         }
+    }
+
+    function _zeroCoverageProbeContext() private pure returns (IBudgetGatePolicy.SyncContext memory context) {
+        context = IBudgetGatePolicy.SyncContext({
+            itemID: bytes32(0),
+            goalFlow: IFlow(address(0)),
+            childFlow: address(0),
+            budgetTreasury: address(0),
+            coverageSource: address(0),
+            coverageToCreditPpm: 0
+        });
     }
 }

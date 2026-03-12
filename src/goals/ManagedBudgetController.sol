@@ -83,6 +83,13 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         _requireContract(initConfig.stackDeployer);
         if (initConfig.budgetGatePolicy != address(0)) {
             _requireContract(initConfig.budgetGatePolicy);
+            if (
+                !BudgetGatePolicyHook.supportsZeroCoverageBudgetGatePolicy(
+                    IBudgetGatePolicy(initConfig.budgetGatePolicy)
+                )
+            ) {
+                revert INVALID_BUDGET_GATE_POLICY(initConfig.budgetGatePolicy);
+            }
         }
         if (initConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.budgetSpendPolicy);

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { GoalFactoryBudgetTcrDeploy } from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
-import { CustomFlow } from "src/flows/CustomFlow.sol";
-import { GoalTreasury } from "src/goals/GoalTreasury.sol";
-import { BudgetTCRFactory } from "src/tcr/BudgetTCRFactory.sol";
-import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
-import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
-import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
-import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
+import {GoalFactoryBudgetTcrDeploy} from "src/goals/library/GoalFactoryBudgetTcrDeploy.sol";
+import {CustomFlow} from "src/flows/CustomFlow.sol";
+import {GoalTreasury} from "src/goals/GoalTreasury.sol";
+import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
+import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
+import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 
 contract GoalFactoryBudgetTcrDeployTest is Test {
     function test_resolveRegistryConfig_usesDefaults_whenOptionalAddressesAreZero() public pure {
@@ -41,9 +41,12 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         assertEq(resolved.registryPolicy.submissionBaseDeposit, request.registryPolicy.submissionBaseDeposit);
         assertEq(resolved.registryPolicy.removalBaseDeposit, request.registryPolicy.removalBaseDeposit);
         assertEq(
-            resolved.registryPolicy.submissionChallengeBaseDeposit, request.registryPolicy.submissionChallengeBaseDeposit
+            resolved.registryPolicy.submissionChallengeBaseDeposit,
+            request.registryPolicy.submissionChallengeBaseDeposit
         );
-        assertEq(resolved.registryPolicy.removalChallengeBaseDeposit, request.registryPolicy.removalChallengeBaseDeposit);
+        assertEq(
+            resolved.registryPolicy.removalChallengeBaseDeposit, request.registryPolicy.removalChallengeBaseDeposit
+        );
         assertEq(resolved.registryPolicy.challengePeriodDuration, request.registryPolicy.challengePeriodDuration);
         assertEq(resolved.registryPolicy.registrationMetaEvidence, request.registryPolicy.registrationMetaEvidence);
         assertEq(resolved.registryPolicy.clearingMetaEvidence, request.registryPolicy.clearingMetaEvidence);
@@ -82,9 +85,61 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         assertEq(address(resolved.submissionDepositStrategy), request.submissionDepositStrategy);
     }
 
-    function _baseRequest(
-        IGeneralizedTCRConfig.RegistryPolicy memory registryPolicy
-    ) private pure returns (GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request) {
+    function test_resolveDeploymentConfig_usesNoGate_whenBudgetSlashIsZero() public pure {
+        GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
+            IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 0,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: 0
+            })
+        );
+        request.budgetGatePolicy = address(0xBEEF);
+        request.premiumEscrowImplementation = address(0xCAFE);
+        request.underwriterSlasherRouter = address(0xF00D);
+        request.budgetPremiumPpm = 100_000;
+        request.budgetSlashPpm = 0;
+
+        IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
+
+        assertEq(resolved.budgetGatePolicy, address(0));
+        assertEq(resolved.premiumEscrowImplementation, request.premiumEscrowImplementation);
+        assertEq(resolved.underwriterSlasherRouter, request.underwriterSlasherRouter);
+    }
+
+    function test_resolveDeploymentConfig_usesExplicitNoPremiumMode_whenBothRatesAreZero() public pure {
+        GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
+            IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 0,
+                removalBaseDeposit: 0,
+                submissionChallengeBaseDeposit: 0,
+                removalChallengeBaseDeposit: 0,
+                challengePeriodDuration: 0
+            })
+        );
+        request.budgetGatePolicy = address(0xBEEF);
+        request.premiumEscrowImplementation = address(0xCAFE);
+        request.underwriterSlasherRouter = address(0xF00D);
+
+        IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
+
+        assertEq(resolved.budgetGatePolicy, address(0));
+        assertEq(resolved.premiumEscrowImplementation, address(0));
+        assertEq(resolved.underwriterSlasherRouter, address(0));
+    }
+
+    function _baseRequest(IGeneralizedTCRConfig.RegistryPolicy memory registryPolicy)
+        private
+        pure
+        returns (GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request)
+    {
         request = GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
             budgetTcrFactory: BudgetTCRFactory(address(0)),
             allocationMechanismAdmin: address(0),
@@ -108,7 +163,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
                 maxActivationThreshold: 0,
                 maxRunwayCap: 0
             }),
-            oracleBounds: IBudgetTCR.OracleValidationBounds({ liveness: 0, bondAmount: 0 }),
+            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 0, bondAmount: 0}),
             arbitratorParams: IArbitrator.ArbitratorParams({
                 votingPeriod: 0,
                 votingDelay: 0,

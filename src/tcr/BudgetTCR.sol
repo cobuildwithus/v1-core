@@ -285,15 +285,17 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
 
             attempted += 1;
-            BudgetTCRGateSync.applyBudgetGate(
-                itemID,
-                budgetTreasury,
-                deployment.childFlow,
-                budgetStakeLedger,
-                slashPpm,
-                goalFlow_,
-                gatePolicy
-            );
+            if (address(gatePolicy) != address(0)) {
+                BudgetTCRGateSync.applyBudgetGate(
+                    itemID,
+                    budgetTreasury,
+                    deployment.childFlow,
+                    budgetStakeLedger,
+                    slashPpm,
+                    goalFlow_,
+                    gatePolicy
+                );
+            }
 
             IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
             bool success;

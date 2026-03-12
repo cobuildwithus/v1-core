@@ -13,7 +13,7 @@ import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
-import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
+import {IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
@@ -508,9 +508,9 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(ManagedBudgetControllerMockBudgetTreasury(treasuryB).syncCallCount(), 1);
     }
 
-    function test_syncBudgetTreasuries_budgetGatePolicySeesZeroCoverageInputs() public {
+    function test_syncBudgetTreasuries_budgetGatePolicy_allowsZeroCoverageCompatiblePolicy() public {
         (ManagedBudgetController gatedController, TestableCustomFlow gatedGoalFlow) =
-            _deployControllerWithGatePolicy(address(new ManagedBudgetControllerZeroCoverageGatePolicy()));
+            _deployControllerWithGatePolicy(address(new ManagedBudgetControllerAlwaysEnabledGatePolicy()));
         bytes32 itemID = bytes32(uint256(1));
 
         vm.prank(safe);
@@ -526,7 +526,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
-        assertFalse(gatedGoalFlow.isRecipientEnabled(itemID));
+        assertTrue(gatedGoalFlow.isRecipientEnabled(itemID));
     }
 
     function _createBudget(bytes32 itemID, string memory title)
@@ -660,6 +660,30 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
         controller.initialize(config);
     }
 
+    function test_initialize_revertsOnZeroCoverageIncompatibleBudgetGatePolicy() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetGatePolicy = address(new ManagedBudgetControllerZeroCoverageGatePolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IManagedBudgetController.INVALID_BUDGET_GATE_POLICY.selector, config.budgetGatePolicy
+            )
+        );
+        controller.initialize(config);
+    }
+
+    function test_initialize_revertsOnProbeOnlyBudgetGatePolicyWithoutExplicitZeroCoverageSupport() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetGatePolicy = address(new ManagedBudgetControllerProbeAwareGatePolicy());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IManagedBudgetController.INVALID_BUDGET_GATE_POLICY.selector, config.budgetGatePolicy
+            )
+        );
+        controller.initialize(config);
+    }
+
     function test_initialize_trimmedControllerDoesNotExposeRemovedCoverageOrSlashGetters() public {
         controller.initialize(_baseInitConfig());
 
@@ -720,8 +744,9 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         controller = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
 
         goalTreasury = new ManagedBudgetControllerMockGoalTreasury();
-        childStrategyFactory =
-            new BudgetSingleAllocatorStrategyFactory(address(new BudgetSingleAllocatorStrategy(address(0), address(0))));
+        childStrategyFactory = new BudgetSingleAllocatorStrategyFactory(
+            address(new BudgetSingleAllocatorStrategy(address(0), address(0)))
+        );
         BudgetTCRDeployer deployerImplementation = new BudgetTCRDeployer(
             address(new BudgetTreasury()),
             address(
@@ -1066,7 +1091,8 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
     function test_safeManagedTeamFlow_canBeDeployedDirectlyAndAttachedThroughGenericRecipientApis() public {
         bytes32 budgetItemID = bytes32(uint256(1));
         vm.prank(safe);
-        (address childFlow, address budgetTreasury) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+        (address childFlow, address budgetTreasury) =
+            controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
 
         TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
         TeamFlowFactory.AllocationMechanismConfig memory cfg = TeamFlowFactory.AllocationMechanismConfig({
@@ -1090,10 +1116,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
         vm.prank(safe);
         controller.addBudgetFlowRecipient(
-            budgetItemID,
-            teamRecipientId,
-            deployed.payoutRecipient,
-            _childRecipientMetadata("Managed TeamFlow")
+            budgetItemID, teamRecipientId, deployed.payoutRecipient, _childRecipientMetadata("Managed TeamFlow")
         );
 
         bytes32[] memory recipientIds = new bytes32[](1);
@@ -1138,7 +1161,8 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
     function test_safeManagedTeamFlow_authorityRotationDoesNotImplicitlyRotateMechanismManager() public {
         bytes32 budgetItemID = bytes32(uint256(1));
         vm.prank(safe);
-        (address childFlow, address budgetTreasury) = controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
+        (address childFlow, address budgetTreasury) =
+            controller.createBudget(budgetItemID, _defaultBudgetConfig("Budget A"));
 
         TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
         TeamFlowFactory.AllocationMechanismConfig memory cfg = TeamFlowFactory.AllocationMechanismConfig({
@@ -1162,16 +1186,14 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
         vm.prank(safe);
         controller.addBudgetFlowRecipient(
-            budgetItemID,
-            teamRecipientId,
-            deployed.payoutRecipient,
-            _childRecipientMetadata("Managed TeamFlow")
+            budgetItemID, teamRecipientId, deployed.payoutRecipient, _childRecipientMetadata("Managed TeamFlow")
         );
 
         vm.prank(safe);
         controller.setBudgetFlowWeights(budgetItemID, recipientIds, ppm);
 
-        FlowTypes.FlowRecipient memory attachedRecipient = TestableCustomFlow(childFlow).getRecipientById(teamRecipientId);
+        FlowTypes.FlowRecipient memory attachedRecipient =
+            TestableCustomFlow(childFlow).getRecipientById(teamRecipientId);
         assertEq(attachedRecipient.recipient, deployed.payoutRecipient);
         assertEq(uint8(attachedRecipient.recipientType), uint8(FlowTypes.RecipientType.ExternalAccount));
         assertEq(IFlow(childFlow).recipientAdmin(), address(controller));
@@ -1294,6 +1316,32 @@ contract ManagedBudgetControllerZeroCoverageGatePolicy is IBudgetGatePolicy {
     }
 }
 
+contract ManagedBudgetControllerProbeAwareGatePolicy is IBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata context) external pure returns (SyncResult memory result) {
+        if (
+            context.itemID == bytes32(0) && address(context.goalFlow) == address(0) && context.childFlow == address(0)
+                && context.budgetTreasury == address(0) && context.coverageSource == address(0)
+                && context.coverageToCreditPpm == 0
+        ) {
+            return result;
+        }
+
+        result.shouldSetRecipientEnabled = true;
+        result.recipientEnabled = false;
+    }
+}
+
+contract ManagedBudgetControllerAlwaysEnabledGatePolicy is IBudgetGatePolicy, IZeroCoverageBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata) external pure returns (SyncResult memory result) {
+        result.shouldSetRecipientEnabled = true;
+        result.recipientEnabled = true;
+    }
+
+    function supportsZeroCoverageBudgetGate() external pure returns (bool supported) {
+        return true;
+    }
+}
+
 contract ManagedBudgetControllerMockSpendPolicy {}
 
 contract ManagedBudgetControllerMockPremiumEscrow {}
@@ -1373,9 +1421,8 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
         RiskModuleInitConfig calldata
     ) external override returns (address deployedBudgetTreasury) {
-        ManagedBudgetControllerMockBudgetTreasury(budgetTreasury).configure(
-            address(this), budgetConfig.flow, budgetConfig.premiumEscrow
-        );
+        ManagedBudgetControllerMockBudgetTreasury(budgetTreasury)
+            .configure(address(this), budgetConfig.flow, budgetConfig.premiumEscrow);
         return budgetTreasury;
     }
 

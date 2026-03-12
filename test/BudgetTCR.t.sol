@@ -37,6 +37,7 @@ import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
+import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -67,6 +68,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Vm} from "forge-std/Vm.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {NoopBudgetGatePolicy} from "src/goals/policies/NoopBudgetGatePolicy.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
@@ -92,6 +94,8 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         keccak256("BudgetTreasuryBatchSyncSkipped(bytes32,address,bytes32)");
     bytes32 internal constant BUDGET_TREASURY_CALL_FAILED_SIG =
         keccak256("BudgetTreasuryCallFailed(bytes32,address,bytes4,bytes)");
+    bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
+        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,address,bytes4,bytes)");
     bytes32 internal constant SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 internal constant SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
 
@@ -395,6 +399,61 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
+    function test_initialize_allows_zero_budget_gate_policy_when_budget_slash_ppm_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+        deploymentConfig.budgetGatePolicy = address(0);
+        deploymentConfig.budgetSlashPpm = 0;
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+
+        assertEq(freshTcr.budgetGatePolicy(), address(0));
+    }
+
+    function test_initialize_reverts_when_zero_slash_budget_gate_policy_disables_zero_coverage() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+        deploymentConfig.budgetSlashPpm = 0;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, budgetGatePolicy));
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_allows_zero_slash_budget_gate_policy_that_is_zero_coverage_compatible() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+        deploymentConfig.budgetGatePolicy = address(new NoopBudgetGatePolicy());
+        deploymentConfig.budgetSlashPpm = 0;
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+
+        assertEq(freshTcr.budgetGatePolicy(), deploymentConfig.budgetGatePolicy);
+    }
+
+    function test_initialize_reverts_when_zero_slash_budget_gate_policy_only_special_cases_probe() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+        deploymentConfig.budgetGatePolicy = address(new BudgetTCRProbeAwareZeroCoverageGatePolicy());
+        deploymentConfig.budgetSlashPpm = 0;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, deploymentConfig.budgetGatePolicy)
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
     function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
         (
             BudgetTCR freshTcr,
@@ -685,9 +744,8 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer).initializeWithConfig(
-            address(freshTcr), _noPremiumStackModuleConfig(), address(0)
-        );
+        BudgetTCRDeployer(freshStackDeployer)
+            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
 
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
@@ -696,6 +754,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         address freshArbProxy = _deployProxy(address(freshArbImpl), freshArbInit);
 
         deploymentConfig.stackDeployer = freshStackDeployer;
+        deploymentConfig.budgetGatePolicy = address(0);
         deploymentConfig.premiumEscrowImplementation = address(0);
         deploymentConfig.underwriterSlasherRouter = address(0);
         deploymentConfig.budgetPremiumPpm = 0;
@@ -730,6 +789,51 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPool(), address(0));
         assertEq(MockBudgetChildFlow(childFlow).managerRewardPoolFlowRatePpm(), 0);
         assertEq(budgetStakeLedger.registerCallCount(), 1);
+    }
+
+    function test_syncBudgetTreasuries_permissionless_openNoGateConfig_skipsBudgetGateHook() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetTCRDeployer(freshStackDeployer)
+            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+
+        deploymentConfig.stackDeployer = freshStackDeployer;
+        deploymentConfig.budgetGatePolicy = address(0);
+        deploymentConfig.premiumEscrowImplementation = address(0);
+        deploymentConfig.underwriterSlasherRouter = address(0);
+        deploymentConfig.budgetPremiumPpm = 0;
+        deploymentConfig.budgetSlashPpm = 0;
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+        goalFlow.setRecipientAdmin(address(freshTcr));
+
+        (uint256 addCost,,,,) = freshTcr.getTotalCosts();
+        vm.prank(requester);
+        depositToken.approve(address(freshTcr), addCost);
+
+        vm.prank(requester);
+        bytes32 itemID = freshTcr.addItem(abi.encode(_defaultListing()));
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        freshTcr.executeRequest(itemID);
+        freshTcr.activateRegisteredBudget(itemID);
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = freshTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertFalse(_hasBudgetCreditCapEnforcementFailed(logs, address(freshTcr)));
     }
 
     function test_activateRegisteredBudget_setsConfiguredBudgetSpendPolicyOnBudgetTreasury() public {
@@ -2608,6 +2712,15 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         return false;
     }
 
+    function _hasBudgetCreditCapEnforcementFailed(Vm.Log[] memory logs, address emitter) internal pure returns (bool) {
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != emitter) continue;
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG) return true;
+        }
+        return false;
+    }
+
     function _hasBudgetSyncAttempted(Vm.Log[] memory logs, bytes32 itemID, address budgetTreasury, bool expectedSuccess)
         internal
         view
@@ -2706,6 +2819,24 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr = BudgetTCR(_deployProxy(address(freshImplementation), ""));
         registryConfig = _defaultRegistryConfig();
         deploymentConfig = _defaultDeploymentConfig();
+    }
+
+    function _freshInitializeConfigWithFreshArbitrator()
+        internal
+        returns (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        )
+    {
+        (freshTcr, registryConfig, deploymentConfig) = _freshInitializeConfig();
+
+        ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
+        bytes memory freshArbInit = _defaultArbitratorInitData(
+            owner, address(depositToken), address(freshTcr), votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
+        address freshArbProxy = _deployProxy(address(freshArbImpl), freshArbInit);
+        registryConfig.tcrConfig.arbitrator = IArbitrator(freshArbProxy);
     }
 
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
@@ -2856,6 +2987,23 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 }
 
 contract BudgetTCRNonSpendPolicy {}
+
+contract BudgetTCRProbeAwareZeroCoverageGatePolicy is IBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata context) external pure returns (SyncResult memory result) {
+        if (
+            context.itemID == bytes32(0) && address(context.goalFlow) == address(0) && context.childFlow == address(0)
+                && context.budgetTreasury == address(0) && context.coverageSource == address(0)
+                && context.coverageToCreditPpm == 0
+        ) {
+            result.failures = new CallFailure[](0);
+            return result;
+        }
+
+        result.shouldSetRecipientEnabled = true;
+        result.recipientEnabled = false;
+        result.failures = new CallFailure[](0);
+    }
+}
 
 contract BudgetTCRZeroContextOnlySpendPolicy is ISpendPolicy {
     error ACTIVE_CONTEXT_REJECTED();
