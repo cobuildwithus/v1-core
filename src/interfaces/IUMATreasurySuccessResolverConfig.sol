@@ -7,6 +7,4 @@ import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracle
 interface IUMATreasurySuccessResolverConfig {
     function optimisticOracle() external view returns (OptimisticOracleV3Interface);
     function assertionCurrency() external view returns (IERC20);
-    function escalationManager() external view returns (address);
-    function domainId() external view returns (bytes32);
 }

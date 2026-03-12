@@ -48,8 +48,6 @@ function _stringContains(string memory haystack, string memory needle) pure retu
 
 contract FakeUMATreasurySuccessResolverTest is Test {
     address internal constant ATTACKER = address(0xBEEF);
-    address internal constant ESCALATION_MANAGER = address(0xA11CE);
-    bytes32 internal constant DOMAIN_ID = keccak256("fake-domain");
 
     FakeResolverMockERC20 internal token;
     FakeResolverMockTreasury internal treasury;
@@ -58,21 +56,19 @@ contract FakeUMATreasurySuccessResolverTest is Test {
     function setUp() public {
         token = new FakeResolverMockERC20();
         treasury = new FakeResolverMockTreasury(4 hours, 125e6);
-        resolver = new FakeUMATreasurySuccessResolver(token, ESCALATION_MANAGER, DOMAIN_ID, address(this));
+        resolver = new FakeUMATreasurySuccessResolver(token, address(this));
     }
 
     function test_constructor_setsConfigAndSelfOracle() public view {
         assertEq(address(resolver.optimisticOracle()), address(resolver));
         assertEq(address(resolver.assertionCurrency()), address(token));
-        assertEq(resolver.escalationManager(), ESCALATION_MANAGER);
-        assertEq(resolver.domainId(), DOMAIN_ID);
         assertEq(resolver.defaultIdentifier(), bytes32("ASSERT_TRUTH2"));
         assertEq(resolver.getMinimumBond(address(token)), 0);
     }
 
     function test_constructor_revertsWhenCurrencyIsZero() public {
         vm.expectRevert(FakeUMATreasurySuccessResolver.ADDRESS_ZERO.selector);
-        new FakeUMATreasurySuccessResolver(ERC20(address(0)), ESCALATION_MANAGER, DOMAIN_ID, address(this));
+        new FakeUMATreasurySuccessResolver(ERC20(address(0)), address(this));
     }
 
     function test_prepareAssertionForTreasury_revertsWhenCallerIsNotOwner() public {
@@ -98,9 +94,9 @@ contract FakeUMATreasurySuccessResolverTest is Test {
         assertEq(assertion.expirationTime, treasury.pendingSuccessAssertionAt() + treasury.successAssertionLiveness());
         assertEq(assertion.identifier, bytes32("ASSERT_TRUTH2"));
         assertEq(address(assertion.currency), address(token));
-        assertEq(assertion.domainId, DOMAIN_ID);
+        assertEq(assertion.domainId, bytes32(0));
         assertEq(assertion.escalationManagerSettings.assertingCaller, address(resolver));
-        assertEq(assertion.escalationManagerSettings.escalationManager, ESCALATION_MANAGER);
+        assertEq(assertion.escalationManagerSettings.escalationManager, address(0));
         assertEq(assertion.callbackRecipient, address(resolver));
         assertEq(assertion.asserter, address(resolver));
         assertEq(assertion.bond, treasury.successAssertionBond());
@@ -244,8 +240,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         uint256 internal constant PRIVATE_KEY = 0xA11CE;
         address internal constant SUPERFLUID_HOST = address(0x1002);
         address internal constant FAKE_UMA_OWNER = address(0xF00D);
-        address internal constant FAKE_UMA_ESCALATION_MANAGER = address(0xBEEF);
-        bytes32 internal constant FAKE_UMA_DOMAIN_ID = bytes32(uint256(0x4d2));
         string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
         string internal constant HISTORY_DIR = "deploys/history";
         error ARTIFACT_KEY_NOT_FOUND(string key);
@@ -297,8 +291,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             FakeUMATreasurySuccessResolver fakeResolver = FakeUMATreasurySuccessResolver(expectedFakeResolver);
             assertEq(fakeResolver.owner(), FAKE_UMA_OWNER);
-            assertEq(fakeResolver.escalationManager(), FAKE_UMA_ESCALATION_MANAGER);
-            assertEq(fakeResolver.domainId(), FAKE_UMA_DOMAIN_ID);
             assertEq(address(fakeResolver.assertionCurrency()), address(token));
             assertEq(address(fakeResolver.optimisticOracle()), expectedFakeResolver);
 
@@ -347,14 +339,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
                 )
             );
             assertTrue(_stringContains(artifact, string.concat("FAKE_UMA_OWNER: ", vm.toString(FAKE_UMA_OWNER))));
-            assertTrue(
-                _stringContains(
-                    artifact, string.concat("FAKE_UMA_ESCALATION_MANAGER: ", vm.toString(FAKE_UMA_ESCALATION_MANAGER))
-                )
-            );
-            assertTrue(
-                _stringContains(artifact, string.concat("FAKE_UMA_DOMAIN_ID: ", vm.toString(FAKE_UMA_DOMAIN_ID)))
-            );
 
             string memory latestArtifact = vm.readFile(LATEST_IMPLEMENTATIONS_FILE);
             assertTrue(_stringContains(latestArtifact, "StakeVaultImpl: 0x"));
@@ -410,7 +394,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             GoalFactory deployedFactory = GoalFactory(expectedGoalFactory);
             assertEq(address(deployedFactory.GOAL_DEPLOYMENT_REGISTRY()), goalDeploymentRegistry);
-            assertEq(deployedFactory.GOAL_PAYMENT_TERMINAL(), GoalFactoryPairDeployer(pairDeployer).goalPaymentTerminal());
+            assertEq(
+                deployedFactory.GOAL_PAYMENT_TERMINAL(), GoalFactoryPairDeployer(pairDeployer).goalPaymentTerminal()
+            );
             assertEq(deployedFactory.JB_MULTI_TERMINAL(), expectedJbMultiTerminal);
             assertEq(deployedFactory.BUYBACK_HOOK_DATA_HOOK(), buybackHookDataHookAddress);
             assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
@@ -420,14 +406,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             address defaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
             address defaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
             assertEq(deployedFactory.OPEN_BUDGET_GATE_POLICY(), openBudgetGatePolicy);
-            assertEq(
-                deployedFactory.DEFAULT_GOAL_SPEND_POLICY(),
-                defaultGoalSpendPolicy
-            );
-            assertEq(
-                deployedFactory.DEFAULT_BUDGET_SPEND_POLICY(),
-                defaultBudgetSpendPolicy
-            );
+            assertEq(deployedFactory.DEFAULT_GOAL_SPEND_POLICY(), defaultGoalSpendPolicy);
+            assertEq(deployedFactory.DEFAULT_BUDGET_SPEND_POLICY(), defaultBudgetSpendPolicy);
             assertNotEq(defaultGoalSpendPolicy, linearSpendPolicyImpl);
             assertNotEq(defaultBudgetSpendPolicy, linearSpendPolicyImpl);
 
@@ -575,8 +555,6 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("DEFAULT_ALLOCATION_MECHANISM_ADMIN", "0x000000000000000000000000000000000000dEaD");
             vm.setEnv("DEFAULT_INVALID_ROUND_REWARDS_SINK", "0x000000000000000000000000000000000000dEaD");
             vm.setEnv("FAKE_UMA_OWNER", vm.toString(FAKE_UMA_OWNER));
-            vm.setEnv("FAKE_UMA_ESCALATION_MANAGER", vm.toString(FAKE_UMA_ESCALATION_MANAGER));
-            vm.setEnv("FAKE_UMA_DOMAIN_ID", "0x00000000000000000000000000000000000000000000000000000000000004d2");
         }
     }
 
@@ -607,7 +585,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             explicitBudgetSpendPolicy = new MockScriptSpendPolicy();
             defaultGoalSpendPolicy = new MockScriptSpendPolicy();
             defaultBudgetSpendPolicy = new MockScriptSpendPolicy();
-            mockFactory = new MockGoalFactoryForScript(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
+            mockFactory = new MockGoalFactoryForScript(
+                address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy)
+            );
             successResolver = new FakeResolverNoop();
             budgetSuccessResolver = new FakeResolverNoop();
         }

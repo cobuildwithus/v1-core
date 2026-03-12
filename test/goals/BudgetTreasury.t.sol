@@ -65,10 +65,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         underlyingToken = new SharedMockUnderlying();
         assertionOracle = new TreasuryMockOptimisticOracleV3();
         successResolverConfig = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(assertionOracle)),
-            IERC20(address(underlyingToken)),
-            address(0),
-            keccak256("budget-test-domain")
+            OptimisticOracleV3Interface(address(assertionOracle)), IERC20(address(underlyingToken))
         );
         owner = address(successResolverConfig);
         superToken = new SharedMockSuperToken(address(underlyingToken));
@@ -927,10 +924,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
 
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_settledFalse_finalizesResolverAssertion() public {
         TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
-            OptimisticOracleV3Interface(address(assertionOracle)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(assertionOracle)), IERC20(address(underlyingToken))
         );
 
         BudgetTreasury finalizeCleanupTreasury = _cloneBudgetTreasury();
@@ -956,7 +950,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -964,7 +958,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + finalizeCleanupTreasury.successAssertionLiveness(),
                 settlementResolution: false,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: finalizeCleanupTreasury.successAssertionBond(),
                 callbackRecipient: owner,
@@ -986,10 +980,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         public
     {
         TreasuryMockUmaResolverConfigWithFinalize resolverWithFinalize = new TreasuryMockUmaResolverConfigWithFinalize(
-            OptimisticOracleV3Interface(address(assertionOracle)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(assertionOracle)), IERC20(address(underlyingToken))
         );
         resolverWithFinalize.setShouldRevertFinalize(true);
 
@@ -1016,7 +1007,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -1024,7 +1015,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + finalizeCleanupTreasury.successAssertionLiveness(),
                 settlementResolution: false,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: finalizeCleanupTreasury.successAssertionBond(),
                 callbackRecipient: owner,
@@ -1070,11 +1061,8 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_opensReassertGrace()
         public
     {
-        RevertingOptimisticOracleResolverConfig revertingResolverConfig = new RevertingOptimisticOracleResolverConfig(
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
-        );
+        RevertingOptimisticOracleResolverConfig revertingResolverConfig =
+            new RevertingOptimisticOracleResolverConfig(IERC20(address(underlyingToken)));
 
         BudgetTreasury unresolvedConfigTreasury = _cloneBudgetTreasury();
 
@@ -1114,10 +1102,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
 
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_oracleAddressZero_opensReassertGrace() public {
         TreasuryMockUmaResolverConfig zeroOracleResolverConfig = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(0)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(0)), IERC20(address(underlyingToken))
         );
 
         BudgetTreasury zeroOracleTreasury = _cloneBudgetTreasury();
@@ -1161,10 +1146,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
     {
         BudgetRevertingGetAssertionOracle revertingOracle = new BudgetRevertingGetAssertionOracle();
         TreasuryMockUmaResolverConfig revertingAssertionReadResolver = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(revertingOracle)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(revertingOracle)), IERC20(address(underlyingToken))
         );
 
         BudgetTreasury unresolvedAssertionReadTreasury = _cloneBudgetTreasury();
@@ -1396,7 +1378,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -1404,10 +1386,51 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + treasury.successAssertionLiveness(),
                 settlementResolution: true,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: treasury.successAssertionBond(),
                 callbackRecipient: outsider,
+                disputer: address(0)
+            })
+        );
+
+        vm.warp(block.timestamp + 1);
+        treasury.sync();
+
+        assertEq(uint256(treasury.state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        assertTrue(treasury.resolved());
+        assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
+        assertEq(treasury.reassertGraceDeadline(), 0);
+    }
+
+    function test_sync_afterGraceReassert_nonZeroEscalationPolicy_expiresWithoutSecondGrace() public {
+        _openReassertGraceWindow(treasury);
+
+        bytes32 assertionId = keccak256("budget-reassert-escalation-policy");
+        vm.prank(owner);
+        treasury.registerSuccessAssertion(assertionId);
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: true,
+                    assertingCaller: owner,
+                    escalationManager: address(0)
+                }),
+                asserter: owner,
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: true,
+                domainId: bytes32(0),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: owner,
                 disputer: address(0)
             })
         );
@@ -1448,7 +1471,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -1456,7 +1479,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + treasury.successAssertionLiveness(),
                 settlementResolution: true,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: treasury.successAssertionBond(),
                 callbackRecipient: owner,
@@ -1642,7 +1665,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -1650,7 +1673,83 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + treasury.successAssertionLiveness(),
                 settlementResolution: true,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: owner,
+                disputer: address(0)
+            })
+        );
+
+        vm.prank(owner);
+        vm.expectRevert(IBudgetTreasury.SUCCESS_ASSERTION_NOT_VERIFIED.selector);
+        treasury.resolveSuccess();
+    }
+
+    function test_resolveSuccess_revertsWhenAssertionUsesEscalationManagerPolicy() public {
+        superToken.mint(address(flow), 100e18);
+        treasury.sync();
+
+        _warpPastFundingDeadline(treasury);
+        _registerSuccessAssertion(treasury);
+
+        bytes32 assertionId = treasury.pendingSuccessAssertionId();
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: true,
+                    validateDisputers: false,
+                    assertingCaller: owner,
+                    escalationManager: address(0)
+                }),
+                asserter: owner,
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: true,
+                domainId: bytes32(0),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: owner,
+                disputer: address(0)
+            })
+        );
+
+        vm.prank(owner);
+        vm.expectRevert(IBudgetTreasury.SUCCESS_ASSERTION_NOT_VERIFIED.selector);
+        treasury.resolveSuccess();
+    }
+
+    function test_resolveSuccess_revertsWhenAssertionArbitratesViaEscalationManager() public {
+        superToken.mint(address(flow), 100e18);
+        treasury.sync();
+
+        _warpPastFundingDeadline(treasury);
+        _registerSuccessAssertion(treasury);
+
+        bytes32 assertionId = treasury.pendingSuccessAssertionId();
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: true,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: owner,
+                    escalationManager: address(0)
+                }),
+                asserter: owner,
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: true,
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: treasury.successAssertionBond(),
                 callbackRecipient: owner,
@@ -2541,7 +2640,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: owner,
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: owner,
                 assertionTime: assertedAt,
@@ -2549,7 +2648,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + target.successAssertionLiveness(),
                 settlementResolution: settlementResolution,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: target.successAssertionBond(),
                 callbackRecipient: owner,
@@ -2589,13 +2688,9 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
 
 contract RevertingOptimisticOracleResolverConfig is IUMATreasurySuccessResolverConfig {
     IERC20 public immutable override assertionCurrency;
-    address public immutable override escalationManager;
-    bytes32 public immutable override domainId;
 
-    constructor(IERC20 assertionCurrency_, address escalationManager_, bytes32 domainId_) {
+    constructor(IERC20 assertionCurrency_) {
         assertionCurrency = assertionCurrency_;
-        escalationManager = escalationManager_;
-        domainId = domainId_;
     }
 
     function optimisticOracle() external pure override returns (OptimisticOracleV3Interface) {

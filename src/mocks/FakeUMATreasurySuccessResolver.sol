@@ -12,6 +12,8 @@ import { OptimisticOracleV3Interface } from "src/interfaces/uma/OptimisticOracle
 /// @dev Intended for non-production deployments where resolver actions are manually controlled by owner.
 contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverConfig, OptimisticOracleV3Interface {
     bytes32 internal constant UMA_ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
+    address internal constant NO_ESCALATION_MANAGER = address(0);
+    bytes32 internal constant NO_DOMAIN_ID = bytes32(0);
 
     error ADDRESS_ZERO();
     error NOT_A_CONTRACT(address target);
@@ -24,23 +26,14 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
 
     OptimisticOracleV3Interface public immutable override optimisticOracle;
     IERC20 public immutable override assertionCurrency;
-    address public immutable override escalationManager;
-    bytes32 public immutable override domainId;
 
     mapping(bytes32 assertionId => Assertion assertionData) internal _assertions;
     mapping(bytes32 assertionId => bool exists) internal _assertionExists;
 
-    constructor(
-        IERC20 assertionCurrency_,
-        address escalationManager_,
-        bytes32 domainId_,
-        address initialOwner
-    ) Ownable(initialOwner) {
+    constructor(IERC20 assertionCurrency_, address initialOwner) Ownable(initialOwner) {
         if (address(assertionCurrency_) == address(0)) revert ADDRESS_ZERO();
         optimisticOracle = OptimisticOracleV3Interface(address(this));
         assertionCurrency = assertionCurrency_;
-        escalationManager = escalationManager_;
-        domainId = domainId_;
     }
 
     /// @notice Register a pending success assertion on a treasury and mark it settled in this fake oracle.
@@ -156,9 +149,9 @@ contract FakeUMATreasurySuccessResolver is Ownable, IUMATreasurySuccessResolverC
         a.expirationTime = assertedAt + liveness;
         a.identifier = UMA_ASSERT_TRUTH_IDENTIFIER;
         a.currency = assertionCurrency;
-        a.domainId = domainId;
+        a.domainId = NO_DOMAIN_ID;
         a.escalationManagerSettings.assertingCaller = address(this);
-        a.escalationManagerSettings.escalationManager = escalationManager;
+        a.escalationManagerSettings.escalationManager = NO_ESCALATION_MANAGER;
         a.callbackRecipient = address(this);
         a.asserter = address(this);
         a.bond = bond;

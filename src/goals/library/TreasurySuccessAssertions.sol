@@ -7,6 +7,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 library TreasurySuccessAssertions {
     bytes32 internal constant UMA_ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
+    address internal constant NO_ESCALATION_MANAGER = address(0);
+    bytes32 internal constant NO_DOMAIN_ID = bytes32(0);
 
     struct State {
         bytes32 pendingId;
@@ -89,14 +91,11 @@ library TreasurySuccessAssertions {
         );
 
         if (!assertion.settled) return false;
-        if (!assertion.settlementResolution) return false;
-        if (assertion.callbackRecipient != resolver) return false;
-        if (assertion.escalationManagerSettings.assertingCaller != resolver) return false;
-        if (assertion.escalationManagerSettings.escalationManager != resolverConfig.escalationManager()) return false;
+        if (!_matchesTruthfulAssertionShape(assertion, assertedAt, resolver, assertionLiveness, assertionBond)) {
+            return false;
+        }
         if (address(assertion.currency) != address(resolverConfig.assertionCurrency())) return false;
-        if (assertion.domainId != resolverConfig.domainId()) return false;
-
-        return _matchesAssertionTail(assertion, assertedAt, assertionLiveness, assertionBond);
+        return true;
     }
 
     function pendingSuccessAssertionResolutionWithReason(
@@ -155,17 +154,17 @@ library TreasurySuccessAssertions {
         uint64 successAssertionLiveness,
         uint256 successAssertionBond
     ) private view returns (bool) {
-        if (!assertion.settlementResolution) return false;
-        if (assertion.callbackRecipient != successResolver) return false;
-        if (assertion.escalationManagerSettings.assertingCaller != successResolver) return false;
-
-        address expectedEscalationManager;
-        try resolverConfig.escalationManager() returns (address escalationManager_) {
-            expectedEscalationManager = escalationManager_;
-        } catch {
+        if (
+            !_matchesTruthfulAssertionShape(
+                assertion,
+                assertedAt,
+                successResolver,
+                successAssertionLiveness,
+                successAssertionBond
+            )
+        ) {
             return false;
         }
-        if (assertion.escalationManagerSettings.escalationManager != expectedEscalationManager) return false;
 
         IERC20 expectedCurrency;
         try resolverConfig.assertionCurrency() returns (IERC20 assertionCurrency_) {
@@ -174,16 +173,35 @@ library TreasurySuccessAssertions {
             return false;
         }
         if (address(assertion.currency) != address(expectedCurrency)) return false;
+        return true;
+    }
 
-        bytes32 expectedDomainId;
-        try resolverConfig.domainId() returns (bytes32 domainId_) {
-            expectedDomainId = domainId_;
-        } catch {
-            return false;
-        }
-        if (assertion.domainId != expectedDomainId) return false;
+    function _matchesTruthfulAssertionShape(
+        OptimisticOracleV3Interface.Assertion memory assertion,
+        uint64 assertedAt,
+        address successResolver,
+        uint64 successAssertionLiveness,
+        uint256 successAssertionBond
+    ) private pure returns (bool) {
+        if (!assertion.settlementResolution) return false;
+        if (assertion.callbackRecipient != successResolver) return false;
+        if (assertion.escalationManagerSettings.assertingCaller != successResolver) return false;
+        if (!_matchesZeroEscalationPolicy(assertion)) return false;
 
         return _matchesAssertionTail(assertion, assertedAt, successAssertionLiveness, successAssertionBond);
+    }
+
+    function _matchesZeroEscalationPolicy(
+        OptimisticOracleV3Interface.Assertion memory assertion
+    ) private pure returns (bool) {
+        OptimisticOracleV3Interface.EscalationManagerSettings memory settings = assertion.escalationManagerSettings;
+        if (settings.arbitrateViaEscalationManager) return false;
+        if (settings.discardOracle) return false;
+        if (settings.validateDisputers) return false;
+        if (settings.escalationManager != NO_ESCALATION_MANAGER) return false;
+        if (assertion.domainId != NO_DOMAIN_ID) return false;
+
+        return true;
     }
 
     function _matchesAssertionTail(

@@ -87,8 +87,6 @@ contract DeployGoalFactoryImplementations is DeployScript {
 
     address internal fakeUmaResolverOut;
     address internal fakeUmaOwnerOut;
-    address internal fakeUmaEscalationManagerOut;
-    bytes32 internal fakeUmaDomainIdOut;
 
     function run() public override {
         super.run();
@@ -109,8 +107,6 @@ contract DeployGoalFactoryImplementations is DeployScript {
         defaultInvalidRoundRewardsSinkOut = vm.envOr("DEFAULT_INVALID_ROUND_REWARDS_SINK", BURN);
 
         fakeUmaOwnerOut = vm.envOr("FAKE_UMA_OWNER", deployerAddress);
-        fakeUmaEscalationManagerOut = vm.envOr("FAKE_UMA_ESCALATION_MANAGER", deployerAddress);
-        fakeUmaDomainIdOut = vm.envOr("FAKE_UMA_DOMAIN_ID", bytes32(0));
 
         address goalDeploymentRegistryForTerminal = vm.envOr("GOAL_DEPLOYMENT_REGISTRY", address(0));
         if (goalDeploymentRegistryForTerminal != address(0)) {
@@ -169,9 +165,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
         defaultGoalSpendPolicy.initialize(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
         LinearSpendPolicy defaultBudgetSpendPolicy = LinearSpendPolicy(Clones.clone(address(linearSpendPolicyImpl)));
         defaultBudgetSpendPolicy.initialize(true, 0, ISpendPolicy.SyncMode.Capped);
-        FakeUMATreasurySuccessResolver fakeUmaResolver = new FakeUMATreasurySuccessResolver(
-            IERC20(cobuildTokenAddressOut), fakeUmaEscalationManagerOut, fakeUmaDomainIdOut, fakeUmaOwnerOut
-        );
+        FakeUMATreasurySuccessResolver fakeUmaResolver =
+            new FakeUMATreasurySuccessResolver(IERC20(cobuildTokenAddressOut), fakeUmaOwnerOut);
 
         goalTreasuryImplOut = address(goalTreasuryImpl);
         stakeVaultImplOut = address(stakeVaultImpl);
@@ -304,8 +299,6 @@ contract DeployGoalFactoryImplementations is DeployScript {
 
         _writeAddressLine(filePath, "FakeUMATreasurySuccessResolver", fakeUmaResolverOut);
         _writeAddressLine(filePath, "FAKE_UMA_OWNER", fakeUmaOwnerOut);
-        _writeAddressLine(filePath, "FAKE_UMA_ESCALATION_MANAGER", fakeUmaEscalationManagerOut);
-        vm.writeLine(filePath, string(abi.encodePacked("FAKE_UMA_DOMAIN_ID: ", vm.toString(fakeUmaDomainIdOut))));
     }
 
     function _writeLatestImplementationArtifacts() internal {
@@ -524,12 +517,6 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "owner = \"",
             vm.toString(fakeUmaOwnerOut),
-            "\"\n",
-            "escalationManager = \"",
-            vm.toString(fakeUmaEscalationManagerOut),
-            "\"\n",
-            "domainId = \"",
-            vm.toString(fakeUmaDomainIdOut),
             "\"\n"
         );
     }
