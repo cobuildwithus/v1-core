@@ -64,10 +64,10 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - cloned `BudgetTreasury`
    - cloned `NullPremiumEscrow`
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
-   The later `deployBudgetTreasury(...)` step wires live `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context after the child flow exists.
+   The later `deployBudgetTreasury(...)` step wires live `goalFlow` and goal-treasury-derived runtime context after the child flow exists.
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
-6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes ledger/recipient state locally in that same batch instead of relying on the treasury's callback reentry path.
+6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes recipient/topology state locally in that same batch instead of relying on the treasury's callback reentry path.
 7. Authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
 
 ## Budget Lifecycle and Risk Modules
@@ -89,7 +89,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 ### Managed preset risk path
 
 - Manager reward stream routes into `NullPremiumEscrow` to satisfy the same escrow seam without doing premium accounting.
-- Managed factory wiring leaves `budgetAllocationLedger` and `underwriterSlasherRouter` unset on `ManagedBudgetController` by default.
+- Managed controller no longer stores `budgetAllocationLedger`, `underwriterSlasherRouter`, `budgetPremiumPpm`, or `budgetSlashPpm`.
 - `NullPremiumEscrow` keeps only the identity it semantically uses (`budgetTreasury`, `goalFlow`) and ignores managed-unused ledger/router/slash init inputs.
 - Runtime premium, claim, slash, and burn operations are intentional no-ops.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.

@@ -228,7 +228,7 @@ Community root routing
   - on terminal budget failure after activation (`Failed` or post-activation `Expired`), `PremiumEscrow` treats `creditDrawn` as first-loss principal attributed to each underwriter, caps by strict slash-percent principal (`peakCov * budgetSlashPpm / 1e6`), and routes slashing through `UnderwriterSlasherRouter`.
 - Managed-preset risk routing keeps the same controller/treasury/escrow seam through `NullPremiumEscrow`:
   - manager-reward stream still points at an escrow-shaped module,
-  - managed factory/controller wiring leaves budget-ledger and underwriter-router references unset by default,
+  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config and instead hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
   - `NullPremiumEscrow` keeps budget-treasury/goal-flow identity only and ignores stake-ledger/slasher init inputs,
   - runtime premium accrual, claims, slashing, and burn-on-failure are intentional no-ops,
   - nonzero managed premium/slash parameters are rejected at deployment,
@@ -322,7 +322,7 @@ Community root routing
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
 - Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
 - Managed preset budget creations first call `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)`, which only prepares a cloned `BudgetTreasury`, a cloned `NullPremiumEscrow`, and a per-budget `BudgetSingleAllocatorStrategy`.
-- Live `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
+- Live `goalFlow` and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
 - Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:
   - open preset registry: `BudgetTCR`

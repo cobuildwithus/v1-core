@@ -160,7 +160,7 @@ Managed preset
     `executionDuration`.
 - Managed-preset risk wiring keeps the same controller/treasury/escrow seam without live premium accounting:
   - manager-reward stream routes to `NullPremiumEscrow`,
-  - managed controller wiring now leaves budget-ledger/slasher references unset by default, while `NullPremiumEscrow` keeps the `IPremiumEscrow` seam with only budget-treasury/goal-flow identity and ignores ledger/slasher inputs,
+  - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config; managed budget deployment hardcodes zero coverage/slash inputs through the shared escrow/gate seams,
   - claim, slash, burn-on-failure, and close side effects are intentional no-ops,
   - live routing does not depend on underwriter-weight coverage semantics to enable active managed budgets.
 - Budget TCR deployment remains a trusted-core path:
@@ -377,7 +377,7 @@ Managed preset
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - Stack deployers use clone-first treasury setup:
   - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
-  - `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with a cloned `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `budgetAllocationLedger`, `goalFlow`, and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
+  - `ManagedBudgetControllerStackDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with a cloned `NullPremiumEscrow` plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
   - budget treasury initialization still happens after child-flow creation in both stacks.
 - `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
 

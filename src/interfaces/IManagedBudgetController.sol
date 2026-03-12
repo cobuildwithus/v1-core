@@ -9,16 +9,12 @@ interface IManagedBudgetController is IBudgetController {
         address authority;
         address goalTreasury;
         address goalFlow;
-        address budgetAllocationLedger;
         address stackDeployer;
         address budgetGatePolicy;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
-        address underwriterSlasherRouter;
         uint64 successAssertionLiveness;
         uint256 successAssertionBond;
-        uint32 budgetPremiumPpm;
-        uint32 budgetSlashPpm;
     }
 
     struct BudgetConfig {
@@ -41,7 +37,6 @@ interface IManagedBudgetController is IBudgetController {
     error ITEM_NOT_DEPLOYED();
     error ITEM_NOT_ACTIVE();
     error ITEM_NOT_TERMINAL();
-    error INVALID_PPM(uint32 ppmValue);
     error GOAL_TERMINAL();
 
     event AuthorityTransferStarted(address indexed authority, address indexed pendingAuthority);
@@ -69,16 +64,12 @@ interface IManagedBudgetController is IBudgetController {
     function pendingAuthority() external view returns (address);
     function goalTreasury() external view returns (address);
     function goalFlow() external view returns (address);
-    function budgetAllocationLedger() external view returns (address);
     function stackDeployer() external view returns (address);
     function budgetGatePolicy() external view returns (address);
     function budgetSuccessResolver() external view returns (address);
     function budgetSpendPolicy() external view returns (address);
-    function underwriterSlasherRouter() external view returns (address);
     function successAssertionLiveness() external view returns (uint64);
     function successAssertionBond() external view returns (uint256);
-    function budgetPremiumPpm() external view returns (uint32);
-    function budgetSlashPpm() external view returns (uint32);
 
     function activeBudgetCount() external view returns (uint256 count);
     function activeBudgetIdAt(uint256 index) external view returns (bytes32 itemID);

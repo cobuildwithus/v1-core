@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
-import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
@@ -12,7 +11,6 @@ import { IManagedBudgetController } from "src/interfaces/IManagedBudgetControlle
 import { IManagedBudgetControllerStackDeployer } from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetTCRTerminalActions } from "src/tcr/library/BudgetTCRTerminalActions.sol";
-import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
@@ -55,16 +53,12 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     address public override pendingAuthority;
     address public override goalTreasury;
     address public override goalFlow;
-    address public override budgetAllocationLedger;
     address public override stackDeployer;
     address public override budgetGatePolicy;
     address public override budgetSuccessResolver;
     address public override budgetSpendPolicy;
-    address public override underwriterSlasherRouter;
     uint64 public override successAssertionLiveness;
     uint256 public override successAssertionBond;
-    uint32 public override budgetPremiumPpm;
-    uint32 public override budgetSlashPpm;
 
     mapping(bytes32 => BudgetDeployment) private _budgetDeployments;
     mapping(address => bytes32) private _itemIdByBudgetTreasury;
@@ -87,38 +81,22 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         if (initConfig.authority == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.goalTreasury);
         _requireContract(initConfig.goalFlow);
-        if (initConfig.budgetAllocationLedger != address(0)) {
-            _requireContract(initConfig.budgetAllocationLedger);
-        }
         _requireContract(initConfig.stackDeployer);
         if (initConfig.budgetGatePolicy != address(0)) {
             _requireContract(initConfig.budgetGatePolicy);
         }
         if (initConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
         _requireContract(initConfig.budgetSpendPolicy);
-        if (initConfig.underwriterSlasherRouter != address(0)) {
-            _requireContract(initConfig.underwriterSlasherRouter);
-        }
-        if (initConfig.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_PPM(initConfig.budgetPremiumPpm);
-        }
-        if (initConfig.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE) {
-            revert INVALID_PPM(initConfig.budgetSlashPpm);
-        }
 
         authority = initConfig.authority;
         goalTreasury = initConfig.goalTreasury;
         goalFlow = initConfig.goalFlow;
-        budgetAllocationLedger = initConfig.budgetAllocationLedger;
         stackDeployer = initConfig.stackDeployer;
         budgetGatePolicy = initConfig.budgetGatePolicy;
         budgetSuccessResolver = initConfig.budgetSuccessResolver;
         budgetSpendPolicy = initConfig.budgetSpendPolicy;
-        underwriterSlasherRouter = initConfig.underwriterSlasherRouter;
         successAssertionLiveness = initConfig.successAssertionLiveness;
         successAssertionBond = initConfig.successAssertionBond;
-        budgetPremiumPpm = initConfig.budgetPremiumPpm;
-        budgetSlashPpm = initConfig.budgetSlashPpm;
     }
 
     function activeBudgetCount() external view override returns (uint256 count) {
@@ -189,7 +167,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             prepared.budgetTreasury,
             prepared.budgetTreasury,
             prepared.premiumEscrow,
-            budgetPremiumPpm,
+            0,
             IAllocationStrategy(prepared.strategy)
         );
 
@@ -198,10 +176,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             prepared.budgetTreasury,
             prepared.premiumEscrow,
             childFlow_,
-            budgetAllocationLedger,
             goalFlow,
-            underwriterSlasherRouter,
-            budgetSlashPpm,
             config,
             budgetSuccessResolver,
             budgetSpendPolicy,
@@ -212,7 +187,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         _recordBudgetStackTopology(itemID, childFlow_, budgetTreasury_, prepared.premiumEscrow, prepared.strategy);
         _setItemActive(itemID, true);
-        _registerBudgetIfConfigured(itemID, budgetTreasury_);
 
         emit ManagedBudgetCreated(itemID, childFlow_, budgetTreasury_, prepared.premiumEscrow, prepared.strategy);
     }
@@ -227,7 +201,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         address childFlow_ = deployment.childFlow;
         address budgetTreasury_ = deployment.budgetTreasury;
 
-        _removeBudgetFromLedgerIfConfigured(itemID);
         removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
             IFlow(goalFlow),
             itemID,
@@ -411,8 +384,8 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
                 goalFlow: IFlow(goalFlow),
                 childFlow: deployment.childFlow,
                 budgetTreasury: deployment.budgetTreasury,
-                coverageSource: budgetAllocationLedger,
-                coverageToCreditPpm: budgetSlashPpm
+                coverageSource: address(0),
+                coverageToCreditPpm: 0
             })
         );
         _emitBudgetGateFailures(itemID, deployment.budgetTreasury, gateResult.failures);
@@ -464,7 +437,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         bool detachParentRecipient
     ) private returns (bool removedFromParent, bool goalSynced) {
         if (detachParentRecipient) {
-            _removeBudgetFromLedgerIfConfigured(itemID);
             removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
                 IFlow(goalFlow),
                 itemID,
@@ -506,18 +478,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             allocationMechanism: address(0),
             allocationMechanismArbitrator: address(0)
         });
-    }
-
-    function _registerBudgetIfConfigured(bytes32 itemID, address budgetTreasury_) private {
-        address ledger = budgetAllocationLedger;
-        if (ledger == address(0)) return;
-        IBudgetStakeLedger(ledger).registerBudget(itemID, budgetTreasury_);
-    }
-
-    function _removeBudgetFromLedgerIfConfigured(bytes32 itemID) private {
-        address ledger = budgetAllocationLedger;
-        if (ledger == address(0)) return;
-        IBudgetStakeLedger(ledger).removeBudget(itemID);
     }
 
     function _setItemActive(bytes32 itemID, bool active) private {
