@@ -76,9 +76,10 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy` from `BudgetSingleAllocatorStrategyFactory`
    The later `deployBudgetTreasury(...)` step wires neutral treasury config plus managed risk-init no-ops after the child flow exists.
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
-5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
-6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes recipient/topology state locally in that same batch instead of relying on the treasury's callback reentry path.
-7. Authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
+5. Safe-managed mechanism runtimes such as `TeamFlow` may still be deployed directly from their factories and attached as ordinary managed budget-flow recipients through the controller's generic recipient APIs; this path does not use `AllocationMechanismTCR` or `MechanismFundingEscrow`.
+6. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a managed mechanism layer.
+7. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes recipient/topology state locally in that same batch instead of relying on the treasury's callback reentry path.
+8. Authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
 
 ## Budget Lifecycle and Risk Modules
 

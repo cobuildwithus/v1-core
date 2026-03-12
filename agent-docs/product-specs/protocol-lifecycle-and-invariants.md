@@ -195,7 +195,11 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   mechanism-funding escrow release path by using that deployed `TeamFlow` runtime as the payout recipient.
 - `TeamFlow` is a self-administered payout flow with fixed per-seat units:
   - seat removal uses hard `removeRecipient` on the `TeamFlow` runtime rather than enable/disable toggles,
+  - manager handoff uses explicit `transferManager(...)` -> `acceptManager()` two-step rotation,
   - re-adding a previously removed member creates a fresh TeamFlow recipient id instead of reusing the removed one.
+- Managed preset budgets may also route to factory-deployed Safe-managed mechanism runtimes by attaching them as ordinary
+  child-flow recipients through `ManagedBudgetController.addBudgetFlowRecipient(...)`; that path does not create an
+  `AllocationMechanismTCR` listing or `MechanismFundingEscrow`.
 - Factory discovery invariants:
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
   - `BudgetTCRFactory` treats submission-deposit capability probing as required deployment wiring: clean `supportsEscrowBonding() == false` preserves manual deposits, while missing/reverting probes fail deployment.

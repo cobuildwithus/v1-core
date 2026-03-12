@@ -34,6 +34,7 @@
 - Premium / risk module: shared stateless `src/goals/NullPremiumEscrow.sol`
 - Stack deployer: configured clone of `src/tcr/BudgetTCRDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass
+- Safe-managed external mechanism runtimes may still be attached as ordinary budget-flow recipients through `src/goals/ManagedBudgetController.sol` generic recipient APIs; that path does not create a managed mechanism registry or managed escrow layer
 - Child-flow `recipientAdmin`: `src/goals/ManagedBudgetController.sol`
 
 ### Intentional non-goals for this pass

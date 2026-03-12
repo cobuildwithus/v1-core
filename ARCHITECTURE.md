@@ -106,6 +106,7 @@ Managed preset
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: shared stateless `NullPremiumEscrow`
 - Budget child `recipientAdmin`: `ManagedBudgetController`
+- Safe-managed external mechanism runtimes such as `TeamFlow` can still be attached as ordinary managed budget-flow recipients through the controller's generic recipient APIs; that path does not add a managed mechanism registry or managed escrow layer
 - No advisory TCR and no managed mechanism controller in this pass
 
 ## Cross-Cutting Invariants

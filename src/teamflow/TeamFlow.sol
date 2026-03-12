@@ -37,6 +37,7 @@ contract TeamFlow is Flow {
     }
 
     error ONLY_MANAGER();
+    error ONLY_PENDING_MANAGER();
     error MEMBER_ALREADY_ACTIVE(address member);
     error MEMBER_NOT_ACTIVE(address member);
     error TEAMFLOW_REQUIRES_SELF_STRATEGY(address strategy);
@@ -48,6 +49,8 @@ contract TeamFlow is Flow {
         uint256 perSeatRate,
         uint256 maxTotalRate
     );
+    event ManagerTransferStarted(address indexed manager, address indexed pendingManager);
+    event ManagerTransferred(address indexed previousManager, address indexed nextManager);
     event TeamFlowMemberAdded(address indexed member, bytes32 indexed recipientId, uint64 nonce);
     event TeamFlowMemberRemoved(address indexed member, bytes32 indexed recipientId);
     event TeamFlowRateConfigUpdated(uint256 perSeatRate, uint256 maxTotalRate);
@@ -55,6 +58,7 @@ contract TeamFlow is Flow {
 
     bytes32 public mechanismId;
     address public manager;
+    address public pendingManager;
     uint256 public perSeatRate;
     uint256 public maxTotalRate;
 
@@ -106,6 +110,23 @@ contract TeamFlow is Flow {
             config.perSeatRate,
             config.maxTotalRate
         );
+    }
+
+    function transferManager(address newManager) external onlyManager {
+        if (newManager == address(0)) revert ADDRESS_ZERO();
+
+        pendingManager = newManager;
+        emit ManagerTransferStarted(manager, newManager);
+    }
+
+    function acceptManager() external {
+        address nextManager = pendingManager;
+        if (msg.sender != nextManager) revert ONLY_PENDING_MANAGER();
+
+        address previousManager = manager;
+        manager = nextManager;
+        pendingManager = address(0);
+        emit ManagerTransferred(previousManager, nextManager);
     }
 
     function addMember(
