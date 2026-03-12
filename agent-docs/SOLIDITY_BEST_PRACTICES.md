@@ -1,6 +1,6 @@
 # Solidity Best Practices
 
-Last updated: 2026-03-04
+Last updated: 2026-03-12
 
 Canonical Solidity policy for this repo. `AGENTS.md` hard rules take precedence.
 
@@ -15,6 +15,8 @@ Canonical Solidity policy for this repo. `AGENTS.md` hard rules take precedence.
 - Clone/proxy runtimes must be deployed + initialized atomically.
 - Use OZ `Initializable` guards and `_disableInitializers()` for implementation instances.
 - Never use constructor-baked `immutable` for per-instance clone/proxy config; use initializer-set storage.
+- For repeatable runtime/module instances, prefer predeployed implementations plus EIP-1167 clones over fresh `new` deployment paths; repeated constructor deployment materially increases factory/runtime bytecode size in this repo.
+- Follow the existing repo pattern: `GoalFactory`, `RoundFactory`, `BudgetTCRFactory`, `TeamFlowFactory`, `CustomFlowLibrary`, and `CobuildCommunityTerminalFactory` clone implementations and initialize the instance.
 
 3. Interfaces and external calls:
 - Keep cross-domain boundaries explicit via interfaces in `src/interfaces/**`.

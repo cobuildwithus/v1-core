@@ -47,6 +47,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Never lower CI coverage minimums without explicit user approval in the current chat; keep both `COVERAGE_LINES_MIN` and `COVERAGE_BRANCHES_MIN` at `85` or higher.
 - If a task appears to require a `lib/**` change, stop and ask the user for explicit approval and an alternative approach first.
 - For any Solidity-affecting task, read and follow `agent-docs/SOLIDITY_BEST_PRACTICES.md` before implementation.
+- Do not introduce new repeatable runtime deployment paths that use `new SomeContract(...)`; for user/runtime instances, predeploy an implementation and instantiate it with EIP-1167 clones instead, following the existing `GoalFactory`/`RoundFactory`/`BudgetTCRFactory`/`TeamFlowFactory` pattern and keeping bytecode size down.
 - Historical docs are immutable snapshots. Do not edit past/historical plan docs (especially under `agent-docs/exec-plans/completed/`); create a new plan for new work instead.
 - Deployment status (as of 2026-02-20): there are no live protocol deployments yet.
 - Until live deployments exist, do not preserve legacy/backward-compatibility code paths by default (aliases, migration-only scaffolding, append-only storage layering solely for upgrades). Prefer simplification.
