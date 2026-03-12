@@ -150,20 +150,22 @@ library GoalFactoryCoreStackDeploy {
         IStakeVault stakeVaultRef = IStakeVault(address(out.stakeVault));
         jurorSlasherRouter.initialize(stakeVaultRef, request.jurorSlasherAuthority);
         out.jurorSlasherRouter = address(jurorSlasherRouter);
-        UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
-            Clones.clone(request.underwriterSlasherRouterImpl)
-        );
-        underwriterSlasherRouter.initialize(
-            stakeVaultRef,
-            request.budgetController,
-            request.directory,
-            request.goalRevnetId,
-            IERC20Metadata(request.goalToken),
-            IERC20Metadata(request.cobuildToken),
-            out.goalSuperToken,
-            address(out.goalFlow)
-        );
-        out.underwriterSlasherRouter = address(underwriterSlasherRouter);
+        if (request.budgetPremiumPpm != 0 || request.budgetSlashPpm != 0) {
+            UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
+                Clones.clone(request.underwriterSlasherRouterImpl)
+            );
+            underwriterSlasherRouter.initialize(
+                stakeVaultRef,
+                request.budgetController,
+                request.directory,
+                request.goalRevnetId,
+                IERC20Metadata(request.goalToken),
+                IERC20Metadata(request.cobuildToken),
+                out.goalSuperToken,
+                address(out.goalFlow)
+            );
+            out.underwriterSlasherRouter = address(underwriterSlasherRouter);
+        }
 
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({
             flow: address(out.goalFlow),
