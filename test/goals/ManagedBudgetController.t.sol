@@ -813,6 +813,68 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         assertEq(IFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_syncBudgetTreasuries_realStackLocallyPrunesBudgetWhenSyncExpiresIt() public {
+        bytes32 itemID = bytes32(uint256(1));
+
+        vm.prank(safe);
+        (, address budgetTreasury) = controller.createBudget(itemID, _defaultBudgetConfig("Budget A"));
+
+        vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = controller.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertEq(controller.activeBudgetCount(), 0);
+        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Expired));
+
+        (, bool active) = controller.budgetStackTopology(itemID);
+        assertFalse(active);
+    }
+
+    function test_syncBudgetTreasuries_realStack_goalSyncFailureRepairsViaRetryTerminalSideEffects() public {
+        bytes32 itemID = bytes32(uint256(1));
+
+        vm.prank(safe);
+        (, address budgetTreasury) = controller.createBudget(itemID, _defaultBudgetConfig("Budget A"));
+
+        vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
+        goalTreasury.setShouldRevertSync(true);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = controller.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertEq(controller.activeBudgetCount(), 0);
+        assertEq(budgetAllocationLedger.budgetForRecipient(itemID), address(0));
+        assertTrue(goalFlow.getRecipientById(itemID).isRemoved);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
+        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
+
+        goalTreasury.setShouldRevertSync(false);
+
+        vm.prank(makeAddr("keeper"));
+        IBudgetTreasury(budgetTreasury).retryTerminalSideEffects();
+
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+        (, bool active) = controller.budgetStackTopology(itemID);
+        assertFalse(active);
+    }
+
     function test_authorityRotation_keepsBudgetChildAllocatorIdentityOnControllerAndAllowsChildFlowAllocation() public {
         bytes32 budgetItemID = bytes32(uint256(1));
         vm.prank(safe);
