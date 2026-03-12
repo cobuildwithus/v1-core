@@ -35,6 +35,7 @@ library BudgetTCRStackActions {
     );
 
     error BUDGET_TREASURY_MISMATCH();
+    error PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
 
     function deployBudgetStack(
         mapping(bytes32 => BudgetTCRStorageV1.BudgetDeployment) storage budgetDeployments,
@@ -57,6 +58,12 @@ library BudgetTCRStackActions {
         IFlow goalFlow = budgetStore.goalFlow();
         IBudgetTCRStackDeployer deployer = IBudgetTCRStackDeployer(budgetStore.stackDeployer());
         address underwriterSlasherRouter = budgetStore.underwriterSlasherRouter();
+        IBudgetTCRStackDeployer.StackModuleConfig memory stackModuleConfig = deployer.stackModuleConfig();
+        uint32 budgetPremiumPpm = budgetStore.budgetPremiumPpm();
+        uint32 budgetSlashPpm = budgetStore.budgetSlashPpm();
+        if (stackModuleConfig.requireZeroPremiumAndSlashRates && (budgetPremiumPpm != 0 || budgetSlashPpm != 0)) {
+            revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
+        }
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         IBudgetTCRStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
@@ -76,7 +83,7 @@ library BudgetTCRStackActions {
             budgetTreasury,
             budgetTreasury,
             premiumEscrow,
-            budgetStore.budgetPremiumPpm(),
+            budgetPremiumPpm,
             IAllocationStrategy(prepared.strategy)
         );
 
@@ -93,7 +100,7 @@ library BudgetTCRStackActions {
             budgetStakeLedger,
             address(goalFlow),
             underwriterSlasherRouter,
-            budgetStore.budgetSlashPpm(),
+            budgetSlashPpm,
             listing,
             budgetStore.budgetSuccessResolver(),
             budgetStore.budgetSpendPolicy(),

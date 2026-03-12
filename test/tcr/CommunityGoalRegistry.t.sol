@@ -263,6 +263,61 @@ contract CommunityGoalRegistryTest is Test {
         registry.pruneTerminalGoal(GOAL_ID_ONE);
     }
 
+    function test_pruneTerminalGoal_syncsBeforePrune_andBlocksRelist() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        goalTreasuryOne.setCanAcceptHookFunding(false);
+        goalTreasuryOne.setSyncState(IGoalTreasury.GoalState.Expired);
+        uint256 syncCallsBeforePrune = goalTreasuryOne.syncCallCount();
+
+        registry.pruneTerminalGoal(GOAL_ID_ONE);
+
+        assertEq(goalTreasuryOne.syncCallCount(), syncCallsBeforePrune + 1);
+        assertFalse(registry.isListed(GOAL_ID_ONE));
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+
+        vm.prank(bob);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        registry.addItem(_goalItem(GOAL_ID_ONE, "ipfs://goal-one-relisted"));
+    }
+
+    function test_addItem_bestEffortSyncsAndRejectsGoalThatTerminalizesDuringValidation() public {
+        goalTreasuryOne.setCanAcceptHookFunding(false);
+        goalTreasuryOne.setSyncState(IGoalTreasury.GoalState.Expired);
+
+        vm.expectCall(address(goalTreasuryOne), abi.encodeCall(IGoalTreasury.sync, ()));
+        vm.prank(alice);
+        vm.expectRevert(IGeneralizedTCR.INVALID_ITEM_DATA.selector);
+        registry.addItem(_goalItem(GOAL_ID_ONE, "ipfs://terminalized-during-validation"));
+    }
+
+    function test_pruneTerminalGoal_ignoresSyncRevertWhenGoalAlreadyPrunable() public {
+        _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
+
+        goalTreasuryOne.setGoalState(IGoalTreasury.GoalState.Expired);
+        goalTreasuryOne.setSyncShouldRevert(true);
+
+        vm.expectCall(address(goalTreasuryOne), abi.encodeCall(IGoalTreasury.sync, ()));
+        registry.pruneTerminalGoal(GOAL_ID_ONE);
+
+        assertFalse(registry.isListed(GOAL_ID_ONE));
+        assertFalse(registry.isSelectable(GOAL_ID_ONE));
+    }
+
+    function test_addItem_bestEffortSyncIgnoresRevertForLiveGoal() public {
+        goalTreasuryOne.setSyncShouldRevert(true);
+
+        vm.expectCall(address(goalTreasuryOne), abi.encodeCall(IGoalTreasury.sync, ()));
+        vm.prank(alice);
+        registry.addItem(_goalItem(GOAL_ID_ONE, "ipfs://goal-one"));
+
+        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        registry.executeRequest(bytes32(GOAL_ID_ONE));
+
+        assertTrue(registry.isListed(GOAL_ID_ONE));
+        assertTrue(registry.isSelectable(GOAL_ID_ONE));
+    }
+
     function test_removeAndRelistGoal_updatesOnlyMetadata_notCanonicalTreasury() public {
         _registerGoal(alice, GOAL_ID_ONE, "ipfs://goal-one");
 
@@ -417,13 +472,18 @@ contract CommunityGoalRegistryMockGoalTreasury {
     uint256 public immutable cobuildRevnetId;
     address public immutable stakeVault;
     IGoalTreasury.GoalState internal _state;
+    IGoalTreasury.GoalState internal _syncState;
+    bool internal _syncStateConfigured;
     bool internal _canAcceptHookFunding = true;
+    bool internal _syncShouldRevert;
+    uint256 internal _syncCallCount;
 
     constructor(uint256 goalRevnetId_, uint256 cobuildRevnetId_, address stakeVault_) {
         goalRevnetId = goalRevnetId_;
         cobuildRevnetId = cobuildRevnetId_;
         stakeVault = stakeVault_;
         _state = IGoalTreasury.GoalState.Funding;
+        _syncState = _state;
     }
 
     function canAcceptHookFunding() external view returns (bool) {
@@ -440,6 +500,25 @@ contract CommunityGoalRegistryMockGoalTreasury {
 
     function setGoalState(IGoalTreasury.GoalState state_) external {
         _state = state_;
+    }
+
+    function setSyncState(IGoalTreasury.GoalState state_) external {
+        _syncState = state_;
+        _syncStateConfigured = true;
+    }
+
+    function syncCallCount() external view returns (uint256) {
+        return _syncCallCount;
+    }
+
+    function setSyncShouldRevert(bool syncShouldRevert_) external {
+        _syncShouldRevert = syncShouldRevert_;
+    }
+
+    function sync() external {
+        _syncCallCount += 1;
+        if (_syncShouldRevert) revert("SYNC_REVERT");
+        if (_syncStateConfigured) _state = _syncState;
     }
 }
 

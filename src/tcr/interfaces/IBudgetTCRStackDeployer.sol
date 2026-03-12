@@ -4,10 +4,32 @@ pragma solidity ^0.8.34;
 import { IBudgetTCR } from "./IBudgetTCR.sol";
 
 interface IBudgetTCRStackDeployer {
+    enum ChildFlowStrategyMode {
+        SharedBudgetFlowRouter,
+        Fixed,
+        Factory
+    }
+
+    enum MechanismLayerMode {
+        AllocationMechanismTCR,
+        None
+    }
+
+    struct StackModuleConfig {
+        ChildFlowStrategyMode childFlowStrategyMode;
+        address childFlowStrategyTarget;
+        MechanismLayerMode mechanismLayerMode;
+        address childFlowRecipientAdmin;
+        address premiumEscrowImplementation;
+        bool requireZeroPremiumAndSlashRates;
+    }
+
     struct PreparationResult {
         address strategy;
         address budgetTreasury;
         address premiumEscrow;
+        address childFlowRecipientAdmin;
+        address allocationMechanism;
     }
 
     error ADDRESS_ZERO();
@@ -51,6 +73,7 @@ interface IBudgetTCRStackDeployer {
         address roundFactory
     ) external;
 
+    function stackModuleConfig() external view returns (StackModuleConfig memory config);
     function initialMechanismFactories() external view returns (address[] memory);
     function roundFactory() external view returns (address);
     function allocationMechanismTcrImplementation() external view returns (address);

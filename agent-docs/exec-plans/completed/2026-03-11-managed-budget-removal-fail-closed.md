@@ -1,8 +1,8 @@
 # Managed budget removal fail-close
 
-Status: blocked_on_unrelated_verify_failure
+Status: completed
 Created: 2026-03-11
-Updated: 2026-03-11
+Updated: 2026-03-12
 
 ## Goal
 
@@ -58,5 +58,10 @@ Updated: 2026-03-11
 - Applied a simplify-pass cleanup by narrowing `BudgetTreasury`'s pruning dependency to a local one-method interface instead of the full controller surface.
 - Follow-up cleanup closes the deferred managed-removal side-effect gap: controller-owned removals now best-effort sync the goal treasury inline, and `failRemovedBudget()` suppresses the guaranteed self-reentrant prune callback during that removal finalization while leaving retry-based repair available.
 - `pnpm -s lint:solidity:warnings` passes.
-- `pnpm -s verify:required` still fails in unrelated existing property test `test/flows/FlowLedgerChildSyncProperties.t.sol::testFuzz_allocate_stakeVaultResolved_childCommitNonZero_changedStake_stillCheckpointsAndSyncs`; rerunning after the follow-up repair test reproduced the same failure on the current tree.
+- `pnpm -s verify:required` was originally blocked by unrelated property test `test/flows/FlowLedgerChildSyncProperties.t.sol::testFuzz_allocate_stakeVaultResolved_childCommitNonZero_changedStake_stillCheckpointsAndSyncs`.
+- 2026-03-12 cleanup pass tightened that stale fuzz bound to require a real effective-weight change, reran `pnpm -s verify:required`, and the shared required gate passed.
+- 2026-03-12 completion workflow finished cleanly:
+  - simplify pass reported no further behavior-preserving cleanup,
+  - coverage audit added extra real-stack assertions that managed controller-owned terminal sync clears the ledger recipient mapping immediately,
+  - final review reported no correctness or security findings in the retained scope.
 - Coverage audit added `test_removeBudget_preActivation_usesStrictFailurePathWithoutFailRemovedBudget` and committed it as `f3f3093`; this follow-up updates that expectation to the unified removal-finalizer path.

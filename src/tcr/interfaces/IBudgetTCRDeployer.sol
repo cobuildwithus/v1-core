@@ -6,4 +6,9 @@ import { IBudgetTCRStackDeployer } from "./IBudgetTCRStackDeployer.sol";
 interface IBudgetTCRDeployer is IBudgetTCRStackDeployer {
     function budgetTCR() external view returns (address);
     function initialize(address budgetTCR_, address premiumEscrowImplementation_, address discoveryEmitter_) external;
+    function initializeWithConfig(
+        address budgetTCR_,
+        StackModuleConfig calldata stackModuleConfig_,
+        address discoveryEmitter_
+    ) external;
 }

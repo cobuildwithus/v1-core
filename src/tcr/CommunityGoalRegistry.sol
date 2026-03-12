@@ -113,9 +113,11 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
 
     function pruneTerminalGoal(uint256 goalId) external override {
         bytes32 itemId = _goalItemId(goalId);
-        if (!_isListedGoal(goalId) || items[itemId].status != Status.Registered || !_isPrunableGoal(goalId)) {
+        if (!_isListedGoal(goalId) || items[itemId].status != Status.Registered) {
             revert GOAL_NOT_PRUNABLE(goalId);
         }
+        _bestEffortSyncGoal(goalId);
+        if (!_isPrunableGoal(goalId)) revert GOAL_NOT_PRUNABLE(goalId);
 
         items[itemId].status = Status.Absent;
         _removeListedGoal(goalId);
@@ -129,7 +131,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         itemID = _goalItemId(data.goalId);
     }
 
-    function _verifyItemData(bytes calldata item) internal view override returns (bool valid) {
+    function _verifyItemData(bytes calldata item) internal override returns (bool valid) {
         GoalItemData memory data;
         try this.decodeGoalItemData(item) returns (GoalItemData memory decoded) {
             data = decoded;
@@ -142,6 +144,8 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (!_isRegisteredGoal(data.goalId)) return false;
         if (!_goalMatchesCommunity(data.goalId)) return false;
         if (!_goalHasPrimaryTerminal(data.goalId)) return false;
+        _bestEffortSyncGoal(data.goalId);
+        if (_isPrunableGoal(data.goalId)) return false;
         return true;
     }
 
@@ -185,6 +189,7 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
         if (!_isRegisteredGoal(goalId)) revert GOAL_NOT_DEPLOYED(goalId);
         _requireGoalMatchesCommunity(goalId);
         if (!_goalHasPrimaryTerminal(goalId)) revert GOAL_TERMINAL_NOT_CONFIGURED(goalId);
+        if (_isPrunableGoal(goalId)) revert GOAL_NOT_PRUNABLE(goalId);
     }
 
     function _goalHasPrimaryTerminal(uint256 goalId) internal view returns (bool) {
@@ -288,6 +293,13 @@ contract CommunityGoalRegistry is GeneralizedTCR, ICommunityGoalRegistry {
     function _resolvedGoalTreasury(uint256 goalId) internal view returns (address goalTreasuryAddress) {
         goalTreasuryAddress = goalDeploymentRegistry.goalTreasuryOf(goalId);
         if (goalTreasuryAddress == address(0) || goalTreasuryAddress.code.length == 0) return address(0);
+    }
+
+    function _bestEffortSyncGoal(uint256 goalId) internal {
+        address goalTreasuryAddress = _resolvedGoalTreasury(goalId);
+        if (goalTreasuryAddress == address(0)) return;
+
+        try IGoalTreasury(goalTreasuryAddress).sync() {} catch {}
     }
 
     function _isListedGoal(uint256 goalId) internal view returns (bool) {

@@ -128,6 +128,7 @@ interface IBudgetTreasury is
     function sync() external;
     function retryTerminalSideEffects() external;
     function forceFlowRateToZero() external;
+    function failRemovedBudget() external;
     function resolveFailure() external;
 
     function settleLateResidualToParent() external returns (uint256 amount);

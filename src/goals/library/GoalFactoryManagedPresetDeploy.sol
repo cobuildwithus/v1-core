@@ -6,14 +6,18 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
-import { ManagedBudgetControllerStackDeployer } from "src/goals/ManagedBudgetControllerStackDeployer.sol";
-import { NoopBudgetGatePolicy } from "src/goals/NoopBudgetGatePolicy.sol";
-import { NullPremiumEscrow } from "src/goals/NullPremiumEscrow.sol";
 
 library GoalFactoryManagedPresetDeploy {
     struct ManagedPresetBundle {
         ManagedBudgetController budgetController;
         address goalAllocatorStrategy;
+        address gatePolicy;
+        address stackDeployer;
+    }
+
+    struct ManagedPresetBootstrapConfig {
+        address budgetControllerImplementation;
+        address goalAllocatorStrategyImplementation;
         address gatePolicy;
         address stackDeployer;
     }
@@ -36,18 +40,13 @@ library GoalFactoryManagedPresetDeploy {
 
     function bootstrapManagedPreset(
         address goalTreasury,
-        address budgetTreasuryImplementation
+        ManagedPresetBootstrapConfig memory config
     ) external returns (ManagedPresetBundle memory out) {
-        ManagedBudgetController budgetControllerImplementation = new ManagedBudgetController();
-        address premiumEscrowImplementation = address(new NullPremiumEscrow());
-        out.budgetController = ManagedBudgetController(Clones.clone(address(budgetControllerImplementation)));
-        out.gatePolicy = address(new NoopBudgetGatePolicy());
-        out.stackDeployer = address(
-            new ManagedBudgetControllerStackDeployer(budgetTreasuryImplementation, premiumEscrowImplementation)
-        );
-        out.goalAllocatorStrategy = address(
-            new SingleAllocatorStrategy(address(out.budgetController), goalTreasury, address(out.budgetController))
-        );
+        out.budgetController = ManagedBudgetController(Clones.clone(config.budgetControllerImplementation));
+        out.goalAllocatorStrategy = Clones.clone(config.goalAllocatorStrategyImplementation);
+        SingleAllocatorStrategy(out.goalAllocatorStrategy).initialize(goalTreasury, address(out.budgetController));
+        out.gatePolicy = config.gatePolicy;
+        out.stackDeployer = config.stackDeployer;
     }
 
     function initializeManagedController(

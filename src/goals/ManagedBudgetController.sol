@@ -236,8 +236,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
         treasury.failRemovedBudget();
-        _setItemActive(itemID, false);
-        BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
+        _pruneTerminalBudgetLocal(itemID, deployment, budgetTreasury_, false);
         terminallyResolved = true;
         emit ManagedBudgetRemoved(itemID, childFlow_, budgetTreasury_, removedFromParent, terminallyResolved);
     }
@@ -331,16 +330,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
         if (!treasury.resolved()) revert ITEM_NOT_TERMINAL();
 
-        _removeBudgetFromLedgerIfConfigured(itemID);
-        removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
-            IFlow(goalFlow),
-            itemID,
-            deployment.childFlow
-        );
-        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
-        if (deployment.active) {
-            _setItemActive(itemID, false);
-        }
+        (removedFromParent, goalSynced) = _pruneTerminalBudgetLocal(itemID, deployment, budgetTreasury_, true);
 
         emit BudgetTerminalRecipientPruned(
             itemID,
@@ -379,10 +369,26 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
             attempted += 1;
             _applyBudgetGatePolicy(itemID, deployment);
 
+            IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury_);
             bool success;
-            try IBudgetTreasury(budgetTreasury_).sync() {
+            try treasury.sync() {
                 success = true;
                 succeeded += 1;
+                if (treasury.resolved()) {
+                    (bool removedFromParent, bool goalSynced) = _pruneTerminalBudgetLocal(
+                        itemID,
+                        deployment,
+                        budgetTreasury_,
+                        true
+                    );
+                    emit BudgetTerminalRecipientPruned(
+                        itemID,
+                        deployment.childFlow,
+                        budgetTreasury_,
+                        removedFromParent,
+                        goalSynced
+                    );
+                }
             } catch (bytes memory reason) {
                 emit BudgetTreasuryCallFailed(itemID, budgetTreasury_, IBudgetTreasury.sync.selector, reason);
             }
@@ -449,6 +455,26 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         _itemIdByBudgetTreasury[budgetTreasury_] = itemID;
         _itemIdByChildFlow[childFlow_] = itemID;
+    }
+
+    function _pruneTerminalBudgetLocal(
+        bytes32 itemID,
+        BudgetDeployment storage deployment,
+        address budgetTreasury_,
+        bool detachParentRecipient
+    ) private returns (bool removedFromParent, bool goalSynced) {
+        if (detachParentRecipient) {
+            _removeBudgetFromLedgerIfConfigured(itemID);
+            removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
+                IFlow(goalFlow),
+                itemID,
+                deployment.childFlow
+            );
+        }
+        goalSynced = BudgetTCRTerminalActions.trySyncGoalTreasury(IGoalTreasury(goalTreasury), itemID, budgetTreasury_);
+        if (deployment.active) {
+            _setItemActive(itemID, false);
+        }
     }
 
     function _validatedItemIdForBudgetTreasury(address budgetTreasury_) private view returns (bytes32 itemID) {

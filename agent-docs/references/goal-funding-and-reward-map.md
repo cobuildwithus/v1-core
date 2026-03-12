@@ -66,7 +66,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a mechanism layer.
-6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`, and authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
+6. Permissionless liveness batching is `ManagedBudgetController.syncBudgetTreasuries(...)`; when a treasury `sync()` leaves a managed budget terminal, the controller prunes ledger/recipient state locally in that same batch instead of relying on the treasury's callback reentry path.
+7. Authority-gated child-budget allocation writes route through `ManagedBudgetController.setBudgetFlowWeights(...)`.
 
 ## Budget Lifecycle and Risk Modules
 
@@ -92,6 +93,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - Runtime premium, claim, slash, and burn operations are intentional no-ops.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
 - Managed removals now fail-close at the treasury layer for both funding and activated budgets: `ManagedBudgetController.removeBudget(...)` detaches the parent recipient, terminalizes through the controller-only removal path, and best-effort syncs the goal treasury inline, so later `BudgetTreasury.sync()` calls cannot restart payout.
+- Managed controller-owned terminalization during `syncBudgetTreasuries(...)` also performs the parent prune locally after a successful terminalizing `treasury.sync()`, avoiding the controller's own reentrancy guard while preserving the treasury callback as a retryable external path.
 
 ## Stake, Coverage, and Reward Semantics
 

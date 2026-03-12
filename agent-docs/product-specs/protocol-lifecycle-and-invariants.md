@@ -151,6 +151,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - removals use the treasury's controller-only removal fail-close path for both pre-activation and activated budgets,
   - the controller removes the goal-flow recipient, marks the topology inactive, and best-effort syncs the goal treasury inline in the same removal transaction,
   - the treasury skips its redundant controller-prune callback during that removal finalization, while later `retryTerminalSideEffects()` calls still retry the normal terminal side-effect set,
+  - managed `syncBudgetTreasuries(...)` locally prunes newly terminal budgets after a successful treasury `sync()` instead of depending on a reentrant treasury callback into the controller,
   - future `sync()` calls remain terminal no-ops after removal.
 - Finalization is state-first and non-bricking:
   - terminal state/timestamp are committed before external settlement side effects,

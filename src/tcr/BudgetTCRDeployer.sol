@@ -21,6 +21,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public childFlowStrategyTarget;
     MechanismLayerMode public mechanismLayerMode;
     address public childFlowRecipientAdmin;
+    bool public requireZeroPremiumAndSlashRates;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable teamFlowFactory;
@@ -92,7 +93,8 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
                 childFlowStrategyTarget: address(0),
                 mechanismLayerMode: MechanismLayerMode.AllocationMechanismTCR,
                 childFlowRecipientAdmin: address(0),
-                premiumEscrowImplementation: premiumEscrowImplementation_
+                premiumEscrowImplementation: premiumEscrowImplementation_,
+                requireZeroPremiumAndSlashRates: false
             }),
             discoveryEmitter_
         );
@@ -114,6 +116,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         childFlowStrategyTarget = stackModuleConfig_.childFlowStrategyTarget;
         mechanismLayerMode = stackModuleConfig_.mechanismLayerMode;
         childFlowRecipientAdmin = stackModuleConfig_.childFlowRecipientAdmin;
+        requireZeroPremiumAndSlashRates = stackModuleConfig_.requireZeroPremiumAndSlashRates;
     }
 
     function prepareBudgetStack(
@@ -216,7 +219,8 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             childFlowStrategyTarget: childFlowStrategyTarget,
             mechanismLayerMode: mechanismLayerMode,
             childFlowRecipientAdmin: childFlowRecipientAdmin,
-            premiumEscrowImplementation: premiumEscrowImplementation
+            premiumEscrowImplementation: premiumEscrowImplementation,
+            requireZeroPremiumAndSlashRates: requireZeroPremiumAndSlashRates
         });
     }
 

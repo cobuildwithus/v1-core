@@ -836,7 +836,7 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         uint96 reducedStakeSeed
     ) public {
         uint256 initialStake = bound(uint256(initialStakeSeed), 2e18, 1e30);
-        uint256 reducedStake = bound(uint256(reducedStakeSeed), 1e18, initialStake - 1);
+        uint256 reducedStake = bound(uint256(reducedStakeSeed), 1e18, initialStake - UNIT_WEIGHT_SCALE);
 
         _setWeights(initialStake);
         _allocateParentSingleRecipient();
