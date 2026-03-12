@@ -2107,6 +2107,36 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(MockBudgetChildFlow(childFlow).targetOutflowRate(), 0);
     }
 
+    function test_syncBudgetTreasuries_permissionless_doesNotPruneOrGoalSyncNonTerminalBudget() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        MockBudgetChildFlow(childFlow).setMaxSafeFlowRate(type(int96).max);
+        MockBudgetChildFlow(childFlow).setNetFlowRate(500);
+        superToken.mint(childFlow, 100e18);
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertFalse(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Active));
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertFalse(removed);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
+
+        (bool found,,) = _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
+        assertFalse(found);
+    }
+
     function test_syncBudgetTreasuries_permissionless_expiresUnfundedBudgetAfterFundingDeadline() public {
         bytes32 itemID = _registerDefaultListing();
         address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
@@ -2123,6 +2153,77 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(succeeded, 1);
         assertTrue(IBudgetTreasury(budgetTreasury).resolved());
         assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Expired));
+    }
+
+    function test_syncBudgetTreasuries_permissionless_locallyPrunesBudgetWhenSyncExpiresIt() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(uint256(IBudgetTreasury(budgetTreasury).state()), uint256(IBudgetTreasury.BudgetState.Expired));
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertTrue(removed);
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
+
+        (bool found, bool removedFromParent, bool goalSynced) =
+            _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
+        assertTrue(found);
+        assertTrue(removedFromParent);
+        assertTrue(goalSynced);
+    }
+
+    function test_syncBudgetTreasuries_permissionless_goalSyncFailureRepairsViaRetryTerminalSideEffects() public {
+        bytes32 itemID = _registerDefaultListing();
+        (address childFlow,) = goalFlow.recipients(itemID);
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        bytes memory expectedReason = abi.encodeWithSignature("Error(string)", "GOAL_SYNC_FAILED");
+
+        vm.warp(IBudgetTreasury(budgetTreasury).fundingDeadline() + 1);
+        goalTreasury.setShouldRevertSync(true);
+        uint256 syncCallCountBefore = goalTreasury.syncCallCount();
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.recordLogs();
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = budgetTcr.syncBudgetTreasuries(itemIDs);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertTrue(IBudgetTreasury(budgetTreasury).resolved());
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore);
+        (, bool removed) = goalFlow.recipients(itemID);
+        assertTrue(removed);
+        assertTrue(_hasBudgetSyncCallFailed(logs, itemID, budgetTreasury, IGoalTreasury.sync.selector, expectedReason));
+
+        (bool found, bool removedFromParent, bool goalSynced) =
+            _getBudgetTerminalRecipientPruned(logs, itemID, childFlow, budgetTreasury);
+        assertTrue(found);
+        assertTrue(removedFromParent);
+        assertFalse(goalSynced);
+
+        goalTreasury.setShouldRevertSync(false);
+
+        vm.prank(makeAddr("keeper"));
+        IBudgetTreasury(budgetTreasury).retryTerminalSideEffects();
+
+        assertEq(goalTreasury.syncCallCount(), syncCallCountBefore + 1);
     }
 
     function test_syncBudgetTreasuries_emitsBatchOutcomeEvents_forSkipFailAndSuccess() public {
