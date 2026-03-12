@@ -1772,6 +1772,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant COBUILD_REVNET_ID = 9002;
     uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 60 days;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
+    bytes32 internal constant SUCCESS_RESIDUAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_SUCCESS_RESIDUAL_BURN"));
     bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
     uint8 internal constant DIRECTORY_FAILURE_INVALID = 1;
     uint8 internal constant DIRECTORY_FAILURE_REVERT = 2;
@@ -2222,6 +2223,36 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         assertEq(rollover.rolloverHook.lastQueuedAmount(), residual);
         assertEq(rollover.cobuildToken.balanceOf(address(managedTreasury)), 0);
         assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 109e18);
+    }
+
+    function test_settleLateResidual_succeededWithoutCooldown_burnsResidualInsteadOfQueueing() public {
+        ManagedTerminalRolloverRuntime memory rollover = _configureManagedTerminalRolloverPath();
+        GoalTreasury openTreasury = _deployGoalTreasuryWithTerminalRollover(0);
+
+        _activateGoal(openTreasury);
+        _resolveGoalSuccess(openTreasury);
+
+        assertEq(controller.burnCallCount(), 1);
+        assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
+        assertEq(controller.lastBurnAmount(), 100e18);
+        assertEq(controller.lastBurnMemoHash(), SUCCESS_RESIDUAL_BURN_MEMO_HASH);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 0);
+        assertEq(rollover.rolloverHook.queueCallCount(), 0);
+
+        uint256 residual = 9e18;
+        superToken.mint(address(flow), residual);
+
+        openTreasury.settleLateResidual();
+
+        assertEq(superToken.balanceOf(address(flow)), 0);
+        assertEq(controller.burnCallCount(), 2);
+        assertEq(controller.lastBurnProjectId(), GOAL_REVNET_ID);
+        assertEq(controller.lastBurnAmount(), residual);
+        assertEq(controller.lastBurnMemoHash(), SUCCESS_RESIDUAL_BURN_MEMO_HASH);
+        assertEq(rollover.cashOutTerminal.cashOutCallCount(), 0);
+        assertEq(rollover.rolloverHook.queueCallCount(), 0);
+        assertEq(rollover.cobuildToken.balanceOf(address(rollover.rolloverHook)), 0);
+        assertEq(rollover.cobuildToken.balanceOf(address(openTreasury)), 0);
     }
 
     function test_settleLateResidual_succeededManagedCooldown_revertsWithoutGoalCashOutTerminal() public {
