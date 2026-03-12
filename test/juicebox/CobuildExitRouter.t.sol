@@ -187,6 +187,34 @@ contract CobuildExitRouterTest is Test {
         assertEq(cobuildToken.balanceOf(address(router)), 0);
     }
 
+    function test_exitToEth_reusesSameMetadataAcrossGoalAndCommunityCashOutHops() public {
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 3 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 3 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 3 ether);
+        _seedSharedNativeCashOut(COBUILD_ID, 3 ether);
+        _mintGoalTokens(address(this), 3 ether);
+
+        goalToken.approve(address(router), 3 ether);
+
+        bytes memory metadata = bytes("goal-exit-metadata");
+        address payable beneficiary = payable(makeAddr("beneficiary"));
+        router.exitToEth(GOAL_ID, 3 ether, 3 ether, beneficiary, block.timestamp + 1, metadata);
+
+        assertEq(goalCashOutTerminal.cashOutCallCount(), 1);
+        assertEq(terminalStore.cashOutCallCountOf(CHILD_COMMUNITY_ID), 1);
+        assertEq(terminalStore.cashOutCallCountOf(COMMUNITY_ID), 1);
+        assertEq(terminalStore.cashOutCallCountOf(COBUILD_ID), 1);
+        assertEq(keccak256(goalCashOutTerminal.lastCashOutMetadata()), keccak256(metadata));
+        assertEq(keccak256(terminalStore.lastCashOutMetadataOf(CHILD_COMMUNITY_ID)), keccak256(metadata));
+        assertEq(keccak256(terminalStore.lastCashOutMetadataOf(COMMUNITY_ID)), keccak256(metadata));
+        assertEq(keccak256(terminalStore.lastCashOutMetadataOf(COBUILD_ID)), keccak256(metadata));
+    }
+
     function test_exitToCommunityToken_revertsWhenImmediateLayerIsCobuildRoot() public {
         _registerGoal(COBUILD_ID, cobuildToken);
         _registerCobuildRoot();
@@ -282,9 +310,85 @@ contract CobuildExitRouterTest is Test {
         assertEq(beneficiary.balance - beneficiaryBalanceBefore, 2 ether);
     }
 
+    function test_exitToEth_revertsWhenOutputBelowMinimum() public {
+        _registerGoal(CHILD_COMMUNITY_ID, childCommunityToken);
+        _registerCobuildRoot();
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(cobuildToken), COBUILD_ID, false);
+        _registerCommunityProject(CHILD_COMMUNITY_ID, childCommunityToken, address(communityToken), COMMUNITY_ID, false);
+        _setGoalPrimaryTerminal(address(childCommunityToken));
+        _seedGoalCashOut(CHILD_COMMUNITY_ID, 2 ether);
+        _seedSharedTokenCashOut(CHILD_COMMUNITY_ID, COMMUNITY_ID, 2 ether);
+        _seedSharedTokenCashOut(COMMUNITY_ID, COBUILD_ID, 2 ether);
+        _seedSharedNativeCashOut(COBUILD_ID, 2 ether);
+        _mintGoalTokens(address(this), 2 ether);
+
+        goalToken.approve(address(router), 2 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.UNDER_MIN_OUTPUT.selector, 2 ether, 2 ether + 1));
+        router.exitToEth(GOAL_ID, 2 ether, 2 ether + 1, payable(address(this)), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToEth_revertsWhenDirectNativeCommunityRootLacksSeatedNativeLiquidity() public {
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(communityToken));
+        _seedGoalCashOut(COMMUNITY_ID, 2 ether);
+        _seedSharedNativeCashOut(COMMUNITY_ID, 2 ether);
+        vm.deal(address(sharedTerminal), 1 ether);
+        _mintGoalTokens(address(this), 2 ether);
+
+        goalToken.approve(address(router), 2 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildCommunityTerminal.INSUFFICIENT_RECLAIM_LIQUIDITY.selector,
+                JBConstants.NATIVE_TOKEN,
+                2 ether,
+                1 ether
+            )
+        );
+        router.exitToEth(GOAL_ID, 2 ether, 0, payable(address(this)), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToEth_revertsWhenDirectNativeCommunityRootTerminalIsRetargeted() public {
+        _registerGoal(COMMUNITY_ID, communityToken);
+        _registerCommunityProject(COMMUNITY_ID, communityToken, address(communityToken), COMMUNITY_ID, true);
+        _setGoalPrimaryTerminal(address(communityToken));
+        _seedGoalCashOut(COMMUNITY_ID, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
+
+        SeededCashOutTerminal rogueCommunityCashOutTerminal = new SeededCashOutTerminal(controller, COMMUNITY_ID);
+        vm.prank(multisig);
+        controller.setProjectTerminal(COMMUNITY_ID, address(rogueCommunityCashOutTerminal), true);
+        directory.setPrimaryTerminalOf(
+            COMMUNITY_ID,
+            JBConstants.NATIVE_TOKEN,
+            IJBTerminal(address(rogueCommunityCashOutTerminal))
+        );
+
+        goalToken.approve(address(router), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CobuildExitRouter.INVALID_COMMUNITY_TERMINAL.selector,
+                COMMUNITY_ID,
+                JBConstants.NATIVE_TOKEN,
+                address(rogueCommunityCashOutTerminal)
+            )
+        );
+        router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(this)), block.timestamp + 1, bytes("goal-exit"));
+    }
+
     function test_exitToEth_revertsWhenBeneficiaryIsRouter() public {
         vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.SELF_BENEFICIARY.selector));
         router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(router)), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToEth_revertsWhenDeadlineExpired() public {
+        uint256 deadline = block.timestamp - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(CobuildExitRouter.DEADLINE_EXPIRED.selector, deadline, block.timestamp));
+        router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(this)), deadline, bytes("goal-exit"));
     }
 
     function test_exitToEth_revertsWhenCobuildNativeTerminalMissing() public {
@@ -413,6 +517,26 @@ contract CobuildExitRouterTest is Test {
             abi.encodeWithSelector(CobuildExitRouter.MAX_COMMUNITY_HOPS_EXCEEDED.selector, router.MAX_COMMUNITY_HOPS())
         );
         router.exitToCobuildToken(GOAL_ID, 1 ether, 0, address(this), block.timestamp + 1, bytes("goal-exit"));
+    }
+
+    function test_exitToEth_revertsWhenCommunityLineageExceedsMaxHops() public {
+        _registerCobuildRoot();
+
+        uint256 hopCount = router.MAX_COMMUNITY_HOPS() + 1;
+        (uint256[] memory hopIds, MockVotesToken[] memory hopTokens) = _createCobuildHopLineage(hopCount);
+
+        _registerGoal(hopIds[0], hopTokens[0]);
+        _setGoalPrimaryTerminal(address(hopTokens[0]));
+        _seedGoalCashOut(hopIds[0], 1 ether);
+        _seedCobuildHopCashOuts(hopIds, 1 ether);
+        _mintGoalTokens(address(this), 1 ether);
+
+        goalToken.approve(address(router), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CobuildExitRouter.MAX_COMMUNITY_HOPS_EXCEEDED.selector, router.MAX_COMMUNITY_HOPS())
+        );
+        router.exitToEth(GOAL_ID, 1 ether, 0, payable(address(this)), block.timestamp + 1, bytes("goal-exit"));
     }
 
     function _registerGoal(uint256 cobuildRevnetId, MockVotesToken paymentToken) internal {
@@ -588,6 +712,8 @@ contract SeededCashOutTerminal is IJBCashOutTerminal {
 
     RouterAsyncReservedController internal immutable _controller;
     uint256 internal immutable _projectId;
+    uint256 public cashOutCallCount;
+    bytes public lastCashOutMetadata;
 
     constructor(RouterAsyncReservedController controller_, uint256 projectId_) {
         _controller = controller_;
@@ -614,6 +740,8 @@ contract SeededCashOutTerminal is IJBCashOutTerminal {
     ) external override returns (uint256 reclaimAmount) {
         require(projectId == _projectId, "INVALID_PROJECT");
 
+        cashOutCallCount += 1;
+        lastCashOutMetadata = metadata;
         _controller.burnTokensOf(holder, projectId, cashOutCount, "");
         reclaimAmount = cashOutCount;
         require(reclaimAmount >= minTokensReclaimed, "MIN");

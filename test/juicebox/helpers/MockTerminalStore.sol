@@ -26,6 +26,8 @@ contract MockTerminalStore {
     mapping(uint256 projectId => uint256) internal _recordedTokenCountOf;
     mapping(uint256 projectId => JBPayHookSpecification) internal _payHookSpecificationOf;
     mapping(uint256 projectId => mapping(address token => CashOutConfig)) internal _cashOutConfigOf;
+    mapping(uint256 projectId => bytes) internal _lastCashOutMetadataOf;
+    mapping(uint256 projectId => uint256) public cashOutCallCountOf;
 
     bytes public lastMetadata;
     bytes public lastCashOutMetadata;
@@ -149,6 +151,8 @@ contract MockTerminalStore {
         )
     {
         lastCashOutMetadata = metadata;
+        _lastCashOutMetadataOf[projectId] = metadata;
+        cashOutCallCountOf[projectId] += 1;
 
         CashOutConfig storage cashOutConfig = _cashOutConfigOf[projectId][accountingContext.token];
         reclaimAmount = cashOutConfig.reclaimAmount == 0 ? cashOutCount : cashOutConfig.reclaimAmount;
@@ -172,6 +176,10 @@ contract MockTerminalStore {
     function recordTerminalMigration(uint256 projectId, address token) external returns (uint256 balance) {
         balance = balanceOf[msg.sender][projectId][token];
         balanceOf[msg.sender][projectId][token] = 0;
+    }
+
+    function lastCashOutMetadataOf(uint256 projectId) external view returns (bytes memory metadata) {
+        metadata = _lastCashOutMetadataOf[projectId];
     }
 
     function _mockRuleset(uint256 currency) internal pure returns (JBRuleset memory ruleset) {
