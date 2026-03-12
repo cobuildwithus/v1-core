@@ -27,20 +27,12 @@ contract ManagedBudgetControllerStackDeployer is IManagedBudgetControllerStackDe
         premiumEscrowImplementation = premiumEscrowImplementation_;
     }
 
-    function prepareBudgetStack(
-        address controller,
-        address budgetAllocationLedger,
-        address goalFlow,
-        address goalTreasury
-    ) external override returns (PreparationResult memory result) {
+    function prepareBudgetStack(address controller) external override returns (PreparationResult memory result) {
         _requireController(controller);
-        _requireContract(budgetAllocationLedger);
-        _requireContract(goalFlow);
-        _requireContract(goalTreasury);
 
         address budgetTreasury = Clones.clone(budgetTreasuryImplementation);
         result = PreparationResult({
-            strategy: address(new BudgetSingleAllocatorStrategy(controller, budgetTreasury, controller)),
+            strategy: address(new BudgetSingleAllocatorStrategy(budgetTreasury, controller)),
             budgetTreasury: budgetTreasury,
             premiumEscrow: Clones.clone(premiumEscrowImplementation)
         });
@@ -96,10 +88,5 @@ contract ManagedBudgetControllerStackDeployer is IManagedBudgetControllerStackDe
         if (controller == address(0)) revert ADDRESS_ZERO();
         if (msg.sender != controller) revert ONLY_CONTROLLER(controller, msg.sender);
         if (controller.code.length == 0) revert NOT_A_CONTRACT(controller);
-    }
-
-    function _requireContract(address account) private view {
-        if (account == address(0)) revert ADDRESS_ZERO();
-        if (account.code.length == 0) revert NOT_A_CONTRACT(account);
     }
 }

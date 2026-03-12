@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -271,9 +270,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(managedController.authority(), managedSafe);
         assertEq(managedController.goalTreasury(), deployed.goalTreasury);
         assertEq(managedController.goalFlow(), deployed.goalFlow);
-        assertEq(managedController.budgetAllocationLedger(), deployed.budgetStakeLedger);
+        assertEq(managedController.budgetAllocationLedger(), address(0));
         assertEq(managedController.budgetSuccessResolver(), params.budgetTCR.budgetSuccessResolver);
         assertEq(managedController.budgetSpendPolicy(), params.budgetTCR.budgetSpendPolicy);
+        assertEq(managedController.underwriterSlasherRouter(), address(0));
         assertEq(managedController.budgetPremiumPpm(), params.underwriting.budgetPremiumPpm);
         assertEq(managedController.budgetSlashPpm(), params.underwriting.budgetSlashPpm);
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
@@ -400,11 +400,11 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(IFlow(childFlowB).flowOperator(), treasuryB);
         assertEq(IFlow(childFlowB).sweeper(), treasuryB);
 
-        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyA,) = managedController.budgetStackTopology(itemA);
-        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyB,) = managedController.budgetStackTopology(itemB);
-        assertEq(BudgetSingleAllocatorStrategy(topologyA.strategy).owner(), deployed.budgetController);
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyA,) =
+            managedController.budgetStackTopology(itemA);
+        (IBudgetStackTopologyReader.BudgetStackTopology memory topologyB,) =
+            managedController.budgetStackTopology(itemB);
         assertEq(BudgetSingleAllocatorStrategy(topologyA.strategy).allocator(), deployed.budgetController);
-        assertEq(BudgetSingleAllocatorStrategy(topologyB.strategy).owner(), deployed.budgetController);
         assertEq(BudgetSingleAllocatorStrategy(topologyB.strategy).allocator(), deployed.budgetController);
 
         uint256 controllerKey = goalStrategy.allocationKey(deployed.budgetController, bytes(""));
@@ -441,7 +441,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         bytes32 childRecipientIdB = bytes32(uint256(12));
 
         assertEq(goalStrategy.allocator(), deployed.budgetController);
-        assertEq(childStrategy.owner(), deployed.budgetController);
         assertEq(childStrategy.allocator(), deployed.budgetController);
         assertEq(IFlow(childFlow).recipientAdmin(), deployed.budgetController);
 
@@ -454,10 +453,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
 
         _assertGoalAllocatorMutationPathAbsent(goalStrategy, managedSafe);
-
-        vm.prank(managedSafe);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, managedSafe));
-        childStrategy.changeAllocator(managedSafe);
+        _assertBudgetAllocatorMutationPathAbsent(childStrategy, managedSafe);
+        _assertSelectorAbsent(address(childStrategy), abi.encodeWithSignature("owner()"));
 
         vm.prank(managedSafe);
         managedController.transferAuthority(rotatedSafe);
@@ -467,16 +464,12 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
         assertEq(managedController.authority(), rotatedSafe);
         assertEq(goalStrategy.allocator(), deployed.budgetController);
-        assertEq(childStrategy.owner(), deployed.budgetController);
         assertEq(childStrategy.allocator(), deployed.budgetController);
 
         _assertGoalAllocatorMutationPathAbsent(goalStrategy, managedSafe);
 
         _assertGoalAllocatorMutationPathAbsent(goalStrategy, rotatedSafe);
-
-        vm.prank(rotatedSafe);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rotatedSafe));
-        childStrategy.changeAllocator(rotatedSafe);
+        _assertBudgetAllocatorMutationPathAbsent(childStrategy, rotatedSafe);
 
         vm.prank(rotatedSafe);
         managedController.addBudgetFlowRecipient(
@@ -722,9 +715,31 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     }
 
     function _assertGoalAllocatorMutationPathAbsent(SingleAllocatorStrategy goalStrategy, address caller) internal {
+        _assertSelectorAbsentAs(
+            caller, address(goalStrategy), abi.encodeWithSignature("changeAllocator(address)", caller)
+        );
+    }
+
+    function _assertBudgetAllocatorMutationPathAbsent(BudgetSingleAllocatorStrategy childStrategy, address caller)
+        internal
+    {
+        _assertSelectorAbsentAs(
+            caller, address(childStrategy), abi.encodeWithSignature("changeAllocator(address)", caller)
+        );
+        _assertSelectorAbsentAs(
+            caller, address(childStrategy), abi.encodeWithSignature("transferOwnership(address)", caller)
+        );
+    }
+
+    function _assertSelectorAbsent(address target, bytes memory callData) internal view {
+        (bool success, bytes memory returnData) = target.staticcall(callData);
+        assertFalse(success);
+        assertEq(returnData.length, 0);
+    }
+
+    function _assertSelectorAbsentAs(address caller, address target, bytes memory callData) internal {
         vm.prank(caller);
-        (bool success, bytes memory returnData) =
-            address(goalStrategy).call(abi.encodeWithSignature("changeAllocator(address)", caller));
+        (bool success, bytes memory returnData) = target.call(callData);
         assertFalse(success);
         assertEq(returnData.length, 0);
     }
@@ -1140,11 +1155,10 @@ contract FactoryDeployMockFlow {
         managerRewardDistributionPool = ISuperfluidPool(address(new FactoryDeployMockDistributionPool()));
     }
 
-    function addRecipient(
-        bytes32 newRecipientId,
-        address recipient,
-        FlowTypes.RecipientMetadata memory
-    ) external returns (bytes32 recipientId, address recipientAddress) {
+    function addRecipient(bytes32 newRecipientId, address recipient, FlowTypes.RecipientMetadata memory)
+        external
+        returns (bytes32 recipientId, address recipientAddress)
+    {
         if (msg.sender != recipientAdmin) revert();
         recipientId = newRecipientId;
         recipientAddress = recipient;

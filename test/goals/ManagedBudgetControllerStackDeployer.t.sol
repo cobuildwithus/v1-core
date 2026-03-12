@@ -9,7 +9,45 @@ import {ManagedBudgetControllerStackDeployer} from "src/goals/ManagedBudgetContr
 import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {IManagedBudgetControllerStackDeployer} from "src/interfaces/IManagedBudgetControllerStackDeployer.sol";
+import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
+
+contract ManagedBudgetControllerStackDeployerSpendPolicyMock is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96 flowRate) {
+        return flowRate;
+    }
+
+    function syncMode() external pure returns (SyncMode mode) {
+        return SyncMode.Capped;
+    }
+}
+
+contract ManagedBudgetControllerStackDeployerParentFlowMock {
+    function getMemberFlowRate(address) external pure returns (int96 flowRate) {
+        return flowRate;
+    }
+}
+
+contract ManagedBudgetControllerStackDeployerChildFlowMock {
+    address public immutable superToken;
+    address public immutable parent;
+    address public flowOperator;
+    address public sweeper;
+    int96 public targetOutflowRate;
+
+    constructor(address superToken_, address parent_) {
+        superToken = superToken_;
+        parent = parent_;
+    }
+
+    function setFlowOperator(address flowOperator_) external {
+        flowOperator = flowOperator_;
+    }
+
+    function setSweeper(address sweeper_) external {
+        sweeper = sweeper_;
+    }
+}
 
 contract ManagedBudgetControllerStackDeployerTest is Test {
     BudgetTreasury internal budgetTreasuryImplementation;
@@ -18,10 +56,9 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
 
     address internal budgetAllocationLedger = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal goalFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
-    address internal goalTreasury = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal childFlow = address(new ManagedBudgetControllerStackDeployerDummyContract());
     address internal successResolver = address(new ManagedBudgetControllerStackDeployerDummyContract());
-    address internal spendPolicy = address(new ManagedBudgetControllerStackDeployerDummyContract());
+    address internal spendPolicy = address(new ManagedBudgetControllerStackDeployerSpendPolicyMock());
 
     function setUp() public {
         budgetTreasuryImplementation = new BudgetTreasury();
@@ -57,7 +94,7 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
 
     function test_prepareBudgetStack_deploysScopedStrategyAndClonesImplementations() public {
         IManagedBudgetControllerStackDeployer.PreparationResult memory result =
-            deployer.prepareBudgetStack(address(this), budgetAllocationLedger, goalFlow, goalTreasury);
+            deployer.prepareBudgetStack(address(this));
 
         assertTrue(result.strategy != address(0));
         assertTrue(result.budgetTreasury != address(0));
@@ -66,7 +103,6 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
         assertTrue(result.premiumEscrow != address(premiumEscrowImplementation));
 
         BudgetSingleAllocatorStrategy strategy = BudgetSingleAllocatorStrategy(result.strategy);
-        assertEq(strategy.owner(), address(this));
         assertEq(strategy.budgetTreasury(), result.budgetTreasury);
         assertEq(strategy.allocator(), address(this));
     }
@@ -79,37 +115,41 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
                 ManagedBudgetControllerStackDeployer.ONLY_CONTROLLER.selector, controller, address(this)
             )
         );
-        deployer.prepareBudgetStack(controller, budgetAllocationLedger, goalFlow, goalTreasury);
+        deployer.prepareBudgetStack(controller);
     }
 
     function test_prepareBudgetStack_revertsOnZeroController() public {
         vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
-        deployer.prepareBudgetStack(address(0), budgetAllocationLedger, goalFlow, goalTreasury);
+        deployer.prepareBudgetStack(address(0));
     }
 
-    function test_prepareBudgetStack_revertsOnZeroBudgetAllocationLedger() public {
-        vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
-        deployer.prepareBudgetStack(address(this), address(0), goalFlow, goalTreasury);
-    }
-
-    function test_prepareBudgetStack_revertsOnNonContractGoalFlow() public {
+    function test_prepareBudgetStack_revertsOnNonContractController() public {
+        address controller = makeAddr("controller");
         vm.expectRevert(
-            abi.encodeWithSelector(ManagedBudgetControllerStackDeployer.NOT_A_CONTRACT.selector, address(0xBEEF))
+            abi.encodeWithSelector(ManagedBudgetControllerStackDeployer.NOT_A_CONTRACT.selector, controller)
         );
-        deployer.prepareBudgetStack(address(this), budgetAllocationLedger, address(0xBEEF), goalTreasury);
+        vm.prank(controller);
+        deployer.prepareBudgetStack(controller);
     }
 
-    function test_deployBudgetTreasury_revertsOnZeroUnderwriterSlasherRouter() public {
+    function test_deployBudgetTreasury_allowsZeroManagedLedgerAndRouterForNullEscrow() public {
         IManagedBudgetControllerStackDeployer.PreparationResult memory prepared =
-            deployer.prepareBudgetStack(address(this), budgetAllocationLedger, goalFlow, goalTreasury);
+            deployer.prepareBudgetStack(address(this));
+        ManagedBudgetControllerStackDeployerParentFlowMock parentFlow =
+            new ManagedBudgetControllerStackDeployerParentFlowMock();
+        ManagedBudgetControllerStackDeployerChildFlowMock budgetFlow =
+            new ManagedBudgetControllerStackDeployerChildFlowMock(
+                address(new ManagedBudgetControllerStackDeployerDummyContract()), address(parentFlow)
+            );
+        budgetFlow.setFlowOperator(prepared.budgetTreasury);
+        budgetFlow.setSweeper(prepared.budgetTreasury);
 
-        vm.expectRevert(IManagedBudgetControllerStackDeployer.ADDRESS_ZERO.selector);
-        deployer.deployBudgetTreasury(
+        address deployedBudgetTreasury = deployer.deployBudgetTreasury(
             address(this),
             prepared.budgetTreasury,
             prepared.premiumEscrow,
-            childFlow,
-            budgetAllocationLedger,
+            address(budgetFlow),
+            address(0),
             goalFlow,
             address(0),
             0,
@@ -119,6 +159,13 @@ contract ManagedBudgetControllerStackDeployerTest is Test {
             1 days,
             1 ether
         );
+
+        assertEq(deployedBudgetTreasury, prepared.budgetTreasury);
+        assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetTreasury(), prepared.budgetTreasury);
+        assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetStakeLedger(), address(0));
+        assertEq(NullPremiumEscrow(prepared.premiumEscrow).goalFlow(), goalFlow);
+        assertEq(NullPremiumEscrow(prepared.premiumEscrow).underwriterSlasherRouter(), address(0));
+        assertEq(NullPremiumEscrow(prepared.premiumEscrow).budgetSlashPpm(), 0);
     }
 
     function test_deployBudgetTreasury_revertsWhenCallerIsNotController() public {
