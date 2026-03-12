@@ -82,7 +82,7 @@ contract GoalFactory {
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     uint24 internal constant BUYBACK_POOL_FEE = 3_000;
     uint32 internal constant BUYBACK_TWAP_WINDOW = 1 hours;
-    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 60 days;
+    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 30 days;
 
     struct FundingContext {
         address paymentToken;

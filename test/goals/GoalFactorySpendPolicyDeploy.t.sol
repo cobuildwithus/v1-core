@@ -348,7 +348,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(managedController.budgetSpendPolicy(), params.budgetTCR.budgetSpendPolicy);
         assertEq(IGoalTreasury(deployed.goalTreasury).budgetPremiumPpm(), params.underwriting.budgetPremiumPpm);
         assertEq(IGoalTreasury(deployed.goalTreasury).budgetSlashPpm(), params.underwriting.budgetSlashPpm);
-        assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 60 days);
+        assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 30 days);
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
         assertEq(strategy.allocator(), deployed.budgetController);
         assertEq(strategy.goalTreasury(), deployed.goalTreasury);

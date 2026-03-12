@@ -1770,7 +1770,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 contract UnderwritingCoverageCapIntegrationTest is Test {
     uint256 internal constant GOAL_REVNET_ID = 9001;
     uint256 internal constant COBUILD_REVNET_ID = 9002;
-    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 60 days;
+    uint64 internal constant MANAGED_TERMINAL_ROLLOVER_COOLDOWN = 30 days;
     bytes32 internal constant ASSERT_TRUTH_IDENTIFIER = bytes32("ASSERT_TRUTH2");
     bytes32 internal constant SUCCESS_RESIDUAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_SUCCESS_RESIDUAL_BURN"));
     bytes32 internal constant TERMINAL_BURN_MEMO_HASH = keccak256(bytes("GOAL_TERMINAL_RESIDUAL_BURN"));
