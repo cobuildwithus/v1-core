@@ -1445,17 +1445,11 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
 
         stack.goalAssertionOracle = new TreasuryMockOptimisticOracleV3();
         stack.goalSuccessResolver = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(stack.goalAssertionOracle)),
-            IERC20(address(goalToken)),
-            address(0xAA11CE),
-            keccak256("underwriting-real-goal-domain")
+            OptimisticOracleV3Interface(address(stack.goalAssertionOracle)), IERC20(address(goalToken))
         );
         stack.budgetAssertionOracle = new TreasuryMockOptimisticOracleV3();
         stack.budgetSuccessResolver = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(stack.budgetAssertionOracle)),
-            IERC20(address(goalToken)),
-            address(0xBB0B),
-            keccak256("underwriting-real-budget-domain")
+            OptimisticOracleV3Interface(address(stack.budgetAssertionOracle)), IERC20(address(goalToken))
         );
 
         GoalTreasury goalTreasuryImplementation = new GoalTreasury();
@@ -1681,7 +1675,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: address(resolver),
-                    escalationManager: resolver.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: address(resolver),
                 assertionTime: assertedAt,
@@ -1689,7 +1683,7 @@ contract UnderwritingPremiumSlashIntegrationTest is Test, IBudgetStackTopologyRe
                 currency: resolver.assertionCurrency(),
                 expirationTime: assertedAt + liveness,
                 settlementResolution: true,
-                domainId: resolver.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: bond,
                 callbackRecipient: address(resolver),
@@ -1825,10 +1819,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         budgetStakeLedger = new UnderwritingMockBudgetStakeLedger();
         assertionOracle = new TreasuryMockOptimisticOracleV3();
         successResolverConfig = new TreasuryMockUmaResolverConfigWithFinalize(
-            OptimisticOracleV3Interface(address(assertionOracle)),
-            IERC20(address(underlyingToken)),
-            address(0xA11CE),
-            keccak256("goal-test-domain")
+            OptimisticOracleV3Interface(address(assertionOracle)), IERC20(address(underlyingToken))
         );
         LinearSpendPolicy goalSpendPolicy =
             _deployLinearSpendPolicy(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
@@ -2272,7 +2263,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                     discardOracle: false,
                     validateDisputers: false,
                     assertingCaller: address(successResolverConfig),
-                    escalationManager: successResolverConfig.escalationManager()
+                    escalationManager: address(0)
                 }),
                 asserter: address(successResolverConfig),
                 assertionTime: assertedAt,
@@ -2280,7 +2271,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
                 currency: IERC20(address(underlyingToken)),
                 expirationTime: assertedAt + treasury.successAssertionLiveness(),
                 settlementResolution: false,
-                domainId: successResolverConfig.domainId(),
+                domainId: bytes32(0),
                 identifier: ASSERT_TRUTH_IDENTIFIER,
                 bond: treasury.successAssertionBond(),
                 callbackRecipient: address(successResolverConfig),
@@ -2299,6 +2290,94 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         assertEq(treasury.pendingSuccessAssertionId(), bytes32(0));
         assertTrue(treasury.reassertGraceUsed());
+    }
+
+    function test_resolveSuccess_revertsWhenAssertionUsesNonZeroEscalationManager() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+
+        bytes32 assertionId = keccak256("goal-custom-escalation-manager");
+        vm.prank(address(successResolverConfig));
+        treasury.registerSuccessAssertion(assertionId);
+
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: address(successResolverConfig),
+                    escalationManager: address(0xBEEF)
+                }),
+                asserter: address(successResolverConfig),
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: true,
+                domainId: bytes32(0),
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: address(successResolverConfig),
+                disputer: address(0)
+            })
+        );
+
+        vm.prank(address(successResolverConfig));
+        vm.expectRevert(IGoalTreasury.SUCCESS_ASSERTION_NOT_VERIFIED.selector);
+        treasury.resolveSuccess();
+
+        assertEq(treasury.pendingSuccessAssertionId(), assertionId);
+        assertEq(treasury.pendingSuccessAssertionAt(), assertedAt);
+        assertEq(uint256(treasury.state()), uint256(IGoalTreasury.GoalState.Active));
+        assertFalse(treasury.resolved());
+    }
+
+    function test_sync_activeWithPendingSuccessAssertion_atDeadline_nonZeroDomain_activatesFailClosedGrace() public {
+        distributionPool.setTotalUnits(40);
+        _activateGoal();
+
+        bytes32 assertionId = keccak256("goal-custom-domain");
+        bytes32 customDomainId = keccak256("goal-custom-domain-id");
+        vm.prank(address(successResolverConfig));
+        treasury.registerSuccessAssertion(assertionId);
+
+        uint64 assertedAt = treasury.pendingSuccessAssertionAt();
+        assertionOracle.setAssertion(
+            assertionId,
+            OptimisticOracleV3Interface.Assertion({
+                escalationManagerSettings: OptimisticOracleV3Interface.EscalationManagerSettings({
+                    arbitrateViaEscalationManager: false,
+                    discardOracle: false,
+                    validateDisputers: false,
+                    assertingCaller: address(successResolverConfig),
+                    escalationManager: address(0)
+                }),
+                asserter: address(successResolverConfig),
+                assertionTime: assertedAt,
+                settled: true,
+                currency: IERC20(address(underlyingToken)),
+                expirationTime: assertedAt + treasury.successAssertionLiveness(),
+                settlementResolution: true,
+                domainId: customDomainId,
+                identifier: ASSERT_TRUTH_IDENTIFIER,
+                bond: treasury.successAssertionBond(),
+                callbackRecipient: address(successResolverConfig),
+                disputer: address(0)
+            })
+        );
+
+        vm.warp(treasury.deadline());
+        vm.expectEmit(true, false, false, false, address(treasury));
+        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        vm.expectEmit(true, true, false, false, address(treasury));
+        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+
+        treasury.sync();
+
+        _assertGoalFailClosedGraceState(treasury);
     }
 
     function test_clearSuccessAssertion_afterDeadline_activatesGoalReassertGrace() public {
@@ -2324,11 +2403,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     function test_sync_activeWithPendingSuccessAssertion_atDeadline_resolverConfigReadFailure_emitsFailClosedTelemetry()
         public
     {
-        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig = new UnderwritingRevertingOptimisticOracleResolverConfig(
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
-        );
+        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig =
+            new UnderwritingRevertingOptimisticOracleResolverConfig(IERC20(address(underlyingToken)));
         GoalTreasury unresolvedConfigTreasury = _deployGoalTreasuryWithResolver(address(revertingResolverConfig));
 
         distributionPool.setTotalUnits(40);
@@ -2355,11 +2431,8 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     }
 
     function test_sync_linearSpendPolicy_withCap_atDeadline_failClosedGraceKeepsZeroTarget() public {
-        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig = new UnderwritingRevertingOptimisticOracleResolverConfig(
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
-        );
+        UnderwritingRevertingOptimisticOracleResolverConfig revertingResolverConfig =
+            new UnderwritingRevertingOptimisticOracleResolverConfig(IERC20(address(underlyingToken)));
         GoalTreasury candidateTreasury = _cloneGoalTreasuryWithPredictedAddress();
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy(false, 200, ISpendPolicy.SyncMode.Capped);
 
@@ -2390,10 +2463,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         public
     {
         TreasuryMockUmaResolverConfig zeroOracleResolverConfig = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(0)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(0)), IERC20(address(underlyingToken))
         );
         GoalTreasury zeroOracleTreasury = _deployGoalTreasuryWithResolver(address(zeroOracleResolverConfig));
 
@@ -2425,10 +2495,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
     {
         UnderwritingRevertingGetAssertionOracle revertingOracle = new UnderwritingRevertingGetAssertionOracle();
         TreasuryMockUmaResolverConfig revertingAssertionReadResolver = new TreasuryMockUmaResolverConfig(
-            OptimisticOracleV3Interface(address(revertingOracle)),
-            IERC20(address(underlyingToken)),
-            successResolverConfig.escalationManager(),
-            successResolverConfig.domainId()
+            OptimisticOracleV3Interface(address(revertingOracle)), IERC20(address(underlyingToken))
         );
         GoalTreasury unresolvedAssertionReadTreasury =
             _deployGoalTreasuryWithResolver(address(revertingAssertionReadResolver));
@@ -2612,15 +2679,11 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
 contract UnderwritingRevertingOptimisticOracleResolverConfig is IUMATreasurySuccessResolverConfig {
     IERC20 public immutable override assertionCurrency;
-    address public immutable override escalationManager;
-    bytes32 public immutable override domainId;
 
     error OPTIMISTIC_ORACLE_REVERT();
 
-    constructor(IERC20 assertionCurrency_, address escalationManager_, bytes32 domainId_) {
+    constructor(IERC20 assertionCurrency_) {
         assertionCurrency = assertionCurrency_;
-        escalationManager = escalationManager_;
-        domainId = domainId_;
     }
 
     function optimisticOracle() external pure returns (OptimisticOracleV3Interface) {
