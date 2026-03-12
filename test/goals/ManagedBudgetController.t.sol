@@ -12,6 +12,7 @@ import {ManagedBudgetControllerStackDeployer} from "src/goals/ManagedBudgetContr
 import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
+import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
@@ -457,6 +458,27 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         assertEq(ManagedBudgetControllerMockBudgetTreasury(treasuryB).syncCallCount(), 1);
     }
 
+    function test_syncBudgetTreasuries_budgetGatePolicySeesZeroCoverageInputs() public {
+        (ManagedBudgetController gatedController, TestableCustomFlow gatedGoalFlow) =
+            _deployControllerWithGatePolicy(address(new ManagedBudgetControllerZeroCoverageGatePolicy()));
+        bytes32 itemID = bytes32(uint256(1));
+
+        vm.prank(safe);
+        gatedController.createBudget(itemID, _defaultBudgetConfig("Budget A"));
+
+        assertTrue(gatedGoalFlow.isRecipientEnabled(itemID));
+
+        bytes32[] memory itemIDs = new bytes32[](1);
+        itemIDs[0] = itemID;
+
+        vm.prank(makeAddr("keeper"));
+        (uint256 attempted, uint256 succeeded) = gatedController.syncBudgetTreasuries(itemIDs);
+
+        assertEq(attempted, 1);
+        assertEq(succeeded, 1);
+        assertFalse(gatedGoalFlow.isRecipientEnabled(itemID));
+    }
+
     function _createBudget(bytes32 itemID, string memory title)
         internal
         returns (address childFlow, address budgetTreasury)
@@ -506,6 +528,50 @@ contract ManagedBudgetControllerTest is FlowTestBase {
             url: "https://managed-child.test"
         });
     }
+
+    function _deployControllerWithGatePolicy(address gatePolicy)
+        internal
+        returns (ManagedBudgetController deployedController, TestableCustomFlow deployedGoalFlow)
+    {
+        ManagedBudgetController controllerImplementation = new ManagedBudgetController();
+        deployedController = ManagedBudgetController(Clones.clone(address(controllerImplementation)));
+
+        ManagedBudgetControllerMockGoalTreasury deployedGoalTreasury = new ManagedBudgetControllerMockGoalTreasury();
+        ManagedBudgetControllerMockStackDeployer deployedStackDeployer = new ManagedBudgetControllerMockStackDeployer();
+        ManagedBudgetControllerMockSpendPolicy deployedSpendPolicy = new ManagedBudgetControllerMockSpendPolicy();
+
+        SingleAllocatorStrategy deployedGoalStrategy =
+            new SingleAllocatorStrategy(address(deployedGoalTreasury), address(deployedController));
+        deployedGoalFlow = TestableCustomFlow(
+            address(
+                _deployFlowWithConfigAndRoles(
+                    owner,
+                    address(deployedController),
+                    manager,
+                    manager,
+                    managerRewardPool,
+                    address(0),
+                    address(0),
+                    IAllocationStrategy(address(deployedGoalStrategy))
+                )
+            )
+        );
+        deployedGoalTreasury.setFlow(address(deployedGoalFlow));
+
+        deployedController.initialize(
+            IManagedBudgetController.InitConfig({
+                authority: safe,
+                goalTreasury: address(deployedGoalTreasury),
+                goalFlow: address(deployedGoalFlow),
+                stackDeployer: address(deployedStackDeployer),
+                budgetGatePolicy: gatePolicy,
+                budgetSuccessResolver: budgetSuccessResolver,
+                budgetSpendPolicy: address(deployedSpendPolicy),
+                successAssertionLiveness: 1 days,
+                successAssertionBond: 10e18
+            })
+        );
+    }
 }
 
 contract ManagedBudgetControllerInitializeValidationTest is Test {
@@ -540,6 +606,26 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(IManagedBudgetController.NOT_A_CONTRACT.selector, address(0xBEEF)));
         controller.initialize(config);
+    }
+
+    function test_initialize_trimmedControllerDoesNotExposeRemovedCoverageOrSlashGetters() public {
+        controller.initialize(_baseInitConfig());
+
+        (bool hasBudgetAllocationLedgerGetter,) = address(controller).staticcall(
+            abi.encodeWithSignature("budgetAllocationLedger()")
+        );
+        (bool hasUnderwriterSlasherRouterGetter,) = address(controller).staticcall(
+            abi.encodeWithSignature("underwriterSlasherRouter()")
+        );
+        (bool hasBudgetPremiumPpmGetter,) = address(controller).staticcall(
+            abi.encodeWithSignature("budgetPremiumPpm()")
+        );
+        (bool hasBudgetSlashPpmGetter,) = address(controller).staticcall(abi.encodeWithSignature("budgetSlashPpm()"));
+
+        assertFalse(hasBudgetAllocationLedgerGetter);
+        assertFalse(hasUnderwriterSlasherRouterGetter);
+        assertFalse(hasBudgetPremiumPpmGetter);
+        assertFalse(hasBudgetSlashPpmGetter);
     }
 
     function _baseInitConfig() internal view returns (IManagedBudgetController.InitConfig memory config) {
@@ -944,6 +1030,13 @@ contract ManagedBudgetControllerMockGoalTreasury {
     function sync() external {
         if (shouldRevertSync) revert("GOAL_SYNC_FAILED");
         syncCallCount += 1;
+    }
+}
+
+contract ManagedBudgetControllerZeroCoverageGatePolicy is IBudgetGatePolicy {
+    function evaluateBudgetGate(SyncContext calldata context) external pure returns (SyncResult memory result) {
+        result.shouldSetRecipientEnabled = true;
+        result.recipientEnabled = context.coverageSource != address(0) || context.coverageToCreditPpm != 0;
     }
 }
 
