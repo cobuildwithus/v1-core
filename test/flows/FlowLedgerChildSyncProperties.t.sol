@@ -151,6 +151,65 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(secondPremiumEscrow.lastCheckpointAccount(), allocator);
     }
 
+    function test_allocate_withLedger_skipsCheckpointWhenBudgetHasNoPremiumEscrow() public {
+        FlowLedgerPropBudgetTreasury noPremiumBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(childFlow), address(childStrategy), address(0));
+        ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(noPremiumBudgetTreasury));
+
+        childFlow.setCommit(keccak256("child-commit"));
+
+        _setWeights(50e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(childFlow.syncCallCount(), 1);
+    }
+
+    function test_allocate_withLedger_multipleChangedBudgets_skipsZeroPremiumEscrow_andCheckpointsOthers() public {
+        FlowLedgerPropBudgetTreasury noPremiumBudgetTreasury =
+            new FlowLedgerPropBudgetTreasury(address(childFlow), address(childStrategy), address(0));
+        ledger.setBudget(PARENT_BUDGET_RECIPIENT_ID, address(noPremiumBudgetTreasury));
+
+        FlowLedgerPropPremiumEscrow secondPremiumEscrow = new FlowLedgerPropPremiumEscrow();
+        FlowLedgerPropChildStrategy secondChildStrategy = new FlowLedgerPropChildStrategy();
+        FlowLedgerPropChildFlow secondChildFlow = new FlowLedgerPropChildFlow(address(secondChildStrategy));
+        FlowLedgerPropBudgetTreasury secondBudgetTreasury = new FlowLedgerPropBudgetTreasury(
+            address(secondChildFlow), address(secondChildStrategy), address(secondPremiumEscrow)
+        );
+        _registerBudgetRecipient(SECOND_BUDGET_RECIPIENT_ID, SECOND_BUDGET_RECIPIENT, address(secondBudgetTreasury));
+
+        childFlow.setCommit(keccak256("child-commit-1"));
+        secondChildFlow.setCommit(keccak256("child-commit-2"));
+
+        _setWeights(25e18);
+        bytes[][] memory allocationData = _parentAllocationData();
+
+        bytes32[] memory recipientIds = new bytes32[](2);
+        recipientIds[0] = PARENT_BUDGET_RECIPIENT_ID;
+        recipientIds[1] = SECOND_BUDGET_RECIPIENT_ID;
+
+        uint32[] memory scaled = new uint32[](2);
+        scaled[0] = HALF_SCALED;
+        scaled[1] = HALF_SCALED;
+
+        _allocateWithPrevStateForStrategy(
+            allocator, allocationData, address(strategy), address(flow), recipientIds, scaled
+        );
+
+        assertEq(ledger.checkpointCallCount(), 1);
+        assertEq(premiumEscrow.checkpointCallCount(), 0);
+        assertEq(secondPremiumEscrow.checkpointCallCount(), 1);
+        assertEq(secondPremiumEscrow.lastCheckpointAccount(), allocator);
+        assertEq(childFlow.syncCallCount(), 1);
+        assertEq(secondChildFlow.syncCallCount(), 1);
+    }
+
     function test_allocate_withLedger_revertsWhenPremiumEscrowCheckpointReverts() public {
         premiumEscrow.setRevertOnCheckpoint(true);
         childFlow.setCommit(keccak256("child-commit"));
@@ -593,6 +652,29 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
         assertEq(childFlow.syncCallCount(), 0);
     }
 
+    function test_allocate_lowGasSkip_opensChildSyncDebt_andReportsExists() public {
+        _setWeights(80e18);
+        _allocateParentSingleRecipient();
+
+        childFlow.setCommit(keccak256("child-commit"));
+
+        _setWeights(40e18);
+        (bytes32[] memory recipientIds, uint32[] memory scaled) = _singleParentAllocation();
+
+        vm.prank(allocator);
+        flow.allocate{ gas: 1_800_000 }(recipientIds, scaled);
+
+        assertEq(allocationPipeline.childSyncDebtCount(allocator), 1);
+        GoalFlowAllocationLedgerPipeline.ChildSyncDebtView memory debt =
+            allocationPipeline.childSyncDebt(allocator, address(budgetTreasury));
+        assertTrue(debt.exists);
+        assertEq(debt.childFlow, address(childFlow));
+        assertEq(debt.childStrategy, address(childStrategy));
+        assertEq(debt.allocationKey, parentKey);
+        assertEq(debt.reason, bytes32("GAS_BUDGET"));
+        assertEq(childFlow.syncCallCount(), 0);
+    }
+
     function test_allocate_childSyncDebt_blocksFollowupAllocationsUntilRepaired() public {
         _setWeights(80e18);
         _allocateParentSingleRecipient();
@@ -744,6 +826,10 @@ contract FlowLedgerChildSyncPropertiesTest is FlowAllocationsBase {
 
         assertTrue(clearedEventFound);
         assertEq(allocationPipeline.childSyncDebtCount(allocator), 0);
+        GoalFlowAllocationLedgerPipeline.ChildSyncDebtView memory debtAfter =
+            allocationPipeline.childSyncDebt(allocator, address(budgetTreasury));
+        assertFalse(debtAfter.exists);
+        assertEq(debtAfter.childFlow, address(0));
         assertEq(childFlow.syncCallCount(), 1);
         assertEq(flow.distributionPool().getUnits(PARENT_BUDGET_RECIPIENT), _units(20e18, FULL_SCALED));
     }

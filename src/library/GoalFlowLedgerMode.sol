@@ -65,6 +65,9 @@ library GoalFlowLedgerMode {
     bytes32 internal constant CHILD_SYNC_SKIP_NO_COMMITMENT = "NO_COMMITMENT";
     bytes32 internal constant CHILD_SYNC_SKIP_TARGET_UNAVAILABLE = "TARGET_UNAVAILABLE";
     bytes32 internal constant CHILD_SYNC_SKIP_GAS_BUDGET = "GAS_BUDGET";
+    bytes32 internal constant CHILD_SYNC_DEBT_REASON_SYNC_FAILED = "SYNC_FAILED";
+    bytes32 internal constant CHILD_SYNC_DEBT_REASON_SYNCED = "SYNCED";
+    bytes32 internal constant CHILD_SYNC_DEBT_REASON_REPAIRED = "REPAIRED";
 
     function syncMinGasReserve(uint256 gasAtStart) internal pure returns (uint256) {
         return
