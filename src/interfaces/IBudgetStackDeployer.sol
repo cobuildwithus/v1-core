@@ -17,7 +17,6 @@ interface IBudgetStackDeployer {
 
     enum PremiumEscrowMode {
         Clone,
-        Shared,
         None
     }
 

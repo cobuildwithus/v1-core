@@ -12,7 +12,6 @@ import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeploye
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
-import {NullPremiumEscrow} from "src/goals/NullPremiumEscrow.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -144,7 +143,6 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
     ManagedBudgetStackActionsHarness internal harness;
     BudgetTCRDeployer internal deployer;
     ManagedBudgetStackFixedStrategy internal fixedStrategy;
-    NullPremiumEscrow internal nullPremiumEscrowImplementation;
     BudgetTCRTestSuperToken internal superToken;
     BudgetTCRGoalFlowHarness internal goalFlow;
     BudgetTCRGoalTreasuryHarness internal goalTreasury;
@@ -159,7 +157,6 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
     function setUp() public {
         harness = new ManagedBudgetStackActionsHarness();
         fixedStrategy = new ManagedBudgetStackFixedStrategy();
-        nullPremiumEscrowImplementation = new NullPremiumEscrow();
         superToken = new BudgetTCRTestSuperToken();
         goalFlow = new BudgetTCRGoalFlowHarness(
             address(this), address(harness), managerRewardPool, ISuperToken(address(superToken))
@@ -180,8 +177,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 childFlowStrategyTarget: address(fixedStrategy),
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+                premiumEscrowImplementation: address(0),
                 requireZeroPremiumAndSlashRates: true
             }),
             address(0)
@@ -211,19 +208,15 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         assertEq(deployment.allocationMechanismArbitrator, address(0));
         assertTrue(deployment.childFlow != address(0));
         assertTrue(deployment.budgetTreasury != address(0));
-        assertTrue(deployment.premiumEscrow != address(0));
+        assertEq(deployment.premiumEscrow, address(0));
 
         assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).recipientAdmin(), safe);
-        assertTrue(
-            address(BudgetTCRChildFlowHarness(deployment.childFlow).managerRewardDistributionPool()) != address(0)
-        );
+        assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).managerRewardPool(), address(0));
+        assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).managerRewardPoolFlowRatePpm(), 0);
         assertEq(IBudgetTreasury(deployment.budgetTreasury).premiumEscrow(), deployment.premiumEscrow);
         assertEq(harness.itemIdForBudgetTreasury(deployment.budgetTreasury), itemID);
         assertEq(harness.itemIdForChildFlow(deployment.childFlow), itemID);
         assertEq(budgetStakeLedger.budgetForRecipient(itemID), deployment.budgetTreasury);
-        assertTrue(underwriterSlasherRouter.isAuthorizedPremiumEscrow(deployment.premiumEscrow));
-
-        assertEq(deployment.premiumEscrow, address(nullPremiumEscrowImplementation));
     }
 
     function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {
@@ -236,8 +229,8 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 childFlowStrategyTarget: address(fixedStrategy),
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: safe,
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Shared,
-                premiumEscrowImplementation: address(nullPremiumEscrowImplementation),
+                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
+                premiumEscrowImplementation: address(0),
                 requireZeroPremiumAndSlashRates: true
             }),
             address(discoveryEmitter)
@@ -280,7 +273,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function test_managedStackDeploy_revertsWhenNullEscrowConfigRequiresZeroRates() public {
+    function test_managedStackDeploy_revertsWhenNoPremiumConfigRequiresZeroRates() public {
         harness.configure(
             address(goalFlow),
             address(goalTreasury),

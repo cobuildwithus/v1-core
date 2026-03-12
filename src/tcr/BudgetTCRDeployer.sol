@@ -300,13 +300,8 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _preparePremiumEscrow() internal returns (address premiumEscrow) {
-        PremiumEscrowMode escrowMode = premiumEscrowMode;
-        if (escrowMode == PremiumEscrowMode.None) {
+        if (premiumEscrowMode == PremiumEscrowMode.None) {
             return address(0);
-        }
-
-        if (escrowMode == PremiumEscrowMode.Shared) {
-            return premiumEscrowImplementation;
         }
 
         premiumEscrow = Clones.clone(premiumEscrowImplementation);
