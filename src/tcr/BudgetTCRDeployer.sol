@@ -22,7 +22,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     MechanismLayerMode public mechanismLayerMode;
     address public childFlowRecipientAdmin;
     PremiumEscrowMode public premiumEscrowMode;
-    bool public requireZeroPremiumAndSlashRates;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable teamFlowFactory;
@@ -91,7 +90,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         mechanismLayerMode = stackModuleConfig_.mechanismLayerMode;
         childFlowRecipientAdmin = stackModuleConfig_.childFlowRecipientAdmin;
         premiumEscrowMode = stackModuleConfig_.premiumEscrowMode;
-        requireZeroPremiumAndSlashRates = stackModuleConfig_.requireZeroPremiumAndSlashRates;
     }
 
     function prepareBudgetStack(
@@ -190,8 +188,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             childFlowRecipientAdmin: childFlowRecipientAdmin,
             premiumEscrowMode: premiumEscrowMode,
             premiumEscrowImplementation: premiumEscrowImplementation,
-            requireZeroPremiumAndSlashRates: requireZeroPremiumAndSlashRates
+            requireZeroPremiumAndSlashRates: requireZeroPremiumAndSlashRates()
         });
+    }
+
+    function requireZeroPremiumAndSlashRates() public view returns (bool) {
+        return _requireZeroPremiumAndSlashRates(premiumEscrowMode);
     }
 
     function initialMechanismFactories() external view override returns (address[] memory factories) {
@@ -218,13 +220,13 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
-        if (stackModuleConfig_.premiumEscrowMode == PremiumEscrowMode.None) {
-            if (
-                stackModuleConfig_.premiumEscrowImplementation != address(0) ||
-                !stackModuleConfig_.requireZeroPremiumAndSlashRates
-            ) {
-                revert INVALID_STACK_MODULE_CONFIG();
-            }
+        bool requiresZeroRates = _requireZeroPremiumAndSlashRates(stackModuleConfig_.premiumEscrowMode);
+        if (stackModuleConfig_.requireZeroPremiumAndSlashRates != requiresZeroRates) {
+            revert INVALID_STACK_MODULE_CONFIG();
+        }
+
+        if (requiresZeroRates) {
+            if (stackModuleConfig_.premiumEscrowImplementation != address(0)) revert INVALID_STACK_MODULE_CONFIG();
         } else {
             _assertImplementationAddress(stackModuleConfig_.premiumEscrowImplementation);
         }
@@ -306,5 +308,9 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         if (strategy == address(0)) return address(0);
 
         ledger = address(IBudgetFlowRouterStrategy(strategy).budgetStakeLedger());
+    }
+
+    function _requireZeroPremiumAndSlashRates(PremiumEscrowMode premiumEscrowMode_) internal pure returns (bool) {
+        return premiumEscrowMode_ == PremiumEscrowMode.None;
     }
 }

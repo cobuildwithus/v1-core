@@ -536,24 +536,6 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_initialize_reverts_when_stack_deployer_marks_present_premium_module_as_no_premium() public {
-        (
-            BudgetTCR freshTcr,
-            IBudgetTCR.InitConfig memory registryConfig,
-            IBudgetTCR.DeploymentConfig memory deploymentConfig
-        ) = _freshInitializeConfig();
-
-        address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = _noPremiumStackModuleConfig();
-        stackModuleConfig.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
-        stackModuleConfig.premiumEscrowImplementation = premiumEscrowImplementation;
-        BudgetTCRDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), stackModuleConfig, address(0));
-        deploymentConfig.stackDeployer = freshStackDeployer;
-
-        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH.selector);
-        freshTcr.initialize(registryConfig, deploymentConfig);
-    }
-
     function test_initialize_reverts_when_budget_premium_ppm_exceeds_scale() public {
         (
             BudgetTCR freshTcr,

@@ -62,7 +62,9 @@ library BudgetTCRStackActions {
         IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = deployer.stackModuleConfig();
         uint32 budgetPremiumPpm = budgetStore.budgetPremiumPpm();
         uint32 budgetSlashPpm = budgetStore.budgetSlashPpm();
-        if (stackModuleConfig.requireZeroPremiumAndSlashRates && (budgetPremiumPpm != 0 || budgetSlashPpm != 0)) {
+        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
+            IBudgetStackDeployer.PremiumEscrowMode.None;
+        if (stackOmitsPremiumModule && (budgetPremiumPpm != 0 || budgetSlashPpm != 0)) {
             revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
         }
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);

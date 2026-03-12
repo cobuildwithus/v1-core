@@ -983,7 +983,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils, Budg
             childFlowRecipientAdmin: safe,
             premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
             premiumEscrowImplementation: address(configuredPremiumEscrow),
-            requireZeroPremiumAndSlashRates: true
+            requireZeroPremiumAndSlashRates: false
         });
 
         managedDeployer.initializeWithConfig(address(this), config, address(0));
@@ -995,7 +995,7 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils, Budg
         assertEq(storedConfig.childFlowRecipientAdmin, safe);
         assertEq(uint8(storedConfig.premiumEscrowMode), uint8(config.premiumEscrowMode));
         assertEq(storedConfig.premiumEscrowImplementation, address(configuredPremiumEscrow));
-        assertTrue(storedConfig.requireZeroPremiumAndSlashRates);
+        assertFalse(storedConfig.requireZeroPremiumAndSlashRates);
 
         IBudgetStackDeployer.PreparationResult memory prepared =
             managedDeployer.prepareBudgetStack(address(budgetStakeLedgerA), address(goalFlow));
@@ -1058,8 +1058,22 @@ contract BudgetTCRDeployerSharedStrategyTest is Test, SpendPolicyTestUtils, Budg
         IBudgetStackDeployer.StackModuleConfig memory config =
             _fixedStrategyNoPremiumStackModuleConfig(address(fixedStrategy), makeAddr("safe"));
         config.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
+        config.requireZeroPremiumAndSlashRates = false;
 
         vm.expectRevert(IBudgetStackDeployer.ADDRESS_ZERO.selector);
+        managedDeployer.initializeWithConfig(address(this), config, address(0));
+    }
+
+    function test_initializeWithConfig_revertsWhenCloneModeRequiresZeroRates() public {
+        BudgetTCRDeployer managedDeployer = _deployBudgetTcrDeployer();
+        BudgetTCRStackDeploymentLibFixedStrategyMock fixedStrategy = new BudgetTCRStackDeploymentLibFixedStrategyMock();
+        PremiumEscrow configuredPremiumEscrow = new PremiumEscrow();
+        IBudgetStackDeployer.StackModuleConfig memory config =
+            _fixedStrategyNoPremiumStackModuleConfig(address(fixedStrategy), makeAddr("safe"));
+        config.premiumEscrowMode = IBudgetStackDeployer.PremiumEscrowMode.Clone;
+        config.premiumEscrowImplementation = address(configuredPremiumEscrow);
+
+        vm.expectRevert(BudgetTCRDeployer.INVALID_STACK_MODULE_CONFIG.selector);
         managedDeployer.initializeWithConfig(address(this), config, address(0));
     }
 

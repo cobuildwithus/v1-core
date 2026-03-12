@@ -71,20 +71,15 @@ library BudgetTCRInitValidation {
         ).stackModuleConfig();
         bool explicitNoPremiumMode = deploymentConfig.riskModuleRouting.requireZeroPremiumAndSlashRates;
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
-
-        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
+        bool stackRequiresZeroRates = stackModuleConfig.premiumEscrowMode ==
             IBudgetStackDeployer.PremiumEscrowMode.None;
         if (explicitNoPremiumMode) {
             if (requiresPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
-            if (!stackModuleConfig.requireZeroPremiumAndSlashRates || !stackOmitsPremiumModule) {
-                revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
-            }
+            if (!stackRequiresZeroRates) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
             return;
         }
 
-        if (stackModuleConfig.requireZeroPremiumAndSlashRates || stackOmitsPremiumModule) {
-            revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
-        }
+        if (stackRequiresZeroRates) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
     }
 
     function _requiresPremiumModule(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure returns (bool) {
