@@ -208,7 +208,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             BudgetTCR freshTcr,
             IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
-        ) = _freshInitializeConfig();
+        ) = _freshInitializeConfigWithFreshArbitrator();
         deploymentConfig.stackDeployer = address(0);
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
@@ -764,16 +764,19 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_initialize_reverts_when_oracle_bond_amount_is_zero() public {
+    function test_initialize_allows_zero_oracle_bond_amount() public {
         (
             BudgetTCR freshTcr,
             IBudgetTCR.InitConfig memory registryConfig,
             IBudgetTCR.DeploymentConfig memory deploymentConfig
-        ) = _freshInitializeConfig();
+        ) = _freshInitializeConfigWithFreshArbitrator();
         deploymentConfig.oracleValidationBounds.bondAmount = 0;
 
-        vm.expectRevert(IBudgetTCR.INVALID_BOUNDS.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
+
+        (uint64 liveness, uint256 bondAmount) = freshTcr.oracleValidationBounds();
+        assertEq(liveness, deploymentConfig.oracleValidationBounds.liveness);
+        assertEq(bondAmount, 0);
     }
 
     function test_allocationMechanismAdmin_is_init_only_with_no_direct_setter() public {
@@ -1296,7 +1299,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertFalse(removed);
     }
 
-    function test_activateRegisteredBudget_usesGlobalOracleBoundsForSuccessAssertionConfig() public {
+    function test_activateRegisteredBudget_persistsZeroOracleBondFromGlobalBounds() public {
         (
             BudgetTCR freshTcr,
             IBudgetTCR.InitConfig memory registryConfig,
@@ -1304,7 +1307,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         uint64 expectedLiveness = 4 days;
-        uint256 expectedBond = 77e18;
+        uint256 expectedBond = 0;
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
         _initializeOpenBudgetTcrDeployer(

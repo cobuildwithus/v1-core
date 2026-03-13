@@ -59,9 +59,11 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
     address internal configuredController;
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
-    address internal immutable strategy;
+    address internal preparedStrategy = address(0x2222222222222222222222222222222222222222);
     address internal immutable premiumEscrow;
     address internal immutable configuredPremiumEscrowImplementation;
+    address internal preparedChildFlowRecipientAdmin = address(0x3333333333333333333333333333333333333333);
+    address internal preparedAllocationMechanism = address(0x3333333333333333333333333333333333333333);
     address internal immutable _roundFactory;
     address internal immutable _mechanismTcrImplementation;
     address internal immutable _mechanismArbitratorImplementation;
@@ -74,7 +76,6 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
     ) {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
-        strategy = address(0x2222222222222222222222222222222222222222);
         premiumEscrow = premiumEscrow_;
         configuredPremiumEscrowImplementation = configuredPremiumEscrowImplementation_;
         _roundFactory = address(
@@ -99,13 +100,25 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
 
     function initializeWithConfig(address, BudgetStackTypes.StackModuleConfig calldata) external {}
 
+    function setPreparedChildFlowRecipientAdmin(address preparedChildFlowRecipientAdmin_) external {
+        preparedChildFlowRecipientAdmin = preparedChildFlowRecipientAdmin_;
+    }
+
+    function setPreparedAllocationMechanism(address preparedAllocationMechanism_) external {
+        preparedAllocationMechanism = preparedAllocationMechanism_;
+    }
+
+    function setPreparedStrategy(address preparedStrategy_) external {
+        preparedStrategy = preparedStrategy_;
+    }
+
     function prepareBudgetStack(address, address) external returns (BudgetStackTypes.PreparationResult memory result) {
         result = BudgetStackTypes.PreparationResult({
-            strategy: strategy,
+            strategy: preparedStrategy,
             budgetTreasury: preparedBudgetTreasury,
             premiumEscrow: premiumEscrow,
-            childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
-            allocationMechanism: address(0)
+            childFlowRecipientAdmin: preparedChildFlowRecipientAdmin,
+            allocationMechanism: preparedAllocationMechanism
         });
     }
 
@@ -274,16 +287,17 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
 
         bytes32 itemID = _queueBudgetRegistration(freshTcr);
 
-        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_NOT_PREPARED.selector);
+        vm.expectRevert(IBudgetTCR.PREPARED_PREMIUM_ESCROW_REQUIRED.selector);
         freshTcr.activateRegisteredBudget(itemID);
     }
 
     function test_activateRegisteredBudget_reverts_when_zero_rate_stack_prepares_premium_escrow() public {
+        address preparedPremiumEscrow = address(new BudgetTCRInvariantPremiumEscrowConnectMock());
         address customStackDeployer = address(
             new MismatchingBudgetTCRStackDeployer(
                 makeAddr("preparedBudgetTreasury"),
                 makeAddr("preparedBudgetTreasury"),
-                address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+                preparedPremiumEscrow,
                 address(0)
             )
         );
@@ -291,7 +305,107 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
 
         bytes32 itemID = _queueBudgetRegistration(freshTcr);
 
-        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_PREPARED_PREMIUM_ESCROW.selector, preparedPremiumEscrow)
+        );
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_open_stack_prepared_allocation_mechanism_is_missing() public {
+        MismatchingBudgetTCRStackDeployer customStackDeployer = new MismatchingBudgetTCRStackDeployer(
+            makeAddr("preparedBudgetTreasury"),
+            makeAddr("preparedBudgetTreasury"),
+            address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+            premiumEscrowImplementation
+        );
+        customStackDeployer.setPreparedAllocationMechanism(address(0));
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(
+            address(customStackDeployer),
+            budgetGatePolicy,
+            premiumEscrowImplementation,
+            underwriterSlasherRouter,
+            100_000,
+            50_000
+        );
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(IBudgetTCR.PREPARED_ALLOCATION_MECHANISM_REQUIRED.selector);
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_open_stack_prepared_strategy_is_zero() public {
+        MismatchingBudgetTCRStackDeployer customStackDeployer = new MismatchingBudgetTCRStackDeployer(
+            makeAddr("preparedBudgetTreasury"),
+            makeAddr("preparedBudgetTreasury"),
+            address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+            premiumEscrowImplementation
+        );
+        customStackDeployer.setPreparedStrategy(address(0));
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(
+            address(customStackDeployer),
+            budgetGatePolicy,
+            premiumEscrowImplementation,
+            underwriterSlasherRouter,
+            100_000,
+            50_000
+        );
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_PREPARED_STRATEGY.selector, address(0)));
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_open_stack_prepared_child_admin_mismatches_mechanism() public {
+        MismatchingBudgetTCRStackDeployer customStackDeployer = new MismatchingBudgetTCRStackDeployer(
+            makeAddr("preparedBudgetTreasury"),
+            makeAddr("preparedBudgetTreasury"),
+            address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+            premiumEscrowImplementation
+        );
+        customStackDeployer.setPreparedChildFlowRecipientAdmin(makeAddr("wrong-child-flow-admin"));
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(
+            address(customStackDeployer),
+            budgetGatePolicy,
+            premiumEscrowImplementation,
+            underwriterSlasherRouter,
+            100_000,
+            50_000
+        );
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBudgetTCR.INVALID_PREPARED_CHILD_FLOW_RECIPIENT_ADMIN.selector,
+                makeAddr("wrong-child-flow-admin"),
+                address(0x3333333333333333333333333333333333333333)
+            )
+        );
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_open_stack_prepared_budget_treasury_is_zero() public {
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(
+            address(
+                new MismatchingBudgetTCRStackDeployer(
+                    address(0),
+                    makeAddr("preparedBudgetTreasury"),
+                    address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+                    premiumEscrowImplementation
+                )
+            ),
+            budgetGatePolicy,
+            premiumEscrowImplementation,
+            underwriterSlasherRouter,
+            100_000,
+            50_000
+        );
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_PREPARED_BUDGET_TREASURY.selector, address(0)));
         freshTcr.activateRegisteredBudget(itemID);
     }
 

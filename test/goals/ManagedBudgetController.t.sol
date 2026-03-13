@@ -104,7 +104,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
                 goalTreasury: address(goalTreasury),
                 goalFlow: address(goalFlow),
                 stackDeployer: address(stackDeployer),
-                budgetChildStrategyFactory: budgetChildStrategyFactory,
                 budgetGatePolicy: address(0),
                 budgetSuccessResolver: budgetSuccessResolver,
                 budgetSpendPolicy: address(spendPolicy),
@@ -208,6 +207,47 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         controller.createBudget(bytes32(uint256(1)), _defaultBudgetConfig("Budget A"));
 
         assertEq(controller.activeBudgetCount(), 0);
+    }
+
+    function test_createBudget_revertsWhenPreparedStrategyIsZero() public {
+        stackDeployer.setPreparedResultOverride(
+            address(0), makeAddr("budget-treasury"), address(0), address(controller), address(0)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IManagedBudgetController.INVALID_PREPARED_STRATEGY.selector, address(0))
+        );
+        vm.prank(safe);
+        controller.createBudget(bytes32(uint256(1)), _defaultBudgetConfig("Budget A"));
+    }
+
+    function test_createBudget_revertsWhenPreparedBudgetTreasuryIsZero() public {
+        stackDeployer.setPreparedResultOverride(
+            address(new MockAllocationStrategy()), address(0), address(0), address(controller), address(0)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IManagedBudgetController.INVALID_PREPARED_BUDGET_TREASURY.selector, address(0))
+        );
+        vm.prank(safe);
+        controller.createBudget(bytes32(uint256(1)), _defaultBudgetConfig("Budget A"));
+    }
+
+    function test_createBudget_revertsWhenPreparedAllocationMechanismIsNonZero() public {
+        address allocationMechanism = makeAddr("managed-allocation-mechanism");
+        stackDeployer.setPreparedResultOverride(
+            address(new MockAllocationStrategy()),
+            address(new ManagedBudgetControllerMockBudgetTreasury()),
+            address(0),
+            address(controller),
+            allocationMechanism
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IManagedBudgetController.INVALID_ALLOCATION_MECHANISM.selector, allocationMechanism)
+        );
+        vm.prank(safe);
+        controller.createBudget(bytes32(uint256(1)), _defaultBudgetConfig("Budget A"));
     }
 
     function test_setBudgetFlowWeights_revertsWhenCallerIsNotAuthority() public {
@@ -646,7 +686,6 @@ contract ManagedBudgetControllerTest is FlowTestBase {
                 goalTreasury: address(deployedGoalTreasury),
                 goalFlow: address(deployedGoalFlow),
                 stackDeployer: address(deployedStackDeployer),
-                budgetChildStrategyFactory: deployedChildStrategyFactory,
                 budgetGatePolicy: gatePolicy,
                 budgetSuccessResolver: budgetSuccessResolver,
                 budgetSpendPolicy: address(deployedSpendPolicy),
@@ -749,6 +788,14 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
         controller.initialize(config);
     }
 
+    function test_initialize_revertsOnZeroSuccessAssertionLiveness() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.successAssertionLiveness = 0;
+
+        vm.expectRevert(IManagedBudgetController.INVALID_SUCCESS_ASSERTION_LIVENESS.selector);
+        controller.initialize(config);
+    }
+
     function test_initialize_trimmedControllerDoesNotExposeRemovedCoverageOrSlashGetters() public {
         controller.initialize(_baseInitConfig());
 
@@ -802,13 +849,30 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
         controller.initialize(config);
     }
 
+    function test_initialize_revertsWhenManagedStackDeployerHasNoFactoryTarget() public {
+        ManagedBudgetControllerMockStackDeployer mismatchedStackDeployer =
+            new ManagedBudgetControllerMockStackDeployer();
+        mismatchedStackDeployer.setController(address(controller));
+        mismatchedStackDeployer.setChildFlowStrategyTarget(address(0));
+        mismatchedStackDeployer.setChildFlowRecipientAdmin(address(controller));
+
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.stackDeployer = address(mismatchedStackDeployer);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IManagedBudgetController.INVALID_STACK_DEPLOYER.selector, address(mismatchedStackDeployer)
+            )
+        );
+        controller.initialize(config);
+    }
+
     function _baseInitConfig() internal view returns (IManagedBudgetController.InitConfig memory config) {
         config = IManagedBudgetController.InitConfig({
             authority: authority,
             goalTreasury: goalTreasury,
             goalFlow: goalFlow,
             stackDeployer: stackDeployer,
-            budgetChildStrategyFactory: budgetChildStrategyFactory,
             budgetGatePolicy: address(0),
             budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
@@ -912,7 +976,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
                 goalTreasury: address(goalTreasury),
                 goalFlow: address(goalFlow),
                 stackDeployer: address(stackDeployer),
-                budgetChildStrategyFactory: address(childStrategyFactory),
                 budgetGatePolicy: address(0),
                 budgetSuccessResolver: budgetSuccessResolver,
                 budgetSpendPolicy: spendPolicy,
@@ -1505,6 +1568,8 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
     address public childFlowRecipientAdmin;
     address public preparedPremiumEscrow;
     address public premiumEscrowImplementation;
+    bool public usePreparedResultOverride;
+    BudgetStackTypes.PreparationResult internal preparedResultOverride;
 
     function setController(address controller_) external {
         configuredController = controller_;
@@ -1534,6 +1599,27 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
         preparedPremiumEscrow = preparedPremiumEscrow_;
     }
 
+    function setPreparedResultOverride(
+        address strategy,
+        address budgetTreasury,
+        address premiumEscrow,
+        address childFlowRecipientAdmin_,
+        address allocationMechanism
+    ) external {
+        usePreparedResultOverride = true;
+        preparedResultOverride = BudgetStackTypes.PreparationResult({
+            strategy: strategy,
+            budgetTreasury: budgetTreasury,
+            premiumEscrow: premiumEscrow,
+            childFlowRecipientAdmin: childFlowRecipientAdmin_,
+            allocationMechanism: allocationMechanism
+        });
+    }
+
+    function clearPreparedResultOverride() external {
+        usePreparedResultOverride = false;
+    }
+
     function controller() external view returns (address controller_) {
         controller_ = configuredController;
     }
@@ -1545,6 +1631,9 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
         override
         returns (BudgetStackTypes.PreparationResult memory result)
     {
+        if (usePreparedResultOverride) {
+            return preparedResultOverride;
+        }
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
         result.premiumEscrow = preparedPremiumEscrow;
