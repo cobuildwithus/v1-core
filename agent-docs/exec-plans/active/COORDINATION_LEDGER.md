@@ -7,7 +7,6 @@ Use this file only for currently active coding work. Keep it minimal and current
 | Agent/Session | Task | Files in Scope | Symbols (add/rename/delete) | Dependency Notes | Updated (YYYY-MM-DD) |
 | --- | --- | --- | --- | --- | --- |
 | codex-premium-slash-cleanup | Align premium/slash module semantics across goal + open budget deployment | `src/goals/PremiumEscrow.sol`, `src/goals/GoalTreasury.sol`, `src/goals/StakeVault.sol`, `src/goals/library/GoalFactoryCoreStackDeploy.sol`, `src/goals/library/GoalFactoryBudgetTcrRouting.sol`, `src/tcr/**`, `src/interfaces/**`, targeted `test/**`, `agent-docs/exec-plans/active/2026-03-13-premium-slash-cleanup.md` | delete `PremiumEscrowMode`; add premium-escrow capability interfaces/helpers; adjust slash-router and zero-premium validation branches | Avoid overlapping the active GoalFactory implementation cutover; preserve managed no-premium semantics and slash-enabled open-budget behavior | 2026-03-13 |
-| Codex | Replace package-default review-gpt presets with v1-core-owned registrations. | `scripts/review-gpt.config.sh` | None planned. | Must not touch the active GoalFactory or premium/slash lanes. | 2026-03-13 |
 ## Rules
 
 1. Add a row before your first code edit for every coding task (single-agent and multi-agent).
