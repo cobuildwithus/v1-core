@@ -13,6 +13,7 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { BudgetContextReaderBase } from "src/library/BudgetContextReaderBase.sol";
 
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
@@ -30,7 +31,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
  *         - A RoundPrizeVault: holds prize funds and pays out in the underlying goal token.
  *         - A PrizePoolSubmissionDepositStrategy: routes accepted submission deposits into the prize vault.
  */
-contract RoundFactory is IAllocationMechanismFactory {
+contract RoundFactory is IAllocationMechanismFactory, BudgetContextReaderBase {
     using Clones for address;
 
     enum BudgetContextProbe {
@@ -221,7 +222,7 @@ contract RoundFactory is IAllocationMechanismFactory {
     function _validateCreateRoundInputs(address budgetTreasury, address roundOperator) internal view {
         if (budgetTreasury == address(0)) revert ADDRESS_ZERO();
         if (roundOperator == address(0)) revert ADDRESS_ZERO();
-        _requireBudgetContextContract(budgetTreasury, BudgetContextProbe.BudgetTreasury);
+        _requireBudgetContextContract(budgetTreasury, uint8(BudgetContextProbe.BudgetTreasury));
     }
 
     function _resolveBudgetRoundContext(
@@ -253,67 +254,67 @@ contract RoundFactory is IAllocationMechanismFactory {
         return implementation;
     }
 
-    function _requireBudgetContextContract(
-        address candidate,
-        BudgetContextProbe probe
-    ) internal view returns (address deployed) {
-        if (candidate == address(0) || candidate.code.length == 0) revert INVALID_BUDGET_CONTEXT(probe, candidate);
-        return candidate;
+    function _revertInvalidBudgetContext(uint8 probe, address candidate) internal pure override {
+        revert INVALID_BUDGET_CONTEXT(BudgetContextProbe(probe), candidate);
     }
 
     function _readBudgetFlow(address budgetTreasury) internal view returns (address budgetFlow) {
-        try IBudgetTreasury(budgetTreasury).flow() returns (address budgetFlow_) {
-            budgetFlow = budgetFlow_;
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.BudgetFlowRead, budgetTreasury);
-        }
-        return _requireBudgetContextContract(budgetFlow, BudgetContextProbe.BudgetFlow);
+        return
+            _readBudgetContextContract(
+                IBudgetTreasury(budgetTreasury).flow,
+                budgetTreasury,
+                uint8(BudgetContextProbe.BudgetFlowRead),
+                uint8(BudgetContextProbe.BudgetFlow)
+            );
     }
 
     function _readGoalFlow(address budgetFlow) internal view returns (address goalFlow) {
-        try IFlow(budgetFlow).parent() returns (address goalFlow_) {
-            goalFlow = goalFlow_;
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalFlowRead, budgetFlow);
-        }
-        return _requireBudgetContextContract(goalFlow, BudgetContextProbe.GoalFlow);
+        return
+            _readBudgetContextContract(
+                IFlow(budgetFlow).parent,
+                budgetFlow,
+                uint8(BudgetContextProbe.GoalFlowRead),
+                uint8(BudgetContextProbe.GoalFlow)
+            );
     }
 
     function _readGoalTreasury(address goalFlow) internal view returns (address goalTreasury) {
-        try IFlow(goalFlow).flowOperator() returns (address goalTreasury_) {
-            goalTreasury = goalTreasury_;
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalTreasuryRead, goalFlow);
-        }
-        return _requireBudgetContextContract(goalTreasury, BudgetContextProbe.GoalTreasury);
+        return
+            _readBudgetContextContract(
+                IFlow(goalFlow).flowOperator,
+                goalFlow,
+                uint8(BudgetContextProbe.GoalTreasuryRead),
+                uint8(BudgetContextProbe.GoalTreasury)
+            );
     }
 
     function _readGoalTreasuryFlow(address goalTreasury) internal view returns (address goalFlow) {
-        try IGoalTreasury(goalTreasury).flow() returns (address goalFlow_) {
-            return goalFlow_;
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.GoalTreasuryFlowRead, goalTreasury);
-        }
+        return
+            _readBudgetContextValue(
+                IGoalTreasury(goalTreasury).flow,
+                goalTreasury,
+                uint8(BudgetContextProbe.GoalTreasuryFlowRead)
+            );
     }
 
     function _readStakeVault(address goalTreasury) internal view returns (address stakeVault) {
-        try IGoalTreasury(goalTreasury).stakeVault() returns (address stakeVault_) {
-            stakeVault = stakeVault_;
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.StakeVaultRead, goalTreasury);
-        }
-        return _requireBudgetContextContract(stakeVault, BudgetContextProbe.StakeVault);
+        return
+            _readBudgetContextContract(
+                IGoalTreasury(goalTreasury).stakeVault,
+                goalTreasury,
+                uint8(BudgetContextProbe.StakeVaultRead),
+                uint8(BudgetContextProbe.StakeVault)
+            );
     }
 
     function _readSuperToken(address budgetFlow) internal view returns (ISuperToken superTok) {
-        address superTokenAddress;
-        try IFlow(budgetFlow).superToken() returns (ISuperToken superTok_) {
-            superTokenAddress = address(superTok_);
-        } catch {
-            revert INVALID_BUDGET_CONTEXT(BudgetContextProbe.SuperTokenRead, budgetFlow);
-        }
-        _requireBudgetContextContract(superTokenAddress, BudgetContextProbe.SuperToken);
-        return ISuperToken(superTokenAddress);
+        return
+            _readBudgetContextContract(
+                IFlow(budgetFlow).superToken,
+                budgetFlow,
+                uint8(BudgetContextProbe.SuperTokenRead),
+                uint8(BudgetContextProbe.SuperToken)
+            );
     }
 
     function _deployRoundPrizeVault(
