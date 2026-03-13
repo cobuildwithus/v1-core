@@ -1055,6 +1055,32 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         assertEq(IBudgetTreasury(budgetTreasury).spendPolicy(), budgetSpendPolicy);
     }
 
+    function test_activateRegisteredBudget_persistsListingAndRuntimeConfigOnBudgetTreasury() public {
+        IBudgetTCR.BudgetListing memory listing = _defaultListing();
+
+        _approveAddCost(requester);
+        bytes32 itemID = _submitListing(requester, listing);
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        budgetTcr.executeRequest(itemID);
+        budgetTcr.activateRegisteredBudget(itemID);
+
+        address budgetTreasury = budgetStakeLedger.budgetForRecipient(itemID);
+        (uint64 expectedLiveness, uint256 expectedBond) = budgetTcr.oracleValidationBounds();
+
+        assertEq(IBudgetTreasury(budgetTreasury).fundingDeadline(), listing.fundingDeadline);
+        assertEq(IBudgetTreasury(budgetTreasury).executionDuration(), listing.executionDuration);
+        assertEq(IBudgetTreasury(budgetTreasury).activationThreshold(), listing.activationThreshold);
+        assertEq(IBudgetTreasury(budgetTreasury).runwayCap(), listing.runwayCap);
+        assertEq(IBudgetTreasury(budgetTreasury).successResolver(), budgetTcr.budgetSuccessResolver());
+        assertEq(IBudgetTreasury(budgetTreasury).successAssertionLiveness(), expectedLiveness);
+        assertEq(IBudgetTreasury(budgetTreasury).successAssertionBond(), expectedBond);
+        assertEq(IBudgetTreasury(budgetTreasury).successOracleSpecHash(), listing.oracleConfig.oracleSpecHash);
+        assertEq(
+            IBudgetTreasury(budgetTreasury).successAssertionPolicyHash(), listing.oracleConfig.assertionPolicyHash
+        );
+        assertEq(IBudgetTreasury(budgetTreasury).spendPolicy(), budgetTcr.budgetSpendPolicy());
+    }
+
     function test_activateRegisteredBudget_initializesAllocationMechanismWithRegistryConfig() public {
         bytes32 itemID = _registerDefaultListing();
 
