@@ -134,12 +134,27 @@ contract GoalFactoryCoreStackDeployTest is Test {
         assertEq(goalTreasury.lastConfiguredUnderwriterSlasher(), address(0));
     }
 
-    function test_finalizeCoreStack_deploysUnderwriterRouterWhenPremiumEnabled() public {
+    function test_finalizeCoreStack_omitsUnderwriterRouterWhenSlashIsZero() public {
         GoalFactoryCoreStackDeploy.CoreStackResult memory core =
             GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
         GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request =
             _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault));
         request.budgetPremiumPpm = 100_000;
+
+        GoalFactoryCoreStackDeploy.CoreStackResult memory finalized =
+            GoalFactoryCoreStackDeploy.finalizeCoreStack(core, request);
+
+        assertEq(finalized.underwriterSlasherRouter, address(0));
+        assertEq(goalTreasury.lastConfiguredUnderwriterSlasher(), address(0));
+    }
+
+    function test_finalizeCoreStack_deploysUnderwriterRouterWhenSlashEnabled() public {
+        GoalFactoryCoreStackDeploy.CoreStackResult memory core =
+            GoalFactoryCoreStackDeploy.deployCoreBase(_baseBaseRequest());
+        GoalFactoryCoreStackDeploy.CoreFinalizeRequest memory request =
+            _baseFinalizeRequest(address(0xBEEF), address(core.stakeVault));
+        request.budgetPremiumPpm = 100_000;
+        request.budgetSlashPpm = 50_000;
 
         GoalFactoryCoreStackDeploy.CoreStackResult memory finalized =
             GoalFactoryCoreStackDeploy.finalizeCoreStack(core, request);

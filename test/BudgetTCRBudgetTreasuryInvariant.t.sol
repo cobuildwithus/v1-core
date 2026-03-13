@@ -53,15 +53,22 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
     address internal immutable deployedBudgetTreasury;
     address internal immutable strategy;
     address internal immutable premiumEscrow;
+    address internal immutable configuredPremiumEscrowImplementation;
     address internal immutable _roundFactory;
     address internal immutable _mechanismTcrImplementation;
     address internal immutable _mechanismArbitratorImplementation;
 
-    constructor(address preparedBudgetTreasury_, address deployedBudgetTreasury_) {
+    constructor(
+        address preparedBudgetTreasury_,
+        address deployedBudgetTreasury_,
+        address premiumEscrow_,
+        address configuredPremiumEscrowImplementation_
+    ) {
         preparedBudgetTreasury = preparedBudgetTreasury_;
         deployedBudgetTreasury = deployedBudgetTreasury_;
         strategy = address(0x2222222222222222222222222222222222222222);
-        premiumEscrow = address(new BudgetTCRInvariantPremiumEscrowConnectMock());
+        premiumEscrow = premiumEscrow_;
+        configuredPremiumEscrowImplementation = configuredPremiumEscrowImplementation_;
         _roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -111,19 +118,18 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function emitBudgetAllocationMechanismDeployed(bytes32, address, address, address) external {}
 
-    function stackModuleConfig() external pure returns (StackModuleConfig memory config) {
+    function stackModuleConfig() external view returns (StackModuleConfig memory config) {
         config = StackModuleConfig({
             childFlowStrategyMode: ChildFlowStrategyMode.Fixed,
             childFlowStrategyTarget: address(0x2222222222222222222222222222222222222222),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
-            premiumEscrowMode: PremiumEscrowMode.Clone,
-            premiumEscrowImplementation: address(0x4444444444444444444444444444444444444444)
+            premiumEscrowImplementation: configuredPremiumEscrowImplementation
         });
     }
 
     function premiumEscrowImplementation() external view returns (address implementation) {
-        implementation = premiumEscrow;
+        implementation = configuredPremiumEscrowImplementation;
     }
 
     function roundFactory() external view returns (address) {
@@ -208,7 +214,10 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(
             new MismatchingBudgetTCRStackDeployer(
-                makeAddr("preparedBudgetTreasury"), makeAddr("deployedBudgetTreasury")
+                makeAddr("preparedBudgetTreasury"),
+                makeAddr("deployedBudgetTreasury"),
+                address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+                premiumEscrowImplementation
             )
         );
 
@@ -240,6 +249,47 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         budgetTcr.activateRegisteredBudget(itemID);
     }
 
+    function test_activateRegisteredBudget_reverts_when_required_premium_escrow_is_not_prepared() public {
+        address customStackDeployer = address(
+            new MismatchingBudgetTCRStackDeployer(
+                makeAddr("preparedBudgetTreasury"),
+                makeAddr("preparedBudgetTreasury"),
+                address(0),
+                premiumEscrowImplementation
+            )
+        );
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(
+            customStackDeployer,
+            budgetGatePolicy,
+            premiumEscrowImplementation,
+            underwriterSlasherRouter,
+            100_000,
+            50_000
+        );
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_NOT_PREPARED.selector);
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
+    function test_activateRegisteredBudget_reverts_when_zero_rate_stack_prepares_premium_escrow() public {
+        address customStackDeployer = address(
+            new MismatchingBudgetTCRStackDeployer(
+                makeAddr("preparedBudgetTreasury"),
+                makeAddr("preparedBudgetTreasury"),
+                address(new BudgetTCRInvariantPremiumEscrowConnectMock()),
+                address(0)
+            )
+        );
+        BudgetTCR freshTcr = _deployInitializedBudgetTcr(customStackDeployer, address(0), address(0), address(0), 0, 0);
+
+        bytes32 itemID = _queueBudgetRegistration(freshTcr);
+
+        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
+        freshTcr.activateRegisteredBudget(itemID);
+    }
+
     function _defaultRegistryConfig() internal view returns (IBudgetTCR.InitConfig memory registryConfig) {
         registryConfig = IBudgetTCR.InitConfig({
             allocationMechanismAdmin: allocationMechanismAdmin,
@@ -259,6 +309,52 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
                 })
             })
         });
+    }
+
+    function _deployInitializedBudgetTcr(
+        address customStackDeployer,
+        address budgetGatePolicy_,
+        address premiumEscrowImplementation_,
+        address underwriterSlasherRouter_,
+        uint32 budgetPremiumPpm_,
+        uint32 budgetSlashPpm_
+    ) internal returns (BudgetTCR freshTcr) {
+        BudgetTCR tcrImpl = new BudgetTCR();
+        ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
+
+        address tcrInstance = _deployProxy(address(tcrImpl), "");
+        bytes memory arbInit = _defaultArbitratorInitData(
+            owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
+        );
+        address arbProxy = _deployProxy(address(arbImpl), arbInit);
+
+        freshTcr = BudgetTCR(tcrInstance);
+        IBudgetTCR.InitConfig memory registryConfig = _defaultRegistryConfig();
+        registryConfig.tcrConfig.arbitrator = IArbitrator(arbProxy);
+
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig();
+        deploymentConfig.stackDeployer = customStackDeployer;
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = budgetGatePolicy_;
+        deploymentConfig.riskModuleRouting.premiumEscrowImplementation = premiumEscrowImplementation_;
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = underwriterSlasherRouter_;
+        deploymentConfig.budgetPremiumPpm = budgetPremiumPpm_;
+        deploymentConfig.budgetSlashPpm = budgetSlashPpm_;
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+        goalFlow.setRecipientAdmin(address(freshTcr));
+    }
+
+    function _queueBudgetRegistration(BudgetTCR targetTcr) internal returns (bytes32 itemID) {
+        (uint256 addCost,,,,) = targetTcr.getTotalCosts();
+        vm.prank(requester);
+        depositToken.approve(address(targetTcr), addCost);
+
+        vm.prank(requester);
+        itemID = targetTcr.addItem(abi.encode(_defaultListing()));
+
+        _warpRoll(block.timestamp + challengePeriodDuration + 1);
+        targetTcr.executeRequest(itemID);
+        assertTrue(targetTcr.isRegistrationPending(itemID));
     }
 
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {

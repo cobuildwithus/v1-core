@@ -65,7 +65,7 @@ budget exposure pay work proportional to total historical registrations.
 ### Mechanism path (high level)
 
 1. Budget registrations append to `registeredBudgets`; removals do not shrink history.
-2. After goal resolution, each caller must advance `prepareUnderwriterWithdrawal` cursor to `registeredBudgetCount`.
+2. After goal resolution on slash-enabled goals, each caller must advance `prepareUnderwriterWithdrawal` cursor to `registeredBudgetCount`.
 3. Exit cost is O(total historical registered budgets), not O(caller exposure set).
 
 ### Measured profile (2026-03-04, local GoalFactory full-stack harness)

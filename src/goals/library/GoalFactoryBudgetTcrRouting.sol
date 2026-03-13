@@ -16,7 +16,7 @@ library GoalFactoryBudgetTcrRouting {
             IBudgetTCR.RiskModuleRouting({
                 budgetGatePolicy: budgetSlashPpm == 0 ? address(0) : openBudgetGatePolicy,
                 premiumEscrowImplementation: usesNoPremiumMode ? address(0) : premiumEscrowImplementation,
-                underwriterSlasherRouter: usesNoPremiumMode ? address(0) : underwriterSlasherRouter
+                underwriterSlasherRouter: budgetSlashPpm == 0 ? address(0) : underwriterSlasherRouter
             });
     }
 }

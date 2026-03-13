@@ -256,7 +256,7 @@ Juror locks:
 | Budget activation | Budget `Funding`; flow balance `>= activationThreshold` (including post-`fundingDeadline` sync if threshold is met before expiry finalization). |
 | Budget success | Budget `Active`; success resolution not disabled; resolver calls with truthful pending assertion. |
 | Budget manual failure | Controller-only; correct state/time gate; no pending success assertion for active failure path. |
-| Underwriter stake withdrawal | Goal resolved and caller has completed required `prepareUnderwriterWithdrawal` work for current epoch. |
+| Underwriter stake withdrawal | Goal resolved and, when the goal configured an underwriter slasher, caller has completed required `prepareUnderwriterWithdrawal` work for the current epoch. |
 | Juror final exit | Cooldown elapsed since request and resolution anchor. |
 | Premium claim | Escrow checkpointed coverage and positive indexed entitlement. |
 

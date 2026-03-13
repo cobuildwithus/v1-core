@@ -150,7 +150,7 @@ library GoalFactoryCoreStackDeploy {
         IStakeVault stakeVaultRef = IStakeVault(address(out.stakeVault));
         jurorSlasherRouter.initialize(stakeVaultRef, request.jurorSlasherAuthority);
         out.jurorSlasherRouter = address(jurorSlasherRouter);
-        if (request.budgetPremiumPpm != 0 || request.budgetSlashPpm != 0) {
+        if (request.budgetSlashPpm != 0) {
             UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
                 Clones.clone(request.underwriterSlasherRouterImpl)
             );

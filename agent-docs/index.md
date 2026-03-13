@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-12 (budget removal semantics clarification)
+Last verified: 2026-03-13 (premium/slash module semantics cleanup)
 
 ## Purpose
 
@@ -13,12 +13,12 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/design-docs/index.md` | Index for durable design/principles docs. | `agent-docs/design-docs/**` | Protocol Maintainers | Monthly | Medium | 2026-02-18 |
 | `agent-docs/design-docs/core-beliefs.md` | Core agent-first repo principles. | Team architecture and process decisions | Protocol Maintainers | Quarterly | Medium | 2026-02-18 |
 | `agent-docs/product-specs/index.md` | Index for protocol behavior contracts. | `agent-docs/product-specs/**` | Protocol + Product Maintainers | Monthly | High | 2026-02-18 |
-| `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**`, `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildGoalTerminal.sol` | Protocol Maintainers | Per behavior-change PR | High | 2026-03-12 |
+| `agent-docs/product-specs/protocol-lifecycle-and-invariants.md` | Lifecycle and consumer-facing protocol behavior constraints. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**`, `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildGoalTerminal.sol` | Protocol Maintainers | Per behavior-change PR | High | 2026-03-13 |
 | `agent-docs/product-specs/underwriter-slash-routing.md` | Addendum covering async reserved-token slash routing and router retry expectations. | `src/goals/UnderwriterSlasherRouter.sol`, `src/goals/GoalTreasury.sol`, `test/goals/UnderwriterSlasherRouterAsyncReservedRouting.t.sol` | Protocol Maintainers | Per underwriter slash-flow PR | High | 2026-03-05 |
-| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-03-11 |
+| `ARCHITECTURE.md` | Top-level repository architecture and invariants. | `src/**`, `test/**`, workflows | Protocol Maintainers | Per architecture PR | High | 2026-03-13 |
 | `agent-docs/SOLIDITY_BEST_PRACTICES.md` | Canonical Solidity engineering practices (forge-first toolchain, clone/proxy safety, boundaries, verification rules). | `AGENTS.md`, `ARCHITECTURE.md`, lifecycle/security/reliability/deployment docs | Protocol Maintainers | Per Solidity policy/process change | High | 2026-03-12 |
-| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-03-11 |
-| `agent-docs/protocol-audit-deep-dive.md` | Auditor guide to lifecycle states, fund routes, underwriting/slash paths, unlock gates, and review anchors. | `src/goals/**`, `src/hooks/**`, `src/Flow.sol`, `src/tcr/**`, `test/**` | Protocol Maintainers | Per protocol behavior PR | High | 2026-03-01 |
+| `agent-docs/cobuild-protocol-architecture.md` | Detailed module/domain architecture map and interaction flows. | `src/**`, `test/**` | Protocol Maintainers | Per architecture PR | High | 2026-03-13 |
+| `agent-docs/protocol-audit-deep-dive.md` | Auditor guide to lifecycle states, fund routes, underwriting/slash paths, unlock gates, and review anchors. | `src/goals/**`, `src/hooks/**`, `src/Flow.sol`, `src/tcr/**`, `test/**` | Protocol Maintainers | Per protocol behavior PR | High | 2026-03-13 |
 | `agent-docs/references/known-design-intent-edge-cases.md` | Consolidated high-sensitivity design-intent edge cases and accepted-risk semantics for audit-facing context. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per security-risk PR | High | 2026-03-12 |
 | `agent-docs/PLANS.md` | Execution plan workflow and quality bar. | `agent-docs/exec-plans/**` | Protocol Maintainers | Per process change | Medium | 2026-02-18 |
 | `agent-docs/operations/verification-and-runtime.md` | Verification lanes, required-check matrix, queue behavior, and runtime guardrails. | `package.json`, `scripts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process/CI change | High | 2026-02-26 |
@@ -32,11 +32,11 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/RELIABILITY.md` | Reliability invariants, failure modes, and verification posture. | `src/**`, `test/**`, CI checks | Protocol Maintainers | Per reliability-affecting PR | High | 2026-03-11 |
 | `agent-docs/SECURITY.md` | Security boundaries and escalation criteria. | Access control, upgrade, funds, callback boundaries | Protocol Maintainers | Per security-affecting PR | High | 2026-03-10 |
 | `agent-docs/references/README.md` | Internal/external reference catalog. | `agent-docs/references/**` | Protocol Maintainers | Monthly | Medium | 2026-02-18 |
-| `agent-docs/references/module-boundary-map.md` | Contract/module boundary map and dependency directions. | `src/**` | Protocol Maintainers | Per module-boundary PR | High | 2026-03-11 |
+| `agent-docs/references/module-boundary-map.md` | Contract/module boundary map and dependency directions. | `src/**` | Protocol Maintainers | Per module-boundary PR | High | 2026-03-13 |
 | `agent-docs/references/flow-allocation-and-child-sync-map.md` | Flow allocation, snapshot/commit, and child-sync runtime map. | `src/Flow.sol`, `src/library/**`, `src/flows/CustomFlow.sol` | Protocol Maintainers | Per flow/allocation PR | High | 2026-02-23 |
 | `agent-docs/references/tcr-and-arbitration-map.md` | TCR request/challenge/dispute lifecycle map. | `src/tcr/**` | Protocol Maintainers | Per tcr/arbitrator PR | High | 2026-03-12 |
-| `agent-docs/references/goal-funding-and-reward-map.md` | Goal/Budget treasury funding, premium escrow, community root routing with goal-treasury sink beneficiaries, and underwriting/slash flow map. | `src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildGoalTerminal.sol` | Protocol Maintainers | Per goals/treasury PR | High | 2026-03-11 |
-| `agent-docs/references/economic-considerations.md` | Incentive-risk notes and attack surfaces for treasury/underwriting/TCR interactions. | `src/goals/**`, `src/tcr/**`, protocol mechanism-design reviews | Protocol Maintainers | Per economics/mechanism PR | High | 2026-03-01 |
+| `agent-docs/references/goal-funding-and-reward-map.md` | Goal/Budget treasury funding, premium escrow, community root routing with goal-treasury sink beneficiaries, and underwriting/slash flow map. | `src/goals/**`, `src/hooks/GoalRevnetSplitHook.sol`, `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildGoalTerminal.sol` | Protocol Maintainers | Per goals/treasury PR | High | 2026-03-13 |
+| `agent-docs/references/economic-considerations.md` | Incentive-risk notes and attack surfaces for treasury/underwriting/TCR interactions. | `src/goals/**`, `src/tcr/**`, protocol mechanism-design reviews | Protocol Maintainers | Per economics/mechanism PR | High | 2026-03-13 |
 | `agent-docs/references/uma-deployment-recommendations.md` | Pre-launch UMA resolver deployment defaults and policy guidance (`USDC`, `$750`, bond/liveness overrides). | `src/goals/UMATreasurySuccessResolver.sol`, `src/goals/GoalTreasury.sol`, `src/goals/BudgetTreasury.sol`, UMA/Polymarket primary docs | Protocol Maintainers | Per oracle-policy PR | High | 2026-02-25 |
 | `agent-docs/references/testing-ci-map.md` | Testing and CI enforcement map. | `.github/workflows/**`, `scripts/**`, `package.json` | Protocol Maintainers | Per CI/process PR | Medium | 2026-03-05 |
 | `agent-docs/references/foundry-llms.txt` | External Foundry reference pack. | Foundry docs | Protocol Maintainers | Quarterly | Low | 2026-02-18 |

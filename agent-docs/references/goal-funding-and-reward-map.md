@@ -13,7 +13,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
   - managed preset: `ManagedBudgetController`
 - Premium / risk modules are now pluggable:
   - open preset: `PremiumEscrow`
-  - managed preset: none by default (`PremiumEscrowMode.None`)
+  - managed preset: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
 - Managed child-budget admin and allocator identity are both controller-centric; Safe authority operates through `ManagedBudgetController`.
 - Advisory TCR for maintainer goals and any managed mechanism controller are intentionally out of scope for this pass.
 
@@ -69,7 +69,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
    - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
    - a cloned `BudgetTCRDeployer` configured through `IBudgetStackDeployer` for budget child stacks
    - no managed gate-policy module by default (`budgetGatePolicy = address(0)`)
-   - no premium module (`premiumEscrowMode = None`, `premiumEscrowImplementation = address(0)`)
+   - no premium module (`premiumEscrow = address(0)`, `premiumEscrowImplementation = address(0)`)
 3. The managed stack deployer clone only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
    - no premium escrow module
@@ -94,6 +94,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 ### Open preset risk path
 
 - Manager reward stream routes into `PremiumEscrow` at `budgetPremiumPpm`.
+- Goal-level `UnderwriterSlasherRouter` wiring is present only when `budgetSlashPpm != 0`; premium-only/no-slash budgets still use `PremiumEscrow` but omit goal-level slasher routing.
 - `PremiumEscrow` checkpoints live coverage from `BudgetStakeLedger`, accrues premium, gates claims on goal success, and can slash underwriters through `UnderwriterSlasherRouter`.
 - Coverage-based recipient enable / disable remains part of the live routing path.
 - When `BudgetTCR.syncBudgetTreasuries(...)` terminalizes a budget after a successful treasury sync, the controller also prunes the parent recipient and best-effort syncs the goal treasury locally in that same batch; the treasury callback remains a retryable fallback path.
@@ -119,6 +120,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - Managed preset still uses `StakeVault` for funding / coverage state, but not for goal allocator identity.
 - `BudgetStakeLedger` remains coverage-only accounting for per-user / per-budget allocated stake plus checkpoint history.
 - `UnderwriterSlasherRouter` still receives slash outcomes from real `PremiumEscrow` flows in the open preset and forwards recovered value toward goal funding.
+- `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` is only a post-resolution withdrawal prerequisite on slash-enabled goals; zero-slash goals skip the no-op prepare step.
 - Managed preset skips live premium / slash accounting by deploying budget stacks with no premium module configured.
 
 ## Deferred Follow-Ups

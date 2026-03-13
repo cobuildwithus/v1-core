@@ -122,7 +122,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         if (config.budgetSlashPpm != 0 && config.budgetPremiumPpm == 0) {
             revert INVALID_UNDERWRITING_SLASH_CONFIG(config.budgetPremiumPpm, config.budgetSlashPpm);
         }
-        if (config.budgetPremiumPpm == 0) {
+        if (config.budgetSlashPpm == 0) {
             if (config.underwriterSlasher != address(0)) revert ADDRESS_ZERO();
         } else if (config.underwriterSlasher == address(0)) {
             revert ADDRESS_ZERO();
@@ -148,7 +148,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
             revert BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address(this), ledgerGoalTreasury);
         }
         _stakeVault.setJurorSlasher(config.jurorSlasher);
-        if (config.budgetPremiumPpm != 0) {
+        if (config.budgetSlashPpm != 0) {
             _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
         }
 

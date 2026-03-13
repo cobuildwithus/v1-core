@@ -17,14 +17,14 @@ contract GoalFactoryBudgetTcrRoutingTest is Test {
         assertEq(routing.underwriterSlasherRouter, address(0));
     }
 
-    function test_resolveOpenPresetRouting_usesNoGateAndPreservesRiskWiringWhenSlashIsZero() public pure {
+    function test_resolveOpenPresetRouting_usesNoGateAndDropsRouterWhenSlashIsZero() public pure {
         IBudgetTCR.RiskModuleRouting memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
             100_000, 0, address(0xBEEF), address(0xCAFE), address(0xF00D)
         );
 
         assertEq(routing.budgetGatePolicy, address(0));
         assertEq(routing.premiumEscrowImplementation, address(0xCAFE));
-        assertEq(routing.underwriterSlasherRouter, address(0xF00D));
+        assertEq(routing.underwriterSlasherRouter, address(0));
     }
 
     function test_resolveOpenPresetRouting_preservesGateAndRiskWiringWhenSlashIsEnabled() public pure {

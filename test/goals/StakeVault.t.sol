@@ -1112,6 +1112,7 @@ contract StakeVaultTest is Test {
     function test_withdrawGoal_revertsWhenNotPrepared() public {
         vm.prank(alice);
         vault.depositGoal(10e18);
+        vault.setUnderwriterSlasher(address(this));
         vault.markGoalResolved();
 
         vm.prank(alice);
@@ -1134,6 +1135,7 @@ contract StakeVaultTest is Test {
         budgetB.setResolved(true);
         budgetAwareLedger.addBudget(address(budgetA));
         budgetAwareLedger.addBudget(address(budgetB));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1233,6 +1235,57 @@ contract StakeVaultTest is Test {
         assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
     }
 
+    function test_withdrawGoal_skipsUnderwriterPreparationWhenUnderwriterSlasherIsUnset() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(0));
+        unresolvedBudget.setActivatedAt(1);
+        unresolvedBudget.setState(IBudgetTreasury.BudgetState.Active);
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+        budgetAwareLedger.setCoverage(alice, address(unresolvedBudget), 1e18);
+
+        vm.prank(alice);
+        budgetAwareVault.depositGoal(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawGoal(1e18, alice);
+
+        assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
+    }
+
+    function test_withdrawCobuild_skipsUnderwriterPreparationWhenUnderwriterSlasherIsUnset() public {
+        (
+            StakeVault budgetAwareVault,
+            VaultPrepareGoalTreasury budgetAwareGoalTreasury,
+            VaultPrepareBudgetStakeLedger budgetAwareLedger
+        ) = _deployBudgetAwareVault();
+
+        VaultPreparePremiumEscrow escrow = new VaultPreparePremiumEscrow();
+        VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
+        unresolvedBudget.setActivatedAt(1);
+        unresolvedBudget.setState(IBudgetTreasury.BudgetState.Active);
+        budgetAwareLedger.addBudget(address(unresolvedBudget));
+        budgetAwareLedger.setCoverage(alice, address(unresolvedBudget), 1e18);
+
+        vm.prank(alice);
+        budgetAwareVault.depositCobuild(10e18);
+        vm.prank(address(budgetAwareGoalTreasury));
+        budgetAwareVault.markGoalResolved();
+
+        vm.prank(alice);
+        budgetAwareVault.withdrawCobuild(1e18, alice);
+
+        assertEq(budgetAwareVault.stakedCobuildOf(alice), 9e18);
+        assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
+    }
+
     function test_prepareUnderwriterWithdrawal_unresolvedPreActivationCurrentCoverage_allowsPrepareAndWithdraw() public {
         (
             StakeVault budgetAwareVault,
@@ -1276,6 +1329,7 @@ contract StakeVaultTest is Test {
         unresolvedBudget.setState(IBudgetTreasury.BudgetState.Active);
         budgetAwareLedger.addBudget(address(unresolvedBudget));
         budgetAwareLedger.setCoverage(alice, address(unresolvedBudget), 1e18);
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1335,6 +1389,7 @@ contract StakeVaultTest is Test {
         escrow.setUserCov(alice, 1);
         VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
         budgetAwareLedger.addBudget(address(unresolvedBudget));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1365,6 +1420,7 @@ contract StakeVaultTest is Test {
 
         VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(makeAddr("premium-escrow-eoa"));
         budgetAwareLedger.addBudget(address(unresolvedBudget));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1397,6 +1453,7 @@ contract StakeVaultTest is Test {
         escrow.setExposureIntegral(alice, 1);
         VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
         budgetAwareLedger.addBudget(address(unresolvedBudget));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1429,6 +1486,7 @@ contract StakeVaultTest is Test {
         escrow.setCreditDrawn(alice, 1);
         VaultPrepareBudgetTreasury unresolvedBudget = new VaultPrepareBudgetTreasury(address(escrow));
         budgetAwareLedger.addBudget(address(unresolvedBudget));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1654,6 +1712,7 @@ contract StakeVaultTest is Test {
         VaultPrepareBudgetTreasury budgetA = new VaultPrepareBudgetTreasury(address(escrowA));
         budgetA.setResolved(true);
         budgetAwareLedger.addBudget(address(budgetA));
+        _configureUnderwriterSlasher(budgetAwareVault, address(budgetAwareGoalTreasury));
 
         vm.prank(alice);
         budgetAwareVault.depositGoal(10e18);
@@ -1764,6 +1823,7 @@ contract StakeVaultTest is Test {
     function test_withdrawCobuild_revertsWhenNotPrepared() public {
         vm.prank(alice);
         vault.depositCobuild(10e18);
+        vault.setUnderwriterSlasher(address(this));
         vault.markGoalResolved();
 
         vm.prank(alice);
@@ -3108,6 +3168,11 @@ contract StakeVaultTest is Test {
     function _prepareUnderwriterWithdrawal(StakeVault targetVault, address underwriter) internal {
         vm.prank(underwriter);
         targetVault.prepareUnderwriterWithdrawal(type(uint256).max);
+    }
+
+    function _configureUnderwriterSlasher(StakeVault targetVault, address goalTreasuryCaller) internal {
+        vm.prank(goalTreasuryCaller);
+        targetVault.setUnderwriterSlasher(address(this));
     }
 
     function _deployBudgetAwareVault()

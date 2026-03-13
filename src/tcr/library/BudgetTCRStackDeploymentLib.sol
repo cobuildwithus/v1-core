@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IPremiumEscrow } from "src/interfaces/IPremiumEscrow.sol";
+import { IPremiumEscrowInitializer } from "src/interfaces/IPremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 
 library BudgetTCRStackDeploymentLib {
@@ -49,7 +49,7 @@ library BudgetTCRStackDeploymentLib {
         address deployedBudgetTreasury = deployBudgetTreasury(controller, budgetTreasury, budgetConfig);
 
         // Concrete escrow implementations decide whether stake-ledger/slasher inputs are mandatory.
-        IPremiumEscrow(premiumEscrow).initialize(
+        IPremiumEscrowInitializer(premiumEscrow).initialize(
             budgetTreasury,
             riskModuleInitConfig.budgetStakeLedger,
             riskModuleInitConfig.goalFlow,

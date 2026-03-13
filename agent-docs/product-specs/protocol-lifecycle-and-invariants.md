@@ -61,7 +61,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - unsolicited third-party inbound streams to the budget flow must not increase the trusted incoming component.
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
-  - goal-level `UnderwriterSlasherRouter` deployment is conditional on goal underwriting being enabled at all; canonical `budgetPremiumPpm == 0 && budgetSlashPpm == 0` goals omit that router and leave the stake-vault underwriter slasher unset,
+  - goal-level `UnderwriterSlasherRouter` deployment is conditional on `budgetSlashPpm != 0`; canonical `budgetPremiumPpm == 0 && budgetSlashPpm == 0` goals and premium-only/no-slash goals omit that router and leave the stake-vault underwriter slasher unset,
   - `PremiumEscrow` checkpoints per-underwriter coverage from `BudgetStakeLedger` and accrues premium via balance-index accounting,
   - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure,
   - premium claims are allowed only while parent goal state is `Succeeded`,
@@ -181,9 +181,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - managed goals with terminal rollover enabled convert `Succeeded` residual goal-token value into the parent/community token through the canonical goal cash-out terminal, queue it on the canonical community split hook, and release it into historical backlog after the configured cooldown,
   - managed rollover does not use an explicit-route seed or mutable successor address; it reuses the community hook's existing historical-routing surface.
 - Underwriter withdrawal settlement is caller-scoped (not globally budget-scoped):
-  - after `markGoalResolved`, each underwriter must complete `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over append-only registered budgets,
+  - after `markGoalResolved`, each underwriter on a slash-enabled goal must complete `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` over append-only registered budgets,
   - preparation blocks only that caller when unresolved exposure remains and executes required `PremiumEscrow.slash(caller)` calls for failed/post-activation-expired budgets,
-  - `withdrawGoal`/`withdrawCobuild` require successful caller preparation for the current goal-resolution epoch.
+  - `withdrawGoal`/`withdrawCobuild` require successful caller preparation for the current goal-resolution epoch when `StakeVault.underwriterSlasher()` is configured; zero-slash goals skip this gate.
 - Budget stake ledger is coverage-only accounting; no points/maturation/success-snapshot payout subsystem remains in runtime.
 - Terminal residual handling remains callable after finalization (`GoalTreasury.settleLateResidual`, `BudgetTreasury.settleLateResidualToParent`) to absorb late inflows without stranded value.
 

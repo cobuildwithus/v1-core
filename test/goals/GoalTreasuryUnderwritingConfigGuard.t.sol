@@ -37,7 +37,7 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         clone.initialize(config);
     }
 
-    function test_initializeRevertsWhenPremiumEnabledAndUnderwriterSlasherIsZero() public {
+    function test_initializeAllowsPremiumEnabledWhenSlashIsZeroAndUnderwriterSlasherIsZero() public {
         GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
 
         IGoalTreasury.GoalConfig memory config =
@@ -46,8 +46,11 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         config.budgetPremiumPpm = 100_000;
         config.budgetSlashPpm = 0;
 
-        vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
         clone.initialize(config);
+
+        assertEq(uint256(clone.budgetPremiumPpm()), uint256(config.budgetPremiumPpm));
+        assertEq(uint256(clone.budgetSlashPpm()), 0);
+        assertEq(stakeVault.underwriterSlasher(), address(0));
     }
 
     function test_initializeRevertsWhenZeroPremiumAndUnderwriterSlasherIsNonZero() public {
@@ -56,6 +59,19 @@ contract GoalTreasuryUnderwritingConfigGuardTest is UnderwritingCoverageCapInteg
         IGoalTreasury.GoalConfig memory config =
             _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
         config.underwriterSlasher = address(hook);
+
+        vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
+        clone.initialize(config);
+    }
+
+    function test_initializeRevertsWhenPremiumEnabledAndSlashIsZeroButUnderwriterSlasherIsNonZero() public {
+        GoalTreasury clone = _cloneGoalTreasuryWithPredictedAddress();
+
+        IGoalTreasury.GoalConfig memory config =
+            _defaultGoalConfig(address(rulesets), address(hook), address(budgetStakeLedger));
+        config.underwriterSlasher = address(hook);
+        config.budgetPremiumPpm = 100_000;
+        config.budgetSlashPpm = 0;
 
         vm.expectRevert(IGoalTreasury.ADDRESS_ZERO.selector);
         clone.initialize(config);

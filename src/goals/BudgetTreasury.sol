@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IBudgetController } from "../interfaces/IBudgetController.sol";
-import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
+import { IPremiumEscrowTerminal } from "../interfaces/IPremiumEscrow.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
 import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
@@ -453,7 +453,9 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
         address escrow = premiumEscrow;
         if (escrow == address(0)) return;
 
-        try IPremiumEscrow(escrow).close(finalState, activatedAt, resolvedAt) {} catch (bytes memory revertData) {
+        try IPremiumEscrowTerminal(escrow).close(finalState, activatedAt, resolvedAt) {} catch (
+            bytes memory revertData
+        ) {
             emit TerminalPremiumEscrowCloseFailed(revertData);
         }
     }

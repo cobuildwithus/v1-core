@@ -337,7 +337,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
         deploymentConfig.riskModuleRouting.premiumEscrowImplementation = address(0);
 
-        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION.selector, address(0)));
+        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -407,6 +407,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfigWithFreshArbitrator();
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(0);
         deploymentConfig.budgetSlashPpm = 0;
 
         freshTcr.initialize(registryConfig, deploymentConfig);
@@ -433,6 +434,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             IBudgetTCR.DeploymentConfig memory deploymentConfig
         ) = _freshInitializeConfigWithFreshArbitrator();
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(new NoopZeroCoverageBudgetGatePolicy());
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(0);
         deploymentConfig.budgetSlashPpm = 0;
 
         freshTcr.initialize(registryConfig, deploymentConfig);
@@ -455,7 +457,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_initialize_reverts_when_underwriter_slasher_router_is_zero() public {
+    function test_initialize_reverts_when_slash_enabled_underwriter_slasher_router_is_zero() public {
         (
             BudgetTCR freshTcr,
             IBudgetTCR.InitConfig memory registryConfig,
@@ -467,7 +469,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
-    function test_initialize_reverts_when_underwriter_slasher_router_has_no_code() public {
+    function test_initialize_reverts_when_slash_enabled_underwriter_slasher_router_has_no_code() public {
         (
             BudgetTCR freshTcr,
             IBudgetTCR.InitConfig memory registryConfig,
@@ -477,6 +479,22 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         vm.expectRevert(IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_allows_premium_only_config_without_underwriter_router() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfigWithFreshArbitrator();
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
+        deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(0);
+        deploymentConfig.budgetSlashPpm = 0;
+
+        freshTcr.initialize(registryConfig, deploymentConfig);
+
+        assertEq(freshTcr.premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation);
+        assertEq(freshTcr.underwriterSlasherRouter(), address(0));
     }
 
     function test_initialize_reverts_when_absent_premium_wiring_has_nonzero_rates() public {
@@ -528,7 +546,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetPremiumPpm = 0;
         deploymentConfig.budgetSlashPpm = 0;
 
-        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH.selector);
+        vm.expectRevert(IBudgetTCR.UNDERWRITER_SLASHER_CONFIG_MISMATCH.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 

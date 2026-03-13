@@ -113,6 +113,16 @@ contract PremiumEscrowTest is Test {
         assertEq(maxEscrow.budgetSlashPpm(), FlowProtocolConstants.PPM_SCALE);
     }
 
+    function test_initializeAllowsZeroSlashPpmWithoutUnderwriterRouter() public {
+        PremiumEscrow implementation = new PremiumEscrow();
+        PremiumEscrow zeroSlashEscrow = PremiumEscrow(Clones.clone(address(implementation)));
+
+        zeroSlashEscrow.initialize(address(budgetTreasury), address(ledger), address(goalFlow), address(0), 0);
+
+        assertEq(zeroSlashEscrow.underwriterSlasherRouter(), address(0));
+        assertEq(zeroSlashEscrow.budgetSlashPpm(), 0);
+    }
+
     function test_initializeRevertsWhenGoalFlowBaselineReadFails() public {
         goalFlow.setRevertTotalReceivedByMemberRead(true);
 

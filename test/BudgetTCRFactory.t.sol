@@ -24,7 +24,6 @@ import {IArbitrable} from "src/tcr/interfaces/IArbitrable.sol";
 import {IGeneralizedTCR} from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
@@ -1172,7 +1171,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertFalse(ok);
     }
 
-    function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfigToNoPremiumMode() public {
+    function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfigToNoPremiumStack() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
         ISubmissionDepositStrategy submissionDepositStrategy =
             ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
@@ -1222,9 +1221,62 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             _MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(),
             deploymentConfig.riskModuleRouting.underwriterSlasherRouter
         );
-        assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
         assertEq(stackDeployer.discoveryEmitter(), address(factory));
+    }
+
+    function test_deployBudgetTCRStackForGoal_canonicalizesPremiumOnlyConfig_toZeroUnderwriterRouter() public {
+        MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        ISubmissionDepositStrategy submissionDepositStrategy =
+            ISubmissionDepositStrategy(address(new EscrowSubmissionDepositStrategy(IERC20(address(votingToken)))));
+        address budgetStakeLedger = address(new _MockImplementation());
+        _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(budgetStakeLedger);
+        _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
+        goalTreasury.setStakeVault(address(stakeVault));
+
+        BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
+
+        BudgetTCRFactory.RegistryConfigInput memory registryConfig = BudgetTCRFactory.RegistryConfigInput({
+            allocationMechanismAdmin: makeAddr("governor"),
+            invalidRoundRewardsSink: makeAddr("invalid-round-reward-sink"),
+            votingToken: IVotes(address(votingToken)),
+            submissionDepositStrategy: submissionDepositStrategy,
+            registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
+                arbitratorExtraData: bytes(""),
+                registrationMetaEvidence: "ipfs://reg",
+                clearingMetaEvidence: "ipfs://clear",
+                submissionBaseDeposit: 100e18,
+                removalBaseDeposit: 50e18,
+                submissionChallengeBaseDeposit: 120e18,
+                removalChallengeBaseDeposit: 70e18,
+                challengePeriodDuration: 3 days
+            })
+        });
+        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+            factory,
+            address(this),
+            IVotes(address(votingToken)),
+            IGoalTreasury(address(goalTreasury)),
+            IERC20(address(votingToken)),
+            IERC20(address(votingToken))
+        );
+        deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
+        deploymentConfig.budgetSlashPpm = 0;
+
+        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
+            factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+        BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
+        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(deployedBudgetTCR.stackDeployer());
+
+        assertEq(
+            deployedBudgetTCR.premiumEscrowImplementation(),
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+        );
+        assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
+        assertEq(
+            stackDeployer.premiumEscrowImplementation(),
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+        );
     }
 
     function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfig_withoutValidPremiumWiring()
@@ -1279,7 +1331,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
         assertEq(_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(), address(0));
-        assertEq(uint8(stackDeployer.premiumEscrowMode()), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
     }
 

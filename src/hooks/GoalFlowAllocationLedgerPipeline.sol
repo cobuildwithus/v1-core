@@ -7,7 +7,7 @@ import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "../interfaces/IFlow.sol";
-import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
+import { IPremiumEscrowCheckpoint } from "../interfaces/IPremiumEscrow.sol";
 import { GoalFlowLedgerMode } from "../library/GoalFlowLedgerMode.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -294,7 +294,7 @@ contract GoalFlowAllocationLedgerPipeline is IAllocationPipeline, Initializable 
             if (premiumEscrow.code.length == 0) {
                 revert INVALID_BUDGET_PREMIUM_ESCROW(budgetTreasury, premiumEscrow);
             }
-            IPremiumEscrow(premiumEscrow).checkpoint(account);
+            IPremiumEscrowCheckpoint(premiumEscrow).checkpoint(account);
             unchecked {
                 ++i;
             }

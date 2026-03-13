@@ -150,8 +150,8 @@ contract PremiumEscrow is IPremiumEscrow, ReentrancyGuardUpgradeable {
         if (budgetTreasury_ == address(0)) revert ADDRESS_ZERO();
         if (budgetStakeLedger_ == address(0)) revert ADDRESS_ZERO();
         if (goalFlow_ == address(0)) revert ADDRESS_ZERO();
-        if (underwriterSlasherRouter_ == address(0)) revert ADDRESS_ZERO();
         if (budgetSlashPpm_ > FlowProtocolConstants.PPM_SCALE) revert INVALID_SLASH_PPM(budgetSlashPpm_);
+        if (budgetSlashPpm_ != 0 && underwriterSlasherRouter_ == address(0)) revert ADDRESS_ZERO();
 
         address premiumTokenAddress = address(IFlow(goalFlow_).superToken());
         if (premiumTokenAddress == address(0)) revert ADDRESS_ZERO();

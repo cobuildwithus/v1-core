@@ -809,7 +809,6 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
                 childFlowStrategyTarget: address(childStrategyFactory),
                 mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(controller),
-                premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
                 premiumEscrowImplementation: address(0)
             }),
             address(0)
@@ -1453,7 +1452,6 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
             childFlowStrategyTarget: address(0),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(this),
-            premiumEscrowMode: PremiumEscrowMode.None,
             premiumEscrowImplementation: address(0)
         });
     }

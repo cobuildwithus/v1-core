@@ -37,7 +37,6 @@ library BudgetTCRConfigHelpers {
             childFlowStrategyTarget: address(0),
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
             childFlowRecipientAdmin: address(0),
-            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.Clone,
             premiumEscrowImplementation: premiumEscrowImplementation
         });
     }
@@ -52,7 +51,6 @@ library BudgetTCRConfigHelpers {
             childFlowStrategyTarget: address(0),
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
             childFlowRecipientAdmin: address(0),
-            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
             premiumEscrowImplementation: address(0)
         });
     }
@@ -66,7 +64,6 @@ library BudgetTCRConfigHelpers {
             childFlowStrategyTarget: strategy,
             mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
             childFlowRecipientAdmin: recipientAdmin,
-            premiumEscrowMode: IBudgetStackDeployer.PremiumEscrowMode.None,
             premiumEscrowImplementation: address(0)
         });
     }

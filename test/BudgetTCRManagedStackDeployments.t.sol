@@ -258,7 +258,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function test_managedStackDeploy_revertsWhenNoPremiumConfigRequiresZeroRates() public {
+    function test_managedStackDeploy_revertsWhenPremiumRatesRequirePreparedEscrow() public {
         harness.configure(
             address(goalFlow),
             address(goalTreasury),
@@ -271,7 +271,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         );
 
-        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
+        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_NOT_PREPARED.selector);
         harness.deploy(keccak256("managed-budget-nonzero-rates"), abi.encode(_defaultListing()));
     }
 

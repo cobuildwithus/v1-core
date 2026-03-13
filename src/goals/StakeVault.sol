@@ -5,7 +5,7 @@ import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
-import { IPremiumEscrow } from "../interfaces/IPremiumEscrow.sol";
+import { IPremiumEscrowSlashAccounting } from "../interfaces/IPremiumEscrow.sol";
 import { ICustomFlow } from "../interfaces/IFlow.sol";
 import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
 import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
@@ -799,6 +799,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
     }
 
     function _requireUnderwriterWithdrawalPrepared(address underwriter) private view {
+        if (underwriterSlasher == address(0)) return;
         if (_underwriterWithdrawalPreparedForResolvedAt[underwriter] != goalResolvedAt) {
             revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
         }
@@ -825,7 +826,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
         // `address(0)` is an explicit optional-premium mode: there is no underwriting side effect to reconcile.
         if (premiumEscrowAddress == address(0)) return;
         if (premiumEscrowAddress.code.length == 0) revert UNDERWRITER_WITHDRAWAL_NOT_PREPARED();
-        IPremiumEscrow premiumEscrow = IPremiumEscrow(premiumEscrowAddress);
+        IPremiumEscrowSlashAccounting premiumEscrow = IPremiumEscrowSlashAccounting(premiumEscrowAddress);
 
         uint256 currentCoverage = budgetStakeLedger.userAllocatedStakeOnBudget(underwriter, budget);
         bool hasCurrentCoverage = currentCoverage != 0;

@@ -21,7 +21,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     address public childFlowStrategyTarget;
     MechanismLayerMode public mechanismLayerMode;
     address public childFlowRecipientAdmin;
-    PremiumEscrowMode public premiumEscrowMode;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
     address public immutable teamFlowFactory;
@@ -89,7 +88,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         childFlowStrategyTarget = stackModuleConfig_.childFlowStrategyTarget;
         mechanismLayerMode = stackModuleConfig_.mechanismLayerMode;
         childFlowRecipientAdmin = stackModuleConfig_.childFlowRecipientAdmin;
-        premiumEscrowMode = stackModuleConfig_.premiumEscrowMode;
     }
 
     function prepareBudgetStack(
@@ -186,7 +184,6 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             childFlowStrategyTarget: childFlowStrategyTarget,
             mechanismLayerMode: mechanismLayerMode,
             childFlowRecipientAdmin: childFlowRecipientAdmin,
-            premiumEscrowMode: premiumEscrowMode,
             premiumEscrowImplementation: premiumEscrowImplementation
         });
     }
@@ -215,9 +212,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
-        if (stackModuleConfig_.premiumEscrowMode == PremiumEscrowMode.None) {
-            if (stackModuleConfig_.premiumEscrowImplementation != address(0)) revert INVALID_STACK_MODULE_CONFIG();
-        } else {
+        if (stackModuleConfig_.premiumEscrowImplementation != address(0)) {
             _assertImplementationAddress(stackModuleConfig_.premiumEscrowImplementation);
         }
 
@@ -277,11 +272,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
     }
 
     function _preparePremiumEscrow() internal returns (address premiumEscrow) {
-        if (premiumEscrowMode == PremiumEscrowMode.None) {
+        address implementation = premiumEscrowImplementation;
+        if (implementation == address(0)) {
             return address(0);
         }
 
-        premiumEscrow = Clones.clone(premiumEscrowImplementation);
+        premiumEscrow = Clones.clone(implementation);
     }
 
     function _prepareMechanismLayer() internal returns (address allocationMechanism, address recipientAdmin) {

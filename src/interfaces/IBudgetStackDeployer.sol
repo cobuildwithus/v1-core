@@ -15,17 +15,11 @@ interface IBudgetStackDeployer {
         None
     }
 
-    enum PremiumEscrowMode {
-        Clone,
-        None
-    }
-
     struct StackModuleConfig {
         ChildFlowStrategyMode childFlowStrategyMode;
         address childFlowStrategyTarget;
         MechanismLayerMode mechanismLayerMode;
         address childFlowRecipientAdmin;
-        PremiumEscrowMode premiumEscrowMode;
         address premiumEscrowImplementation;
     }
 

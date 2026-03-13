@@ -36,10 +36,17 @@ library BudgetTCRInitValidation {
         }
 
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
-        bool omitsPremiumModule = _omitsPremiumModuleWiring(deploymentConfig);
+        bool hasPremiumModuleWiring = _hasPremiumModuleWiring(deploymentConfig);
+        bool requiresUnderwriterSlasherRouter = _requiresUnderwriterSlasherRouter(deploymentConfig);
+        bool hasUnderwriterSlasherRouterWiring = _hasUnderwriterSlasherRouterWiring(deploymentConfig);
         budgetGatePolicy_ = _validateBudgetGatePolicy(deploymentConfig);
-        _requirePremiumModuleConsistency(requiresPremiumModule, omitsPremiumModule);
-        if (requiresPremiumModule) _requirePremiumModuleWiring(deploymentConfig);
+        _requirePremiumModuleConsistency(requiresPremiumModule, hasPremiumModuleWiring);
+        _requireUnderwriterSlasherRouterConsistency(
+            requiresUnderwriterSlasherRouter,
+            hasUnderwriterSlasherRouterWiring
+        );
+        if (requiresPremiumModule) _requirePremiumEscrowImplementation(deploymentConfig);
+        if (requiresUnderwriterSlasherRouter) _requireUnderwriterSlasherRouterWiring(deploymentConfig);
         if (deploymentConfig.goalTreasury.budgetStakeLedger() == address(0)) {
             revert IBudgetTCR.BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
         }
@@ -65,33 +72,54 @@ library BudgetTCRInitValidation {
             deploymentConfig.stackDeployer
         ).stackModuleConfig();
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
-        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
-            IBudgetStackDeployer.PremiumEscrowMode.None;
-        _requirePremiumModuleConsistency(requiresPremiumModule, stackOmitsPremiumModule);
+        bool stackHasPremiumModule = stackModuleConfig.premiumEscrowImplementation != address(0);
+        _requirePremiumModuleConsistency(requiresPremiumModule, stackHasPremiumModule);
     }
 
     function _requiresPremiumModule(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure returns (bool) {
         return deploymentConfig.budgetPremiumPpm != 0 || deploymentConfig.budgetSlashPpm != 0;
     }
 
-    function _omitsPremiumModuleWiring(
+    function _requiresUnderwriterSlasherRouter(
         IBudgetTCR.DeploymentConfig calldata deploymentConfig
     ) private pure returns (bool) {
-        return
-            deploymentConfig.riskModuleRouting.premiumEscrowImplementation == address(0) &&
-            deploymentConfig.riskModuleRouting.underwriterSlasherRouter == address(0);
+        return deploymentConfig.budgetSlashPpm != 0;
     }
 
-    function _requirePremiumModuleConsistency(bool requiresPremiumModule, bool omitsPremiumModule) private pure {
+    function _hasPremiumModuleWiring(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private pure returns (bool) {
+        return deploymentConfig.riskModuleRouting.premiumEscrowImplementation != address(0);
+    }
+
+    function _hasUnderwriterSlasherRouterWiring(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private pure returns (bool) {
+        return deploymentConfig.riskModuleRouting.underwriterSlasherRouter != address(0);
+    }
+
+    function _requirePremiumModuleConsistency(bool requiresPremiumModule, bool hasPremiumModuleWiring) private pure {
         if (requiresPremiumModule) {
-            if (omitsPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
+            if (!hasPremiumModuleWiring) revert IBudgetTCR.PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
             return;
         }
 
-        if (!omitsPremiumModule) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
+        if (hasPremiumModuleWiring) revert IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH();
     }
 
-    function _requirePremiumModuleWiring(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private view {
+    function _requireUnderwriterSlasherRouterConsistency(
+        bool requiresUnderwriterSlasherRouter,
+        bool hasUnderwriterSlasherRouterWiring
+    ) private pure {
+        if (requiresUnderwriterSlasherRouter) {
+            if (!hasUnderwriterSlasherRouterWiring) revert IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED();
+            return;
+        }
+
+        if (hasUnderwriterSlasherRouterWiring) revert IBudgetTCR.UNDERWRITER_SLASHER_CONFIG_MISMATCH();
+    }
+
+    function _requirePremiumEscrowImplementation(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private view {
         address premiumEscrowImplementation = deploymentConfig.riskModuleRouting.premiumEscrowImplementation;
         if (premiumEscrowImplementation == address(0)) {
             revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address(0));
@@ -99,7 +127,11 @@ library BudgetTCRInitValidation {
         if (premiumEscrowImplementation.code.length == 0) {
             revert IBudgetTCR.INVALID_PREMIUM_ESCROW_IMPLEMENTATION(premiumEscrowImplementation);
         }
+    }
 
+    function _requireUnderwriterSlasherRouterWiring(
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private view {
         address underwriterSlasherRouter_ = deploymentConfig.riskModuleRouting.underwriterSlasherRouter;
         if (underwriterSlasherRouter_ == address(0) || underwriterSlasherRouter_.code.length == 0) {
             revert IBudgetTCR.UNDERWRITER_SLASHER_NOT_CONFIGURED();
