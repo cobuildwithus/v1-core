@@ -2,7 +2,9 @@
 pragma solidity ^0.8.34;
 
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
+import { IBudgetStackControllerReader } from "src/interfaces/IBudgetStackControllerReader.sol";
+import { IBudgetStackRuntimeDeployer } from "src/interfaces/IBudgetStackRuntimeDeployer.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
@@ -10,6 +12,7 @@ import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { BudgetStackInstantiationLib } from "src/goals/library/BudgetStackInstantiationLib.sol";
+import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { BudgetTerminalActions } from "src/goals/library/BudgetTerminalActions.sol";
 import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegistryLib.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
@@ -65,6 +68,18 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         _requireContract(initConfig.goalTreasury);
         _requireContract(initConfig.goalFlow);
         _requireContract(initConfig.stackDeployer);
+        _requireContract(initConfig.budgetChildStrategyFactory);
+        if (IBudgetStackControllerReader(initConfig.stackDeployer).controller() != address(this)) {
+            revert INVALID_STACK_DEPLOYER(initConfig.stackDeployer);
+        }
+        if (
+            !_matchesManagedPreset(
+                IBudgetStackRuntimeDeployer(initConfig.stackDeployer).stackModuleConfig(),
+                initConfig.budgetChildStrategyFactory
+            )
+        ) {
+            revert INVALID_STACK_DEPLOYER(initConfig.stackDeployer);
+        }
         if (initConfig.budgetGatePolicy != address(0)) {
             _requireContract(initConfig.budgetGatePolicy);
             if (
@@ -161,11 +176,8 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         IGoalTreasury goalTreasury_ = IGoalTreasury(goalTreasury);
         address budgetStakeLedger = goalTreasury_.budgetStakeLedger();
-        IBudgetStackDeployer deployer = IBudgetStackDeployer(stackDeployer);
-        IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
-            budgetStakeLedger,
-            goalFlow
-        );
+        IBudgetStackRuntimeDeployer deployer = IBudgetStackRuntimeDeployer(stackDeployer);
+        BudgetStackTypes.PreparationResult memory prepared = deployer.prepareBudgetStack(budgetStakeLedger, goalFlow);
 
         _requirePreparedStack(prepared);
         if (prepared.childFlowRecipientAdmin != address(this)) {
@@ -176,7 +188,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         }
 
         BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = BudgetStackInstantiationLib
-            .instantiatePreparedBudgetStack(
+            .instantiatePreparedBudgetStackWithoutRiskModule(
                 BudgetStackInstantiationLib.PreparedBudgetStackContext({
                     itemID: itemID,
                     metadata: config.metadata,
@@ -197,14 +209,7 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
                         successAssertionBond: successAssertionBond,
                         spendPolicy: budgetSpendPolicy
                     }),
-                    premiumPpm: 0,
-                    useRiskModule: false,
-                    riskModuleInitConfig: IBudgetStackDeployer.RiskModuleInitConfig({
-                        budgetStakeLedger: address(0),
-                        goalFlow: address(0),
-                        underwriterSlasherRouter: address(0),
-                        budgetSlashPpm: 0
-                    })
+                    premiumPpm: 0
                 })
             );
 
@@ -488,9 +493,25 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         return _budgetDeployments[itemID].active;
     }
 
-    function _requirePreparedStack(IBudgetStackDeployer.PreparationResult memory prepared) private pure {
+    function _requirePreparedStack(BudgetStackTypes.PreparationResult memory prepared) private pure {
         if (prepared.strategy == address(0)) revert ADDRESS_ZERO();
         if (prepared.budgetTreasury == address(0)) revert ADDRESS_ZERO();
+    }
+
+    function _matchesManagedPreset(
+        BudgetStackTypes.StackModuleConfig memory actual,
+        address budgetChildStrategyFactory
+    ) private view returns (bool) {
+        BudgetStackTypes.StackModuleConfig memory expected = BudgetStackPresetConfigLib.managedPreset(
+            budgetChildStrategyFactory,
+            address(this)
+        );
+        return
+            actual.childFlowStrategyMode == expected.childFlowStrategyMode &&
+            actual.childFlowStrategyTarget == expected.childFlowStrategyTarget &&
+            actual.mechanismLayerMode == expected.mechanismLayerMode &&
+            actual.childFlowRecipientAdmin == expected.childFlowRecipientAdmin &&
+            actual.premiumEscrowImplementation == expected.premiumEscrowImplementation;
     }
 
     function _requireContract(address account) private view {

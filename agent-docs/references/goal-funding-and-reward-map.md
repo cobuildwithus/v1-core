@@ -67,14 +67,14 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 1. `ManagedBudgetController` is the budget controller, topology registry, and goal-level allocator identity.
 2. `GoalFactoryManagedPresetDeploy` wires:
    - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
-   - a cloned `BudgetStackDeployer` configured through `IBudgetStackDeployer` for budget child stacks
+   - a cloned `BudgetStackDeployer` sourced from `BudgetTCRFactory.stackDeployerImplementation()` and configured for budget child stacks
    - optional managed gate-policy module wired through `GoalFactory.deployManagedGoal(...)`
    - no premium module (`premiumEscrow = address(0)`, `premiumEscrowImplementation = address(0)`)
 3. The managed stack deployer clone only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
    - no premium escrow module
    - controller-owned/controller-allocated `BudgetSingleAllocatorStrategy` from `BudgetSingleAllocatorStrategyFactory`
-   The later `deployBudgetTreasury(...)` step wires neutral treasury config plus managed risk-init no-ops after the child flow exists.
+   The later treasury deployment step uses the explicit no-risk-module stack-instantiation path after the child flow exists.
 4. Managed child-flow `recipientAdmin` is `ManagedBudgetController`, and Safe authority operates through controller entrypoints.
 5. Safe-managed mechanism runtimes such as `TeamFlow` may still be deployed directly from their factories and attached as ordinary managed budget-flow recipients through the controller's generic recipient APIs; this path does not use `AllocationMechanismTCR` or `MechanismFundingEscrow`.
 6. Managed preset does not require real premium accounting, does not depend on underwriter coverage to enable active budgets, and does not deploy a managed mechanism layer.
@@ -104,6 +104,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - Managed budget child flows do not configure a premium escrow or manager-reward premium route by default.
 - Managed controller no longer stores `budgetAllocationLedger`, `underwriterSlasherRouter`, `budgetPremiumPpm`, or `budgetSlashPpm`.
 - No premium escrow is initialized, connected, or authorized for managed budgets by default.
+- Managed goals also leave `StakeVault.jurorSlasher()` unset; juror-slasher routing remains open-preset-only.
 - Managed preset deployment rejects nonzero `budgetPremiumPpm` or `budgetSlashPpm`.
 - Managed goal-treasury success residuals do not use burn-only settlement:
   - on `Succeeded`, `GoalTreasury` cashes out residual goal-token value into the parent/community token through the canonical goal cash-out terminal,

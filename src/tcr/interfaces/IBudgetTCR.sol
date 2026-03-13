@@ -53,6 +53,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
 
     struct DeploymentConfig {
         address stackDeployer;
+        address discoveryEmitter;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
         RiskModuleRouting riskModuleRouting;
@@ -62,7 +63,6 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
         IERC20 cobuildToken;
         IJBRulesets goalRulesets;
         uint256 goalRevnetId;
-        uint8 paymentTokenDecimals;
         uint32 budgetPremiumPpm;
         uint32 budgetSlashPpm;
         BudgetValidationBounds budgetValidationBounds;
@@ -144,6 +144,8 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
     error INVALID_BUDGET_SPEND_POLICY(address policy);
     error INVALID_BUDGET_GATE_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);
+    error INVALID_STACK_DEPLOYER(address stackDeployer);
+    error STACK_MODULE_CONFIG_MISMATCH();
     error PREMIUM_MODULE_CONFIG_MISMATCH();
     error PREMIUM_MODULE_ABSENCE_REQUIRES_ZERO_RATES();
     error UNDERWRITER_SLASHER_NOT_CONFIGURED();

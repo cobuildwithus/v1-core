@@ -96,8 +96,9 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function _initialize(GoalConfig memory config) private {
         if (config.flow == address(0)) revert ADDRESS_ZERO();
         if (config.stakeVault == address(0)) revert ADDRESS_ZERO();
-        if (config.jurorSlasher == address(0)) revert ADDRESS_ZERO();
-        if (config.jurorSlasher.code.length == 0) revert NOT_A_CONTRACT(config.jurorSlasher);
+        if (config.jurorSlasher != address(0) && config.jurorSlasher.code.length == 0) {
+            revert NOT_A_CONTRACT(config.jurorSlasher);
+        }
         if (config.budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (config.budgetStakeLedger.code.length == 0) revert NOT_A_CONTRACT(config.budgetStakeLedger);
         if (config.hook == address(0)) revert ADDRESS_ZERO();
@@ -147,7 +148,9 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         if (ledgerGoalTreasury != address(this)) {
             revert BUDGET_STAKE_LEDGER_GOAL_MISMATCH(address(this), ledgerGoalTreasury);
         }
-        _stakeVault.setJurorSlasher(config.jurorSlasher);
+        if (config.jurorSlasher != address(0)) {
+            _stakeVault.setJurorSlasher(config.jurorSlasher);
+        }
         if (config.budgetSlashPpm != 0) {
             _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
         }

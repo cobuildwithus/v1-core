@@ -586,7 +586,6 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredPremiumEscrowImpl,
             configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
-            address(budgetTcrStackDeployerImplementation),
             configuredManagedBudgetControllerImpl,
             configuredManagedGoalAllocatorStrategyImpl,
             configuredManagedBudgetChildStrategyFactoryImpl,
@@ -635,6 +634,10 @@ contract MockBudgetTcrFactory {
 
     function stackDeployerImplementation() external view returns (address) {
         return _stackDeployerImplementation;
+    }
+
+    function authorizedCaller() external view returns (address) {
+        return msg.sender;
     }
 }
 

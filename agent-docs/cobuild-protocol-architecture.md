@@ -40,6 +40,11 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol`, `src/goals/policies/*.sol`
 - Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, explicit no-premium absence via `premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`, `src/goals/UnderwriterSlasherRouter.sol` for slash-enabled goals
 - Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/goals/BudgetStackDeployer.sol`
+- Narrow consumers use split roles where possible:
+  - `src/interfaces/IBudgetStackControllerReader.sol`
+  - `src/interfaces/IBudgetStackRuntimeDeployer.sol`
+  - `src/interfaces/IBudgetMechanismProvider.sol`
+  - `src/interfaces/IBudgetStackDiscoveryEmitter.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
 - Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`
@@ -71,9 +76,12 @@ Durable architecture reference for module boundaries, integration paths, and pro
 
 - The recursive-flow substrate is universal. `Flow`, `CustomFlow`, `GoalFlowAllocationLedgerPipeline`, `GoalTreasury`, `BudgetTreasury`, and `StakeVault` remain shared runtime substrate for both presets.
 - Control-plane modules are selected by `GoalFactory` at deployment time. Neutral runtime paths must not branch on a managed/open flag.
+- Both presets derive cloned `BudgetStackDeployer` instances from the same `BudgetTCRFactory.stackDeployerImplementation()` source, and `GoalFactory` construction fails if `BudgetTCRFactory.authorizedCaller()` is not that `GoalFactory`.
 - Factory-stage deployment must provide predeployed managed preset implementations to `GoalFactory`; the canonical
   deploy path does not constructor-deploy shared managed infra inside onchain deployer contracts because nested
   creation code compounds initcode size and can exceed Base/EIP-3860 limits.
+- `GoalFactory` derives the shared budget-stack deployer implementation from `BudgetTCRFactory` and fail-closes
+  construction unless `BudgetTCRFactory.authorizedCaller() == address(goalFactory)`.
 - `StakeVault` remains the funding vault for both presets, but it is not always the goal allocator.
 
 ### Open preset
@@ -94,6 +102,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
+- Goal-level juror slasher router: none
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
@@ -356,9 +365,10 @@ Community root routing
   - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy resolves effective budget address via `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.
 - Stack deployers are mechanical:
-  - `BudgetStackDeployer` is the shared `IBudgetStackDeployer` implementation,
+  - `BudgetStackDeployer` is the shared budget-stack runtime deployer,
   - open preset clones are `onlyController` for `BudgetTCR`,
-  - managed preset clones are `onlyController` for `ManagedBudgetController`.
+  - managed preset clones are `onlyController` for `ManagedBudgetController`,
+  - controller initialization fail-closes if the configured deployer clone does not point back to that controller.
 - Stack deployers use clone-first treasury setup and initialize the treasury after child-flow creation.
 - Runtime parent-flow recipient add/remove operations are executed by the active budget controller.
 - Open-preset removal semantics stay on `BudgetTCR`:
@@ -371,17 +381,18 @@ Community root routing
   - `pruneTerminalBudget(...)` remains permissionless through shared `IBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal slasher wiring is initialization-bound:
-  - `GoalFactoryCoreStackDeploy` always deploys the juror slasher router and deploys the goal-level underwriter slasher router only when `budgetSlashPpm != 0`,
-  - `GoalTreasury.initialize` configures StakeVault slashers immediately and exactly once,
+  - `GoalFactoryCoreStackDeploy` deploys the juror slasher router only for the open preset and deploys the goal-level underwriter slasher router only when `budgetSlashPpm != 0`,
+  - managed goals leave `StakeVault.jurorSlasher()` unset,
+  - `GoalTreasury.initialize` configures StakeVault slashers only when those modules are present and exactly once,
   - `StakeVault` slasher setters are `goalTreasury`-only (no `goalTreasury.authority()` callback path).
-  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
+  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each allocation-mechanism arbitrator through authenticated `BudgetTCR` discovery callbacks.
   - `RoundFactory` round arbitrators reuse stake-vault voting power but are intentionally non-slashing and never receive router authorization.
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal budget controller (`BudgetTCR` or `ManagedBudgetController`).
 - `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetStackDeployer` implementations.
 - `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.
 - Budget stack discovery for indexers is available from fixed emitters:
   - `BudgetTCRFactory.BudgetTCRStackDeployedForGoal` emits first-hop `BudgetTCR` + arbitrator deployment.
-- `BudgetTCRFactory` also re-emits child-stack and mechanism deployment callbacks from registered stack deployers (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`) so indexers can discover dynamic children without subscribing to unknown `BudgetTCR` emitters first.
+- `BudgetTCR` owns the second-hop discovery callback path and calls the fixed factory-address emitter configured at initialization (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so indexers can discover dynamic children without first subscribing to unknown `BudgetTCR` emitters.
   - The mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the per-goal `JurorSlasherRouter`, so activation fails closed if router wiring is missing or invalid.
   - Round deployments emitted by `RoundFactory` do not trigger juror-router authorization because round arbitrators are non-slashing by design.
 - New budget activations seed each per-budget `AllocationMechanismTCR` with both `RoundFactory` and

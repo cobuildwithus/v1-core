@@ -73,7 +73,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
             new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig;
-        IBudgetTCR.DeploymentConfig memory deploymentConfig;
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig;
         IArbitrator.ArbitratorParams memory arbitratorParams;
 
         vm.prank(unauthorizedCaller);
@@ -90,7 +90,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -133,7 +133,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new _MockImplementation()))
         );
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -156,7 +156,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new ManualDepositCapabilityStrategy()))
         );
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -180,7 +180,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
             IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new ManualDepositCapabilityStrategy()))
         );
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -206,7 +206,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory factory = _realFactory();
         BudgetTCRFactory.RegistryConfigInput memory registryConfig =
             _defaultRegistryConfig(IVotes(address(votingToken)), ISubmissionDepositStrategy(address(strategy)));
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -242,7 +242,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory factory = _realFactory();
         BudgetTCRFactory.RegistryConfigInput memory registryConfig =
             _defaultRegistryConfig(IVotes(address(votingToken)), ISubmissionDepositStrategy(address(strategy)));
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -344,11 +344,10 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         IGoalTreasury goalTreasury,
         IERC20 goalToken,
         IERC20 cobuildToken
-    ) internal returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
+    ) internal returns (BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig) {
         IStakeVault stakeVault = IStakeVault(goalTreasury.stakeVault());
 
-        deploymentConfig = IBudgetTCR.DeploymentConfig({
-            stackDeployer: makeAddr("placeholder-stack-deployer"),
+        deploymentConfig = BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig({
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -360,7 +359,6 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
             cobuildToken: cobuildToken,
             goalRulesets: IJBRulesets(address(new _MockImplementation())),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({

@@ -17,10 +17,9 @@ contract BudgetTCRStorageV1 {
 
     IJBRulesets public goalRulesets;
     uint256 public goalRevnetId;
-    uint8 public paymentTokenDecimals;
 
     address public stackDeployer;
-    address public premiumEscrowImplementation;
+    address public discoveryEmitter;
     address internal _budgetGatePolicy;
     address public underwriterSlasherRouter;
     uint32 public budgetPremiumPpm;

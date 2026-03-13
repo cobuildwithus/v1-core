@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-13 (premium/slash module semantics cleanup)
+Last verified: 2026-03-13 (shared budget stack substrate cleanup)
 
 ## Purpose
 

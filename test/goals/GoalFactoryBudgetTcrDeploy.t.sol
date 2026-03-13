@@ -86,7 +86,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         assertEq(address(resolved.submissionDepositStrategy), request.submissionDepositStrategy);
     }
 
-    function test_resolveDeploymentConfig_usesNoGate_whenBudgetSlashIsZero() public pure {
+    function test_resolveRequestedDeploymentConfig_usesNoGate_whenBudgetSlashIsZero() public pure {
         GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
             IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: bytes(""),
@@ -104,7 +104,8 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         request.budgetPremiumPpm = 100_000;
         request.budgetSlashPpm = 0;
 
-        IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory resolved =
+            GoalFactoryBudgetTcrDeploy.resolveRequestedDeploymentConfig(request);
 
         assertEq(resolved.riskModuleRouting.budgetGatePolicy, request.riskModuleRouting.budgetGatePolicy);
         assertEq(
@@ -117,7 +118,7 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         );
     }
 
-    function test_resolveDeploymentConfig_passesThroughNoPremiumRouting_whenBothRatesAreZero() public pure {
+    function test_resolveRequestedDeploymentConfig_passesThroughNoPremiumRouting_whenBothRatesAreZero() public pure {
         GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest memory request = _baseRequest(
             IGeneralizedTCRConfig.RegistryPolicy({
                 arbitratorExtraData: bytes(""),
@@ -132,7 +133,8 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
         );
         request.riskModuleRouting = BudgetTCRConfigHelpers.noPremiumRiskModuleRouting(address(0));
 
-        IBudgetTCR.DeploymentConfig memory resolved = GoalFactoryBudgetTcrDeploy.resolveDeploymentConfig(request);
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory resolved =
+            GoalFactoryBudgetTcrDeploy.resolveRequestedDeploymentConfig(request);
 
         assertEq(resolved.riskModuleRouting.budgetGatePolicy, address(0));
         assertEq(resolved.riskModuleRouting.premiumEscrowImplementation, address(0));
@@ -155,7 +157,6 @@ contract GoalFactoryBudgetTcrDeployTest is Test {
             defaultSubmissionDepositStrategy: address(0),
             riskModuleRouting: BudgetTCRConfigHelpers.noPremiumRiskModuleRouting(address(0)),
             cobuildToken: address(0),
-            cobuildDecimals: 0,
             budgetSuccessResolver: address(0),
             budgetSpendPolicy: address(0),
             budgetBounds: IBudgetTCR.BudgetValidationBounds({

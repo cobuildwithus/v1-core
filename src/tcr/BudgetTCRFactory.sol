@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "./interfaces/IArbitrator.sol";
@@ -10,10 +11,14 @@ import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
+import { IFlow } from "src/interfaces/IFlow.sol";
+import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
+import { IBudgetStackRuntimeDeployer } from "src/interfaces/IBudgetStackRuntimeDeployer.sol";
+import { IJurorSlasherRouter } from "src/interfaces/IJurorSlasherRouter.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
-import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
+import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
@@ -34,7 +39,7 @@ contract BudgetTCRFactory {
     error UNSUPPORTED_UNDERWRITER_SLASHER(address configuredSlasher);
     error INVALID_UNDERWRITER_SLASHER_AUTHORITY(address expected, address actual);
     error INVALID_UNDERWRITER_SLASHER_STAKE_VAULT(address expected, address actual);
-    error UNAUTHORIZED_STACK_DEPLOYER(address caller);
+    error UNAUTHORIZED_BUDGET_TCR(address caller);
     error SUBMISSION_DEPOSIT_STRATEGY_CAPABILITY_PROBE_FAILED(address strategy);
 
     struct RegistryConfigInput {
@@ -45,10 +50,25 @@ contract BudgetTCRFactory {
         IGeneralizedTCRConfig.RegistryPolicy registryPolicy;
     }
 
+    struct RequestedBudgetTCRDeploymentConfig {
+        address budgetSuccessResolver;
+        address budgetSpendPolicy;
+        IBudgetTCR.RiskModuleRouting riskModuleRouting;
+        IFlow goalFlow;
+        IGoalTreasury goalTreasury;
+        IERC20 goalToken;
+        IERC20 cobuildToken;
+        IJBRulesets goalRulesets;
+        uint256 goalRevnetId;
+        uint32 budgetPremiumPpm;
+        uint32 budgetSlashPpm;
+        IBudgetTCR.BudgetValidationBounds budgetValidationBounds;
+        IBudgetTCR.OracleValidationBounds oracleValidationBounds;
+    }
+
     struct DeployedBudgetTCRStack {
         address budgetTCR;
         address arbitrator;
-        address token;
     }
 
     event BudgetTCRStackDeployedForGoal(
@@ -80,8 +100,6 @@ contract BudgetTCRFactory {
     address public immutable stackDeployerImplementation;
     address public immutable authorizedCaller;
     uint256 public immutable escrowBondBps;
-    mapping(address stackDeployer => address budgetTCR) public budgetTCRByStackDeployer;
-    mapping(address budgetTCR => address stackDeployer) public stackDeployerByBudgetTCR;
     mapping(address budgetTCR => address jurorSlasherRouter) public jurorSlasherRouterByBudgetTCR;
 
     constructor(
@@ -111,7 +129,7 @@ contract BudgetTCRFactory {
 
     function deployBudgetTCRStackForGoal(
         RegistryConfigInput calldata registryConfig,
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        RequestedBudgetTCRDeploymentConfig calldata deploymentConfig,
         IArbitrator.ArbitratorParams calldata arbitratorParams
     ) external returns (DeployedBudgetTCRStack memory deployed) {
         if (msg.sender != authorizedCaller) revert UNAUTHORIZED_CALLER(msg.sender);
@@ -139,8 +157,6 @@ contract BudgetTCRFactory {
             budgetTCR,
             requiresPremiumModule ? deploymentConfig.riskModuleRouting.premiumEscrowImplementation : address(0)
         );
-        budgetTCRByStackDeployer[stackDeployer] = budgetTCR;
-        stackDeployerByBudgetTCR[budgetTCR] = stackDeployer;
 
         IERC20VotesArbitrator(arbitrator).initializeWithConfig(
             IERC20VotesArbitrator.InitConfig({
@@ -159,7 +175,7 @@ contract BudgetTCRFactory {
         );
         address jurorSlasherRouter = _resolveConfiguredJurorSlasherRouter(stakeVault);
         jurorSlasherRouterByBudgetTCR[budgetTCR] = jurorSlasherRouter;
-        JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
+        IJurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(arbitrator, true);
         address underwriterSlasherRouter = requiresUnderwriterSlasherRouter
             ? _resolveUnderwriterSlasherRouter(
                 deploymentConfig.riskModuleRouting.underwriterSlasherRouter,
@@ -194,7 +210,7 @@ contract BudgetTCRFactory {
             address(deploymentConfig.goalTreasury)
         );
 
-        deployed = DeployedBudgetTCRStack({ budgetTCR: budgetTCR, arbitrator: arbitrator, token: token });
+        deployed = DeployedBudgetTCRStack({ budgetTCR: budgetTCR, arbitrator: arbitrator });
     }
 
     function onBudgetStackDeployed(
@@ -204,9 +220,8 @@ contract BudgetTCRFactory {
         address premiumEscrow,
         address strategy
     ) external {
-        address budgetTCR = budgetTCRByStackDeployer[msg.sender];
-        if (budgetTCR == address(0)) revert UNAUTHORIZED_STACK_DEPLOYER(msg.sender);
-        emit BudgetStackDeployed(budgetTCR, itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
+        if (jurorSlasherRouterByBudgetTCR[msg.sender] == address(0)) revert UNAUTHORIZED_BUDGET_TCR(msg.sender);
+        emit BudgetStackDeployed(msg.sender, itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
     }
 
     function onBudgetAllocationMechanismDeployed(
@@ -215,11 +230,10 @@ contract BudgetTCRFactory {
         address allocationMechanismArbitrator,
         address roundFactory
     ) external {
-        address budgetTCR = budgetTCRByStackDeployer[msg.sender];
-        if (budgetTCR == address(0)) revert UNAUTHORIZED_STACK_DEPLOYER(msg.sender);
-        _authorizeMechanismArbitrator(budgetTCR, allocationMechanismArbitrator);
+        if (jurorSlasherRouterByBudgetTCR[msg.sender] == address(0)) revert UNAUTHORIZED_BUDGET_TCR(msg.sender);
+        _authorizeMechanismArbitrator(msg.sender, allocationMechanismArbitrator);
         emit BudgetAllocationMechanismDeployed(
-            budgetTCR,
+            msg.sender,
             itemID,
             allocationMechanism,
             allocationMechanismArbitrator,
@@ -251,7 +265,7 @@ contract BudgetTCRFactory {
     function _authorizeMechanismArbitrator(address budgetTCR, address allocationMechanismArbitrator) internal {
         address jurorSlasherRouter = jurorSlasherRouterByBudgetTCR[budgetTCR];
         if (jurorSlasherRouter == address(0)) revert JUROR_SLASHER_NOT_CONFIGURED();
-        JurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(allocationMechanismArbitrator, true);
+        IJurorSlasherRouter(jurorSlasherRouter).setAuthorizedSlasher(allocationMechanismArbitrator, true);
     }
 
     function _initializeStackDeployer(
@@ -259,21 +273,20 @@ contract BudgetTCRFactory {
         address budgetTCR,
         address premiumEscrowImplementation
     ) internal {
-        IBudgetStackDeployer(stackDeployer).initializeWithConfig(
+        IBudgetStackRuntimeDeployer(stackDeployer).initializeWithConfig(
             budgetTCR,
-            _stackModuleConfig(premiumEscrowImplementation),
-            address(this)
+            _stackModuleConfig(premiumEscrowImplementation)
         );
     }
 
     function _requiresPremiumModule(
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+        RequestedBudgetTCRDeploymentConfig calldata deploymentConfig
     ) internal pure returns (bool) {
         return deploymentConfig.budgetPremiumPpm != 0 || deploymentConfig.budgetSlashPpm != 0;
     }
 
     function _requiresUnderwriterSlasherRouter(
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+        RequestedBudgetTCRDeploymentConfig calldata deploymentConfig
     ) internal pure returns (bool) {
         return deploymentConfig.budgetSlashPpm != 0;
     }
@@ -292,7 +305,7 @@ contract BudgetTCRFactory {
 
     function _validateConfiguredJurorSlasher(address configuredSlasher, address stakeVault) internal view {
         address slasherAuthority;
-        try JurorSlasherRouter(configuredSlasher).authority() returns (address authority_) {
+        try IJurorSlasherRouter(configuredSlasher).authority() returns (address authority_) {
             slasherAuthority = authority_;
         } catch {
             revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
@@ -302,7 +315,7 @@ contract BudgetTCRFactory {
         }
 
         address slasherStakeVault;
-        try JurorSlasherRouter(configuredSlasher).stakeVault() returns (IStakeVault stakeVault_) {
+        try IJurorSlasherRouter(configuredSlasher).stakeVault() returns (IStakeVault stakeVault_) {
             slasherStakeVault = address(stakeVault_);
         } catch {
             revert UNSUPPORTED_JUROR_SLASHER(configuredSlasher);
@@ -329,13 +342,14 @@ contract BudgetTCRFactory {
     }
 
     function _buildDeploymentConfig(
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        RequestedBudgetTCRDeploymentConfig calldata deploymentConfig,
         address stackDeployer,
         address underwriterSlasherRouter,
         bool requiresPremiumModule
-    ) internal pure returns (IBudgetTCR.DeploymentConfig memory config) {
+    ) internal view returns (IBudgetTCR.DeploymentConfig memory config) {
         config = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
             budgetSpendPolicy: deploymentConfig.budgetSpendPolicy,
             riskModuleRouting: IBudgetTCR.RiskModuleRouting({
@@ -351,7 +365,6 @@ contract BudgetTCRFactory {
             cobuildToken: deploymentConfig.cobuildToken,
             goalRulesets: deploymentConfig.goalRulesets,
             goalRevnetId: deploymentConfig.goalRevnetId,
-            paymentTokenDecimals: deploymentConfig.paymentTokenDecimals,
             budgetPremiumPpm: deploymentConfig.budgetPremiumPpm,
             budgetSlashPpm: deploymentConfig.budgetSlashPpm,
             budgetValidationBounds: deploymentConfig.budgetValidationBounds,
@@ -361,7 +374,7 @@ contract BudgetTCRFactory {
 
     function _stackModuleConfig(
         address premiumEscrowImplementation
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory config) {
         config = BudgetStackPresetConfigLib.openPreset(premiumEscrowImplementation);
     }
 
@@ -410,7 +423,7 @@ contract BudgetTCRFactory {
 
     function _resolveRegistryPolicy(
         RegistryConfigInput calldata registryConfig,
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        RequestedBudgetTCRDeploymentConfig calldata deploymentConfig,
         uint256 arbitrationCost
     ) internal view returns (IGeneralizedTCRConfig.RegistryPolicy memory policy) {
         policy = registryConfig.registryPolicy;

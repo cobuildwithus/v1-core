@@ -29,8 +29,11 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         InitConfig calldata initConfig,
         DeploymentConfig calldata deploymentConfig
     ) external initializer {
-        address budgetGatePolicy_ = BudgetTCRInitValidation.validateInitialization(initConfig, deploymentConfig);
-        BudgetTCRInitValidation.validateStackModuleCompatibility(deploymentConfig);
+        address budgetGatePolicy_ = BudgetTCRInitValidation.validateInitialization(
+            initConfig,
+            deploymentConfig,
+            address(this)
+        );
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -43,10 +46,9 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
         goalRulesets = deploymentConfig.goalRulesets;
         goalRevnetId = deploymentConfig.goalRevnetId;
-        paymentTokenDecimals = deploymentConfig.paymentTokenDecimals;
 
         stackDeployer = deploymentConfig.stackDeployer;
-        premiumEscrowImplementation = deploymentConfig.riskModuleRouting.premiumEscrowImplementation;
+        discoveryEmitter = deploymentConfig.discoveryEmitter;
         _budgetGatePolicy = budgetGatePolicy_;
         underwriterSlasherRouter = deploymentConfig.riskModuleRouting.underwriterSlasherRouter;
         budgetPremiumPpm = deploymentConfig.budgetPremiumPpm;

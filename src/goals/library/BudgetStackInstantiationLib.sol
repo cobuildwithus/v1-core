@@ -3,7 +3,8 @@ pragma solidity ^0.8.34;
 
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
+import { IBudgetStackRuntimeDeployer } from "src/interfaces/IBudgetStackRuntimeDeployer.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IPremiumEscrowManagerRewardPool } from "src/interfaces/IPremiumEscrow.sol";
@@ -29,13 +30,11 @@ library BudgetStackInstantiationLib {
         bytes32 itemID;
         FlowTypes.RecipientMetadata metadata;
         ICustomFlow goalFlow;
-        IBudgetStackDeployer deployer;
-        IBudgetStackDeployer.PreparationResult prepared;
+        IBudgetStackRuntimeDeployer deployer;
+        BudgetStackTypes.PreparationResult prepared;
         BudgetLifecycleConfig lifecycleConfig;
         BudgetRuntimeConfig runtimeConfig;
         uint32 premiumPpm;
-        bool useRiskModule;
-        IBudgetStackDeployer.RiskModuleInitConfig riskModuleInitConfig;
     }
 
     struct InstantiatedBudgetStack {
@@ -51,17 +50,39 @@ library BudgetStackInstantiationLib {
     error PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
 
-    function instantiatePreparedBudgetStack(
+    function instantiatePreparedBudgetStackWithoutRiskModule(
         PreparedBudgetStackContext memory ctx
     ) internal returns (InstantiatedBudgetStack memory deployed) {
-        IBudgetStackDeployer.PreparationResult memory prepared = ctx.prepared;
-        address premiumEscrow = prepared.premiumEscrow;
-        if (ctx.useRiskModule) {
-            if (premiumEscrow == address(0)) revert PREMIUM_ESCROW_NOT_PREPARED();
-        } else if (premiumEscrow != address(0)) {
+        if (ctx.prepared.premiumEscrow != address(0)) {
             revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
         }
+        deployed = _instantiatePreparedBudgetStack(
+            ctx,
+            false,
+            BudgetStackTypes.RiskModuleInitConfig({
+                budgetStakeLedger: address(0),
+                goalFlow: address(0),
+                underwriterSlasherRouter: address(0),
+                budgetSlashPpm: 0
+            })
+        );
+    }
 
+    function instantiatePreparedBudgetStackWithRiskModule(
+        PreparedBudgetStackContext memory ctx,
+        BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
+    ) internal returns (InstantiatedBudgetStack memory deployed) {
+        if (ctx.prepared.premiumEscrow == address(0)) revert PREMIUM_ESCROW_NOT_PREPARED();
+        deployed = _instantiatePreparedBudgetStack(ctx, true, riskModuleInitConfig);
+    }
+
+    function _instantiatePreparedBudgetStack(
+        PreparedBudgetStackContext memory ctx,
+        bool useRiskModule,
+        BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
+    ) private returns (InstantiatedBudgetStack memory deployed) {
+        BudgetStackTypes.PreparationResult memory prepared = ctx.prepared;
+        address premiumEscrow = prepared.premiumEscrow;
         bool hasPremiumEscrow = premiumEscrow != address(0);
         (, address childFlow) = ctx.goalFlow.addFlowRecipient(
             ctx.itemID,
@@ -91,11 +112,11 @@ library BudgetStackInstantiationLib {
             spendPolicy: ctx.runtimeConfig.spendPolicy
         });
 
-        address budgetTreasury = ctx.useRiskModule
+        address budgetTreasury = useRiskModule
             ? ctx.deployer.deployBudgetTreasuryWithRiskModule(
                 prepared.budgetTreasury,
                 budgetConfig,
-                ctx.riskModuleInitConfig
+                riskModuleInitConfig
             )
             : ctx.deployer.deployBudgetTreasury(prepared.budgetTreasury, budgetConfig);
 

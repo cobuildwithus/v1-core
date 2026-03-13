@@ -97,6 +97,10 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     uint256 internal challengePeriodDuration = 3 days;
     ISubmissionDepositStrategy internal submissionDepositStrategy;
 
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
+
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");

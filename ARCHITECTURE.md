@@ -57,7 +57,12 @@ cobuild-protocol/
 - Budget premium / risk modules:
   - `src/goals/PremiumEscrow.sol` (open preset)
   - explicit absence via `premiumEscrow = address(0)` and `premiumEscrowImplementation = address(0)` (managed preset and zero-premium open mode)
-- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` implemented by `src/tcr/BudgetTCRDeployer.sol`.
+- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` implemented by `src/goals/BudgetStackDeployer.sol`.
+- Narrow consumers use split roles instead of the full deployer ABI where possible:
+  - `src/interfaces/IBudgetStackControllerReader.sol`
+  - `src/interfaces/IBudgetStackRuntimeDeployer.sol`
+  - `src/interfaces/IBudgetMechanismProvider.sol`
+  - `src/interfaces/IBudgetStackDiscoveryEmitter.sol`
 - Underwriter slash routing + conversion path: `src/goals/UnderwriterSlasherRouter.sol` for slash-enabled goals; canonical `0/0` and premium-only/no-slash goals omit the goal-level router entirely.
 - Revnet funding ingress hook: `src/hooks/GoalRevnetSplitHook.sol`.
 - Shared goal funding terminal: `src/juicebox/CobuildGoalTerminal.sol`.
@@ -72,7 +77,7 @@ cobuild-protocol/
 - Invalid/no-vote arbitrator round rewards route to a configured sink (`invalidRoundRewardSink`).
 - Budget curation extension:
   - `src/tcr/BudgetTCR.sol`
-  - `src/tcr/BudgetTCRDeployer.sol`
+  - `src/goals/BudgetStackDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
   - `src/tcr/AllocationMechanismTCR.sol` (per-budget mechanism registry; new stacks seed both `RoundFactory` and
     `TeamFlowFactory`)
@@ -87,9 +92,12 @@ cobuild-protocol/
 
 - The recursive-flow substrate is universal. `Flow`, `CustomFlow`, `GoalFlowAllocationLedgerPipeline`, `GoalTreasury`, `BudgetTreasury`, and `StakeVault` are reused by both presets without runtime `isManaged` branching.
 - Control-plane modules are chosen at deploy time by `GoalFactory`.
+- Both presets derive their cloned `BudgetStackDeployer` instances from the same `BudgetTCRFactory.stackDeployerImplementation()` source, and `GoalFactory` fail-closes construction if `BudgetTCRFactory.authorizedCaller()` is not that `GoalFactory`.
 - Factory-stage deploy helpers must pass predeployed managed preset implementations into `GoalFactory`; the
   canonical path must not constructor-deploy shared managed infra inside `GoalFactory` or `GoalFactoryPairDeployer`,
   because nested creation code compounds initcode size and can exceed Base/EIP-3860 limits.
+- `GoalFactory` derives the shared budget-stack deployer implementation from `BudgetTCRFactory` and fail-closes
+  construction unless `BudgetTCRFactory.authorizedCaller() == address(goalFactory)`.
 - `StakeVault` remains the funding vault in both presets, but it is not always the allocator.
 
 Open preset
@@ -108,6 +116,7 @@ Managed preset
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
 - Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
+- Goal-level juror slasher router: none
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - Safe-managed external mechanism runtimes such as `TeamFlow` can still be attached as ordinary managed budget-flow recipients through the controller's generic recipient APIs; that path does not add a managed mechanism registry or managed escrow layer
 - No advisory TCR and no managed mechanism controller in this pass
@@ -348,7 +357,7 @@ Managed preset
   - activation reverts when the cap is reached,
   - active count decrements on funding-stop and removal-finalization recipient removals.
 - New per-budget `AllocationMechanismTCR` instances initialize with a non-empty initial factory set from
-  `BudgetTCRDeployer`; the default stack seeds both `RoundFactory` and `TeamFlowFactory`.
+  `BudgetStackDeployer`; the default stack seeds both `RoundFactory` and `TeamFlowFactory`.
 - `TeamFlowFactory` deploys a single `TeamFlow` runtime, returns it as both the mechanism and payout recipient, and
   keeps the existing mechanism-escrow release path unchanged.
 - `TeamFlow` is a concrete payout `Flow` runtime with self-owned `recipientAdmin`, `flowOperator`, and `sweeper`
@@ -374,18 +383,20 @@ Managed preset
   - continues on per-treasury `sync()` failures and reports per-item outcomes via events.
 - `BudgetStakeLedger.registerBudget(...)` treats goal-flow `recipientAdmin` (the per-goal budget controller implementing `IBudgetStackTopologyReader`) as the canonical budget topology source and keeps a lightweight runtime cross-check against `budgetTreasury.flow()` and child-parent wiring before coverage tracking is admitted.
 - Stack deployers remain mechanical helpers:
-  - `BudgetTCRDeployer` is a generic `IBudgetStackDeployer` implementation,
+  - `BudgetStackDeployer` is the shared budget-stack runtime deployer,
   - open preset clones use `onlyController` with `BudgetTCR`,
-  - managed preset clones use the same `onlyController` path with `ManagedBudgetController`.
+  - managed preset clones use the same `onlyController` path with `ManagedBudgetController`,
+  - controller initialization fail-closes if the configured deployer clone does not point back to that controller.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal stack slasher wiring is init-only and fail-fast:
-  - `GoalFactoryCoreStackDeploy` always deploys the juror slasher router and deploys the goal-level underwriter slasher router only when `budgetSlashPpm != 0`,
-  - `GoalTreasury.initialize` always sets the juror slasher and sets the underwriter slasher only when configured,
+  - `GoalFactoryCoreStackDeploy` deploys the juror slasher router only for the open preset and deploys the goal-level underwriter slasher router only when `budgetSlashPpm != 0`,
+  - managed goals leave `StakeVault.jurorSlasher()` unset,
+  - `GoalTreasury.initialize` sets the juror slasher only when configured and sets the underwriter slasher only when configured,
   - `StakeVault` slasher setters are callable only by `goalTreasury` (no treasury-authority callback path).
-  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
+  - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each per-budget allocation-mechanism arbitrator through authenticated `BudgetTCR` discovery callbacks.
   - `RoundFactory` round arbitrators keep stake-vault voting but are intentionally deployed as non-slashing and are never added to the router allowlist.
 - Budget child-flow role wiring is preset-specific and explicit:
-  - open preset: `BudgetTCR` creates the child recipient using `BudgetTCRDeployer` stack-module config, typically with the budget treasury as `flowOperator` / `sweeper` and the mechanism-layer admin as child `recipientAdmin`,
+  - open preset: `BudgetTCR` creates the child recipient using `BudgetStackDeployer` stack-module config, typically with the budget treasury as `flowOperator` / `sweeper` and the mechanism-layer admin as child `recipientAdmin`,
   - managed preset: `ManagedBudgetController` creates the child recipient with itself as child `recipientAdmin`, the cloned budget treasury as `flowOperator` / `sweeper`, and keeps both child admin and budget-flow allocation authority on the controller contract so Safe authority handoff stays controller-centric.
 - Budget stack topology is registry-owned rather than graph-discovered:
   - `BudgetTCR` and `ManagedBudgetController` both expose direct topology getters plus reverse lookups by budget treasury and child flow,
@@ -394,10 +405,10 @@ Managed preset
   - the open preset registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy reads canonical `budgetForRecipient(recipientId)` from `BudgetStakeLedger` and fails closed when missing/resolved.
 - Stack deployers use clone-first treasury setup:
-  - `BudgetTCRDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
-  - managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with no premium module plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
+  - `BudgetStackDeployer` deploys an uninitialized `BudgetTreasury` clone during `prepareBudgetStack` for the open preset,
+  - managed-configured `BudgetStackDeployer.prepareBudgetStack(...)` does the same for managed budgets and pairs that clone with no premium module plus a controller-owned/controller-allocated `BudgetSingleAllocatorStrategy`; `goalFlow` and goal-treasury-derived runtime context are not prepare-phase inputs and are wired later during `deployBudgetTreasury(...)`,
   - budget treasury initialization still happens after child-flow creation in both stacks.
-- `BudgetTCRFactory` uses EIP-1167 clones for BudgetTCR/arbitrator/deployer/validator implementations to keep factory runtime under EIP-170.
+- `BudgetTCRFactory` uses EIP-1167 clones for `BudgetTCR`, arbitrator, and stack-deployer implementations to keep factory runtime under EIP-170.
 
 ## Verification Baseline
 
@@ -425,7 +436,7 @@ Medium-severity Slither findings are suppressed only at specific call-sites, not
 - `reentrancy-no-eth`:
   - `src/Flow.sol` (`__Flow_init`, `removeRecipient`, `bulkRemoveRecipients`, `_setFlowRate`)
   - `src/flows/CustomFlow.sol` (`allocate`)
-  - `src/tcr/BudgetTCRDeployer.sol` (`prepareBudgetStack`, `deployBudgetTreasury`)
+  - `src/goals/BudgetStackDeployer.sol` (`prepareBudgetStack`, `deployBudgetTreasury`)
   - Assumption: these paths are protected by access control and/or `nonReentrant`, and external protocol calls are expected integration points where post-call writes are required to preserve flow-sync liveness semantics.
 
 Additional non-medium suppression kept with explicit rationale:

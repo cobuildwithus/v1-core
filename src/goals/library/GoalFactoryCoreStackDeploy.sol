@@ -13,13 +13,13 @@ import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
+import { IJurorSlasherRouter } from "src/interfaces/IJurorSlasherRouter.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalFlowAllocationLedgerPipeline } from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
 import { BudgetStakeLedger } from "src/goals/BudgetStakeLedger.sol";
-import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
 import { StakeVault } from "src/goals/StakeVault.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { UnderwriterSlasherRouter } from "src/goals/UnderwriterSlasherRouter.sol";
@@ -46,6 +46,7 @@ library GoalFactoryCoreStackDeploy {
     struct CoreFinalizeRequest {
         address goalAllocatorStrategy;
         address budgetController;
+        bool deployJurorSlasherRouter;
         address jurorSlasherAuthority;
         address jurorSlasherRouterImpl;
         address underwriterSlasherRouterImpl;
@@ -146,10 +147,14 @@ library GoalFactoryCoreStackDeploy {
             IAllocationStrategy(request.goalAllocatorStrategy)
         );
 
-        JurorSlasherRouter jurorSlasherRouter = JurorSlasherRouter(Clones.clone(request.jurorSlasherRouterImpl));
         IStakeVault stakeVaultRef = IStakeVault(address(out.stakeVault));
-        jurorSlasherRouter.initialize(stakeVaultRef, request.jurorSlasherAuthority);
-        out.jurorSlasherRouter = address(jurorSlasherRouter);
+        if (request.deployJurorSlasherRouter) {
+            IJurorSlasherRouter jurorSlasherRouter = IJurorSlasherRouter(Clones.clone(request.jurorSlasherRouterImpl));
+            jurorSlasherRouter.initialize(stakeVaultRef, request.jurorSlasherAuthority);
+            out.jurorSlasherRouter = address(jurorSlasherRouter);
+        } else {
+            out.jurorSlasherRouter = address(0);
+        }
         if (request.budgetSlashPpm != 0) {
             UnderwriterSlasherRouter underwriterSlasherRouter = UnderwriterSlasherRouter(
                 Clones.clone(request.underwriterSlasherRouterImpl)
@@ -172,7 +177,7 @@ library GoalFactoryCoreStackDeploy {
         IGoalTreasury.GoalConfig memory goalCfg = IGoalTreasury.GoalConfig({
             flow: address(out.goalFlow),
             stakeVault: address(out.stakeVault),
-            jurorSlasher: address(jurorSlasherRouter),
+            jurorSlasher: out.jurorSlasherRouter,
             underwriterSlasher: out.underwriterSlasherRouter,
             budgetStakeLedger: address(out.budgetStakeLedger),
             hook: address(out.splitHook),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
 import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 
@@ -32,14 +32,14 @@ library BudgetTCRConfigHelpers {
 
     function openStackModuleConfig(
         address premiumEscrowImplementation
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory config) {
         config = BudgetStackPresetConfigLib.openPreset(premiumEscrowImplementation);
     }
 
     function noPremiumStackModuleConfig()
         internal
         pure
-        returns (IBudgetStackDeployer.StackModuleConfig memory config)
+        returns (BudgetStackTypes.StackModuleConfig memory config)
     {
         config = BudgetStackPresetConfigLib.openPreset(address(0));
     }
@@ -47,7 +47,7 @@ library BudgetTCRConfigHelpers {
     function fixedNoPremiumStackModuleConfig(
         address strategyFactory,
         address recipientAdmin
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory config) {
         config = BudgetStackPresetConfigLib.managedPreset(strategyFactory, recipientAdmin);
     }
 }

@@ -32,7 +32,8 @@
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
 - Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
-- Stack deployer: configured clone of `src/goals/BudgetStackDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
+- Goal-level juror slasher router: none
+- Stack deployer: configured clone of `src/goals/BudgetStackDeployer.sol` sourced from `BudgetTCRFactory.stackDeployerImplementation()`
 - Mechanism layer: intentionally none in this pass
 - Safe-managed external mechanism runtimes may still be attached as ordinary budget-flow recipients through `src/goals/ManagedBudgetController.sol` generic recipient APIs; that path does not create a managed mechanism registry or managed escrow layer
 - Child-flow `recipientAdmin`: `src/goals/ManagedBudgetController.sol`
@@ -92,8 +93,13 @@
   - `src/interfaces/IStakeVault.sol`
   - `src/interfaces/IBudgetStakeLedger.sol`
   - `src/interfaces/IBudgetStackDeployer.sol`
+  - `src/interfaces/IBudgetStackControllerReader.sol`
+  - `src/interfaces/IBudgetStackRuntimeDeployer.sol`
+  - `src/interfaces/IBudgetMechanismProvider.sol`
+  - `src/interfaces/IBudgetStackDiscoveryEmitter.sol`
   - `src/interfaces/IBudgetStackChildFlowStrategyFactory.sol`
   - `src/interfaces/IPremiumEscrow.sol`
+  - `src/interfaces/IJurorSlasherRouter.sol`
   - `src/interfaces/IUnderwriterSlasherRouter.sol`
   - `src/interfaces/ITreasuryAuthority.sol`
   - `src/interfaces/ICobuildCommunityTerminal.sol`
@@ -121,3 +127,4 @@
 6. Gate policies own enable/disable decisions only; controller modules own routing writes, terminal prune, and best-effort sync retries.
 7. Keep community goal-curation, deployment-registry ownership, and treasury beneficiary resolution explicit; do not infer them from ad hoc runtime probes.
 8. Treat storage modules as upgrade-sensitive boundaries and keep tests aligned to these seams.
+9. Keep open-only discovery emission and juror-slasher authorization outside the shared stack deployer; those responsibilities belong to `BudgetTCR` / `BudgetTCRFactory`.

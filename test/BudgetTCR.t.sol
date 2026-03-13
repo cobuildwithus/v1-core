@@ -41,6 +41,7 @@ import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.so
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IBudgetController} from "src/interfaces/IBudgetController.sol";
 import {IBudgetGatePolicy} from "src/interfaces/IBudgetGatePolicy.sol";
+import {BudgetStackTypes} from "src/interfaces/BudgetStackTypes.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetStackTopologyReader} from "src/interfaces/IBudgetStackTopologyReader.sol";
 import {IBudgetFlowRouterStrategy} from "src/interfaces/IBudgetFlowRouterStrategy.sol";
@@ -117,6 +118,10 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     address internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
+
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
 
     address internal owner = makeAddr("owner");
     address internal allocationMechanismAdmin = makeAddr("allocation-mechanism-admin");
@@ -199,6 +204,44 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.stackDeployer = address(0);
 
         vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_stack_deployer_has_no_code() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        address noCodeStackDeployer = makeAddr("no-code-stack-deployer");
+        deploymentConfig.stackDeployer = noCodeStackDeployer;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.NOT_A_CONTRACT.selector, noCodeStackDeployer));
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_discovery_emitter_is_zero() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.discoveryEmitter = address(0);
+
+        vm.expectRevert(IGeneralizedTCR.ADDRESS_ZERO.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_discovery_emitter_has_no_code() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        address noCodeDiscoveryEmitter = makeAddr("no-code-discovery-emitter");
+        deploymentConfig.discoveryEmitter = noCodeDiscoveryEmitter;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.NOT_A_CONTRACT.selector, noCodeDiscoveryEmitter));
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -494,7 +537,10 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         freshTcr.initialize(registryConfig, deploymentConfig);
 
-        assertEq(freshTcr.premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation);
+        assertEq(
+            IBudgetStackDeployer(freshTcr.stackDeployer()).stackModuleConfig().premiumEscrowImplementation,
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+        );
         assertEq(freshTcr.underwriterSlasherRouter(), address(0));
     }
 
@@ -519,8 +565,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer)
-            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig());
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
         deploymentConfig.riskModuleRouting.underwriterSlasherRouter = address(0);
@@ -539,8 +584,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer)
-            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig());
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
         deploymentConfig.riskModuleRouting.premiumEscrowImplementation = address(0);
@@ -548,6 +592,48 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetSlashPpm = 0;
 
         vm.expectRevert(IBudgetTCR.UNDERWRITER_SLASHER_CONFIG_MISMATCH.selector);
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_stack_deployer_controller_does_not_match_budgetTcr() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
+            makeAddr("wrong-budget-controller"),
+            _openStackModuleConfig(deploymentConfig.riskModuleRouting.premiumEscrowImplementation)
+        );
+        deploymentConfig.stackDeployer = freshStackDeployer;
+
+        vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_STACK_DEPLOYER.selector, freshStackDeployer));
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_stack_deployer_tuple_mismatches_open_preset() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
+            address(freshTcr),
+            BudgetStackTypes.StackModuleConfig({
+                childFlowStrategyMode: BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter,
+                childFlowStrategyTarget: address(0),
+                mechanismLayerMode: BudgetStackTypes.MechanismLayerMode.None,
+                childFlowRecipientAdmin: address(this),
+                premiumEscrowImplementation: deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+            })
+        );
+        deploymentConfig.stackDeployer = freshStackDeployer;
+
+        vm.expectRevert(IBudgetTCR.STACK_MODULE_CONFIG_MISMATCH.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -559,8 +645,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer)
-            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig());
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
         deploymentConfig.budgetPremiumPpm = 0;
@@ -582,7 +667,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetPremiumPpm = 0;
         deploymentConfig.budgetSlashPpm = 0;
 
-        vm.expectRevert(IBudgetTCR.PREMIUM_MODULE_CONFIG_MISMATCH.selector);
+        vm.expectRevert(IBudgetTCR.STACK_MODULE_CONFIG_MISMATCH.selector);
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
 
@@ -839,8 +924,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer)
-            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig());
 
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
@@ -894,8 +978,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfigWithFreshArbitrator();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer)
-            .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig());
 
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
@@ -2916,6 +2999,12 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         freshTcr = BudgetTCR(_deployProxy(address(freshImplementation), ""));
         registryConfig = _defaultRegistryConfig();
         deploymentConfig = _defaultDeploymentConfig();
+
+        address freshStackDeployer = address(_deployBudgetTcrDeployer());
+        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
+            address(freshTcr), _openStackModuleConfig(premiumEscrowImplementation)
+        );
+        deploymentConfig.stackDeployer = freshStackDeployer;
     }
 
     function _freshInitializeConfigWithFreshArbitrator()
@@ -2960,6 +3049,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -2971,7 +3061,6 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -2990,14 +3079,14 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     function _noPremiumStackModuleConfig()
         internal
         pure
-        returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig)
+        returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig)
     {
         stackModuleConfig = BudgetTCRConfigHelpers.noPremiumStackModuleConfig();
     }
 
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 
@@ -3006,7 +3095,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0));
+        deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
@@ -3211,6 +3300,10 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     address internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
+
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -3520,6 +3613,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -3531,7 +3625,6 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -3549,7 +3642,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
 
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 
@@ -3558,7 +3651,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0));
+        deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
     function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {

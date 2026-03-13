@@ -208,8 +208,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
 - Factory discovery invariants:
   - `BudgetTCRFactory` is the fixed deployment emitter for first-hop budget stack discovery (`BudgetTCRStackDeployedForGoal`).
   - `BudgetTCRFactory` treats submission-deposit capability probing as required deployment wiring: clean `supportsEscrowBonding() == false` preserves manual deposits, while missing/reverting probes fail deployment.
-  - Registered per-budget stack deployers callback into `BudgetTCRFactory` for second-hop child stack and mechanism discovery
-    (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
+  - Initialized `BudgetTCR` instances callback into `BudgetTCRFactory` through their configured `discoveryEmitter` for second-hop child stack and mechanism discovery (`BudgetStackDeployed`, `BudgetAllocationMechanismDeployed`), so off-chain discovery can stay factory-address anchored.
   - The same authenticated mechanism callback also authorizes the deployed allocation-mechanism arbitrator in the goal's `JurorSlasherRouter`; budget activation must fail closed if that authorization cannot be applied.
   - Round stacks deployed later through `RoundFactory` keep stake-vault voting but do not participate in juror stake slashing; no round arbitrator router authorization step exists or is required.
 - Per-goal `BudgetTCR` is also the canonical runtime topology registry for accepted budgets:

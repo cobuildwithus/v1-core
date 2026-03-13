@@ -43,7 +43,6 @@ contract GoalFactoryPairDeployer {
         address premiumEscrowImpl;
         address jurorSlasherRouterImpl;
         address underwriterSlasherRouterImpl;
-        address budgetStackDeployerImpl;
         address managedBudgetControllerImpl;
         address managedGoalAllocatorStrategyImpl;
         address managedBudgetChildStrategyFactoryImpl;
@@ -112,7 +111,6 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.premiumEscrowImpl,
             goalFactoryConfig.jurorSlasherRouterImpl,
             goalFactoryConfig.underwriterSlasherRouterImpl,
-            goalFactoryConfig.budgetStackDeployerImpl,
             goalFactoryConfig.managedBudgetControllerImpl,
             goalFactoryConfig.managedGoalAllocatorStrategyImpl,
             goalFactoryConfig.managedBudgetChildStrategyFactoryImpl,
@@ -429,7 +427,6 @@ contract DeployGoalFactory is DeployScript {
                 premiumEscrowImpl: premiumEscrowImplOut,
                 jurorSlasherRouterImpl: jurorSlasherRouterImplOut,
                 underwriterSlasherRouterImpl: underwriterSlasherRouterImplOut,
-                budgetStackDeployerImpl: budgetStackDeployerImplOut,
                 managedBudgetControllerImpl: managedBudgetControllerImplOut,
                 managedGoalAllocatorStrategyImpl: managedGoalAllocatorStrategyImplOut,
                 managedBudgetChildStrategyFactoryImpl: managedBudgetChildStrategyFactoryImplOut,

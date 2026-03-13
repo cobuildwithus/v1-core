@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
+import { IBudgetStackControllerReader } from "src/interfaces/IBudgetStackControllerReader.sol";
+import { IBudgetStackRuntimeDeployer } from "src/interfaces/IBudgetStackRuntimeDeployer.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IGeneralizedTCR } from "src/tcr/interfaces/IGeneralizedTCR.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
+import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
 
 library BudgetTCRInitValidation {
     function validateInitialization(
         IBudgetTCR.InitConfig calldata initConfig,
-        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig,
+        address expectedController
     ) external view returns (address budgetGatePolicy_) {
         if (deploymentConfig.stackDeployer == address(0)) {
             revert IGeneralizedTCR.ADDRESS_ZERO();
+        }
+        if (deploymentConfig.stackDeployer.code.length == 0) {
+            revert IBudgetTCR.NOT_A_CONTRACT(deploymentConfig.stackDeployer);
+        }
+        if (deploymentConfig.discoveryEmitter == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
+        if (deploymentConfig.discoveryEmitter.code.length == 0) {
+            revert IBudgetTCR.NOT_A_CONTRACT(deploymentConfig.discoveryEmitter);
         }
         if (deploymentConfig.budgetSuccessResolver == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (deploymentConfig.budgetSpendPolicy == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
@@ -53,6 +64,7 @@ library BudgetTCRInitValidation {
         if (initConfig.allocationMechanismAdmin == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
 
         _requireValidBudgetSpendPolicy(deploymentConfig.budgetSpendPolicy);
+        _requireCompatibleStackDeployer(expectedController, deploymentConfig);
 
         IBudgetTCR.BudgetValidationBounds calldata budgetBounds = deploymentConfig.budgetValidationBounds;
         IBudgetTCR.OracleValidationBounds calldata oracleBounds = deploymentConfig.oracleValidationBounds;
@@ -67,13 +79,34 @@ library BudgetTCRInitValidation {
         }
     }
 
-    function validateStackModuleCompatibility(IBudgetTCR.DeploymentConfig calldata deploymentConfig) external view {
-        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = IBudgetStackDeployer(
+    function _requireCompatibleStackDeployer(
+        address expectedController,
+        IBudgetTCR.DeploymentConfig calldata deploymentConfig
+    ) private view {
+        if (IBudgetStackControllerReader(deploymentConfig.stackDeployer).controller() != expectedController) {
+            revert IBudgetTCR.INVALID_STACK_DEPLOYER(deploymentConfig.stackDeployer);
+        }
+
+        BudgetStackTypes.StackModuleConfig memory stackModuleConfig = IBudgetStackRuntimeDeployer(
             deploymentConfig.stackDeployer
         ).stackModuleConfig();
         bool requiresPremiumModule = _requiresPremiumModule(deploymentConfig);
-        bool stackHasPremiumModule = stackModuleConfig.premiumEscrowImplementation != address(0);
-        _requirePremiumModuleConsistency(requiresPremiumModule, stackHasPremiumModule);
+        address expectedPremiumEscrowImplementation = requiresPremiumModule
+            ? deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+            : address(0);
+        BudgetStackTypes.StackModuleConfig memory expectedStackConfig = BudgetStackPresetConfigLib.openPreset(
+            expectedPremiumEscrowImplementation
+        );
+
+        if (
+            stackModuleConfig.childFlowStrategyMode != expectedStackConfig.childFlowStrategyMode ||
+            stackModuleConfig.childFlowStrategyTarget != expectedStackConfig.childFlowStrategyTarget ||
+            stackModuleConfig.mechanismLayerMode != expectedStackConfig.mechanismLayerMode ||
+            stackModuleConfig.childFlowRecipientAdmin != expectedStackConfig.childFlowRecipientAdmin ||
+            stackModuleConfig.premiumEscrowImplementation != expectedStackConfig.premiumEscrowImplementation
+        ) {
+            revert IBudgetTCR.STACK_MODULE_CONFIG_MISMATCH();
+        }
     }
 
     function _requiresPremiumModule(IBudgetTCR.DeploymentConfig calldata deploymentConfig) private pure returns (bool) {

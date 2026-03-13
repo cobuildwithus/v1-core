@@ -194,6 +194,7 @@ contract GoalFactoryCoreStackDeployTest is Test {
         request = GoalFactoryCoreStackDeploy.CoreFinalizeRequest({
             goalAllocatorStrategy: goalAllocatorStrategy,
             budgetController: address(0xB6D9E7),
+            deployJurorSlasherRouter: true,
             jurorSlasherAuthority: address(0xB6D6E7),
             jurorSlasherRouterImpl: address(jurorSlasherRouterImpl),
             underwriterSlasherRouterImpl: address(underwriterSlasherRouterImpl),

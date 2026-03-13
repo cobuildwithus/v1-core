@@ -15,6 +15,7 @@ import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {BudgetStackInstantiationLib} from "src/goals/library/BudgetStackInstantiationLib.sol";
+import {BudgetStackPresetConfigLib} from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
@@ -23,6 +24,7 @@ import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
 import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
+import {BudgetStackTypes} from "src/interfaces/BudgetStackTypes.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
@@ -41,7 +43,6 @@ import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/inte
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 
 contract BudgetTCRInvariantPremiumEscrowConnectMock {
@@ -49,6 +50,7 @@ contract BudgetTCRInvariantPremiumEscrowConnectMock {
 }
 
 contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
+    address internal configuredController;
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
     address internal immutable strategy;
@@ -82,13 +84,17 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
     }
 
     function controller() external view returns (address controller_) {
-        controller_ = address(this);
+        controller_ = configuredController;
     }
 
-    function initializeWithConfig(address, StackModuleConfig calldata, address) external {}
+    function setController(address controller_) external {
+        configuredController = controller_;
+    }
 
-    function prepareBudgetStack(address, address) external returns (PreparationResult memory result) {
-        result = PreparationResult({
+    function initializeWithConfig(address, BudgetStackTypes.StackModuleConfig calldata) external {}
+
+    function prepareBudgetStack(address, address) external returns (BudgetStackTypes.PreparationResult memory result) {
+        result = BudgetStackTypes.PreparationResult({
             strategy: strategy,
             budgetTreasury: preparedBudgetTreasury,
             premiumEscrow: premiumEscrow,
@@ -107,29 +113,15 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
     function deployBudgetTreasuryWithRiskModule(
         address,
         IBudgetTreasury.BudgetConfig calldata,
-        IBudgetStackDeployer.RiskModuleInitConfig calldata
+        BudgetStackTypes.RiskModuleInitConfig calldata
     ) external returns (address budgetTreasury) {
         budgetTreasury = deployedBudgetTreasury;
     }
 
     function registerChildFlowRecipient(bytes32, address) external {}
 
-    function emitBudgetStackDeployed(bytes32, address, address, address, address) external {}
-
-    function emitBudgetAllocationMechanismDeployed(bytes32, address, address, address) external {}
-
-    function stackModuleConfig() external view returns (StackModuleConfig memory config) {
-        config = StackModuleConfig({
-            childFlowStrategyMode: ChildFlowStrategyMode.Factory,
-            childFlowStrategyTarget: address(this),
-            mechanismLayerMode: MechanismLayerMode.None,
-            childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
-            premiumEscrowImplementation: configuredPremiumEscrowImplementation
-        });
-    }
-
-    function premiumEscrowImplementation() external view returns (address implementation) {
-        implementation = configuredPremiumEscrowImplementation;
+    function stackModuleConfig() external view returns (BudgetStackTypes.StackModuleConfig memory config) {
+        config = BudgetStackPresetConfigLib.openPreset(configuredPremiumEscrowImplementation);
     }
 
     function roundFactory() external view returns (address) {
@@ -185,6 +177,10 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
     uint256 internal challengePeriodDuration = 3 days;
     ISubmissionDepositStrategy internal submissionDepositStrategy;
 
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
+
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
         goalToken = new MockVotesToken("GOAL", "GOAL");
@@ -220,6 +216,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
                 premiumEscrowImplementation
             )
         );
+        MismatchingBudgetTCRStackDeployer(stackDeployer).setController(tcrInstance);
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -329,6 +326,9 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         address arbProxy = _deployProxy(address(arbImpl), arbInit);
 
         freshTcr = BudgetTCR(tcrInstance);
+        if (customStackDeployer.code.length != 0) {
+            try MismatchingBudgetTCRStackDeployer(customStackDeployer).setController(address(freshTcr)) {} catch {}
+        }
         IBudgetTCR.InitConfig memory registryConfig = _defaultRegistryConfig();
         registryConfig.tcrConfig.arbitrator = IArbitrator(arbProxy);
 
@@ -360,6 +360,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -371,7 +372,6 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({

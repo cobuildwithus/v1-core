@@ -64,7 +64,6 @@ contract GoalFactory {
     address public immutable PREMIUM_ESCROW_IMPL;
     address public immutable JUROR_SLASHER_ROUTER_IMPL;
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
-    address public immutable BUDGET_STACK_DEPLOYER_IMPL;
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
     address public immutable MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL;
@@ -216,6 +215,7 @@ contract GoalFactory {
         uint256 expectedRevnetId,
         uint256 actualRevnetId
     );
+    error INVALID_BUDGET_TCR_FACTORY_CALLER(address expected, address actual);
     error INVALID_COMMUNITY_DIRECTORY(address expected, address actual);
     error INVALID_COMMUNITY_GOAL_DEPLOYMENT_REGISTRY(address expected, address actual);
     error MANAGED_SAFE_REQUIRED();
@@ -241,7 +241,6 @@ contract GoalFactory {
         address premiumEscrowImpl,
         address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
-        address budgetStackDeployerImplementation,
         address managedBudgetControllerImplementation,
         address managedGoalAllocatorStrategyImplementation,
         address managedBudgetChildStrategyFactoryImplementation,
@@ -269,7 +268,6 @@ contract GoalFactory {
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
-        if (budgetStackDeployerImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedBudgetControllerImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedGoalAllocatorStrategyImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedBudgetChildStrategyFactoryImplementation == address(0)) revert ADDRESS_ZERO();
@@ -291,9 +289,6 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
-        if (budgetStackDeployerImplementation.code.length == 0) {
-            revert NOT_A_CONTRACT(budgetStackDeployerImplementation);
-        }
         if (managedBudgetControllerImplementation.code.length == 0) {
             revert NOT_A_CONTRACT(managedBudgetControllerImplementation);
         }
@@ -315,6 +310,15 @@ contract GoalFactory {
         if (buybackHook.code.length == 0) revert NOT_A_CONTRACT(buybackHook);
         if (defaultSubmissionDepositStrategy.code.length == 0) {
             revert NOT_A_CONTRACT(defaultSubmissionDepositStrategy);
+        }
+        address budgetStackDeployerImplementation = budgetTcrFactory.stackDeployerImplementation();
+        if (budgetStackDeployerImplementation == address(0)) revert ADDRESS_ZERO();
+        if (budgetStackDeployerImplementation.code.length == 0) {
+            revert NOT_A_CONTRACT(budgetStackDeployerImplementation);
+        }
+        address authorizedCaller = budgetTcrFactory.authorizedCaller();
+        if (authorizedCaller != address(this)) {
+            revert INVALID_BUDGET_TCR_FACTORY_CALLER(address(this), authorizedCaller);
         }
         _requireValidDefaultSpendPolicy(defaultGoalSpendPolicy);
         _requireValidDefaultSpendPolicy(defaultBudgetSpendPolicy);
@@ -339,7 +343,6 @@ contract GoalFactory {
         PREMIUM_ESCROW_IMPL = premiumEscrowImpl;
         JUROR_SLASHER_ROUTER_IMPL = jurorSlasherRouterImpl;
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
-        BUDGET_STACK_DEPLOYER_IMPL = budgetStackDeployerImplementation;
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
         MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL = managedBudgetChildStrategyFactoryImplementation;
@@ -544,7 +547,7 @@ contract GoalFactory {
 
         address predictedBudgetController;
         address goalAllocatorStrategy;
-        address jurorSlasherAuthority;
+        address jurorSlasherAuthority = address(0);
         address arbitrator;
         GoalFactoryManagedPresetDeploy.ManagedPresetBundle memory managedPreset;
 
@@ -552,7 +555,6 @@ contract GoalFactory {
             managedPreset = _bootstrapManagedPreset(address(goalTreasury));
             predictedBudgetController = address(managedPreset.budgetController);
             goalAllocatorStrategy = managedPreset.goalAllocatorStrategy;
-            jurorSlasherAuthority = predictedBudgetController;
         } else {
             predictedBudgetController = BUDGET_TCR_FACTORY.predictBudgetTCRAddress(
                 address(this),
@@ -590,6 +592,7 @@ contract GoalFactory {
             revnet,
             predictedBudgetController,
             goalAllocatorStrategy,
+            p.preset == GoalPreset.Open,
             jurorSlasherAuthority,
             minRaiseDeadline,
             paymentToken
@@ -603,6 +606,7 @@ contract GoalFactory {
                     goalTreasury: address(core.goalTreasury),
                     goalFlow: address(core.goalFlow),
                     stackDeployer: managedPreset.stackDeployer,
+                    budgetChildStrategyFactory: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL,
                     budgetGatePolicy: p.managedBudgetGatePolicy,
                     budgetSuccessResolver: p.budgetRuntime.budgetSuccessResolver,
                     budgetSpendPolicy: p.budgetRuntime.budgetSpendPolicy,
@@ -611,13 +615,7 @@ contract GoalFactory {
                 })
             );
         } else {
-            BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(
-                p,
-                core,
-                revnet,
-                paymentToken,
-                paymentTokenDecimals
-            );
+            BudgetTCRFactory.DeployedBudgetTCRStack memory tcrStack = _deployBudgetTcr(p, core, revnet, paymentToken);
             if (tcrStack.budgetTCR != predictedBudgetController) {
                 revert BUDGET_CONTROLLER_ADDRESS_MISMATCH(predictedBudgetController, tcrStack.budgetTCR);
             }
@@ -726,6 +724,7 @@ contract GoalFactory {
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address budgetController,
         address goalAllocatorStrategy,
+        bool deployJurorSlasherRouter,
         address jurorSlasherAuthority,
         uint64 minRaiseDeadline,
         address paymentToken
@@ -736,6 +735,7 @@ contract GoalFactory {
                 GoalFactoryCoreStackDeploy.CoreFinalizeRequest({
                     goalAllocatorStrategy: goalAllocatorStrategy,
                     budgetController: budgetController,
+                    deployJurorSlasherRouter: deployJurorSlasherRouter,
                     jurorSlasherAuthority: jurorSlasherAuthority,
                     jurorSlasherRouterImpl: JUROR_SLASHER_ROUTER_IMPL,
                     underwriterSlasherRouterImpl: UNDERWRITER_SLASHER_ROUTER_IMPL,
@@ -771,10 +771,10 @@ contract GoalFactory {
         return
             GoalFactoryManagedPresetDeploy.bootstrapManagedPreset(
                 goalTreasury,
+                BUDGET_TCR_FACTORY.stackDeployerImplementation(),
                 GoalFactoryManagedPresetDeploy.ManagedPresetBootstrapConfig({
                     budgetControllerImplementation: MANAGED_BUDGET_CONTROLLER_IMPL,
                     goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL,
-                    stackDeployerImplementation: BUDGET_STACK_DEPLOYER_IMPL,
                     budgetChildStrategyFactoryImplementation: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL
                 })
             );
@@ -784,8 +784,7 @@ contract GoalFactory {
         InternalDeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
-        address paymentToken,
-        uint8 paymentTokenDecimals
+        address paymentToken
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
         IBudgetTCR.RiskModuleRouting memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
             p.common.underwriting.budgetPremiumPpm,
@@ -817,7 +816,6 @@ contract GoalFactory {
                     defaultSubmissionDepositStrategy: DEFAULT_SUBMISSION_DEPOSIT_STRATEGY,
                     riskModuleRouting: routing,
                     cobuildToken: paymentToken,
-                    cobuildDecimals: paymentTokenDecimals,
                     budgetSuccessResolver: p.budgetRuntime.budgetSuccessResolver,
                     budgetBounds: p.openBudgetTCR.budgetBounds,
                     oracleBounds: p.budgetRuntime.oracleBounds,

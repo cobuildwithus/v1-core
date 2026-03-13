@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
+import { IBudgetStackDiscoveryEmitter } from "src/interfaces/IBudgetStackDiscoveryEmitter.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "src/tcr/interfaces/IArbitrator.sol";
 import { IGeneralizedTCRConfig } from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
@@ -54,20 +56,21 @@ library BudgetTCRStackActions {
 
         IFlow goalFlow = budgetStore.goalFlow();
         IBudgetStackDeployer deployer = IBudgetStackDeployer(budgetStore.stackDeployer());
+        IBudgetStackDiscoveryEmitter discoveryEmitter = IBudgetStackDiscoveryEmitter(budgetStore.discoveryEmitter());
         address underwriterSlasherRouter = budgetStore.underwriterSlasherRouter();
         uint32 budgetPremiumPpm = budgetStore.budgetPremiumPpm();
         uint32 budgetSlashPpm = budgetStore.budgetSlashPpm();
         bool requiresPremiumModule = budgetPremiumPpm != 0 || budgetSlashPpm != 0;
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
-        IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
+        BudgetStackTypes.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
             address(goalFlow)
         );
 
         address allocationMechanism = prepared.allocationMechanism;
         (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
-        BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = BudgetStackInstantiationLib
-            .instantiatePreparedBudgetStack(
+        BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = requiresPremiumModule
+            ? BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithRiskModule(
                 BudgetStackInstantiationLib.PreparedBudgetStackContext({
                     itemID: itemID,
                     metadata: listing.metadata,
@@ -88,19 +91,42 @@ library BudgetTCRStackActions {
                         successAssertionBond: oracleBondAmount,
                         spendPolicy: budgetStore.budgetSpendPolicy()
                     }),
-                    premiumPpm: budgetPremiumPpm,
-                    useRiskModule: requiresPremiumModule,
-                    riskModuleInitConfig: IBudgetStackDeployer.RiskModuleInitConfig({
-                        budgetStakeLedger: budgetStakeLedger,
-                        goalFlow: address(goalFlow),
-                        underwriterSlasherRouter: underwriterSlasherRouter,
-                        budgetSlashPpm: budgetSlashPpm
-                    })
+                    premiumPpm: budgetPremiumPpm
+                }),
+                BudgetStackTypes.RiskModuleInitConfig({
+                    budgetStakeLedger: budgetStakeLedger,
+                    goalFlow: address(goalFlow),
+                    underwriterSlasherRouter: underwriterSlasherRouter,
+                    budgetSlashPpm: budgetSlashPpm
+                })
+            )
+            : BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithoutRiskModule(
+                BudgetStackInstantiationLib.PreparedBudgetStackContext({
+                    itemID: itemID,
+                    metadata: listing.metadata,
+                    goalFlow: ICustomFlow(address(goalFlow)),
+                    deployer: deployer,
+                    prepared: prepared,
+                    lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
+                        fundingDeadline: listing.fundingDeadline,
+                        executionDuration: listing.executionDuration,
+                        activationThreshold: listing.activationThreshold,
+                        runwayCap: listing.runwayCap,
+                        successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
+                        successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
+                    }),
+                    runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
+                        successResolver: budgetStore.budgetSuccessResolver(),
+                        successAssertionLiveness: oracleLiveness,
+                        successAssertionBond: oracleBondAmount,
+                        spendPolicy: budgetStore.budgetSpendPolicy()
+                    }),
+                    premiumPpm: budgetPremiumPpm
                 })
             );
 
         emit BudgetStackDeployed(itemID, deployed.childFlow, deployed.budgetTreasury, deployed.strategy);
-        deployer.emitBudgetStackDeployed(
+        discoveryEmitter.onBudgetStackDeployed(
             itemID,
             deployed.childFlow,
             deployed.budgetTreasury,
@@ -150,7 +176,7 @@ library BudgetTCRStackActions {
                 allocationMechanismArbitrator,
                 deployer.roundFactory()
             );
-            deployer.emitBudgetAllocationMechanismDeployed(
+            discoveryEmitter.onBudgetAllocationMechanismDeployed(
                 itemID,
                 allocationMechanism,
                 allocationMechanismArbitrator,

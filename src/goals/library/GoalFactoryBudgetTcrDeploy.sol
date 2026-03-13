@@ -26,7 +26,6 @@ library GoalFactoryBudgetTcrDeploy {
         address defaultSubmissionDepositStrategy;
         IBudgetTCR.RiskModuleRouting riskModuleRouting;
         address cobuildToken;
-        uint8 cobuildDecimals;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
         IBudgetTCR.BudgetValidationBounds budgetBounds;
@@ -68,17 +67,16 @@ library GoalFactoryBudgetTcrDeploy {
         return
             request.budgetTcrFactory.deployBudgetTCRStackForGoal(
                 resolveRegistryConfig(request),
-                resolveDeploymentConfig(request),
+                resolveRequestedDeploymentConfig(request),
                 request.arbitratorParams
             );
     }
 
-    function resolveDeploymentConfig(
+    function resolveRequestedDeploymentConfig(
         BudgetTcrDeployRequest memory request
-    ) public pure returns (IBudgetTCR.DeploymentConfig memory tcrDeployCfg) {
+    ) public pure returns (BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory tcrDeployCfg) {
         return
-            IBudgetTCR.DeploymentConfig({
-                stackDeployer: address(0),
+            BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig({
                 budgetSuccessResolver: request.budgetSuccessResolver,
                 budgetSpendPolicy: request.budgetSpendPolicy,
                 riskModuleRouting: request.riskModuleRouting,
@@ -88,7 +86,6 @@ library GoalFactoryBudgetTcrDeploy {
                 cobuildToken: IERC20(request.cobuildToken),
                 goalRulesets: request.goalRulesets,
                 goalRevnetId: request.goalRevnetId,
-                paymentTokenDecimals: request.cobuildDecimals,
                 budgetPremiumPpm: request.budgetPremiumPpm,
                 budgetSlashPpm: request.budgetSlashPpm,
                 budgetValidationBounds: request.budgetBounds,

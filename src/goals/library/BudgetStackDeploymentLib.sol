@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
-import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrowInitializer } from "src/interfaces/IPremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
@@ -40,7 +40,7 @@ library BudgetStackDeploymentLib {
         address controller,
         address budgetTreasury,
         IBudgetTreasury.BudgetConfig memory budgetConfig,
-        IBudgetStackDeployer.RiskModuleInitConfig memory riskModuleInitConfig
+        BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
     ) internal returns (address) {
         address premiumEscrow = budgetConfig.premiumEscrow;
         if (premiumEscrow == address(0)) revert ADDRESS_ZERO();

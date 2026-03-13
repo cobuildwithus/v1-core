@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.34;
 
+import { BudgetStackTypes } from "src/interfaces/BudgetStackTypes.sol";
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetStackChildFlowStrategyFactory } from "src/interfaces/IBudgetStackChildFlowStrategyFactory.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { IBudgetTCRFactoryDiscoveryEmitter } from "src/tcr/interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -14,11 +14,10 @@ import { BudgetStackDeploymentLib } from "src/goals/library/BudgetStackDeploymen
 
 contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     address public override controller;
-    address public premiumEscrowImplementation;
-    address public discoveryEmitter;
-    ChildFlowStrategyMode public childFlowStrategyMode;
+    address private _premiumEscrowImplementation;
+    BudgetStackTypes.ChildFlowStrategyMode public childFlowStrategyMode;
     address public childFlowStrategyTarget;
-    MechanismLayerMode public mechanismLayerMode;
+    BudgetStackTypes.MechanismLayerMode public mechanismLayerMode;
     address public childFlowRecipientAdmin;
     address public immutable budgetTreasuryImplementation;
     address public immutable override roundFactory;
@@ -64,25 +63,21 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     }
 
     function initializeWithConfig(
-        address budgetTCR_,
-        StackModuleConfig calldata stackModuleConfig_,
-        address discoveryEmitter_
+        address controller_,
+        BudgetStackTypes.StackModuleConfig calldata stackModuleConfig_
     ) external initializer {
-        _initializeWithConfig(budgetTCR_, stackModuleConfig_, discoveryEmitter_);
+        _initializeWithConfig(controller_, stackModuleConfig_);
     }
 
     function _initializeWithConfig(
-        address budgetTCR_,
-        StackModuleConfig memory stackModuleConfig_,
-        address discoveryEmitter_
+        address controller_,
+        BudgetStackTypes.StackModuleConfig memory stackModuleConfig_
     ) internal {
-        if (budgetTCR_ == address(0)) revert ADDRESS_ZERO();
-        if (discoveryEmitter_ != address(0) && discoveryEmitter_.code.length == 0) revert ADDRESS_ZERO();
+        if (controller_ == address(0)) revert ADDRESS_ZERO();
         _validateStackModuleConfig(stackModuleConfig_);
 
-        controller = budgetTCR_;
-        premiumEscrowImplementation = stackModuleConfig_.premiumEscrowImplementation;
-        discoveryEmitter = discoveryEmitter_;
+        controller = controller_;
+        _premiumEscrowImplementation = stackModuleConfig_.premiumEscrowImplementation;
         childFlowStrategyMode = stackModuleConfig_.childFlowStrategyMode;
         childFlowStrategyTarget = stackModuleConfig_.childFlowStrategyTarget;
         mechanismLayerMode = stackModuleConfig_.mechanismLayerMode;
@@ -92,14 +87,14 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     function prepareBudgetStack(
         address budgetStakeLedger,
         address goalFlow
-    ) external onlyController returns (PreparationResult memory result) {
+    ) external onlyController returns (BudgetStackTypes.PreparationResult memory result) {
         if (budgetStakeLedger == address(0)) revert ADDRESS_ZERO();
         if (goalFlow == address(0)) revert ADDRESS_ZERO();
         address treasuryAnchor = Clones.clone(budgetTreasuryImplementation);
         address strategy = _prepareChildFlowStrategy(treasuryAnchor, budgetStakeLedger, goalFlow);
         address premiumEscrow = _preparePremiumEscrow();
         (address allocationMechanism, address recipientAdmin) = _prepareMechanismLayer();
-        result = PreparationResult({
+        result = BudgetStackTypes.PreparationResult({
             strategy: strategy,
             budgetTreasury: treasuryAnchor,
             premiumEscrow: premiumEscrow,
@@ -122,7 +117,7 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     function deployBudgetTreasuryWithRiskModule(
         address budgetTreasury,
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
-        RiskModuleInitConfig calldata riskModuleInitConfig
+        BudgetStackTypes.RiskModuleInitConfig calldata riskModuleInitConfig
     ) external onlyController returns (address deployedBudgetTreasury) {
         deployedBudgetTreasury = BudgetStackDeploymentLib.deployBudgetTreasuryWithRiskModule(
             controller,
@@ -133,58 +128,24 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     }
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external onlyController {
-        if (childFlowStrategyMode != ChildFlowStrategyMode.SharedBudgetFlowRouter) return;
+        if (childFlowStrategyMode != BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter) return;
         address strategy = sharedBudgetFlowStrategy;
         if (strategy == address(0)) revert SHARED_BUDGET_STRATEGY_NOT_DEPLOYED();
         IBudgetFlowRouterStrategy(strategy).registerFlowRecipient(childFlow, recipientId);
     }
 
-    function emitBudgetStackDeployed(
-        bytes32 itemID,
-        address childFlow,
-        address budgetTreasury,
-        address premiumEscrow,
-        address strategy
-    ) external onlyController {
-        address emitter = discoveryEmitter;
-        if (emitter == address(0)) return;
-        IBudgetTCRFactoryDiscoveryEmitter(emitter).onBudgetStackDeployed(
-            itemID,
-            childFlow,
-            budgetTreasury,
-            premiumEscrow,
-            strategy
-        );
-    }
-
-    function emitBudgetAllocationMechanismDeployed(
-        bytes32 itemID,
-        address allocationMechanism,
-        address allocationMechanismArbitrator,
-        address roundFactory_
-    ) external onlyController {
-        address emitter = discoveryEmitter;
-        if (emitter == address(0)) return;
-        IBudgetTCRFactoryDiscoveryEmitter(emitter).onBudgetAllocationMechanismDeployed(
-            itemID,
-            allocationMechanism,
-            allocationMechanismArbitrator,
-            roundFactory_
-        );
-    }
-
-    function stackModuleConfig() external view returns (StackModuleConfig memory config) {
-        config = StackModuleConfig({
+    function stackModuleConfig() external view returns (BudgetStackTypes.StackModuleConfig memory config) {
+        config = BudgetStackTypes.StackModuleConfig({
             childFlowStrategyMode: childFlowStrategyMode,
             childFlowStrategyTarget: childFlowStrategyTarget,
             mechanismLayerMode: mechanismLayerMode,
             childFlowRecipientAdmin: childFlowRecipientAdmin,
-            premiumEscrowImplementation: premiumEscrowImplementation
+            premiumEscrowImplementation: _premiumEscrowImplementation
         });
     }
 
     function initialMechanismFactories() external view override returns (address[] memory factories) {
-        if (mechanismLayerMode == MechanismLayerMode.None) {
+        if (mechanismLayerMode == BudgetStackTypes.MechanismLayerMode.None) {
             return new address[](0);
         }
 
@@ -202,22 +163,18 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
         factories[1] = teamFlowFactory_;
     }
 
-    function sharedBudgetFlowStrategyLedger() external view returns (address ledger) {
-        ledger = _sharedBudgetFlowStrategyLedger(sharedBudgetFlowStrategy);
-    }
-
-    function _validateStackModuleConfig(StackModuleConfig memory stackModuleConfig_) internal view {
+    function _validateStackModuleConfig(BudgetStackTypes.StackModuleConfig memory stackModuleConfig_) internal view {
         if (stackModuleConfig_.premiumEscrowImplementation != address(0)) {
             _assertImplementationAddress(stackModuleConfig_.premiumEscrowImplementation);
         }
 
-        if (stackModuleConfig_.childFlowStrategyMode == ChildFlowStrategyMode.SharedBudgetFlowRouter) {
+        if (stackModuleConfig_.childFlowStrategyMode == BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter) {
             if (stackModuleConfig_.childFlowStrategyTarget != address(0)) revert INVALID_STACK_MODULE_CONFIG();
         } else {
             _assertImplementationAddress(stackModuleConfig_.childFlowStrategyTarget);
         }
 
-        if (stackModuleConfig_.mechanismLayerMode == MechanismLayerMode.AllocationMechanismTCR) {
+        if (stackModuleConfig_.mechanismLayerMode == BudgetStackTypes.MechanismLayerMode.AllocationMechanismTCR) {
             if (stackModuleConfig_.childFlowRecipientAdmin != address(0)) revert INVALID_STACK_MODULE_CONFIG();
             return;
         }
@@ -235,10 +192,10 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
         address budgetStakeLedger,
         address goalFlow
     ) internal returns (address strategy) {
-        ChildFlowStrategyMode strategyMode = childFlowStrategyMode;
+        BudgetStackTypes.ChildFlowStrategyMode strategyMode = childFlowStrategyMode;
         address strategyTarget = childFlowStrategyTarget;
 
-        if (strategyMode == ChildFlowStrategyMode.SharedBudgetFlowRouter) {
+        if (strategyMode == BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter) {
             strategy = sharedBudgetFlowStrategy;
             if (strategy == address(0)) {
                 strategy = Clones.clone(budgetFlowRouterStrategyImplementation);
@@ -263,7 +220,7 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     }
 
     function _preparePremiumEscrow() internal returns (address premiumEscrow) {
-        address implementation = premiumEscrowImplementation;
+        address implementation = _premiumEscrowImplementation;
         if (implementation == address(0)) {
             return address(0);
         }
@@ -273,7 +230,7 @@ contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
 
     function _prepareMechanismLayer() internal returns (address allocationMechanism, address recipientAdmin) {
         recipientAdmin = childFlowRecipientAdmin;
-        if (mechanismLayerMode != MechanismLayerMode.AllocationMechanismTCR) {
+        if (mechanismLayerMode != BudgetStackTypes.MechanismLayerMode.AllocationMechanismTCR) {
             return (address(0), recipientAdmin);
         }
 
