@@ -66,64 +66,47 @@ library BudgetTCRStackActions {
             budgetStakeLedger,
             address(goalFlow)
         );
+        _requirePreparedOpenStack(prepared, requiresPremiumModule);
 
         address allocationMechanism = prepared.allocationMechanism;
         (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
-        BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = requiresPremiumModule
-            ? BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithRiskModule(
-                BudgetStackInstantiationLib.PreparedBudgetStackContext({
-                    itemID: itemID,
-                    metadata: listing.metadata,
-                    goalFlow: ICustomFlow(address(goalFlow)),
-                    deployer: deployer,
-                    prepared: prepared,
-                    lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
-                        fundingDeadline: listing.fundingDeadline,
-                        executionDuration: listing.executionDuration,
-                        activationThreshold: listing.activationThreshold,
-                        runwayCap: listing.runwayCap,
-                        successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-                        successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
-                    }),
-                    runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
-                        successResolver: budgetStore.budgetSuccessResolver(),
-                        successAssertionLiveness: oracleLiveness,
-                        successAssertionBond: oracleBondAmount,
-                        spendPolicy: budgetStore.budgetSpendPolicy()
-                    }),
-                    premiumPpm: budgetPremiumPpm
+        BudgetStackInstantiationLib.PreparedBudgetStackContext memory preparedCtx =
+            BudgetStackInstantiationLib.PreparedBudgetStackContext({
+                itemID: itemID,
+                metadata: listing.metadata,
+                goalFlow: ICustomFlow(address(goalFlow)),
+                deployer: deployer,
+                prepared: prepared,
+                lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
+                    fundingDeadline: listing.fundingDeadline,
+                    executionDuration: listing.executionDuration,
+                    activationThreshold: listing.activationThreshold,
+                    runwayCap: listing.runwayCap,
+                    successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
+                    successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
                 }),
+                runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
+                    successResolver: budgetStore.budgetSuccessResolver(),
+                    successAssertionLiveness: oracleLiveness,
+                    successAssertionBond: oracleBondAmount,
+                    spendPolicy: budgetStore.budgetSpendPolicy()
+                }),
+                premiumPpm: budgetPremiumPpm
+            });
+        BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed;
+        if (requiresPremiumModule) {
+            deployed = BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithRiskModule(
+                preparedCtx,
                 BudgetStackTypes.RiskModuleInitConfig({
                     budgetStakeLedger: budgetStakeLedger,
                     goalFlow: address(goalFlow),
                     underwriterSlasherRouter: underwriterSlasherRouter,
                     budgetSlashPpm: budgetSlashPpm
                 })
-            )
-            : BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithoutRiskModule(
-                BudgetStackInstantiationLib.PreparedBudgetStackContext({
-                    itemID: itemID,
-                    metadata: listing.metadata,
-                    goalFlow: ICustomFlow(address(goalFlow)),
-                    deployer: deployer,
-                    prepared: prepared,
-                    lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
-                        fundingDeadline: listing.fundingDeadline,
-                        executionDuration: listing.executionDuration,
-                        activationThreshold: listing.activationThreshold,
-                        runwayCap: listing.runwayCap,
-                        successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-                        successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
-                    }),
-                    runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
-                        successResolver: budgetStore.budgetSuccessResolver(),
-                        successAssertionLiveness: oracleLiveness,
-                        successAssertionBond: oracleBondAmount,
-                        spendPolicy: budgetStore.budgetSpendPolicy()
-                    }),
-                    premiumPpm: budgetPremiumPpm
-                })
             );
+        } else {
+            deployed = BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithoutRiskModule(preparedCtx);
+        }
 
         emit BudgetStackDeployed(itemID, deployed.childFlow, deployed.budgetTreasury, deployed.strategy);
         discoveryEmitter.onBudgetStackDeployed(
@@ -219,6 +202,34 @@ library BudgetTCRStackActions {
             initialMechanismFactories,
             _mechanismInitConfig(mechanismArbitrator, budgetStore, tcrStore)
         );
+    }
+
+    function _requirePreparedOpenStack(
+        BudgetStackTypes.PreparationResult memory prepared,
+        bool requiresPremiumModule
+    ) private pure {
+        if (prepared.strategy == address(0)) revert IBudgetTCR.INVALID_PREPARED_STRATEGY(address(0));
+        if (prepared.budgetTreasury == address(0)) {
+            revert IBudgetTCR.INVALID_PREPARED_BUDGET_TREASURY(address(0));
+        }
+
+        address allocationMechanism = prepared.allocationMechanism;
+        if (allocationMechanism == address(0)) revert IBudgetTCR.PREPARED_ALLOCATION_MECHANISM_REQUIRED();
+        if (prepared.childFlowRecipientAdmin != allocationMechanism) {
+            revert IBudgetTCR.INVALID_PREPARED_CHILD_FLOW_RECIPIENT_ADMIN(
+                prepared.childFlowRecipientAdmin,
+                allocationMechanism
+            );
+        }
+
+        if (requiresPremiumModule) {
+            if (prepared.premiumEscrow == address(0)) revert IBudgetTCR.PREPARED_PREMIUM_ESCROW_REQUIRED();
+            return;
+        }
+
+        if (prepared.premiumEscrow != address(0)) {
+            revert IBudgetTCR.INVALID_PREPARED_PREMIUM_ESCROW(prepared.premiumEscrow);
+        }
     }
 
     function _mechanismInitConfig(
