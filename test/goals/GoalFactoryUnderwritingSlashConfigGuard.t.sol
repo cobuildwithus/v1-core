@@ -562,6 +562,21 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
     }
 
+    function test_deployManagedGoalForCommunity_revertsWhenBudgetAssertionLivenessIsZero() public {
+        MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            address(this),
+            IJBDirectory(address(revnetDirectory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            PAYMENT_REVNET_ID,
+            address(paymentToken)
+        );
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(new DummyContract()));
+        p.budgetRuntime.oracleBounds.liveness = 0;
+
+        vm.expectRevert(GoalFactory.INVALID_ASSERTION_CONFIG.selector);
+        factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
+    }
+
     function _expectObservedRevnetDeploy() internal {
         uint256 deploymentNonce = vm.getNonce(address(factory));
         address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
