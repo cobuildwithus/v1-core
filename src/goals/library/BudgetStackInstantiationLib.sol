@@ -10,6 +10,25 @@ import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IPremiumEscrowManagerRewardPool } from "src/interfaces/IPremiumEscrow.sol";
 
 library BudgetStackInstantiationLib {
+    struct PreparedBudgetStackContextInput {
+        bytes32 itemID;
+        FlowTypes.RecipientMetadata metadata;
+        ICustomFlow goalFlow;
+        IBudgetStackRuntimeDeployer deployer;
+        BudgetStackTypes.PreparationResult prepared;
+        uint64 fundingDeadline;
+        uint64 executionDuration;
+        uint256 activationThreshold;
+        uint256 runwayCap;
+        bytes32 successOracleSpecHash;
+        bytes32 successAssertionPolicyHash;
+        address successResolver;
+        uint64 successAssertionLiveness;
+        uint256 successAssertionBond;
+        address spendPolicy;
+        uint32 premiumPpm;
+    }
+
     struct BudgetLifecycleConfig {
         uint64 fundingDeadline;
         uint64 executionDuration;
@@ -50,13 +69,41 @@ library BudgetStackInstantiationLib {
     error PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
     error MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
 
+    function buildPreparedBudgetStackContext(
+        PreparedBudgetStackContextInput memory input
+    ) internal pure returns (PreparedBudgetStackContext memory ctx) {
+        ctx = PreparedBudgetStackContext({
+            itemID: input.itemID,
+            metadata: input.metadata,
+            goalFlow: input.goalFlow,
+            deployer: input.deployer,
+            prepared: input.prepared,
+            lifecycleConfig: BudgetLifecycleConfig({
+                fundingDeadline: input.fundingDeadline,
+                executionDuration: input.executionDuration,
+                activationThreshold: input.activationThreshold,
+                runwayCap: input.runwayCap,
+                successOracleSpecHash: input.successOracleSpecHash,
+                successAssertionPolicyHash: input.successAssertionPolicyHash
+            }),
+            runtimeConfig: BudgetRuntimeConfig({
+                successResolver: input.successResolver,
+                successAssertionLiveness: input.successAssertionLiveness,
+                successAssertionBond: input.successAssertionBond,
+                spendPolicy: input.spendPolicy
+            }),
+            premiumPpm: input.premiumPpm
+        });
+    }
+
     function instantiatePreparedBudgetStackWithoutRiskModule(
         PreparedBudgetStackContext memory ctx
     ) internal returns (InstantiatedBudgetStack memory deployed) {
         if (ctx.prepared.premiumEscrow != address(0)) {
             revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
         }
-        deployed = _instantiatePreparedBudgetStackWithoutRiskModule(ctx);
+        BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig;
+        deployed = _instantiatePreparedBudgetStack(ctx, riskModuleInitConfig);
     }
 
     function instantiatePreparedBudgetStackWithRiskModule(
@@ -64,39 +111,21 @@ library BudgetStackInstantiationLib {
         BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
     ) internal returns (InstantiatedBudgetStack memory deployed) {
         if (ctx.prepared.premiumEscrow == address(0)) revert PREMIUM_ESCROW_NOT_PREPARED();
-        deployed = _instantiatePreparedBudgetStackWithRiskModule(ctx, riskModuleInitConfig);
+        deployed = _instantiatePreparedBudgetStack(ctx, riskModuleInitConfig);
     }
 
-    function _instantiatePreparedBudgetStackWithoutRiskModule(
-        PreparedBudgetStackContext memory ctx
-    ) private returns (InstantiatedBudgetStack memory deployed) {
-        (BudgetStackTypes.PreparationResult memory prepared, address childFlow) = _deployChildFlow(ctx);
-        address budgetTreasury = ctx.deployer.deployBudgetTreasury(
-            prepared.budgetTreasury,
-            _budgetConfig(ctx, childFlow, prepared.premiumEscrow)
-        );
-        _connectManagerRewardPoolIfConfigured(childFlow, prepared.premiumEscrow);
-        deployed = _finalizePreparedBudgetStack(prepared, childFlow, budgetTreasury);
-    }
-
-    function _instantiatePreparedBudgetStackWithRiskModule(
+    function _instantiatePreparedBudgetStack(
         PreparedBudgetStackContext memory ctx,
         BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
     ) private returns (InstantiatedBudgetStack memory deployed) {
-        (BudgetStackTypes.PreparationResult memory prepared, address childFlow) = _deployChildFlow(ctx);
-        address budgetTreasury = ctx.deployer.deployBudgetTreasuryWithRiskModule(
-            prepared.budgetTreasury,
-            _budgetConfig(ctx, childFlow, prepared.premiumEscrow),
-            riskModuleInitConfig
-        );
-        _connectManagerRewardPoolIfConfigured(childFlow, prepared.premiumEscrow);
-        deployed = _finalizePreparedBudgetStack(prepared, childFlow, budgetTreasury);
+        address childFlow = _deployChildFlow(ctx);
+        address budgetTreasury = _deployBudgetTreasury(ctx, childFlow, riskModuleInitConfig);
+        _connectManagerRewardPoolIfConfigured(childFlow, ctx.prepared.premiumEscrow);
+        deployed = _finalizePreparedBudgetStack(ctx.prepared, childFlow, budgetTreasury);
     }
 
-    function _deployChildFlow(
-        PreparedBudgetStackContext memory ctx
-    ) private returns (BudgetStackTypes.PreparationResult memory prepared, address childFlow) {
-        prepared = ctx.prepared;
+    function _deployChildFlow(PreparedBudgetStackContext memory ctx) private returns (address childFlow) {
+        BudgetStackTypes.PreparationResult memory prepared = ctx.prepared;
         address premiumEscrow = prepared.premiumEscrow;
         bool hasPremiumEscrow = premiumEscrow != address(0);
         (, childFlow) = ctx.goalFlow.addFlowRecipient(
@@ -111,6 +140,23 @@ library BudgetStackInstantiationLib {
         );
 
         ctx.deployer.registerChildFlowRecipient(ctx.itemID, childFlow);
+    }
+
+    function _deployBudgetTreasury(
+        PreparedBudgetStackContext memory ctx,
+        address childFlow,
+        BudgetStackTypes.RiskModuleInitConfig memory riskModuleInitConfig
+    ) private returns (address budgetTreasury) {
+        IBudgetTreasury.BudgetConfig memory budgetConfig = _budgetConfig(ctx, childFlow, ctx.prepared.premiumEscrow);
+        if (ctx.prepared.premiumEscrow == address(0)) {
+            return ctx.deployer.deployBudgetTreasury(ctx.prepared.budgetTreasury, budgetConfig);
+        }
+
+        budgetTreasury = ctx.deployer.deployBudgetTreasuryWithRiskModule(
+            ctx.prepared.budgetTreasury,
+            budgetConfig,
+            riskModuleInitConfig
+        );
     }
 
     function _budgetConfig(

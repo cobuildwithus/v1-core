@@ -68,31 +68,28 @@ library BudgetTCRStackActions {
         );
         _requirePreparedOpenStack(prepared, requiresPremiumModule);
 
-        address allocationMechanism = prepared.allocationMechanism;
         (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
-        BudgetStackInstantiationLib.PreparedBudgetStackContext memory preparedCtx =
-            BudgetStackInstantiationLib.PreparedBudgetStackContext({
-                itemID: itemID,
-                metadata: listing.metadata,
-                goalFlow: ICustomFlow(address(goalFlow)),
-                deployer: deployer,
-                prepared: prepared,
-                lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
+        BudgetStackInstantiationLib.PreparedBudgetStackContext memory preparedCtx = BudgetStackInstantiationLib
+            .buildPreparedBudgetStackContext(
+                BudgetStackInstantiationLib.PreparedBudgetStackContextInput({
+                    itemID: itemID,
+                    metadata: listing.metadata,
+                    goalFlow: ICustomFlow(address(goalFlow)),
+                    deployer: deployer,
+                    prepared: prepared,
                     fundingDeadline: listing.fundingDeadline,
                     executionDuration: listing.executionDuration,
                     activationThreshold: listing.activationThreshold,
                     runwayCap: listing.runwayCap,
                     successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-                    successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
-                }),
-                runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
+                    successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
                     successResolver: budgetStore.budgetSuccessResolver(),
                     successAssertionLiveness: oracleLiveness,
                     successAssertionBond: oracleBondAmount,
-                    spendPolicy: budgetStore.budgetSpendPolicy()
-                }),
-                premiumPpm: budgetPremiumPpm
-            });
+                    spendPolicy: budgetStore.budgetSpendPolicy(),
+                    premiumPpm: budgetPremiumPpm
+                })
+            );
         BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed;
         if (requiresPremiumModule) {
             deployed = BudgetStackInstantiationLib.instantiatePreparedBudgetStackWithRiskModule(
@@ -118,10 +115,10 @@ library BudgetTCRStackActions {
         );
 
         address allocationMechanismArbitrator;
-        if (allocationMechanism != address(0)) {
+        if (deployed.allocationMechanism != address(0)) {
             allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
                 deployer,
-                allocationMechanism,
+                deployed.allocationMechanism,
                 deployed.budgetTreasury,
                 goalTreasury,
                 budgetStore,
@@ -139,7 +136,7 @@ library BudgetTCRStackActions {
                 budgetTreasury: deployed.budgetTreasury,
                 premiumEscrow: deployed.premiumEscrow,
                 strategy: deployed.strategy,
-                allocationMechanism: allocationMechanism,
+                allocationMechanism: deployed.allocationMechanism,
                 allocationMechanismArbitrator: allocationMechanismArbitrator
             })
         );
@@ -152,16 +149,16 @@ library BudgetTCRStackActions {
                 true
             );
         }
-        if (allocationMechanism != address(0)) {
+        if (deployed.allocationMechanism != address(0)) {
             emit BudgetAllocationMechanismDeployed(
                 itemID,
-                allocationMechanism,
+                deployed.allocationMechanism,
                 allocationMechanismArbitrator,
                 deployer.roundFactory()
             );
             discoveryEmitter.onBudgetAllocationMechanismDeployed(
                 itemID,
-                allocationMechanism,
+                deployed.allocationMechanism,
                 allocationMechanismArbitrator,
                 deployer.roundFactory()
             );
