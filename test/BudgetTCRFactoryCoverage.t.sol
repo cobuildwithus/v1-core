@@ -42,6 +42,7 @@ import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {TreasuryUmaResolverMockFactory} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
     uint256 internal constant DEFAULT_ESCROW_BOND_BPS = 5;
@@ -348,7 +349,7 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         IStakeVault stakeVault = IStakeVault(goalTreasury.stakeVault());
 
         deploymentConfig = BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig({
-            budgetSuccessResolver: makeAddr("budget-success-resolver"),
+            budgetSuccessResolver: address(TreasuryUmaResolverMockFactory.deployResolver(goalToken)),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 address(new StakeCoverageGatePolicy()), address(new _MockImplementation()), address(0)

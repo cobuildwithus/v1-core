@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
@@ -32,6 +33,12 @@ import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
 import {IJBTerminal} from "@bananapus/core-v5/interfaces/IJBTerminal.sol";
 import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
 import {JBTerminalConfig} from "@bananapus/core-v5/structs/JBTerminalConfig.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     uint256 internal constant PAYMENT_REVNET_ID = 1;
@@ -86,7 +93,8 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredJbMultiTerminal = address(new DummyContract());
         configuredGoalTreasuryImpl = address(new DummyContract());
         configuredGoalSpendPolicy = address(new DummyContract());
-        configuredSuccessResolver = address(new DummyContract());
+        configuredSuccessResolver =
+            address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(paymentToken))));
         configuredFlowImpl = address(new DummyContract());
         configuredSplitHookImpl = address(new DummyContract());
         configuredDefaultSubmissionDepositStrategy = address(new DummyContract());
@@ -175,9 +183,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredManagedBudgetChildStrategyFactoryImpl = address(0xD00D);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                GoalFactory.NOT_A_CONTRACT.selector, configuredManagedBudgetChildStrategyFactoryImpl
-            )
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, configuredManagedBudgetChildStrategyFactoryImpl)
         );
         _deployFactory(configuredGoalPaymentTerminal);
     }
@@ -332,6 +338,24 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployManagedGoal(p);
     }
 
+    function test_deployGoal_revertsWhenGoalSuccessResolverHasNoCode() public {
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.common.success.successResolver = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.common.success.successResolver));
+        factory.deployOpenGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenGoalSuccessResolverProbeFails() public {
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.common.success.successResolver = address(new DummyContract());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.INVALID_SUCCESS_RESOLVER.selector, p.common.success.successResolver)
+        );
+        factory.deployOpenGoal(p);
+    }
+
     function test_deployGoal_revertsWhenBudgetSuccessResolverIsZero() public {
         GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
         p.budgetRuntime.budgetSuccessResolver = address(0);
@@ -346,6 +370,16 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetRuntime.budgetSuccessResolver)
+        );
+        factory.deployOpenGoal(p);
+    }
+
+    function test_deployGoal_revertsWhenBudgetSuccessResolverProbeFails() public {
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.budgetRuntime.budgetSuccessResolver = address(new DummyContract());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.INVALID_SUCCESS_RESOLVER.selector, p.budgetRuntime.budgetSuccessResolver)
         );
         factory.deployOpenGoal(p);
     }
@@ -524,7 +558,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     function _baseOpenGoalParams() internal view returns (GoalFactory.OpenGoalParams memory p) {
         p.common = GoalFactory.CommonGoalParams({
-            funding: GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID}),
+            funding: GoalFactory.FundingContext({
+                paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID
+            }),
             revnet: GoalFactory.RevnetParams({
                 name: "Goal",
                 ticker: "GOAL",
@@ -559,7 +595,11 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         });
     }
 
-    function _baseManagedGoalParams(address managedSafe) internal view returns (GoalFactory.ManagedGoalParams memory p) {
+    function _baseManagedGoalParams(address managedSafe)
+        internal
+        view
+        returns (GoalFactory.ManagedGoalParams memory p)
+    {
         GoalFactory.OpenGoalParams memory openParams = _baseOpenGoalParams();
         p.common = openParams.common;
         p.budgetRuntime = openParams.budgetRuntime;

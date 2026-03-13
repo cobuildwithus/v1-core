@@ -37,6 +37,8 @@ interface IManagedBudgetController is IBudgetController {
     error INVALID_CHILD_FLOW_RECIPIENT_ADMIN(address childFlowRecipientAdmin);
     error INVALID_STACK_DEPLOYER(address stackDeployer);
     error INVALID_BUDGET_GATE_POLICY(address policy);
+    error INVALID_SUCCESS_RESOLVER(address resolver);
+    error INVALID_BUDGET_SPEND_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW(address premiumEscrow);
     error ITEM_ALREADY_EXISTS(bytes32 itemID);
     error ITEM_NOT_DEPLOYED();

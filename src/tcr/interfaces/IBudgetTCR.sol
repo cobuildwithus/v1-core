@@ -141,6 +141,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
     error BUDGET_STAKE_LEDGER_NOT_CONFIGURED();
     error INVALID_PPM(uint32 ppmValue);
     error NOT_A_CONTRACT(address account);
+    error INVALID_SUCCESS_RESOLVER(address resolver);
     error INVALID_BUDGET_SPEND_POLICY(address policy);
     error INVALID_BUDGET_GATE_POLICY(address policy);
     error INVALID_PREMIUM_ESCROW_IMPLEMENTATION(address implementation);

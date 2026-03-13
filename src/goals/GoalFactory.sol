@@ -33,6 +33,7 @@ import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolic
 import { GoalFactoryRevnetDeploy } from "src/goals/library/GoalFactoryRevnetDeploy.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
+import { SuccessResolverValidationLib } from "src/library/SuccessResolverValidationLib.sol";
 
 interface IGoalFundingTerminalConfig {
     function DIRECTORY() external view returns (IJBDirectory);
@@ -222,6 +223,7 @@ contract GoalFactory {
     error MANAGED_SAFE_NOT_CONTRACT(address safe);
     error MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH(uint32 budgetPremiumPpm, uint32 budgetSlashPpm);
     error INVALID_DEFAULT_SPEND_POLICY(address policy);
+    error INVALID_SUCCESS_RESOLVER(address resolver);
 
     constructor(
         IREVDeployer revDeployer,
@@ -454,6 +456,13 @@ contract GoalFactory {
         }
     }
 
+    function _requireValidSuccessResolver(address resolver) private view {
+        if (resolver.code.length == 0) revert NOT_A_CONTRACT(resolver);
+        if (!SuccessResolverValidationLib.passesValidationProbe(resolver)) {
+            revert INVALID_SUCCESS_RESOLVER(resolver);
+        }
+    }
+
     function _resolveFundingContext(
         FundingContext memory funding
     ) private view returns (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) {
@@ -486,6 +495,7 @@ contract GoalFactory {
         if (p.common.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
 
         if (p.common.success.successResolver == address(0)) revert ADDRESS_ZERO();
+        _requireValidSuccessResolver(p.common.success.successResolver);
         if (
             p.common.success.successAssertionLiveness == 0 ||
             p.common.success.successOracleSpecHash == bytes32(0) ||
@@ -500,9 +510,7 @@ contract GoalFactory {
             if (p.budgetRuntime.oracleBounds.liveness == 0) revert INVALID_ASSERTION_CONFIG();
         }
         if (p.budgetRuntime.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
-        if (p.budgetRuntime.budgetSuccessResolver.code.length == 0) {
-            revert NOT_A_CONTRACT(p.budgetRuntime.budgetSuccessResolver);
-        }
+        _requireValidSuccessResolver(p.budgetRuntime.budgetSuccessResolver);
         p.budgetRuntime.budgetSpendPolicy = _resolveSpendPolicyOrDefault(
             p.budgetRuntime.budgetSpendPolicy,
             DEFAULT_BUDGET_SPEND_POLICY

@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
 import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
@@ -20,6 +21,7 @@ import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
 import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
@@ -34,6 +36,11 @@ import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {AlwaysEnabledZeroCoverageBudgetGatePolicy} from "test/helpers/ZeroCoverageBudgetGatePolicies.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 import {TestableCustomFlow} from "test/harness/TestableCustomFlow.sol";
 import {MockAllocationStrategy} from "test/mocks/MockAllocationStrategy.sol";
 import {FlowTestBase} from "test/flows/helpers/FlowTestBase.t.sol";
@@ -44,7 +51,7 @@ contract ManagedBudgetControllerTest is FlowTestBase {
 
     address internal safe = makeAddr("safe");
     address internal newSafe = makeAddr("new-safe");
-    address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
+    address internal budgetSuccessResolver;
     address internal budgetChildStrategyFactory = address(new ManagedBudgetControllerDummyContract());
 
     ManagedBudgetController internal controller;
@@ -70,6 +77,9 @@ contract ManagedBudgetControllerTest is FlowTestBase {
         stackDeployer.setChildFlowStrategyTarget(budgetChildStrategyFactory);
         stackDeployer.setChildFlowRecipientAdmin(address(controller));
         spendPolicy = new ManagedBudgetControllerMockSpendPolicy();
+        budgetSuccessResolver = address(
+            TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(new ManagedBudgetControllerDummyContract())))
+        );
 
         goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
@@ -654,8 +664,8 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
     address internal goalFlow = address(new ManagedBudgetControllerDummyContract());
     address internal stackDeployer;
     address internal budgetChildStrategyFactory = address(new ManagedBudgetControllerDummyContract());
-    address internal budgetSuccessResolver = makeAddr("budget-success-resolver");
-    address internal budgetSpendPolicy = address(new ManagedBudgetControllerDummyContract());
+    address internal budgetSuccessResolver;
+    address internal budgetSpendPolicy;
 
     function setUp() public {
         ManagedBudgetController implementation = new ManagedBudgetController();
@@ -665,6 +675,10 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
         stackDeployerMock.setChildFlowStrategyTarget(budgetChildStrategyFactory);
         stackDeployerMock.setChildFlowRecipientAdmin(address(controller));
         stackDeployer = address(stackDeployerMock);
+        budgetSuccessResolver = address(
+            TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(new ManagedBudgetControllerDummyContract())))
+        );
+        budgetSpendPolicy = address(new ManagedBudgetControllerMockSpendPolicy());
     }
 
     function test_initialize_setsManagedCoreReferences() public {
@@ -711,6 +725,30 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
         controller.initialize(config);
     }
 
+    function test_initialize_revertsOnInvalidSuccessResolverProbe() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetSuccessResolver = address(new ManagedBudgetControllerDummyContract());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IManagedBudgetController.INVALID_SUCCESS_RESOLVER.selector, config.budgetSuccessResolver
+            )
+        );
+        controller.initialize(config);
+    }
+
+    function test_initialize_revertsOnInvalidBudgetSpendPolicyProbe() public {
+        IManagedBudgetController.InitConfig memory config = _baseInitConfig();
+        config.budgetSpendPolicy = address(new ManagedBudgetControllerDummyContract());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IManagedBudgetController.INVALID_BUDGET_SPEND_POLICY.selector, config.budgetSpendPolicy
+            )
+        );
+        controller.initialize(config);
+    }
+
     function test_initialize_trimmedControllerDoesNotExposeRemovedCoverageOrSlashGetters() public {
         controller.initialize(_baseInitConfig());
 
@@ -729,7 +767,8 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
     }
 
     function test_initialize_revertsWhenStackDeployerControllerDoesNotMatch() public {
-        ManagedBudgetControllerMockStackDeployer mismatchedStackDeployer = new ManagedBudgetControllerMockStackDeployer();
+        ManagedBudgetControllerMockStackDeployer mismatchedStackDeployer =
+            new ManagedBudgetControllerMockStackDeployer();
         mismatchedStackDeployer.setController(address(new ManagedBudgetControllerDummyContract()));
         mismatchedStackDeployer.setChildFlowStrategyTarget(budgetChildStrategyFactory);
         mismatchedStackDeployer.setChildFlowRecipientAdmin(address(controller));
@@ -746,7 +785,8 @@ contract ManagedBudgetControllerInitializeValidationTest is Test {
     }
 
     function test_initialize_revertsWhenStackDeployerTupleDoesNotMatchManagedPreset() public {
-        ManagedBudgetControllerMockStackDeployer mismatchedStackDeployer = new ManagedBudgetControllerMockStackDeployer();
+        ManagedBudgetControllerMockStackDeployer mismatchedStackDeployer =
+            new ManagedBudgetControllerMockStackDeployer();
         mismatchedStackDeployer.setController(address(controller));
         mismatchedStackDeployer.setChildFlowStrategyMode(BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter);
         mismatchedStackDeployer.setChildFlowRecipientAdmin(address(controller));
@@ -785,7 +825,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
     uint256 internal constant SUCCESS_ASSERTION_BOND = 10e18;
 
     address internal safe = address(new ManagedBudgetControllerDummyContract());
-    address internal budgetSuccessResolver = address(new ManagedBudgetControllerDummyContract());
+    address internal budgetSuccessResolver;
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
@@ -833,6 +873,9 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         );
         stackDeployer = BudgetStackDeployer(Clones.clone(address(deployerImplementation)));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
+        budgetSuccessResolver = address(
+            TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(new ManagedBudgetControllerDummyContract())))
+        );
 
         goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
         goalFlow = TestableCustomFlow(
@@ -1391,7 +1434,15 @@ contract ManagedBudgetControllerProbeAwareGatePolicy is IBudgetGatePolicy {
     }
 }
 
-contract ManagedBudgetControllerMockSpendPolicy {}
+contract ManagedBudgetControllerMockSpendPolicy is ISpendPolicy {
+    function targetFlowRate(SpendContext calldata) external pure returns (int96) {
+        return 0;
+    }
+
+    function syncMode() external pure returns (SyncMode) {
+        return SyncMode.Capped;
+    }
+}
 
 contract ManagedBudgetControllerMockPremiumEscrow {}
 
@@ -1448,10 +1499,9 @@ contract ManagedBudgetControllerMockBudgetTreasury {
 contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
     address public configuredController;
     BudgetStackTypes.ChildFlowStrategyMode public configuredChildFlowStrategyMode =
-        BudgetStackTypes.ChildFlowStrategyMode.Factory;
+    BudgetStackTypes.ChildFlowStrategyMode.Factory;
     address public configuredChildFlowStrategyTarget;
-    BudgetStackTypes.MechanismLayerMode public configuredMechanismLayerMode =
-        BudgetStackTypes.MechanismLayerMode.None;
+    BudgetStackTypes.MechanismLayerMode public configuredMechanismLayerMode = BudgetStackTypes.MechanismLayerMode.None;
     address public childFlowRecipientAdmin;
     address public preparedPremiumEscrow;
     address public premiumEscrowImplementation;
@@ -1490,10 +1540,11 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
 
     function initializeWithConfig(address, BudgetStackTypes.StackModuleConfig calldata) external {}
 
-    function prepareBudgetStack(
-        address,
-        address
-    ) external override returns (BudgetStackTypes.PreparationResult memory result) {
+    function prepareBudgetStack(address, address)
+        external
+        override
+        returns (BudgetStackTypes.PreparationResult memory result)
+    {
         result.strategy = address(new MockAllocationStrategy());
         result.budgetTreasury = address(new ManagedBudgetControllerMockBudgetTreasury());
         result.premiumEscrow = preparedPremiumEscrow;

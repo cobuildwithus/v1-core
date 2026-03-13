@@ -18,6 +18,8 @@ import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegis
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetGateSync } from "src/goals/policies/library/BudgetGateSync.sol";
 import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
+import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
+import { SuccessResolverValidationLib } from "src/library/SuccessResolverValidationLib.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
@@ -90,8 +92,10 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
                 revert INVALID_BUDGET_GATE_POLICY(initConfig.budgetGatePolicy);
             }
         }
-        if (initConfig.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
+        _requireContract(initConfig.budgetSuccessResolver);
+        _requireValidSuccessResolver(initConfig.budgetSuccessResolver);
         _requireContract(initConfig.budgetSpendPolicy);
+        _requireValidBudgetSpendPolicy(initConfig.budgetSpendPolicy);
 
         authority = initConfig.authority;
         goalTreasury = initConfig.goalTreasury;
@@ -517,5 +521,17 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     function _requireContract(address account) private view {
         if (account == address(0)) revert ADDRESS_ZERO();
         if (account.code.length == 0) revert NOT_A_CONTRACT(account);
+    }
+
+    function _requireValidSuccessResolver(address resolver) private view {
+        if (!SuccessResolverValidationLib.passesValidationProbe(resolver)) {
+            revert INVALID_SUCCESS_RESOLVER(resolver);
+        }
+    }
+
+    function _requireValidBudgetSpendPolicy(address policy) private view {
+        if (!SpendPolicyValidationLib.passesValidationProbe(policy)) {
+            revert INVALID_BUDGET_SPEND_POLICY(policy);
+        }
     }
 }

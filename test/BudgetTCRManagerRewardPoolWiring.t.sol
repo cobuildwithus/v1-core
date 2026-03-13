@@ -47,10 +47,16 @@ import {
     ISuperToken,
     ISuperfluidPool
 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils {
     MockVotesToken internal depositToken;
@@ -67,6 +73,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSuccessResolver;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
 
@@ -113,6 +120,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
 
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSuccessResolver = address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(goalToken))));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
@@ -208,7 +216,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             discoveryEmitter: address(this),
-            budgetSuccessResolver: owner,
+            budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
@@ -276,12 +284,15 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetStackDeployer(deployer).initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
+        BudgetStackDeployer(deployer)
+            .initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
-    function _openStackModuleConfig(
-        address premiumEscrowImplementation_
-    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
+    function _openStackModuleConfig(address premiumEscrowImplementation_)
+        internal
+        pure
+        returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig)
+    {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 }

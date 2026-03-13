@@ -40,10 +40,16 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract BudgetTCRInvariantPremiumEscrowConnectMock {
     function connectManagerRewardPool(address) external {}
@@ -103,10 +109,10 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
         });
     }
 
-    function deployBudgetTreasury(
-        address,
-        IBudgetTreasury.BudgetConfig calldata
-    ) external returns (address budgetTreasury) {
+    function deployBudgetTreasury(address, IBudgetTreasury.BudgetConfig calldata)
+        external
+        returns (address budgetTreasury)
+    {
         budgetTreasury = deployedBudgetTreasury;
     }
 
@@ -157,6 +163,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSuccessResolver;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
 
@@ -201,6 +208,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), address(0)));
+        budgetSuccessResolver = address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(goalToken))));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
@@ -361,7 +369,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             discoveryEmitter: address(this),
-            budgetSuccessResolver: owner,
+            budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter

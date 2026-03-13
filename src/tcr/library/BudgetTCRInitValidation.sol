@@ -11,6 +11,7 @@ import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolic
 import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
+import { SuccessResolverValidationLib } from "src/library/SuccessResolverValidationLib.sol";
 
 library BudgetTCRInitValidation {
     function validateInitialization(
@@ -35,6 +36,9 @@ library BudgetTCRInitValidation {
         if (address(deploymentConfig.goalToken) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (address(deploymentConfig.cobuildToken) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
         if (address(deploymentConfig.goalRulesets) == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
+        if (deploymentConfig.budgetSuccessResolver.code.length == 0) {
+            revert IBudgetTCR.NOT_A_CONTRACT(deploymentConfig.budgetSuccessResolver);
+        }
         if (deploymentConfig.budgetSpendPolicy.code.length == 0) {
             revert IBudgetTCR.NOT_A_CONTRACT(deploymentConfig.budgetSpendPolicy);
         }
@@ -63,6 +67,7 @@ library BudgetTCRInitValidation {
         }
         if (initConfig.allocationMechanismAdmin == address(0)) revert IGeneralizedTCR.ADDRESS_ZERO();
 
+        _requireValidSuccessResolver(deploymentConfig.budgetSuccessResolver);
         _requireValidBudgetSpendPolicy(deploymentConfig.budgetSpendPolicy);
         _requireCompatibleStackDeployer(expectedController, deploymentConfig);
 
@@ -174,6 +179,12 @@ library BudgetTCRInitValidation {
     function _requireValidBudgetSpendPolicy(address candidate) private view {
         if (!SpendPolicyValidationLib.passesValidationProbe(candidate)) {
             revert IBudgetTCR.INVALID_BUDGET_SPEND_POLICY(candidate);
+        }
+    }
+
+    function _requireValidSuccessResolver(address candidate) private view {
+        if (!SuccessResolverValidationLib.passesValidationProbe(candidate)) {
+            revert IBudgetTCR.INVALID_SUCCESS_RESOLVER(candidate);
         }
     }
 

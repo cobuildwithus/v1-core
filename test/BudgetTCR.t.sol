@@ -62,6 +62,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {JBRuleset} from "@bananapus/core-v5/structs/JBRuleset.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {
     ERC1820RegistryCompiled
 } from "@superfluid-finance/ethereum-contracts/contracts/libs/ERC1820RegistryCompiled.sol";
@@ -73,6 +74,11 @@ import {Vm} from "forge-std/Vm.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     bytes32 internal constant BUDGET_STACK_DEPLOYED_SIG =
@@ -116,6 +122,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSuccessResolver;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
 
@@ -160,6 +167,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSuccessResolver = address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(goalToken))));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
@@ -255,6 +263,24 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         vm.expectRevert(
             abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_SPEND_POLICY.selector, deploymentConfig.budgetSpendPolicy)
+        );
+        freshTcr.initialize(registryConfig, deploymentConfig);
+    }
+
+    function test_initialize_reverts_when_budget_success_resolver_returns_invalid_uma_dependencies() public {
+        (
+            BudgetTCR freshTcr,
+            IBudgetTCR.InitConfig memory registryConfig,
+            IBudgetTCR.DeploymentConfig memory deploymentConfig
+        ) = _freshInitializeConfig();
+        deploymentConfig.budgetSuccessResolver = address(
+            new TreasuryMockUmaResolverConfig(
+                OptimisticOracleV3Interface(address(new TreasuryMockOptimisticOracleV3())), IERC20(address(0))
+            )
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IBudgetTCR.INVALID_SUCCESS_RESOLVER.selector, deploymentConfig.budgetSuccessResolver)
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
@@ -496,7 +522,9 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig.budgetSlashPpm = 0;
 
         vm.expectRevert(
-            abi.encodeWithSelector(IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, deploymentConfig.riskModuleRouting.budgetGatePolicy)
+            abi.encodeWithSelector(
+                IBudgetTCR.INVALID_BUDGET_GATE_POLICY.selector, deploymentConfig.riskModuleRouting.budgetGatePolicy
+            )
         );
         freshTcr.initialize(registryConfig, deploymentConfig);
     }
@@ -603,10 +631,11 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
-            makeAddr("wrong-budget-controller"),
-            _openStackModuleConfig(deploymentConfig.riskModuleRouting.premiumEscrowImplementation)
-        );
+        BudgetStackDeployer(freshStackDeployer)
+            .initializeWithConfig(
+                makeAddr("wrong-budget-controller"),
+                _openStackModuleConfig(deploymentConfig.riskModuleRouting.premiumEscrowImplementation)
+            );
         deploymentConfig.stackDeployer = freshStackDeployer;
 
         vm.expectRevert(abi.encodeWithSelector(IBudgetTCR.INVALID_STACK_DEPLOYER.selector, freshStackDeployer));
@@ -621,16 +650,17 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
-            address(freshTcr),
-            BudgetStackTypes.StackModuleConfig({
+        BudgetStackDeployer(freshStackDeployer)
+            .initializeWithConfig(
+                address(freshTcr),
+                BudgetStackTypes.StackModuleConfig({
                 childFlowStrategyMode: BudgetStackTypes.ChildFlowStrategyMode.SharedBudgetFlowRouter,
                 childFlowStrategyTarget: address(0),
                 mechanismLayerMode: BudgetStackTypes.MechanismLayerMode.None,
                 childFlowRecipientAdmin: address(this),
                 premiumEscrowImplementation: deploymentConfig.riskModuleRouting.premiumEscrowImplementation
             })
-        );
+            );
         deploymentConfig.stackDeployer = freshStackDeployer;
 
         vm.expectRevert(IBudgetTCR.STACK_MODULE_CONFIG_MISMATCH.selector);
@@ -2463,7 +2493,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         _warpRoll(treasury.fundingDeadline() + 1);
 
         bytes32 assertionId = keccak256("pending-budget-success-assertion");
-        vm.prank(owner);
+        vm.prank(budgetSuccessResolver);
         treasury.registerSuccessAssertion(assertionId);
         assertEq(treasury.pendingSuccessAssertionId(), assertionId);
 
@@ -3001,9 +3031,8 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig = _defaultDeploymentConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetStackDeployer(freshStackDeployer).initializeWithConfig(
-            address(freshTcr), _openStackModuleConfig(premiumEscrowImplementation)
-        );
+        BudgetStackDeployer(freshStackDeployer)
+            .initializeWithConfig(address(freshTcr), _openStackModuleConfig(premiumEscrowImplementation));
         deploymentConfig.stackDeployer = freshStackDeployer;
     }
 
@@ -3050,7 +3079,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             discoveryEmitter: address(this),
-            budgetSuccessResolver: owner,
+            budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
@@ -3084,9 +3113,11 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         stackModuleConfig = BudgetTCRConfigHelpers.noPremiumStackModuleConfig();
     }
 
-    function _openStackModuleConfig(
-        address premiumEscrowImplementation_
-    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
+    function _openStackModuleConfig(address premiumEscrowImplementation_)
+        internal
+        pure
+        returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig)
+    {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 
@@ -3242,15 +3273,16 @@ contract BudgetTCRTopologyHarness is BudgetTCR {
         IBudgetStackTopologyReader.BudgetStackTopology calldata topology,
         bool active
     ) external {
-        _budgetDeployments[itemID] = BudgetTopologyRegistryLib.BudgetDeployment({
-            childFlow: topology.childFlow,
-            budgetTreasury: topology.budgetTreasury,
-            premiumEscrow: topology.premiumEscrow,
-            strategy: topology.strategy,
-            allocationMechanism: topology.allocationMechanism,
-            allocationMechanismArbitrator: topology.allocationMechanismArbitrator,
-            active: active
-        });
+        _budgetDeployments[itemID] =
+            BudgetTopologyRegistryLib.BudgetDeployment({
+                childFlow: topology.childFlow,
+                budgetTreasury: topology.budgetTreasury,
+                premiumEscrow: topology.premiumEscrow,
+                strategy: topology.strategy,
+                allocationMechanism: topology.allocationMechanism,
+                allocationMechanismArbitrator: topology.allocationMechanismArbitrator,
+                active: active
+            });
         _itemIdByBudgetTreasury[topology.budgetTreasury] = itemID;
         _itemIdByChildFlow[topology.childFlow] = itemID;
     }
@@ -3298,6 +3330,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSuccessResolver;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
 
@@ -3330,6 +3363,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
         premiumEscrowImplementation = address(new PremiumEscrow());
+        budgetSuccessResolver = address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(goalToken))));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
@@ -3524,7 +3558,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         _warpRoll(treasury.fundingDeadline() + 1);
 
         bytes32 assertionId = keccak256("real-flow-budget-success-assertion");
-        vm.prank(owner);
+        vm.prank(budgetSuccessResolver);
         treasury.registerSuccessAssertion(assertionId);
 
         _executeRemovalRequest(itemID);
@@ -3614,7 +3648,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             discoveryEmitter: address(this),
-            budgetSuccessResolver: owner,
+            budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
@@ -3640,9 +3674,11 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         });
     }
 
-    function _openStackModuleConfig(
-        address premiumEscrowImplementation_
-    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
+    function _openStackModuleConfig(address premiumEscrowImplementation_)
+        internal
+        pure
+        returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig)
+    {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 

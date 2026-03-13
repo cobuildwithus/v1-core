@@ -45,9 +45,15 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IJBRulesets} from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import {ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {
+    TreasuryMockOptimisticOracleV3,
+    TreasuryMockUmaResolverConfig,
+    TreasuryUmaResolverMockFactory
+} from "test/goals/helpers/TreasuryUmaResolverMocks.sol";
 
 contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     bytes32 internal constant BUDGET_GATE_ENFORCEMENT_FAILED_SIG =
@@ -77,6 +83,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     address internal stackDeployer;
     address internal premiumEscrowImplementation;
     address internal underwriterSlasherRouter;
+    address internal budgetSuccessResolver;
     address internal budgetSpendPolicy;
     address internal budgetGatePolicy;
 
@@ -121,6 +128,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
         premiumEscrowImplementation = address(new PremiumEscrow());
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
+        budgetSuccessResolver = address(TreasuryUmaResolverMockFactory.deployResolver(IERC20(address(goalToken))));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
         budgetGatePolicy = address(new StakeCoverageGatePolicy());
 
@@ -506,7 +514,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
             discoveryEmitter: address(this),
-            budgetSuccessResolver: owner,
+            budgetSuccessResolver: budgetSuccessResolver,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
                 budgetGatePolicy, premiumEscrowImplementation, underwriterSlasherRouter
@@ -579,12 +587,15 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetStackDeployer(deployer).initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
+        BudgetStackDeployer(deployer)
+            .initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
-    function _openStackModuleConfig(
-        address premiumEscrowImplementation_
-    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
+    function _openStackModuleConfig(address premiumEscrowImplementation_)
+        internal
+        pure
+        returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig)
+    {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 

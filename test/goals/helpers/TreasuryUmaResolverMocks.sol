@@ -15,37 +15,49 @@ contract TreasuryMockUmaResolverConfig is IUMATreasurySuccessResolverConfig {
     }
 }
 
-contract TreasuryMockUmaResolverConfigWithFinalize is TreasuryMockUmaResolverConfig {
-    error FINALIZE_REVERT();
+    contract TreasuryMockUmaResolverConfigWithFinalize is TreasuryMockUmaResolverConfig {
+        error FINALIZE_REVERT();
 
-    bytes32 public lastFinalizedAssertionId;
-    uint256 public finalizeCallCount;
-    bool public shouldRevertFinalize;
+        bytes32 public lastFinalizedAssertionId;
+        uint256 public finalizeCallCount;
+        bool public shouldRevertFinalize;
 
-    constructor(OptimisticOracleV3Interface optimisticOracle_, IERC20 assertionCurrency_)
-        TreasuryMockUmaResolverConfig(optimisticOracle_, assertionCurrency_)
-    {}
+        constructor(OptimisticOracleV3Interface optimisticOracle_, IERC20 assertionCurrency_)
+            TreasuryMockUmaResolverConfig(optimisticOracle_, assertionCurrency_)
+        {}
 
-    function setShouldRevertFinalize(bool value) external {
-        shouldRevertFinalize = value;
+        function setShouldRevertFinalize(bool value) external {
+            shouldRevertFinalize = value;
+        }
+
+        function finalize(bytes32 assertionId) external returns (bool applied) {
+            finalizeCallCount += 1;
+            lastFinalizedAssertionId = assertionId;
+            if (shouldRevertFinalize) revert FINALIZE_REVERT();
+            return false;
+        }
     }
 
-    function finalize(bytes32 assertionId) external returns (bool applied) {
-        finalizeCallCount += 1;
-        lastFinalizedAssertionId = assertionId;
-        if (shouldRevertFinalize) revert FINALIZE_REVERT();
-        return false;
-    }
-}
+    contract TreasuryMockOptimisticOracleV3 {
+        mapping(bytes32 => OptimisticOracleV3Interface.Assertion) internal _assertions;
 
-contract TreasuryMockOptimisticOracleV3 {
-    mapping(bytes32 => OptimisticOracleV3Interface.Assertion) internal _assertions;
+        function getAssertion(bytes32 assertionId)
+            external
+            view
+            returns (OptimisticOracleV3Interface.Assertion memory)
+        {
+            return _assertions[assertionId];
+        }
 
-    function getAssertion(bytes32 assertionId) external view returns (OptimisticOracleV3Interface.Assertion memory) {
-        return _assertions[assertionId];
+        function setAssertion(bytes32 assertionId, OptimisticOracleV3Interface.Assertion calldata assertion) external {
+            _assertions[assertionId] = assertion;
+        }
     }
 
-    function setAssertion(bytes32 assertionId, OptimisticOracleV3Interface.Assertion calldata assertion) external {
-        _assertions[assertionId] = assertion;
+    library TreasuryUmaResolverMockFactory {
+        function deployResolver(IERC20 assertionCurrency) internal returns (TreasuryMockUmaResolverConfig resolver) {
+            resolver = new TreasuryMockUmaResolverConfig(
+                OptimisticOracleV3Interface(address(new TreasuryMockOptimisticOracleV3())), assertionCurrency
+            );
+        }
     }
-}
