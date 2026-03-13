@@ -2,11 +2,11 @@
 
 Status: completed
 Created: 2026-03-12
-Updated: 2026-03-12
+Updated: 2026-03-13
 
 ## Goal
 
-- Fan out codex-4 workers for the nine identified simplification targets without colliding with the already-dirty shared worktree.
+- Fan out codex-2 workers for the nine identified simplification targets without colliding with the already-dirty shared worktree.
 
 ## Scope
 
@@ -65,13 +65,13 @@ Updated: 2026-03-12
 
 ## Parent Notes
 
-- Run workers with `workspace-docs/bin/codex-workers --profile 4 --sandbox workspace-write --full-auto`.
+- Run workers with `workspace-docs/bin/codex-workers --profile 2 --sandbox workspace-write --full-auto`.
 - Keep overlapping file lanes serialized even when the worker count is larger.
 - Reconcile worker summaries with live dirty diffs before any repo-wide verification.
 
 ## Outcome
 
-- Launched with `--profile 4` in three run directories:
+- Launch campaign used three run directories; Codex 2 reruns should use `--profile 2`:
   - `.codex-runs/20260312-v1-simplification-batch-a`
   - `.codex-runs/20260312-v1-simplification-batch-b`
   - `.codex-runs/20260312-v1-simplification-batch-c`

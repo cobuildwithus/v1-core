@@ -2,7 +2,7 @@
 
 Status: completed
 Created: 2026-03-12
-Updated: 2026-03-12
+Updated: 2026-03-13
 
 ## Goal
 
@@ -37,7 +37,7 @@ Updated: 2026-03-12
 
 ## Launch Plan
 
-1. Run codex-4 target-1 and target-4 workers in parallel.
+1. Run codex-2 target-1 and target-4 workers in parallel.
 2. Review and integrate their diffs.
 3. Run required Solidity verification:
    - `pnpm -s verify:required`

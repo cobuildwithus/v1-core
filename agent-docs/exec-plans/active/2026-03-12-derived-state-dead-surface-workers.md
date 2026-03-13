@@ -2,11 +2,11 @@
 
 Status: completed
 Created: 2026-03-12
-Updated: 2026-03-12
+Updated: 2026-03-13
 
 ## Goal
 
-- Run four codex-4 worker lanes in parallel for the requested simplifications:
+- Run four codex-2 worker lanes in parallel for the requested simplifications:
   - derive `StakeVault.goalResolved()` from `goalResolvedAt`
   - derive `PremiumEscrow.closed()` from `closedAt`
   - derive `requireZeroPremiumAndSlashRates` from `premiumEscrowMode`
@@ -30,7 +30,7 @@ Updated: 2026-03-12
 ## Constraints
 
 - Workers must use the shared-worktree helper flow from `../workspace-docs/codex-workers.md`.
-- Launch with `../workspace-docs/bin/codex-workers --profile 4 --sandbox workspace-write --full-auto`.
+- Launch with `../workspace-docs/bin/codex-workers --profile 2 --sandbox workspace-write --full-auto`.
 - Child workers must not commit and must not run repo-wide verification.
 - Parent owns final diff review, any cross-lane follow-up edits, required verification, completion workflow, and commit flow.
 - The helper runs child Codex sessions in the same live worktree, so file ownership must stay disjoint.
@@ -58,7 +58,7 @@ Updated: 2026-03-12
 
 ## Launch Command
 
-- `../workspace-docs/bin/codex-workers --profile 4 --sandbox workspace-write --full-auto -j 4 ...`
+- `../workspace-docs/bin/codex-workers --profile 2 --sandbox workspace-write --full-auto -j 4 ...`
 
 ## Parent Integration Checklist
 

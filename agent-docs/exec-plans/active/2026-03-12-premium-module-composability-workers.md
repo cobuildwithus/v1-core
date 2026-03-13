@@ -2,7 +2,7 @@
 
 Status: active
 Created: 2026-03-12
-Updated: 2026-03-12
+Updated: 2026-03-13
 
 ## Goal
 
@@ -168,7 +168,7 @@ Run from the workspace root after the parent clears launch blockers:
 
 ```bash
 workspace-docs/bin/codex-workers \
-  --profile 4 \
+  --profile 2 \
   --sandbox workspace-write \
   --full-auto \
   workspace-docs/codex-worker-prompts/2026-03-12-v1-core-premium-module-batch/1-core-optional-premium.md \
@@ -179,7 +179,7 @@ Then Batch B:
 
 ```bash
 workspace-docs/bin/codex-workers \
-  --profile 4 \
+  --profile 2 \
   --sandbox workspace-write \
   --full-auto \
   workspace-docs/codex-worker-prompts/2026-03-12-v1-core-premium-module-batch/3-managed-remove-null-dependency.md \
