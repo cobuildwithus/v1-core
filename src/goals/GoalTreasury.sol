@@ -5,16 +5,10 @@ import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IFlow } from "../interfaces/IFlow.sol";
-import { IGoalRevnetHookDirectoryReader } from "../interfaces/IGoalRevnetHookDirectoryReader.sol";
 import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
-import { IJBController } from "@bananapus/core-v5/interfaces/IJBController.sol";
-import { IJBControlled } from "@bananapus/core-v5/interfaces/IJBControlled.sol";
 import { IJBDirectory } from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
-import { IJBToken } from "@bananapus/core-v5/interfaces/IJBToken.sol";
-import { IJBTokens } from "@bananapus/core-v5/interfaces/IJBTokens.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
-import { JBApprovalStatus } from "@bananapus/core-v5/enums/JBApprovalStatus.sol";
 import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,6 +18,7 @@ import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.s
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
 import { GoalTreasuryTerminalRollover } from "./library/GoalTreasuryTerminalRollover.sol";
+import { GoalTreasuryRevnetLib } from "./library/GoalTreasuryRevnetLib.sol";
 import { TreasurySuccessAssertionMixin } from "./TreasurySuccessAssertionMixin.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
@@ -36,10 +31,6 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     string private constant SUCCESS_SETTLEMENT_BURN_MEMO = "GOAL_SUCCESS_SETTLEMENT_BURN";
     string private constant SUCCESS_RESIDUAL_BURN_MEMO = "GOAL_SUCCESS_RESIDUAL_BURN";
     string private constant TERMINAL_RESIDUAL_BURN_MEMO = "GOAL_TERMINAL_RESIDUAL_BURN";
-    uint8 private constant DIRECTORY_FAILURE_NONE = 0;
-    uint8 private constant DIRECTORY_FAILURE_INVALID = 1;
-    uint8 private constant DIRECTORY_FAILURE_REVERT = 2;
-
     GoalState private _state;
     TreasurySuccessAssertions.State private _successAssertions;
     TreasuryReassertGrace.State private _reassertGrace;
@@ -148,10 +139,6 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         _hook = config.hook;
         goalRulesets = IJBRulesets(config.goalRulesets);
         goalRevnetId = config.goalRevnetId;
-        IERC20 configuredGoalToken = _stakeVault.goalToken();
-        IERC20 configuredCobuildToken = _stakeVault.cobuildToken();
-        cobuildRevnetId = _deriveCobuildRevnetId(goalRevnetId, configuredCobuildToken, goalRulesets, _hook);
-
         address configuredGoalTreasury = _stakeVault.goalTreasury();
         if (configuredGoalTreasury != address(this)) {
             revert STAKE_VAULT_GOAL_MISMATCH(address(this), configuredGoalTreasury);
@@ -165,10 +152,18 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
             _stakeVault.setUnderwriterSlasher(config.underwriterSlasher);
         }
 
-        superToken = _flow.superToken();
-        if (address(superToken) == address(0)) revert ADDRESS_ZERO();
-        _requireGoalTokenInvariants(superToken, _stakeVault, goalRulesets, _hook, goalRevnetId);
-        uint64 derivedDeadline = _deriveDeadline();
+        ISuperToken configuredSuperToken = _flow.superToken();
+        if (address(configuredSuperToken) == address(0)) revert ADDRESS_ZERO();
+        (
+            address configuredGoalTokenAddress,
+            address configuredCobuildTokenAddress,
+            uint256 derivedCobuildRevnetId,
+            uint64 derivedDeadline
+        ) = GoalTreasuryRevnetLib.deriveInitState(_stakeVault, configuredSuperToken, goalRulesets, _hook, goalRevnetId);
+        IERC20 configuredGoalToken = IERC20(configuredGoalTokenAddress);
+        IERC20 configuredCobuildToken = IERC20(configuredCobuildTokenAddress);
+        cobuildRevnetId = derivedCobuildRevnetId;
+        superToken = configuredSuperToken;
         address configuredFlowOperator = _flow.flowOperator();
         address configuredSweeper = _flow.sweeper();
         if (configuredFlowOperator != address(this) || configuredSweeper != address(this)) {
@@ -631,7 +626,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         uint256 burnAmount = _settleSuperTokenAmount(finalState, settled);
         if (settled == 0 && finalState == GoalState.Succeeded && terminalRolloverCooldown != 0) {
             GoalTreasuryTerminalRollover.queueHeldBalanceIfAny(
-                _requireResolvedDirectory(),
+                GoalTreasuryRevnetLib.requireResolvedDirectory(goalRulesets, _hook),
                 cobuildRevnetId,
                 _stakeVault.cobuildToken(),
                 GoalTreasuryTerminalRollover.terminalRolloverReleaseAt(resolvedAt, terminalRolloverCooldown)
@@ -666,7 +661,9 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
 
         burnAmount = goalTokenAmount;
         if (burnAmount != 0) {
-            _burnViaController(
+            GoalTreasuryRevnetLib.burnViaController(
+                goalRulesets,
+                _hook,
                 goalRevnetId,
                 burnAmount,
                 finalState == GoalState.Succeeded ? SUCCESS_RESIDUAL_BURN_MEMO : TERMINAL_RESIDUAL_BURN_MEMO
@@ -675,7 +672,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     }
 
     function _queueSucceededTerminalRollover(uint256 goalTokenAmount) internal {
-        IJBDirectory directory = _requireResolvedDirectory();
+        IJBDirectory directory = GoalTreasuryRevnetLib.requireResolvedDirectory(goalRulesets, _hook);
         IERC20 paymentToken = _stakeVault.cobuildToken();
         uint64 releaseAt = GoalTreasuryTerminalRollover.terminalRolloverReleaseAt(resolvedAt, terminalRolloverCooldown);
         GoalTreasuryTerminalRollover.queueHeldBalanceIfAny(directory, cobuildRevnetId, paymentToken, releaseAt);
@@ -696,7 +693,13 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         burnAmount = sourceAmount;
 
         if (burnAmount != 0) {
-            _burnViaController(goalRevnetId, burnAmount, SUCCESS_SETTLEMENT_BURN_MEMO);
+            GoalTreasuryRevnetLib.burnViaController(
+                goalRulesets,
+                _hook,
+                goalRevnetId,
+                burnAmount,
+                SUCCESS_SETTLEMENT_BURN_MEMO
+            );
         }
     }
 
@@ -761,159 +764,6 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         if (balance < amount) revert INSUFFICIENT_TREASURY_BALANCE(address(token), amount, balance);
     }
 
-    function _deriveCobuildRevnetId(
-        uint256 goalRevnetIdForLookup,
-        IERC20 configuredCobuildToken,
-        IJBRulesets configuredGoalRulesets,
-        address configuredHook
-    ) internal view returns (uint256) {
-        if (address(configuredCobuildToken) == address(0)) return 0;
-
-        (IJBDirectory directory, bytes memory directoryFailureReason) = _resolveRevnetDirectory(
-            configuredGoalRulesets,
-            configuredHook
-        );
-        if (address(directory) == address(0)) {
-            revert COBUILD_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address(configuredCobuildToken), directoryFailureReason);
-        }
-
-        address controller = address(directory.controllerOf(goalRevnetIdForLookup));
-        if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
-
-        IJBTokens tokens;
-        try IJBController(controller).TOKENS() returns (IJBTokens resolvedTokens) {
-            tokens = resolvedTokens;
-        } catch {
-            revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
-        }
-
-        if (address(tokens) == address(0)) {
-            revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
-        }
-
-        try tokens.projectIdOf(IJBToken(address(configuredCobuildToken))) returns (uint256 derivedRevnetId) {
-            if (derivedRevnetId == 0) {
-                revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
-            }
-
-            address cobuildController = address(directory.controllerOf(derivedRevnetId));
-            if (cobuildController == address(0)) {
-                revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
-            }
-            return derivedRevnetId;
-        } catch {
-            revert COBUILD_REVNET_ID_NOT_DERIVABLE(address(configuredCobuildToken));
-        }
-    }
-
-    function _requireGoalTokenInvariants(
-        ISuperToken configuredSuperToken,
-        IStakeVault configuredStakeVault,
-        IJBRulesets configuredGoalRulesets,
-        address configuredHook,
-        uint256 configuredGoalRevnetId
-    ) internal view {
-        IERC20 configuredGoalToken = configuredStakeVault.goalToken();
-        address underlyingToken = configuredSuperToken.getUnderlyingToken();
-        if (underlyingToken != address(configuredGoalToken)) {
-            revert GOAL_TOKEN_SUPER_TOKEN_UNDERLYING_MISMATCH(address(configuredGoalToken), underlyingToken);
-        }
-
-        (IJBDirectory directory, bytes memory directoryFailureReason) = _resolveRevnetDirectory(
-            configuredGoalRulesets,
-            configuredHook
-        );
-        if (address(directory) == address(0)) {
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE_WITH_REASON(address(configuredGoalToken), directoryFailureReason);
-        }
-
-        _requireTokenMatchesRevnetId(directory, configuredGoalRevnetId, configuredGoalToken);
-    }
-
-    function _requireTokenMatchesRevnetId(
-        IJBDirectory directory,
-        uint256 expectedRevnetId,
-        IERC20 token
-    ) internal view {
-        address controller = address(directory.controllerOf(expectedRevnetId));
-        if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
-
-        IJBTokens tokens;
-        try IJBController(controller).TOKENS() returns (IJBTokens resolvedTokens) {
-            tokens = resolvedTokens;
-        } catch {
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
-        }
-
-        if (address(tokens) == address(0)) {
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
-        }
-
-        uint256 derivedRevnetId;
-        try tokens.projectIdOf(IJBToken(address(token))) returns (uint256 resolvedRevnetId) {
-            derivedRevnetId = resolvedRevnetId;
-        } catch {
-            revert GOAL_TOKEN_REVNET_ID_NOT_DERIVABLE(address(token));
-        }
-
-        if (derivedRevnetId != expectedRevnetId) {
-            revert GOAL_TOKEN_REVNET_MISMATCH(address(token), expectedRevnetId, derivedRevnetId);
-        }
-    }
-
-    function _resolveRevnetDirectory(
-        IJBRulesets configuredGoalRulesets,
-        address configuredHook
-    ) private view returns (IJBDirectory directory, bytes memory failureReason) {
-        uint8 rulesetsFailure = DIRECTORY_FAILURE_NONE;
-        bytes memory rulesetsFailureReason;
-        uint8 hookFailure = DIRECTORY_FAILURE_NONE;
-        bytes memory hookFailureReason;
-
-        // Prefer rulesets as the canonical source so treasury init does not depend on hook init ordering.
-        try IJBControlled(address(configuredGoalRulesets)).DIRECTORY() returns (IJBDirectory rulesetsDirectory) {
-            if (address(rulesetsDirectory) != address(0) && address(rulesetsDirectory).code.length != 0) {
-                return (rulesetsDirectory, bytes(""));
-            }
-            rulesetsFailure = DIRECTORY_FAILURE_INVALID;
-        } catch (bytes memory reason) {
-            rulesetsFailure = DIRECTORY_FAILURE_REVERT;
-            rulesetsFailureReason = reason;
-        }
-
-        try IGoalRevnetHookDirectoryReader(configuredHook).directory() returns (IJBDirectory hookDirectory) {
-            if (address(hookDirectory) != address(0) && address(hookDirectory).code.length != 0) {
-                return (hookDirectory, bytes(""));
-            }
-            hookFailure = DIRECTORY_FAILURE_INVALID;
-        } catch (bytes memory reason) {
-            hookFailure = DIRECTORY_FAILURE_REVERT;
-            hookFailureReason = reason;
-        }
-
-        failureReason = abi.encode(
-            address(configuredGoalRulesets),
-            rulesetsFailure,
-            rulesetsFailureReason,
-            configuredHook,
-            hookFailure,
-            hookFailureReason
-        );
-        return (IJBDirectory(address(0)), failureReason);
-    }
-
-    function _requireResolvedDirectory() internal view returns (IJBDirectory directory) {
-        (directory, ) = _resolveRevnetDirectory(goalRulesets, _hook);
-        if (address(directory) == address(0)) revert INVALID_REVNET_CONTROLLER(address(0));
-    }
-
-    function _burnViaController(uint256 revnetId, uint256 amount, string memory memo) internal {
-        IJBDirectory directory = _requireResolvedDirectory();
-        address controller = address(directory.controllerOf(revnetId));
-        if (controller == address(0)) revert INVALID_REVNET_CONTROLLER(controller);
-        IJBController(controller).burnTokensOf(address(this), revnetId, amount, memo);
-    }
-
     function _successAssertionsState()
         internal
         view
@@ -973,25 +823,5 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         } catch {
             return (false, false);
         }
-    }
-
-    function _deriveDeadline() internal view returns (uint64) {
-        (JBRuleset memory terminal, JBApprovalStatus approvalStatus) = goalRulesets.latestQueuedOf(goalRevnetId);
-        if (
-            terminal.id == 0 ||
-            terminal.start == 0 ||
-            terminal.basedOnId == 0 ||
-            terminal.weight != 0 ||
-            (approvalStatus != JBApprovalStatus.Empty && approvalStatus != JBApprovalStatus.Approved)
-        ) {
-            revert DEADLINE_NOT_DERIVABLE();
-        }
-
-        JBRuleset memory initial = goalRulesets.getRulesetOf(goalRevnetId, terminal.basedOnId);
-        if (initial.id == 0 || initial.weight == 0 || initial.basedOnId != 0 || initial.start >= terminal.start) {
-            revert DEADLINE_NOT_DERIVABLE();
-        }
-
-        return uint64(terminal.start);
     }
 }
