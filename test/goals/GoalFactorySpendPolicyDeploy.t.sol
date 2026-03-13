@@ -48,7 +48,7 @@ import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
@@ -60,6 +60,7 @@ import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
+import {NoopZeroCoverageBudgetGatePolicy} from "test/helpers/ZeroCoverageBudgetGatePolicies.sol";
 
 contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     uint256 internal constant COBUILD_REVNET_ID = 1;
@@ -80,7 +81,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     FactoryDeployMockSuperTokenFactory internal superTokenFactory;
     FactoryDeployMockSuperfluidHost internal superfluidHost;
     FactoryDeployMockBudgetTcrFactory internal budgetTcrFactory;
-    BudgetTCRDeployer internal budgetTcrStackDeployerImplementation;
+    BudgetStackDeployer internal budgetTcrStackDeployerImplementation;
     FactoryDeployDummyContract internal successResolver;
     FactoryDeployDummyContract internal jbMultiTerminal;
     FactoryDeployDummyContract internal buybackHookDataHook;
@@ -169,9 +170,19 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     }
 
     function test_constructor_setsSharedManagedPresetInfraImmutables() public view {
+        assertEq(factory.BUDGET_STACK_DEPLOYER_IMPL(), address(budgetTcrStackDeployerImplementation));
         assertEq(factory.MANAGED_BUDGET_CONTROLLER_IMPL(), address(managedBudgetControllerImpl));
         assertEq(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL(), address(managedGoalAllocatorStrategyImpl));
         assertEq(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL(), address(managedBudgetChildStrategyFactoryImpl));
+    }
+
+    function test_constructor_revertsWhenBudgetStackDeployerImplHasNoCode() public {
+        budgetTcrStackDeployerImplementation = BudgetStackDeployer(address(0xD00D));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, address(budgetTcrStackDeployerImplementation))
+        );
+        _deployFactoryWithDefaultPolicies(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
     }
 
     function test_constructor_revertsWhenManagedBudgetControllerImplHasNoCode() public {
@@ -246,24 +257,24 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_deployGoal_setsConfiguredSpendPolicyOnDeployedGoalTreasury() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(_baseDeployParams(address(spendPolicy)));
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(_baseOpenGoalParams(address(spendPolicy)));
 
         assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(spendPolicy));
     }
 
     function test_deployGoal_usesDefaultGoalSpendPolicyWhenOmitted() public {
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(0));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(0));
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(defaultGoalSpendPolicy));
     }
 
     function test_deployGoal_openPreset_usesNoGateAndExplicitNoPremiumModeWhenBothRatesAreZero() public {
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(defaultGoalSpendPolicy));
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(0));
         assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(0));
@@ -273,10 +284,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     }
 
     function test_deployGoal_openPreset_usesNoGateAndDropsRouterWhenSlashIsZero() public {
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
-        params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(defaultGoalSpendPolicy));
+        params.common.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(0));
         assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(premiumEscrowImpl));
@@ -285,10 +296,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     }
 
     function test_deployGoal_openPreset_passesSharedOpenBudgetGatePolicyWhenSlashEnabled() public {
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
-        params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 50_000});
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(defaultGoalSpendPolicy));
+        params.common.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 50_000});
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(openBudgetGatePolicy));
         assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(premiumEscrowImpl));
@@ -302,7 +313,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_deployGoal_registersCanonicalGoalTreasury() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(_baseDeployParams(address(spendPolicy)));
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(_baseOpenGoalParams(address(spendPolicy)));
 
         assertTrue(goalDeploymentRegistry.isRegisteredGoal(deployed.goalRevnetId));
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
@@ -310,10 +321,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
     function test_deployGoal_openPreset_preservesStakeVaultAllocatorAndBudgetTcrController_whenSlashIsZero() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
-        params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(spendPolicy));
+        params.common.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(deployed.goalAllocatorStrategy, deployed.stakeVault);
         assertEq(deployed.budgetController, PREDICTED_BUDGET_TCR);
@@ -328,36 +339,36 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_deployGoal_revertsWhenFactoryIsNotAuthorizedRegistrar() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
         goalDeploymentRegistry.setRegistrar(address(factory), false);
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(spendPolicy));
 
         vm.expectRevert(IGoalDeploymentRegistry.UNAUTHORIZED.selector);
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function test_deployGoal_passesConfiguredBudgetSpendPolicyToBudgetTcrFactory() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
         LinearSpendPolicy configuredBudgetSpendPolicy = _deployBudgetSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
-        params.budgetTCR.budgetSpendPolicy = address(configuredBudgetSpendPolicy);
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(goalSpendPolicy));
+        params.budgetRuntime.budgetSpendPolicy = address(configuredBudgetSpendPolicy);
 
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(configuredBudgetSpendPolicy));
     }
 
     function test_deployGoal_passesDefaultBudgetSpendPolicyToBudgetTcrFactoryWhenOmitted() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
-        params.budgetTCR.budgetSpendPolicy = address(0);
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(goalSpendPolicy));
+        params.budgetRuntime.budgetSpendPolicy = address(0);
 
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
 
         assertEq(budgetTcrFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
     }
 
     function test_deployGoal_revertsWhenBudgetControllerDeploymentMismatchesPrediction() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(goalSpendPolicy));
         address deployedBudgetController = address(new FactoryDeployDummyContract());
         budgetTcrFactory.setDeployedBudgetTcr(deployedBudgetController);
 
@@ -366,30 +377,28 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
                 GoalFactory.BUDGET_CONTROLLER_ADDRESS_MISMATCH.selector, PREDICTED_BUDGET_TCR, deployedBudgetController
             )
         );
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function test_deployGoal_managedPreset_deploysManagedControllerBundle() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
         address managedSafe = address(new FactoryDeployDummyContract());
-        params.preset = GoalFactory.GoalPreset.Managed;
-        params.managedSafe = managedSafe;
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(goalSpendPolicy), managedSafe);
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployManagedGoal(params);
 
         ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
         SingleAllocatorStrategy strategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
-        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(managedController.stackDeployer());
+        BudgetStackDeployer stackDeployer = BudgetStackDeployer(managedController.stackDeployer());
         IBudgetStackDeployer.StackModuleConfig memory stackConfig = stackDeployer.stackModuleConfig();
 
         assertEq(managedController.authority(), managedSafe);
         assertEq(managedController.goalTreasury(), deployed.goalTreasury);
         assertEq(managedController.goalFlow(), deployed.goalFlow);
-        assertEq(managedController.budgetSuccessResolver(), params.budgetTCR.budgetSuccessResolver);
-        assertEq(managedController.budgetSpendPolicy(), params.budgetTCR.budgetSpendPolicy);
-        assertEq(IGoalTreasury(deployed.goalTreasury).budgetPremiumPpm(), params.underwriting.budgetPremiumPpm);
-        assertEq(IGoalTreasury(deployed.goalTreasury).budgetSlashPpm(), params.underwriting.budgetSlashPpm);
+        assertEq(managedController.budgetSuccessResolver(), params.budgetRuntime.budgetSuccessResolver);
+        assertEq(managedController.budgetSpendPolicy(), params.budgetRuntime.budgetSpendPolicy);
+        assertEq(IGoalTreasury(deployed.goalTreasury).budgetPremiumPpm(), params.common.underwriting.budgetPremiumPpm);
+        assertEq(IGoalTreasury(deployed.goalTreasury).budgetSlashPpm(), params.common.underwriting.budgetSlashPpm);
         assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 30 days);
         assertEq(IFlow(deployed.goalFlow).recipientAdmin(), deployed.budgetController);
         assertEq(strategy.allocator(), deployed.budgetController);
@@ -416,23 +425,33 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertFalse(_sameRuntimeCode(deployed.goalAllocatorStrategy, factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL()));
     }
 
+    function test_deployGoal_managedPreset_threadsConfiguredBudgetGatePolicy() public {
+        LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
+        address managedSafe = address(new FactoryDeployDummyContract());
+        address managedBudgetGatePolicy = address(new NoopZeroCoverageBudgetGatePolicy());
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(goalSpendPolicy), managedSafe);
+        params.managedBudgetGatePolicy = managedBudgetGatePolicy;
+
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployManagedGoal(params);
+
+        assertEq(ManagedBudgetController(deployed.budgetController).budgetGatePolicy(), managedBudgetGatePolicy);
+    }
+
     function test_deployGoal_openPreset_keepsTerminalRolloverDisabled() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(goalSpendPolicy));
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployOpenGoal(params);
 
         assertEq(IGoalTreasury(deployed.goalTreasury).terminalRolloverCooldown(), 0);
     }
 
     function test_deployGoal_managedPreset_usesDefaultSpendPoliciesWhenOmitted() public {
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(0));
         address managedSafe = address(new FactoryDeployDummyContract());
-        params.preset = GoalFactory.GoalPreset.Managed;
-        params.managedSafe = managedSafe;
-        params.budgetTCR.budgetSpendPolicy = address(0);
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(0), managedSafe);
+        params.budgetRuntime.budgetSpendPolicy = address(0);
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployManagedGoal(params);
 
         ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
         assertEq(IGoalTreasury(deployed.goalTreasury).spendPolicy(), address(defaultGoalSpendPolicy));
@@ -442,11 +461,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_deployGoal_managedPreset_reusesSharedInfraAcrossMultipleDeployments() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
 
-        GoalFactory.DeployParams memory firstParams = _baseDeployParams(address(goalSpendPolicy));
-        firstParams.preset = GoalFactory.GoalPreset.Managed;
-        firstParams.managedSafe = address(new FactoryDeployDummyContract());
+        GoalFactory.ManagedGoalParams memory firstParams =
+            _baseManagedGoalParams(address(goalSpendPolicy), address(new FactoryDeployDummyContract()));
 
-        GoalFactory.DeployedGoalStack memory first = factory.deployGoal(firstParams);
+        GoalFactory.DeployedGoalStack memory first = factory.deployManagedGoal(firstParams);
 
         uint256 secondGoalRevnetId = GOAL_REVNET_ID + 1;
         FactoryDeployMockToken secondGoalToken = new FactoryDeployMockToken("Goal Two", "GL2");
@@ -456,11 +474,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         rulesets.configureTwoRulesetSchedule(secondGoalRevnetId, uint48(block.timestamp + 7 days), 1e18);
         revDeployer.setGoalRevnetId(secondGoalRevnetId);
 
-        GoalFactory.DeployParams memory secondParams = _baseDeployParams(address(goalSpendPolicy));
-        secondParams.preset = GoalFactory.GoalPreset.Managed;
-        secondParams.managedSafe = address(new FactoryDeployDummyContract());
+        GoalFactory.ManagedGoalParams memory secondParams =
+            _baseManagedGoalParams(address(goalSpendPolicy), address(new FactoryDeployDummyContract()));
 
-        GoalFactory.DeployedGoalStack memory second = factory.deployGoal(secondParams);
+        GoalFactory.DeployedGoalStack memory second = factory.deployManagedGoal(secondParams);
 
         ManagedBudgetController firstController = ManagedBudgetController(first.budgetController);
         ManagedBudgetController secondController = ManagedBudgetController(second.budgetController);
@@ -496,12 +513,10 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
     function test_deployGoal_managedPreset_canCreateMultipleBudgetsAndUpdateWeights() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
         address managedSafe = address(new FactoryDeployDummyContract());
-        params.preset = GoalFactory.GoalPreset.Managed;
-        params.managedSafe = managedSafe;
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(goalSpendPolicy), managedSafe);
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployManagedGoal(params);
 
         ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
         SingleAllocatorStrategy goalStrategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
@@ -560,13 +575,11 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
     function test_deployGoal_managedPreset_goalAllocatorIdentityStaysBoundToControllerAcrossAuthorityRotation() public {
         LinearSpendPolicy goalSpendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(goalSpendPolicy));
         address managedSafe = address(new FactoryDeployDummyContract());
         address rotatedSafe = address(new FactoryDeployDummyContract());
-        params.preset = GoalFactory.GoalPreset.Managed;
-        params.managedSafe = managedSafe;
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(goalSpendPolicy), managedSafe);
 
-        GoalFactory.DeployedGoalStack memory deployed = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory deployed = factory.deployManagedGoal(params);
 
         ManagedBudgetController managedController = ManagedBudgetController(deployed.budgetController);
         SingleAllocatorStrategy goalStrategy = SingleAllocatorStrategy(deployed.goalAllocatorStrategy);
@@ -639,8 +652,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     function test_deployGoalForCommunity_overridesCallerFundingContextWithRegistryFundingContext() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
         FactoryDeployMockToken wrongToken = new FactoryDeployMockToken("Other", "OTH");
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
-        params.funding = GoalFactory.FundingContext({paymentToken: address(wrongToken), paymentRevnetId: 999});
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(spendPolicy));
+        params.common.funding = GoalFactory.FundingContext({paymentToken: address(wrongToken), paymentRevnetId: 999});
 
         FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
             address(this),
@@ -651,7 +664,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
 
         GoalFactory.DeployedGoalStack memory deployed =
-            factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+            factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
 
         assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
@@ -659,7 +672,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
     function test_deployGoalForCommunity_allowsPermissionlessCallers() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(spendPolicy));
         FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
             makeAddr("registry-owner"),
             IJBDirectory(address(directory)),
@@ -671,43 +684,90 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         address caller = makeAddr("permissionless-caller");
         vm.prank(caller);
         GoalFactory.DeployedGoalStack memory deployed =
-            factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+            factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
 
         assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
     }
 
+    function test_deployManagedGoalForCommunity_overridesCallerFundingContextAndThreadsBudgetGatePolicy() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+        FactoryDeployMockToken wrongToken = new FactoryDeployMockToken("Other", "OTH");
+        address managedSafe = address(new FactoryDeployDummyContract());
+        address managedBudgetGatePolicy = address(new NoopZeroCoverageBudgetGatePolicy());
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(spendPolicy), managedSafe);
+        params.common.funding = GoalFactory.FundingContext({paymentToken: address(wrongToken), paymentRevnetId: 999});
+        params.managedBudgetGatePolicy = managedBudgetGatePolicy;
+
+        FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
+            address(this),
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COBUILD_REVNET_ID,
+            address(cobuildToken)
+        );
+
+        GoalFactory.DeployedGoalStack memory deployed =
+            factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+
+        assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
+        assertEq(ManagedBudgetController(deployed.budgetController).budgetGatePolicy(), managedBudgetGatePolicy);
+    }
+
+    function test_deployManagedGoalForCommunity_allowsPermissionlessCallersWithoutChangingAuthority() public {
+        LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
+        address managedSafe = address(new FactoryDeployDummyContract());
+        GoalFactory.ManagedGoalParams memory params = _baseManagedGoalParams(address(spendPolicy), managedSafe);
+        FactoryDeployMockCommunityGoalRegistry registry = new FactoryDeployMockCommunityGoalRegistry(
+            makeAddr("registry-owner"),
+            IJBDirectory(address(directory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            COBUILD_REVNET_ID,
+            address(cobuildToken)
+        );
+
+        address caller = makeAddr("permissionless-caller");
+        vm.prank(caller);
+        GoalFactory.DeployedGoalStack memory deployed =
+            factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), params);
+
+        assertEq(deployed.goalRevnetId, GOAL_REVNET_ID);
+        assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
+        assertEq(ManagedBudgetController(deployed.budgetController).authority(), managedSafe);
+    }
+
     function test_deployGoal_bubblesInvalidSpendPolicyFromGoalTreasuryInitialization() public {
         FactoryDeployDummyContract invalidPolicy = new FactoryDeployDummyContract();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function test_deployGoal_revertsForUninitializedLinearSpendPolicyImplementation() public {
         LinearSpendPolicy invalidPolicy = new LinearSpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function test_deployGoal_revertsForUninitializedLinearSpendPolicyClone() public {
         LinearSpendPolicy implementation = new LinearSpendPolicy();
         LinearSpendPolicy invalidPolicy = LinearSpendPolicy(Clones.clone(address(implementation)));
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function test_deployGoal_revertsForPolicyThatFailsActiveContextValidation() public {
         ZeroContextOnlySpendPolicy invalidPolicy = new ZeroContextOnlySpendPolicy();
-        GoalFactory.DeployParams memory params = _baseDeployParams(address(invalidPolicy));
+        GoalFactory.OpenGoalParams memory params = _baseOpenGoalParams(address(invalidPolicy));
 
         vm.expectRevert(abi.encodeWithSelector(IGoalTreasury.INVALID_SPEND_POLICY.selector, address(invalidPolicy)));
-        factory.deployGoal(params);
+        factory.deployOpenGoal(params);
     }
 
     function _deployLinearSpendPolicy() internal returns (LinearSpendPolicy policy) {
@@ -740,6 +800,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             address(premiumEscrowImpl),
             address(jurorSlasherRouterImpl),
             address(underwriterSlasherRouterImpl),
+            address(budgetTcrStackDeployerImplementation),
             address(managedBudgetControllerImpl),
             address(managedGoalAllocatorStrategyImpl),
             address(managedBudgetChildStrategyFactoryImpl),
@@ -752,7 +813,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetTCRDeployer implementation) {
+    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetStackDeployer implementation) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -761,7 +822,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
                 address(new ERC20VotesArbitrator())
             )
         );
-        implementation = new BudgetTCRDeployer(
+        implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             roundFactory,
             roundFactory,
@@ -771,37 +832,42 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function _baseDeployParams(address goalSpendPolicy) internal returns (GoalFactory.DeployParams memory p) {
-        p.preset = GoalFactory.GoalPreset.Open;
-        p.managedSafe = address(0);
-        p.funding =
-            GoalFactory.FundingContext({paymentToken: address(cobuildToken), paymentRevnetId: COBUILD_REVNET_ID});
-        p.revnet = GoalFactory.RevnetParams({
-            name: "Goal",
-            ticker: "GOAL",
-            uri: "ipfs://goal",
-            initialIssuance: 1,
-            cashOutTaxRate: 0,
-            reservedPercent: 0,
-            durationSeconds: 7 days
+    function _baseOpenGoalParams(address goalSpendPolicy) internal returns (GoalFactory.OpenGoalParams memory p) {
+        p.common = GoalFactory.CommonGoalParams({
+            funding: GoalFactory.FundingContext({paymentToken: address(cobuildToken), paymentRevnetId: COBUILD_REVNET_ID}),
+            revnet: GoalFactory.RevnetParams({
+                name: "Goal",
+                ticker: "GOAL",
+                uri: "ipfs://goal",
+                initialIssuance: 1,
+                cashOutTaxRate: 0,
+                reservedPercent: 0,
+                durationSeconds: 7 days
+            }),
+            timing: GoalFactory.GoalTimingParams({minRaise: 0, minRaiseDurationSeconds: 0}),
+            success: GoalFactory.SuccessParams({
+                successResolver: address(successResolver),
+                successAssertionLiveness: 1 days,
+                successAssertionBond: 0,
+                successOracleSpecHash: keccak256("spec"),
+                successAssertionPolicyHash: keccak256("policy")
+            }),
+            flowMetadata: GoalFactory.FlowMetadataParams({
+                title: "title",
+                description: "description",
+                image: "ipfs://image",
+                tagline: "tagline",
+                url: "https://example.com"
+            }),
+            underwriting: GoalFactory.UnderwritingParams({budgetPremiumPpm: 0, budgetSlashPpm: 0}),
+            goalSpendPolicy: goalSpendPolicy
         });
-        p.timing = GoalFactory.GoalTimingParams({minRaise: 0, minRaiseDurationSeconds: 0});
-        p.success = GoalFactory.SuccessParams({
-            successResolver: address(successResolver),
-            successAssertionLiveness: 1 days,
-            successAssertionBond: 0,
-            successOracleSpecHash: keccak256("spec"),
-            successAssertionPolicyHash: keccak256("policy")
+        p.budgetRuntime = GoalFactory.BudgetRuntimeParams({
+            budgetSuccessResolver: address(successResolver),
+            budgetSpendPolicy: address(_deployBudgetSpendPolicy()),
+            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 0})
         });
-        p.flowMetadata = GoalFactory.FlowMetadataParams({
-            title: "title",
-            description: "description",
-            image: "ipfs://image",
-            tagline: "tagline",
-            url: "https://example.com"
-        });
-        p.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 0, budgetSlashPpm: 0});
-        p.budgetTCR = GoalFactory.BudgetTCRParams({
+        p.openBudgetTCR = GoalFactory.OpenBudgetTCRParams({
             allocationMechanismAdmin: address(0),
             invalidRoundRewardsSink: address(0),
             submissionDepositStrategy: address(0),
@@ -822,9 +888,6 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
                 maxActivationThreshold: 0,
                 maxRunwayCap: 0
             }),
-            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 0}),
-            budgetSuccessResolver: address(successResolver),
-            budgetSpendPolicy: address(_deployBudgetSpendPolicy()),
             arbitratorParams: IArbitrator.ArbitratorParams({
                 votingPeriod: 0,
                 votingDelay: 0,
@@ -834,7 +897,17 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
                 slashCallerBountyBps: 0
             })
         });
-        p.goalSpendPolicy = goalSpendPolicy;
+    }
+
+    function _baseManagedGoalParams(
+        address goalSpendPolicy,
+        address managedSafe
+    ) internal returns (GoalFactory.ManagedGoalParams memory p) {
+        GoalFactory.OpenGoalParams memory openParams = _baseOpenGoalParams(goalSpendPolicy);
+        p.common = openParams.common;
+        p.budgetRuntime = openParams.budgetRuntime;
+        p.managedSafe = managedSafe;
+        p.managedBudgetGatePolicy = address(0);
     }
 
     function _managedBudgetConfig(string memory title)
