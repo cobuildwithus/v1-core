@@ -104,6 +104,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
 - Goal-level juror slasher router: none
 - Budget child `recipientAdmin`: `ManagedBudgetController`
+- Managed controller initialization fail-closes on stack-deployer preset traits (`Factory` child strategy target with code, no mechanism layer, controller-owned child admin, no premium implementation) and rejects zero budget success-assertion liveness
 - No advisory TCR and no managed mechanism controller in this pass
 
 ## Key Interaction Paths
@@ -244,6 +245,7 @@ Community root routing
 - Open-preset underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget `PremiumEscrow` at `budgetPremiumPpm`,
   - per-goal `UnderwriterSlasherRouter` wiring is required only when `budgetSlashPpm != 0`; premium-only/no-slash budgets still use `PremiumEscrow` but omit that router,
+  - budget activation fail-closes on prepared stack shape: nonzero strategy/treasury/mechanism, mechanism-owned child recipient admin, and premium presence exactly matching the configured premium/slash lane,
   - `PremiumEscrow` indexes premium against live budget coverage from `BudgetStakeLedger`,
   - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure rather than resetting/skipping receipt accounting,
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
@@ -253,9 +255,11 @@ Community root routing
 - Managed-preset risk routing now represents premium-module absence explicitly:
   - manager-reward routing is disabled on managed child-flow deployment,
   - managed controller no longer stores budget-ledger, underwriter-router, premium, or slash config and instead hardcodes zero coverage/slash inputs through the shared treasury/gate seams,
+  - managed budget creation fail-closes on prepared stack shape: nonzero strategy/treasury, zero mechanism layer, zero premium module, and `childFlowRecipientAdmin == address(controller)`,
   - no premium escrow is initialized, connected, or authorized for managed budgets by default,
   - nonzero managed premium/slash parameters are rejected at deployment,
   - live budget enablement remains controller/gate-policy driven rather than underwriter-coverage driven.
+- Budget success-assertion bond is pass-through config on both presets; `0` means the downstream UMA resolver floors to its configured minimum bond instead of being rejected at controller/TCR initialization.
 - `BudgetTCRFactory` treats submission-deposit capability probing as trusted deployment wiring:
   - a clean `supportsEscrowBonding() == false` response preserves manual registry deposits,
   - missing/reverting capability probes now fail deployment fast instead of silently falling back.

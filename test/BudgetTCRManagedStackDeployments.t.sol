@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import "forge-std/Test.sol";
 
 import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
-import {BudgetStackInstantiationLib} from "src/goals/library/BudgetStackInstantiationLib.sol";
 import {BudgetTopologyRegistryLib} from "src/goals/library/BudgetTopologyRegistryLib.sol";
 import {BudgetTCRStackActions} from "src/tcr/library/BudgetTCRStackActions.sol";
 import {BudgetTCRStorageV1} from "src/tcr/storage/BudgetTCRStorageV1.sol";
@@ -12,7 +11,6 @@ import {GeneralizedTCRStorageV1} from "src/tcr/storage/GeneralizedTCRStorageV1.s
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
-import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
@@ -22,7 +20,6 @@ import {
     BudgetTCRTestSuperToken,
     BudgetTCRGoalFlowHarness,
     BudgetTCRGoalTreasuryHarness,
-    BudgetTCRChildFlowHarness,
     BudgetTCRStakeLedgerHarness
 } from "test/helpers/BudgetTCRSystemHarnesses.sol";
 import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
@@ -217,29 +214,13 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function test_managedStackDeploy_recordsZeroMechanismTopology_andSkipsMechanismRegistry() public {
+    function test_managedStackDeploy_revertsWhenMechanismLayerDisabled() public {
         bytes32 itemID = keccak256("managed-budget");
+        vm.expectRevert(IBudgetTCR.PREPARED_ALLOCATION_MECHANISM_REQUIRED.selector);
         harness.deploy(itemID, abi.encode(_defaultListing()));
-
-        BudgetTopologyRegistryLib.BudgetDeployment memory deployment = harness.deployment(itemID);
-        assertTrue(deployment.active);
-        assertEq(deployment.strategy, address(fixedStrategy));
-        assertEq(deployment.allocationMechanism, address(0));
-        assertEq(deployment.allocationMechanismArbitrator, address(0));
-        assertTrue(deployment.childFlow != address(0));
-        assertTrue(deployment.budgetTreasury != address(0));
-        assertEq(deployment.premiumEscrow, address(0));
-
-        assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).recipientAdmin(), safe);
-        assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).managerRewardPool(), address(0));
-        assertEq(BudgetTCRChildFlowHarness(deployment.childFlow).managerRewardPoolFlowRatePpm(), 0);
-        assertEq(IBudgetTreasury(deployment.budgetTreasury).premiumEscrow(), deployment.premiumEscrow);
-        assertEq(harness.itemIdForBudgetTreasury(deployment.budgetTreasury), itemID);
-        assertEq(harness.itemIdForChildFlow(deployment.childFlow), itemID);
-        assertEq(budgetStakeLedger.budgetForRecipient(itemID), deployment.budgetTreasury);
     }
 
-    function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {
+    function test_managedStackDeploy_revertsWithoutDiscoveryOrTopologySideEffects_whenMechanismLayerDisabled() public {
         ManagedBudgetStackDiscoveryEmitterMock discoveryEmitter = new ManagedBudgetStackDiscoveryEmitterMock();
         BudgetStackDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
         deployerWithEmitter.initializeWithConfig(
@@ -260,31 +241,31 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         );
 
         bytes32 itemID = keccak256("managed-budget-with-emitter");
-        vm.recordLogs();
+        vm.expectRevert(IBudgetTCR.PREPARED_ALLOCATION_MECHANISM_REQUIRED.selector);
         harness.deploy(itemID, abi.encode(_defaultListing()));
-        Vm.Log[] memory logs = vm.getRecordedLogs();
 
         BudgetTopologyRegistryLib.BudgetDeployment memory deployment = harness.deployment(itemID);
-        assertEq(discoveryEmitter.lastStackItemId(), itemID);
-        assertEq(discoveryEmitter.lastStackChildFlow(), deployment.childFlow);
-        assertEq(discoveryEmitter.lastStackBudgetTreasury(), deployment.budgetTreasury);
-        assertEq(discoveryEmitter.lastStackPremiumEscrow(), deployment.premiumEscrow);
-        assertEq(discoveryEmitter.lastStackStrategy(), address(fixedStrategy));
+        assertFalse(deployment.active);
+        assertEq(deployment.strategy, address(0));
+        assertEq(deployment.childFlow, address(0));
+        assertEq(deployment.budgetTreasury, address(0));
+        assertEq(deployment.premiumEscrow, address(0));
+        assertEq(harness.itemIdForBudgetTreasury(address(0)), bytes32(0));
+        assertEq(harness.itemIdForChildFlow(address(0)), bytes32(0));
+        assertEq(budgetStakeLedger.budgetForRecipient(itemID), address(0));
 
+        assertEq(discoveryEmitter.lastStackItemId(), bytes32(0));
+        assertEq(discoveryEmitter.lastStackChildFlow(), address(0));
+        assertEq(discoveryEmitter.lastStackBudgetTreasury(), address(0));
+        assertEq(discoveryEmitter.lastStackPremiumEscrow(), address(0));
+        assertEq(discoveryEmitter.lastStackStrategy(), address(0));
         assertEq(discoveryEmitter.lastMechanismItemId(), bytes32(0));
         assertEq(discoveryEmitter.lastMechanism(), address(0));
         assertEq(discoveryEmitter.lastMechanismArbitrator(), address(0));
         assertEq(discoveryEmitter.lastRoundFactory(), address(0));
-
-        assertTrue(_hasEventForItem(logs, keccak256("BudgetStackDeployed(bytes32,address,address,address)"), itemID));
-        assertFalse(
-            _hasEventForItem(
-                logs, keccak256("BudgetAllocationMechanismDeployed(bytes32,address,address,address)"), itemID
-            )
-        );
     }
 
-    function test_managedStackDeploy_revertsWhenPremiumRatesRequirePreparedEscrow() public {
+    function test_managedStackDeploy_revertsBeforePremiumValidation_whenMechanismLayerDisabled() public {
         harness.configure(
             address(goalFlow),
             address(goalTreasury),
@@ -298,7 +279,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         );
 
-        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_NOT_PREPARED.selector);
+        vm.expectRevert(IBudgetTCR.PREPARED_ALLOCATION_MECHANISM_REQUIRED.selector);
         harness.deploy(keccak256("managed-budget-nonzero-rates"), abi.encode(_defaultListing()));
     }
 
@@ -337,15 +318,5 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             address(new BudgetFlowRouterStrategy())
         );
         return BudgetStackDeployer(Clones.clone(address(implementation)));
-    }
-
-    function _hasEventForItem(Vm.Log[] memory logs, bytes32 signature, bytes32 itemID) internal pure returns (bool) {
-        for (uint256 i; i < logs.length; ++i) {
-            Vm.Log memory log = logs[i];
-            if (log.topics.length < 2) continue;
-            if (log.topics[0] == signature && log.topics[1] == itemID) return true;
-        }
-
-        return false;
     }
 }

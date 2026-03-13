@@ -614,7 +614,6 @@ contract GoalFactory {
                     goalTreasury: address(core.goalTreasury),
                     goalFlow: address(core.goalFlow),
                     stackDeployer: managedPreset.stackDeployer,
-                    budgetChildStrategyFactory: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL,
                     budgetGatePolicy: p.managedBudgetGatePolicy,
                     budgetSuccessResolver: p.budgetRuntime.budgetSuccessResolver,
                     budgetSpendPolicy: p.budgetRuntime.budgetSpendPolicy,

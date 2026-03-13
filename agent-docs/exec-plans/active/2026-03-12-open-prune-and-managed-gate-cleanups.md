@@ -18,7 +18,7 @@ Updated: 2026-03-12
   - targeted tests covering open-lane batch sync, managed preset goal-factory wiring, and budget single-allocator validation
   - touched preset/runtime docs that describe managed gate-policy wiring or batch-sync prune semantics
 - Out of scope:
-  - deleting or redesigning `NullPremiumEscrow`
+  - reintroducing any no-premium shim contract
   - changing shared `IPremiumEscrow` or `BudgetTCRStackDeploymentLib` seams
   - converging deployers or retopologizing managed/open controller composition
   - broad dead-code deletion beyond wiring/test fallout needed for this pass

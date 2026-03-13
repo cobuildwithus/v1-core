@@ -59,6 +59,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - raw budget target is the sum of both components, saturated to `int96.max`,
   - default sync mode remains `Capped`, while other configured policies may select `Capped` or `LinearSpendDownFallback`,
   - unsolicited third-party inbound streams to the budget flow must not increase the trusted incoming component.
+- Budget stack preparation is fail-closed at consumption time:
+  - open preset activation requires nonzero prepared strategy/treasury/mechanism, `childFlowRecipientAdmin == allocationMechanism`, and premium presence exactly matching the configured premium/slash lane,
+  - managed preset creation requires nonzero prepared strategy/treasury, `childFlowRecipientAdmin == address(controller)`, zero prepared mechanism, and zero prepared premium module.
 - Budget underwriting premium/slash lifecycle is per-budget escrowed:
   - each budget child flow manager-reward stream is routed to that budget's `PremiumEscrow` at goal-configured `budgetPremiumPpm`,
   - goal-level `UnderwriterSlasherRouter` deployment is conditional on `budgetSlashPpm != 0`; canonical `budgetPremiumPpm == 0 && budgetSlashPpm == 0` goals and premium-only/no-slash goals omit that router and leave the stake-vault underwriter slasher unset,
@@ -151,6 +154,9 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - `UMATreasurySuccessResolver.assertSuccess(...)` requires both hashes to already exist in `SuccessAssertionDocumentRegistry`,
   - non-empty evidence text is auto-registered in that registry under `keccak256(bytes(evidence))`,
   - the UMA claim and `SuccessAssertionRequested` event emit the registry address plus canonical `specHash` / `policyHash` / `evidenceHash`, not just raw prose.
+- Budget success-assertion config is consistent across presets:
+  - managed controller initialization rejects zero budget `successAssertionLiveness`,
+  - budget success-assertion bond is pass-through config on both presets; `0` means the downstream UMA resolver floors to its configured minimum bond instead of being rejected at controller/TCR initialization.
 - Budget listing oracle config is hash-only:
   - `oracleConfig.oracleSpecHash` and `oracleConfig.assertionPolicyHash` must both be non-zero.
 - Budget success assertion registration is funding-window gated (no registration before `fundingDeadline`).

@@ -171,15 +171,18 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
     }
 
-    function test_deployBudgetTCRStackForGoal_revertsWhenOracleBondAmountIsZero() public {
+    function test_deployBudgetTCRStackForGoal_allowsZeroOracleBondAmount() public {
         MockVotesToken votingToken = new MockVotesToken("Voting", "VOTE");
+        WrongRecipientEscrowDetectionStrategy strategy = new WrongRecipientEscrowDetectionStrategy(
+            IERC20(address(votingToken)), makeAddr("wrong-escrow-detection-recipient")
+        );
         _MockGoalTreasuryForFactory goalTreasury = new _MockGoalTreasuryForFactory(address(new _MockImplementation()));
         _MockStakeVaultForFactory stakeVault = new _MockStakeVaultForFactory(address(goalTreasury));
         goalTreasury.setStakeVault(address(stakeVault));
 
         BudgetTCRFactory factory = _realFactory();
         BudgetTCRFactory.RegistryConfigInput memory registryConfig = _defaultRegistryConfig(
-            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(new ManualDepositCapabilityStrategy()))
+            IVotes(address(votingToken)), ISubmissionDepositStrategy(address(strategy))
         );
         BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
@@ -191,8 +194,12 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
         );
         deploymentConfig.oracleValidationBounds.bondAmount = 0;
 
-        vm.expectRevert(IBudgetTCR.INVALID_BOUNDS.selector);
-        factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+        BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
+            factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
+
+        (uint64 liveness, uint256 bondAmount) = BudgetTCR(deployed.budgetTCR).oracleValidationBounds();
+        assertEq(liveness, deploymentConfig.oracleValidationBounds.liveness);
+        assertEq(bondAmount, 0);
     }
 
     function test_deployBudgetTCRStackForGoal_preservesManualDeposits_whenEscrowDetectionRecipientMismatches() public {

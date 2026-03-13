@@ -10,7 +10,6 @@ interface IManagedBudgetController is IBudgetController {
         address goalTreasury;
         address goalFlow;
         address stackDeployer;
-        address budgetChildStrategyFactory;
         address budgetGatePolicy;
         address budgetSuccessResolver;
         address budgetSpendPolicy;
@@ -39,6 +38,10 @@ interface IManagedBudgetController is IBudgetController {
     error INVALID_BUDGET_GATE_POLICY(address policy);
     error INVALID_SUCCESS_RESOLVER(address resolver);
     error INVALID_BUDGET_SPEND_POLICY(address policy);
+    error INVALID_SUCCESS_ASSERTION_LIVENESS();
+    error INVALID_PREPARED_STRATEGY(address strategy);
+    error INVALID_PREPARED_BUDGET_TREASURY(address budgetTreasury);
+    error INVALID_ALLOCATION_MECHANISM(address allocationMechanism);
     error INVALID_PREMIUM_ESCROW(address premiumEscrow);
     error ITEM_ALREADY_EXISTS(bytes32 itemID);
     error ITEM_NOT_DEPLOYED();

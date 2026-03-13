@@ -6,7 +6,7 @@ Updated: 2026-03-12
 
 ## Goal
 
-- Make "no premium / no underwriting module" a first-class configuration so managed goals do not need `NullPremiumEscrow` just to satisfy shared wiring.
+- Make "no premium / no underwriting module" a first-class configuration through explicit module absence (`premiumEscrowImplementation = address(0)` / prepared `premiumEscrow = address(0)`), not shim contracts.
 - Improve protocol composability by representing absence directly with `address(0)` / explicit deployer mode instead of a fake escrow contract.
 
 ## Already Done In Tree
@@ -14,7 +14,7 @@ Updated: 2026-03-12
 - Open-lane `BudgetTCR.syncBudgetTreasuries(...)` already has local terminal-prune fallback with later-sweep idempotence.
 - Managed deployment already converges on the generic `IBudgetStackDeployer` / `BudgetTCRDeployer` path.
 - The shared deploy seam already uses neutral `IBudgetTreasury.BudgetConfig` plus `RiskModuleInitConfig`.
-- The repo already models no-premium mode through explicit `PremiumEscrowMode.None` / `address(0)` wiring.
+- The repo already models no-premium mode through explicit `premiumEscrowImplementation = address(0)` / prepared `premiumEscrow = address(0)` wiring.
 - `BudgetSingleAllocatorStrategy` is already cloneable / initializable and its factory already uses clones.
 - Spend-policy validation is already centralized and hardened.
 
@@ -43,7 +43,7 @@ This batch must treat those items as fixed inputs and should not reopen them unl
 ## Proposed Hard-Cut Decisions
 
 1. Introduce an explicit deployer absence mode.
-- Add `IBudgetStackDeployer.PremiumEscrowMode.None`.
+- Preserve explicit no-premium wiring through `premiumEscrowImplementation = address(0)` and prepared `premiumEscrow = address(0)`.
 - In `None` mode, `prepareBudgetStack(...)` returns `premiumEscrow = address(0)`.
 
 2. Make budget treasury premium hooks optional.
@@ -103,7 +103,7 @@ This batch must treat those items as fixed inputs and should not reopen them unl
   - `src/goals/GoalFactory.sol`
   - `src/goals/library/GoalFactoryManagedPresetDeploy.sol`
   - `src/goals/ManagedBudgetController.sol`
-  - `src/goals/NullPremiumEscrow.sol` for deletion once no owned call sites remain
+  - remove stale shim-contract references once no owned call sites remain
   - optional narrow coverage in:
     - `test/goals/ManagedBudgetController.t.sol`
     - `test/BudgetTCRManagedStackDeployments.t.sol`

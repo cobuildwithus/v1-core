@@ -79,7 +79,7 @@ library BudgetTCRInitValidation {
         if (budgetBounds.maxActivationThreshold < budgetBounds.minActivationThreshold) {
             revert IBudgetTCR.INVALID_BOUNDS();
         }
-        if (oracleBounds.liveness == 0 || oracleBounds.bondAmount == 0) {
+        if (oracleBounds.liveness == 0) {
             revert IBudgetTCR.INVALID_BOUNDS();
         }
     }
