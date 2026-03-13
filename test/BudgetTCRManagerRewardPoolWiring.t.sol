@@ -36,7 +36,7 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
+import {BudgetStackTypes} from "src/interfaces/BudgetStackTypes.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -87,6 +87,10 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
     uint256 internal challengePeriodDuration = 3 days;
 
     ISubmissionDepositStrategy internal submissionDepositStrategy;
+
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
 
     function setUp() public {
         depositToken = new MockVotesToken("BudgetTCR Votes", "BTV");
@@ -203,6 +207,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -214,7 +219,6 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -272,14 +276,12 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetStackDeployer(deployer).initializeWithConfig(
-            budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
-        );
+        BudgetStackDeployer(deployer).initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 }

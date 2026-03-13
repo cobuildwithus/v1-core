@@ -34,7 +34,7 @@ import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
+import {BudgetStackTypes} from "src/interfaces/BudgetStackTypes.sol";
 import {CustomFlow} from "src/flows/CustomFlow.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -78,6 +78,10 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     uint256 internal removalChallengeBaseDeposit = 70e18;
     uint256 internal challengePeriodDuration = 3 days;
     ISubmissionDepositStrategy internal submissionDepositStrategy;
+
+    function onBudgetStackDeployed(bytes32, address, address, address, address) external pure {}
+
+    function onBudgetAllocationMechanismDeployed(bytes32, address, address, address) external pure {}
 
     MockVotesToken internal depositToken;
     MockVotesToken internal goalToken;
@@ -394,6 +398,7 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -405,7 +410,6 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -446,14 +450,12 @@ contract BudgetTCRFlowRemovalLivenessTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetStackDeployer(deployer).initializeWithConfig(
-            budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
-        );
+        BudgetStackDeployer(deployer).initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 

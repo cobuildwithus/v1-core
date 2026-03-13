@@ -34,7 +34,7 @@ import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IBudgetStakeLedger} from "src/interfaces/IBudgetStakeLedger.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
+import {BudgetStackTypes} from "src/interfaces/BudgetStackTypes.sol";
 import {ISubmissionDepositStrategy} from "src/tcr/interfaces/ISubmissionDepositStrategy.sol";
 import {EscrowSubmissionDepositStrategy} from "src/tcr/strategies/EscrowSubmissionDepositStrategy.sol";
 import {PrizePoolSubmissionDepositStrategy} from "src/tcr/strategies/PrizePoolSubmissionDepositStrategy.sol";
@@ -501,6 +501,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
     function _defaultDeploymentConfig() internal view returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
         deploymentConfig = IBudgetTCR.DeploymentConfig({
             stackDeployer: stackDeployer,
+            discoveryEmitter: address(this),
             budgetSuccessResolver: owner,
             budgetSpendPolicy: budgetSpendPolicy,
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -512,7 +513,6 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             cobuildToken: IERC20(address(cobuildToken)),
             goalRulesets: IJBRulesets(address(0x1234)),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -575,14 +575,12 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetStackDeployer(deployer).initializeWithConfig(
-            budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
-        );
+        BudgetStackDeployer(deployer).initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_));
     }
 
     function _openStackModuleConfig(
         address premiumEscrowImplementation_
-    ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig) {
+    ) internal pure returns (BudgetStackTypes.StackModuleConfig memory stackModuleConfig) {
         stackModuleConfig = BudgetTCRConfigHelpers.openStackModuleConfig(premiumEscrowImplementation_);
     }
 

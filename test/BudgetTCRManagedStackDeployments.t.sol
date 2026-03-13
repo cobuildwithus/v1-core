@@ -10,7 +10,6 @@ import {BudgetTCRStackActions} from "src/tcr/library/BudgetTCRStackActions.sol";
 import {BudgetTCRStorageV1} from "src/tcr/storage/BudgetTCRStorageV1.sol";
 import {GeneralizedTCRStorageV1} from "src/tcr/storage/GeneralizedTCRStorageV1.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
-import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
