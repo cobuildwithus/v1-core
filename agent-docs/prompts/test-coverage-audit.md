@@ -10,7 +10,7 @@ Find meaningful coverage gaps introduced by the change set, then implement the h
 
 Preflight (required):
 - Read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` before review/edits.
-- Respect active ownership boundaries from the ledger; do not overwrite/revert/touch files outside assigned scope.
+- Honor any explicit exclusive/refactor notes from the ledger; otherwise work carefully on top of active rows without reverting adjacent edits.
 
 Audit for:
 - missing coverage on modified behavior and directly affected call paths

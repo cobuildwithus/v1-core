@@ -7,7 +7,7 @@ You are performing a final audit of completed changes. Use full diff/context and
 
 Preflight (required):
 - Read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` before review.
-- Respect active ownership boundaries from the ledger; do not overwrite/revert/touch files outside assigned scope.
+- Honor any explicit exclusive/refactor notes from the ledger; otherwise work carefully on top of active rows without reverting adjacent edits.
 
 Review for:
 - functional/behavioral regressions

@@ -11,7 +11,7 @@ Simplify and harden recently modified code without changing externally visible b
 Preflight (required):
 
 - Read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` before review.
-- Respect active ownership boundaries from the ledger; do not overwrite/revert/touch files outside assigned scope.
+- Honor any explicit exclusive/refactor notes from the ledger; otherwise work carefully on top of active rows without reverting adjacent edits.
 - Default scope is the code touched in the current task/session; do not expand to unrelated files unless explicitly asked.
 
 Core principles:

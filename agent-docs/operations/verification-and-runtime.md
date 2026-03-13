@@ -68,10 +68,11 @@ Last verified: 2026-02-27
 - Workflow:
   - before first edit, add your row,
   - before spawning any audit/review subagent, ensure your row is present and current,
-  - require spawned subagents to read the ledger and respect active ownership boundaries,
-  - update your row in the same turn whenever file scope or symbol plans change,
+  - require spawned subagents to read the ledger and honor any explicit exclusive/refactor notes,
+  - update your row in the same turn whenever file scope, symbol plans, or exclusivity expectations change,
   - before deleting/renaming a symbol, check ledger rows for dependencies and resolve conflicts first,
   - when your task is complete or abandoned, delete your row immediately.
+- Allow overlap by default when agents stay within declared scope, read the current file state first, and preserve adjacent edits.
 - Keep the ledger as an active-only artifact: no historical backlog and no stale completed entries.
 
 ## Freshness Notes

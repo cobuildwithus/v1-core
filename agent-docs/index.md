@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-13 (shared budget stack substrate cleanup)
+Last verified: 2026-03-13 (coordination-ledger semantics softened to allow overlap by default)
 
 ## Purpose
 
@@ -52,3 +52,4 @@ This index is the table of contents for durable protocol context that agents sho
 - Keep `AGENTS.md` short and route-oriented.
 - Update this index when adding/removing/moving docs.
 - For multi-file/high-risk work, add a plan in `agent-docs/exec-plans/active/`.
+- Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work, and mark rows as exclusive only when overlap is genuinely unsafe.

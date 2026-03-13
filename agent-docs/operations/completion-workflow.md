@@ -1,6 +1,6 @@
 # Completion Workflow
 
-Last verified: 2026-03-12
+Last verified: 2026-03-13
 
 ## Sequence
 
@@ -24,8 +24,11 @@ Non-docs rule: for any change that touches production code or tests, all three s
 ## Coordination Ledger (Always Required)
 
 - Before any coding work (including subagent audit passes that may propose or apply edits), add an active row to `agent-docs/exec-plans/active/COORDINATION_LEDGER.md`.
-- Keep the row updated when scope/symbol intent changes.
-- In every subagent handoff packet, require the subagent to read and honor current ledger ownership before reviewing/editing files.
+- Treat the row as an active-work notice by default, not a hard lock.
+- Overlap is allowed when agents stay within their declared scope, read the current file state first, and preserve adjacent edits.
+- Mark a row as exclusive in `Dependency Notes` only when overlap is unsafe, such as a broad refactor or a delicate cross-cutting rewrite.
+- Keep the row updated when scope/symbol intent or exclusivity expectations change.
+- In every subagent handoff packet, require the subagent to read the ledger, honor any explicit exclusive/refactor notes, and otherwise work carefully on top of overlapping rows.
 - Remove your row immediately when the task is complete or abandoned.
 
 ## Audit Handoff Packet
@@ -37,7 +40,7 @@ When using a fresh subagent for coverage or completion audits, provide:
 - Links to active execution-plan docs under `agent-docs/exec-plans/active/` (when present).
 - Verification evidence already run (commands plus pass/fail outcomes).
 - Current git worktree context (relevant modified files, known unrelated dirty paths, and review scope boundaries).
-- Explicit instruction to read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` and avoid touching files owned by other active entries.
+- Explicit instruction to read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md`, honor any explicit exclusive/refactor notes, and otherwise work carefully on top of overlapping rows.
 
 Instruct the reviewer to use the handoff packet plus current `git diff` and call-path inspection, not diff-only inference.
 
