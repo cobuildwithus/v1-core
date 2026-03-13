@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.34;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { TokenTransfers } from "src/library/TokenTransfers.sol";
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {JBConstants} from "@bananapus/core-v5/libraries/JBConstants.sol";
+import {TokenTransfers} from "src/library/TokenTransfers.sol";
 
 contract TokenTransfersTest is Test {
     uint8 private constant MODE_NONE = 0;
@@ -20,6 +21,14 @@ contract TokenTransfersTest is Test {
     function setUp() public {
         harness = new TokenTransfersHarness();
         token = new TokenTransfersInconsistentBalanceToken();
+    }
+
+    function test_balanceOf_readsNativeAndErc20Balances() public {
+        vm.deal(alice, 2 ether);
+        token.mint(bob, 7);
+
+        assertEq(harness.balanceOf(JBConstants.NATIVE_TOKEN, alice), 2 ether);
+        assertEq(harness.balanceOf(address(token), bob), 7);
     }
 
     function test_safeTransferFromReceived_revertsWhenRecipientBalanceUnexpectedlyDecreases() public {
@@ -77,33 +86,55 @@ contract TokenTransfersTest is Test {
         assertEq(token.balanceOf(address(harness)), 90);
         assertEq(token.balanceOf(bob), 10);
     }
+
+    function test_safeTransfer_nativeNoopsForZeroAmount() public {
+        CountingNativeReceiver receiver = new CountingNativeReceiver();
+
+        harness.safeTransfer(JBConstants.NATIVE_TOKEN, address(receiver), 0);
+
+        assertEq(receiver.callCount(), 0);
+        assertEq(address(receiver).balance, 0);
+    }
+
+    function test_safeTransfer_revertsWhenNativeTransferFails() public {
+        RejectingNativeReceiver receiver = new RejectingNativeReceiver();
+        vm.deal(address(harness), 1 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(TokenTransfers.NATIVE_TRANSFER_FAILED.selector, address(receiver), 1 ether)
+        );
+        harness.safeTransfer(JBConstants.NATIVE_TOKEN, address(receiver), 1 ether);
+    }
 }
 
 contract TokenTransfersHarness {
     using TokenTransfers for IERC20;
 
-    function safeTransferFromReceived(
-        IERC20 token,
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (uint256 received) {
+    receive() external payable {}
+
+    function balanceOf(address token, address account) external view returns (uint256) {
+        return TokenTransfers.balanceOf(token, account);
+    }
+
+    function safeTransfer(address token, address to, uint256 amount) external {
+        TokenTransfers.safeTransfer(token, to, amount);
+    }
+
+    function safeTransferFromReceived(IERC20 token, address from, address to, uint256 amount)
+        external
+        returns (uint256 received)
+    {
         return token.safeTransferFromReceived(from, to, amount);
     }
 
-    function safeTransferSpentAndReceived(
-        IERC20 token,
-        address to,
-        uint256 amount
-    ) external returns (uint256 spent, uint256 received) {
+    function safeTransferSpentAndReceived(IERC20 token, address to, uint256 amount)
+        external
+        returns (uint256 spent, uint256 received)
+    {
         return token.safeTransferSpentAndReceived(to, amount);
     }
 
-    function safeTransferReceived(
-        IERC20 token,
-        address to,
-        uint256 amount
-    ) external returns (uint256 received) {
+    function safeTransferReceived(IERC20 token, address to, uint256 amount) external returns (uint256 received) {
         return token.safeTransferReceived(to, amount);
     }
 }
@@ -116,7 +147,7 @@ contract TokenTransfersInconsistentBalanceToken is ERC20 {
 
     error PRECONDITION_FAILED();
 
-    constructor() ERC20("Inconsistent", "INC") { }
+    constructor() ERC20("Inconsistent", "INC") {}
 
     function setMode(uint8 mode_) external {
         _mode = mode_;
@@ -157,5 +188,25 @@ contract TokenTransfersInconsistentBalanceToken is ERC20 {
         _spoofActive = true;
         _spoofAccount = account;
         _spoofValue = value;
+    }
+}
+
+contract CountingNativeReceiver {
+    uint256 private _callCount;
+
+    receive() external payable {
+        _callCount++;
+    }
+
+    function callCount() external view returns (uint256) {
+        return _callCount;
+    }
+}
+
+contract RejectingNativeReceiver {
+    error TRANSFER_REJECTED();
+
+    receive() external payable {
+        revert TRANSFER_REJECTED();
     }
 }
