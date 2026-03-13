@@ -527,6 +527,41 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
     }
 
+    function test_deployManagedGoalForCommunity_revertsWhenManagedSafeIsZero() public {
+        MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            address(this),
+            IJBDirectory(address(revnetDirectory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            PAYMENT_REVNET_ID,
+            address(paymentToken)
+        );
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(0));
+
+        vm.expectRevert(GoalFactory.MANAGED_SAFE_REQUIRED.selector);
+        factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
+    }
+
+    function test_deployManagedGoalForCommunity_revertsWhenPremiumOrSlashAreNonZero() public {
+        MockCommunityGoalRegistry registry = new MockCommunityGoalRegistry(
+            address(this),
+            IJBDirectory(address(revnetDirectory)),
+            IGoalDeploymentRegistry(address(goalDeploymentRegistry)),
+            PAYMENT_REVNET_ID,
+            address(paymentToken)
+        );
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(new DummyContract()));
+        p.common.underwriting.budgetPremiumPpm = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH.selector,
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
+            )
+        );
+        factory.deployManagedGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
+    }
+
     function _expectObservedRevnetDeploy() internal {
         uint256 deploymentNonce = vm.getNonce(address(factory));
         address expectedSplitHook = vm.computeCreateAddress(address(factory), deploymentNonce + 1);
