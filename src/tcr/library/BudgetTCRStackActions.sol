@@ -16,7 +16,7 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IPremiumEscrow } from "src/interfaces/IPremiumEscrow.sol";
+import { IPremiumEscrowManagerRewardPool } from "src/interfaces/IPremiumEscrow.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
@@ -36,6 +36,7 @@ library BudgetTCRStackActions {
     );
 
     error BUDGET_TREASURY_MISMATCH();
+    error PREMIUM_ESCROW_NOT_PREPARED();
     error PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
 
     function deployBudgetStack(
@@ -59,14 +60,9 @@ library BudgetTCRStackActions {
         IFlow goalFlow = budgetStore.goalFlow();
         IBudgetStackDeployer deployer = IBudgetStackDeployer(budgetStore.stackDeployer());
         address underwriterSlasherRouter = budgetStore.underwriterSlasherRouter();
-        IBudgetStackDeployer.StackModuleConfig memory stackModuleConfig = deployer.stackModuleConfig();
         uint32 budgetPremiumPpm = budgetStore.budgetPremiumPpm();
         uint32 budgetSlashPpm = budgetStore.budgetSlashPpm();
-        bool stackOmitsPremiumModule = stackModuleConfig.premiumEscrowMode ==
-            IBudgetStackDeployer.PremiumEscrowMode.None;
-        if (stackOmitsPremiumModule && (budgetPremiumPpm != 0 || budgetSlashPpm != 0)) {
-            revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
-        }
+        bool requiresPremiumModule = budgetPremiumPpm != 0 || budgetSlashPpm != 0;
         IBudgetTCR.BudgetListing memory listing = BudgetTCRItems.decodeItemData(item);
         IBudgetStackDeployer.PreparationResult memory prepared = deployer.prepareBudgetStack(
             budgetStakeLedger,
@@ -76,6 +72,11 @@ library BudgetTCRStackActions {
         address budgetTreasury = prepared.budgetTreasury;
         address premiumEscrow = prepared.premiumEscrow;
         address allocationMechanism = prepared.allocationMechanism;
+        if (requiresPremiumModule) {
+            if (premiumEscrow == address(0)) revert PREMIUM_ESCROW_NOT_PREPARED();
+        } else if (premiumEscrow != address(0)) {
+            revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
+        }
         bool hasAllocationMechanism = allocationMechanism != address(0);
         bool hasPremiumEscrow = premiumEscrow != address(0);
 
@@ -128,7 +129,7 @@ library BudgetTCRStackActions {
             if (managerRewardDistributionPool == address(0)) {
                 revert IBudgetTCR.MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
             }
-            IPremiumEscrow(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
+            IPremiumEscrowManagerRewardPool(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
         }
         if (deployedBudgetTreasury != budgetTreasury) {
             revert BUDGET_TREASURY_MISMATCH();
@@ -162,7 +163,7 @@ library BudgetTCRStackActions {
         );
 
         IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
-        if (hasPremiumEscrow) {
+        if (underwriterSlasherRouter != address(0)) {
             IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
         }
         if (hasAllocationMechanism) {
