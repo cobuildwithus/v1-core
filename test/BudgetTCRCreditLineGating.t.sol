@@ -13,7 +13,7 @@ import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {MockUnderwriterSlasherRouter} from "test/mocks/MockUnderwriterSlasherRouter.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
@@ -50,12 +50,12 @@ import {SpendPolicyTestUtils} from "test/helpers/SpendPolicyTestUtils.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
 
 contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
-    bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
-        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,address,bytes4,bytes)");
+    bytes32 internal constant BUDGET_GATE_ENFORCEMENT_FAILED_SIG =
+        keccak256("BudgetGateEnforcementFailed(bytes32,address,address,bytes4,bytes)");
     bytes32 internal constant BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG =
         keccak256("BudgetTreasuryBatchSyncAttempted(bytes32,address,bool)");
 
-    event BudgetCreditCapEnforcementFailed(
+    event BudgetGateEnforcementFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
         address callTarget,
@@ -221,7 +221,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         );
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID,
             budgetTreasury,
             address(budgetStakeLedger),
@@ -249,7 +249,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         );
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID, budgetTreasury, address(goalFlow), IFlow.getTotalReceivedByMember.selector, reason
         );
 
@@ -278,7 +278,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         );
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID, budgetTreasury, address(goalFlow), IFlow.setRecipientEnabled.selector, reason
         );
 
@@ -303,7 +303,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         goalFlow.setRecipientEnabledState(itemID, true);
 
         vm.expectEmit(true, true, true, true, address(customBudgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID, budgetTreasury, address(gatePolicy), IBudgetGatePolicy.evaluateBudgetGate.selector, reason
         );
 
@@ -344,7 +344,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             Vm.Log memory logEntry = entries[i];
             if (logEntry.emitter != address(budgetTcr)) continue;
             if (logEntry.topics.length < 2) continue;
-            if (logEntry.topics[0] == BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG && logEntry.topics[1] == itemID) {
+            if (logEntry.topics[0] == BUDGET_GATE_ENFORCEMENT_FAILED_SIG && logEntry.topics[1] == itemID) {
                 if (enforcementLogIdx == missingLogIdx) enforcementLogIdx = i;
             }
             if (logEntry.topics[0] == BUDGET_TREASURY_BATCH_SYNC_ATTEMPTED_SIG && logEntry.topics[1] == itemID) {
@@ -373,7 +373,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         goalFlow.setRecipientEnabledState(itemID, false);
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
         );
 
@@ -402,7 +402,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         goalFlow.setRecipientEnabledState(itemID, true);
 
         vm.expectEmit(true, true, true, true, address(budgetTcr));
-        emit BudgetCreditCapEnforcementFailed(
+        emit BudgetGateEnforcementFailed(
             itemID, budgetTreasury, budgetTreasury, IBudgetTreasury.runwayCap.selector, reason
         );
 
@@ -550,7 +550,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         goalFlow.setRecipientAdmin(address(customBudgetTcr));
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -559,7 +559,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
                 address(new ERC20VotesArbitrator())
             )
         );
-        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+        BudgetStackDeployer implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             roundFactory,
             roundFactory,
@@ -567,7 +567,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        return BudgetTCRDeployer(Clones.clone(address(implementation)));
+        return BudgetStackDeployer(Clones.clone(address(implementation)));
     }
 
     function _initializeOpenBudgetTcrDeployer(
@@ -575,7 +575,7 @@ contract BudgetTCRCreditLineGatingTest is TestUtils, SpendPolicyTestUtils {
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetTCRDeployer(deployer).initializeWithConfig(
+        BudgetStackDeployer(deployer).initializeWithConfig(
             budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
         );
     }

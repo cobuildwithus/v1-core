@@ -6,7 +6,7 @@ import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
@@ -191,7 +191,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
     );
 
     function test_budgetTCRDeployer_constructor_sets_budget_treasury_implementation() public {
-        BudgetTCRDeployer deployer = _deployBudgetTcrDeployer();
+        BudgetStackDeployer deployer = _deployBudgetTcrDeployer();
         address implementation = deployer.budgetTreasuryImplementation();
 
         assertTrue(implementation != address(0));
@@ -1161,9 +1161,9 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
 
         address stackDeployer = BudgetTCR(deployed.budgetTCR).stackDeployer();
         assertTrue(stackDeployer != address(0));
-        assertEq(BudgetTCRDeployer(stackDeployer).budgetTCR(), deployed.budgetTCR);
+        assertEq(BudgetStackDeployer(stackDeployer).controller(), deployed.budgetTCR);
 
-        address treasuryImplementation = BudgetTCRDeployer(stackDeployer).budgetTreasuryImplementation();
+        address treasuryImplementation = BudgetStackDeployer(stackDeployer).budgetTreasuryImplementation();
         assertTrue(treasuryImplementation != address(0));
         assertGt(treasuryImplementation.code.length, 0);
 
@@ -1213,7 +1213,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
-        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(deployedBudgetTCR.stackDeployer());
+        BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
         assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
@@ -1266,7 +1266,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
-        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(deployedBudgetTCR.stackDeployer());
+        BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
         assertEq(
             deployedBudgetTCR.premiumEscrowImplementation(),
@@ -1326,7 +1326,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetTCRFactory.DeployedBudgetTCRStack memory deployed =
             factory.deployBudgetTCRStackForGoal(registryConfig, deploymentConfig, _defaultArbitratorParams());
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
-        BudgetTCRDeployer stackDeployer = BudgetTCRDeployer(deployedBudgetTCR.stackDeployer());
+        BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
         assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
@@ -1837,13 +1837,13 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
     {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = _deployBudgetTcrDeployer();
+        BudgetStackDeployer deployerImpl = _deployBudgetTcrDeployer();
         factory = new BudgetTCRFactory(
             address(budgetImpl), address(arbImpl), address(deployerImpl), authorizedCaller, escrowBondBps
         );
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -1852,8 +1852,8 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 address(new ERC20VotesArbitrator())
             )
         );
-        return BudgetTCRDeployer(
-            new BudgetTCRDeployer(
+        return BudgetStackDeployer(
+            new BudgetStackDeployer(
                 address(new BudgetTreasury()),
                 roundFactory,
                 roundFactory,

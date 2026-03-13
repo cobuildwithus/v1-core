@@ -21,7 +21,7 @@ library BudgetControllerSyncLib {
     function trySyncBudgetTreasury(
         bytes32 itemID,
         address budgetTreasury
-    ) internal returns (SyncAttempt memory attempt) {
+    ) external returns (SyncAttempt memory attempt) {
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
         try treasury.sync() {
             attempt.success = true;
@@ -38,7 +38,7 @@ library BudgetControllerSyncLib {
         address childFlow,
         address budgetTreasury,
         bool detachParentRecipient
-    ) internal returns (bool removedFromParent, bool goalSynced) {
+    ) external returns (bool removedFromParent, bool goalSynced) {
         if (detachParentRecipient && childFlow != address(0) && goalFlow.recipientExists(childFlow)) {
             goalFlow.removeRecipient(itemID);
             removedFromParent = true;

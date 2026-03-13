@@ -4,7 +4,7 @@ pragma solidity ^0.8.34;
 import { BudgetTCRTest } from "test/BudgetTCR.t.sol";
 
 import { BudgetTCR } from "src/tcr/BudgetTCR.sol";
-import { BudgetTCRDeployer } from "src/tcr/BudgetTCRDeployer.sol";
+import { BudgetStackDeployer } from "src/goals/BudgetStackDeployer.sol";
 import { PremiumEscrow } from "src/goals/PremiumEscrow.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
@@ -20,7 +20,7 @@ contract BudgetTCRPremiumOnlyActivationAuditTest is BudgetTCRTest {
         ) = _freshInitializeConfigWithFreshArbitrator();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        _initializeOpenBudgetTcrDeployer(BudgetTCRDeployer(freshStackDeployer), address(freshTcr), premiumEscrowImplementation);
+        _initializeOpenBudgetTcrDeployer(BudgetStackDeployer(freshStackDeployer), address(freshTcr), premiumEscrowImplementation);
 
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);

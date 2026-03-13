@@ -60,6 +60,13 @@ interface IManagedBudgetController is IBudgetController {
     );
     event ManagedBudgetWeightsSet(bytes32[] itemIDs, uint32[] ppm);
     event ManagedBudgetFlowWeightsSet(bytes32 indexed budgetItemID, bytes32[] itemIDs, uint32[] ppm);
+    event BudgetGateEnforcementFailed(
+        bytes32 indexed itemID,
+        address indexed budgetTreasury,
+        address callTarget,
+        bytes4 indexed selector,
+        bytes reason
+    );
 
     function initialize(InitConfig calldata initConfig) external;
 

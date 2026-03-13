@@ -3,12 +3,13 @@ pragma solidity ^0.8.34;
 
 import "forge-std/Test.sol";
 
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
+import {BudgetStackInstantiationLib} from "src/goals/library/BudgetStackInstantiationLib.sol";
+import {BudgetTopologyRegistryLib} from "src/goals/library/BudgetTopologyRegistryLib.sol";
 import {BudgetTCRStackActions} from "src/tcr/library/BudgetTCRStackActions.sol";
 import {BudgetTCRStorageV1} from "src/tcr/storage/BudgetTCRStorageV1.sol";
 import {GeneralizedTCRStorageV1} from "src/tcr/storage/GeneralizedTCRStorageV1.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
-import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
 import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {FlowTypes} from "src/storage/FlowStorage.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
@@ -17,6 +18,7 @@ import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {IBudgetStackChildFlowStrategyFactory} from "src/interfaces/IBudgetStackChildFlowStrategyFactory.sol";
 import {
     BudgetTCRTestSuperToken,
     BudgetTCRGoalFlowHarness,
@@ -53,6 +55,23 @@ contract ManagedBudgetStackFixedStrategy is IAllocationStrategy {
 
     function strategyKey() external pure returns (string memory) {
         return "managed";
+    }
+}
+
+contract ManagedBudgetStackStrategyFactoryMock is IBudgetStackChildFlowStrategyFactory {
+    address public immutable strategy;
+
+    constructor(address strategy_) {
+        strategy = strategy_;
+    }
+
+    function prepareChildFlowStrategy(
+        address,
+        address,
+        address,
+        address
+    ) external view returns (address preparedStrategy) {
+        preparedStrategy = strategy;
     }
 }
 
@@ -124,7 +143,11 @@ contract ManagedBudgetStackActionsHarness is BudgetTCRStorageV1, GeneralizedTCRS
         );
     }
 
-    function deployment(bytes32 itemID) external view returns (BudgetDeployment memory budgetDeployment) {
+    function deployment(bytes32 itemID)
+        external
+        view
+        returns (BudgetTopologyRegistryLib.BudgetDeployment memory budgetDeployment)
+    {
         budgetDeployment = _budgetDeployments[itemID];
     }
 
@@ -142,8 +165,9 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
     uint32 internal constant MANAGED_BUDGET_SLASH_PPM = 0;
 
     ManagedBudgetStackActionsHarness internal harness;
-    BudgetTCRDeployer internal deployer;
+    BudgetStackDeployer internal deployer;
     ManagedBudgetStackFixedStrategy internal fixedStrategy;
+    ManagedBudgetStackStrategyFactoryMock internal fixedStrategyFactory;
     BudgetTCRTestSuperToken internal superToken;
     BudgetTCRGoalFlowHarness internal goalFlow;
     BudgetTCRGoalTreasuryHarness internal goalTreasury;
@@ -158,6 +182,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
     function setUp() public {
         harness = new ManagedBudgetStackActionsHarness();
         fixedStrategy = new ManagedBudgetStackFixedStrategy();
+        fixedStrategyFactory = new ManagedBudgetStackStrategyFactoryMock(address(fixedStrategy));
         superToken = new BudgetTCRTestSuperToken();
         goalFlow = new BudgetTCRGoalFlowHarness(
             address(this), address(harness), managerRewardPool, ISuperToken(address(superToken))
@@ -173,7 +198,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         deployer = _deployBudgetTcrDeployer();
         deployer.initializeWithConfig(
             address(harness),
-            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategy), safe),
+            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe),
             address(0)
         );
 
@@ -194,7 +219,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         bytes32 itemID = keccak256("managed-budget");
         harness.deploy(itemID, abi.encode(_defaultListing()));
 
-        BudgetTCRStorageV1.BudgetDeployment memory deployment = harness.deployment(itemID);
+        BudgetTopologyRegistryLib.BudgetDeployment memory deployment = harness.deployment(itemID);
         assertTrue(deployment.active);
         assertEq(deployment.strategy, address(fixedStrategy));
         assertEq(deployment.allocationMechanism, address(0));
@@ -214,10 +239,10 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
 
     function test_managedStackDeploy_emitsOnlyStackSignals_whenMechanismLayerDisabled() public {
         ManagedBudgetStackDiscoveryEmitterMock discoveryEmitter = new ManagedBudgetStackDiscoveryEmitterMock();
-        BudgetTCRDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
+        BudgetStackDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
         deployerWithEmitter.initializeWithConfig(
             address(harness),
-            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategy), safe),
+            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe),
             address(discoveryEmitter)
         );
 
@@ -238,7 +263,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         harness.deploy(itemID, abi.encode(_defaultListing()));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        BudgetTCRStorageV1.BudgetDeployment memory deployment = harness.deployment(itemID);
+        BudgetTopologyRegistryLib.BudgetDeployment memory deployment = harness.deployment(itemID);
         assertEq(discoveryEmitter.lastStackItemId(), itemID);
         assertEq(discoveryEmitter.lastStackChildFlow(), deployment.childFlow);
         assertEq(discoveryEmitter.lastStackBudgetTreasury(), deployment.budgetTreasury);
@@ -271,7 +296,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 10e18})
         );
 
-        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_NOT_PREPARED.selector);
+        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_NOT_PREPARED.selector);
         harness.deploy(keccak256("managed-budget-nonzero-rates"), abi.encode(_defaultListing()));
     }
 
@@ -292,7 +317,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         });
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -301,7 +326,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
                 address(new ERC20VotesArbitrator())
             )
         );
-        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+        BudgetStackDeployer implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             roundFactory,
             roundFactory,
@@ -309,7 +334,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        return BudgetTCRDeployer(Clones.clone(address(implementation)));
+        return BudgetStackDeployer(Clones.clone(address(implementation)));
     }
 
     function _hasEventForItem(Vm.Log[] memory logs, bytes32 signature, bytes32 itemID) internal pure returns (bool) {

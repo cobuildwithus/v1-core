@@ -6,18 +6,9 @@ import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
+import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegistryLib.sol";
 
 contract BudgetTCRStorageV1 {
-    struct BudgetDeployment {
-        address childFlow;
-        address budgetTreasury;
-        address premiumEscrow;
-        address strategy;
-        address allocationMechanism;
-        address allocationMechanismArbitrator;
-        bool active;
-    }
-
     IFlow public goalFlow;
     IGoalTreasury public goalTreasury;
 
@@ -41,7 +32,7 @@ contract BudgetTCRStorageV1 {
     IBudgetTCR.BudgetValidationBounds public budgetValidationBounds;
     IBudgetTCR.OracleValidationBounds public oracleValidationBounds;
 
-    mapping(bytes32 => BudgetDeployment) internal _budgetDeployments;
+    mapping(bytes32 => BudgetTopologyRegistryLib.BudgetDeployment) internal _budgetDeployments;
     mapping(address => bytes32) internal _itemIdByBudgetTreasury;
     mapping(address => bytes32) internal _itemIdByChildFlow;
     mapping(bytes32 => bool) internal _pendingRegistrationActivations;

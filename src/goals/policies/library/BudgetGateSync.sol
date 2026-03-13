@@ -5,8 +5,8 @@ import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 
-library BudgetTCRGateSync {
-    event BudgetCreditCapEnforcementFailed(
+library BudgetGateSync {
+    event BudgetGateEnforcementFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
         address callTarget,
@@ -37,7 +37,7 @@ library BudgetTCRGateSync {
 
         uint256 count = gateResult.failures.length;
         for (uint256 i = 0; i < count; i++) {
-            emit BudgetCreditCapEnforcementFailed(
+            emit BudgetGateEnforcementFailed(
                 itemID,
                 budgetTreasury,
                 gateResult.failures[i].callTarget,
@@ -48,7 +48,7 @@ library BudgetTCRGateSync {
 
         if (gateResult.shouldSetRecipientEnabled) {
             try goalFlow.setRecipientEnabled(itemID, gateResult.recipientEnabled) {} catch (bytes memory reason) {
-                emit BudgetCreditCapEnforcementFailed(
+                emit BudgetGateEnforcementFailed(
                     itemID,
                     budgetTreasury,
                     address(goalFlow),

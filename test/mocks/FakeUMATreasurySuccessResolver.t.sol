@@ -346,7 +346,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
             assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
             assertTrue(_stringContains(artifact, "ERC20VotesArbitratorImpl: 0x"));
-            assertTrue(_stringContains(artifact, "BudgetTCRDeployerImpl: 0x"));
+            assertTrue(_stringContains(artifact, "BudgetStackDeployerImpl: 0x"));
             assertTrue(_stringContains(artifact, "LinearSpendPolicyImpl: 0x"));
             assertTrue(
                 _stringContains(
@@ -380,7 +380,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(latestArtifact, "ManagedBudgetControllerImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "ManagedGoalAllocatorStrategyImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "ManagedBudgetChildStrategyFactoryImpl: 0x"));
-            assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "BudgetStackDeployerImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultOpenBudgetGatePolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultGoalSpendPolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultBudgetSpendPolicy: 0x"));
@@ -838,21 +838,39 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             DEFAULT_BUDGET_SPEND_POLICY = defaultBudgetSpendPolicy_;
         }
 
-        function deployGoal(GoalFactory.DeployParams calldata p)
+        function deployOpenGoal(GoalFactory.OpenGoalParams calldata p)
             external
             returns (GoalFactory.DeployedGoalStack memory out)
         {
-            lastGoalSpendPolicy = p.goalSpendPolicy;
-            lastBudgetSpendPolicy = p.budgetTCR.budgetSpendPolicy;
-            lastSuccessResolver = p.success.successResolver;
-            lastBudgetSuccessResolver = p.budgetTCR.budgetSuccessResolver;
-            lastSuccessLiveness = p.success.successAssertionLiveness;
-            lastSuccessBond = p.success.successAssertionBond;
-            lastSpecHash = p.success.successOracleSpecHash;
-            lastPolicyHash = p.success.successAssertionPolicyHash;
-            lastFlowTagline = p.flowMetadata.tagline;
-            lastFlowUrl = p.flowMetadata.url;
+            _recordSharedGoalParams(p.common, p.budgetRuntime);
+            return _mockDeployedGoalStack();
+        }
 
+        function deployManagedGoal(GoalFactory.ManagedGoalParams calldata p)
+            external
+            returns (GoalFactory.DeployedGoalStack memory out)
+        {
+            _recordSharedGoalParams(p.common, p.budgetRuntime);
+            return _mockDeployedGoalStack();
+        }
+
+        function _recordSharedGoalParams(
+            GoalFactory.CommonGoalParams calldata common,
+            GoalFactory.BudgetRuntimeParams calldata budgetRuntime
+        ) internal {
+            lastGoalSpendPolicy = common.goalSpendPolicy;
+            lastBudgetSpendPolicy = budgetRuntime.budgetSpendPolicy;
+            lastSuccessResolver = common.success.successResolver;
+            lastBudgetSuccessResolver = budgetRuntime.budgetSuccessResolver;
+            lastSuccessLiveness = common.success.successAssertionLiveness;
+            lastSuccessBond = common.success.successAssertionBond;
+            lastSpecHash = common.success.successOracleSpecHash;
+            lastPolicyHash = common.success.successAssertionPolicyHash;
+            lastFlowTagline = common.flowMetadata.tagline;
+            lastFlowUrl = common.flowMetadata.url;
+        }
+
+        function _mockDeployedGoalStack() internal pure returns (GoalFactory.DeployedGoalStack memory out) {
             out.goalRevnetId = 1;
             out.goalToken = address(0x1);
             out.goalSuperToken = address(0x2);

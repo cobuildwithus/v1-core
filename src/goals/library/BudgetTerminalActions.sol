@@ -3,16 +3,9 @@ pragma solidity ^0.8.34;
 
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 
-library BudgetTCRTerminalActions {
+library BudgetTerminalActions {
     event BudgetTerminalizationStepFailed(
-        bytes32 indexed itemID,
-        address indexed budgetTreasury,
-        bytes4 indexed selector,
-        bytes reason
-    );
-    event BudgetTreasuryCallFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
         bytes4 indexed selector,
@@ -55,18 +48,5 @@ library BudgetTCRTerminalActions {
 
         goalFlow.removeRecipient(itemID);
         return true;
-    }
-
-    function trySyncGoalTreasury(
-        IGoalTreasury goalTreasury,
-        bytes32 itemID,
-        address budgetTreasury
-    ) external returns (bool) {
-        try goalTreasury.sync() {
-            return true;
-        } catch (bytes memory reason) {
-            emit BudgetTreasuryCallFailed(itemID, budgetTreasury, IGoalTreasury.sync.selector, reason);
-            return false;
-        }
     }
 }

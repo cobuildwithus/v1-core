@@ -20,7 +20,7 @@ import {ICustomFlow, IFlow} from "src/interfaces/IFlow.sol";
 import {IManagedBudgetController} from "src/interfaces/IManagedBudgetController.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IAllocationMechanismFactory} from "src/tcr/interfaces/IAllocationMechanismFactory.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
@@ -739,7 +739,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
 
     ManagedBudgetController internal controller;
     ManagedBudgetControllerMockGoalTreasury internal goalTreasury;
-    BudgetTCRDeployer internal stackDeployer;
+    BudgetStackDeployer internal stackDeployer;
     BudgetSingleAllocatorStrategyFactory internal childStrategyFactory;
     SingleAllocatorStrategy internal goalStrategy;
     TestableCustomFlow internal goalFlow;
@@ -759,7 +759,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
         childStrategyFactory = new BudgetSingleAllocatorStrategyFactory(
             address(new BudgetSingleAllocatorStrategy(address(0), address(0)))
         );
-        BudgetTCRDeployer deployerImplementation = new BudgetTCRDeployer(
+        BudgetStackDeployer deployerImplementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             address(
                 new RoundFactory(
@@ -781,7 +781,7 @@ contract ManagedBudgetControllerRealStackTest is FlowTestBase, SpendPolicyTestUt
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        stackDeployer = BudgetTCRDeployer(Clones.clone(address(deployerImplementation)));
+        stackDeployer = BudgetStackDeployer(Clones.clone(address(deployerImplementation)));
         spendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
         goalStrategy = new SingleAllocatorStrategy(address(goalTreasury), address(controller));
@@ -1448,8 +1448,8 @@ contract ManagedBudgetControllerMockStackDeployer is IBudgetStackDeployer {
 
     function stackModuleConfig() external view returns (StackModuleConfig memory config) {
         config = StackModuleConfig({
-            childFlowStrategyMode: ChildFlowStrategyMode.Fixed,
-            childFlowStrategyTarget: address(0),
+            childFlowStrategyMode: ChildFlowStrategyMode.Factory,
+            childFlowStrategyTarget: address(this),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(this),
             premiumEscrowImplementation: address(0)

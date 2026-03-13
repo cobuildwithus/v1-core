@@ -39,6 +39,7 @@ contract DeployGoalFromFactory is DeployScript {
         address goalOwner = vm.envOr("GOAL_OWNER", deployerAddress);
         GoalFactory.GoalPreset preset = GoalFactory.GoalPreset(vm.envOr("GOAL_PRESET", uint256(0)));
         address managedSafe = vm.envOr("MANAGED_SAFE", address(0));
+        address managedBudgetGatePolicy = vm.envOr("MANAGED_BUDGET_GATE_POLICY", address(0));
         string memory goalName = vm.envOr("GOAL_NAME", string("Test Goal"));
         string memory goalTicker = vm.envOr("GOAL_TICKER", string("TGOAL"));
         string memory goalUri = vm.envOr("GOAL_URI", string("ipfs://TEST"));
@@ -124,9 +125,7 @@ contract DeployGoalFromFactory is DeployScript {
             slashCallerBountyBps: slashCallerBountyBps
         });
 
-        GoalFactory.DeployParams memory params = GoalFactory.DeployParams({
-            preset: preset,
-            managedSafe: managedSafe,
+        GoalFactory.CommonGoalParams memory common = GoalFactory.CommonGoalParams({
             funding: GoalFactory.FundingContext({paymentToken: paymentToken, paymentRevnetId: paymentRevnetId}),
             revnet: GoalFactory.RevnetParams({
                 name: goalName,
@@ -151,28 +150,45 @@ contract DeployGoalFromFactory is DeployScript {
             underwriting: GoalFactory.UnderwritingParams({
                 budgetPremiumPpm: budgetPremiumPpm, budgetSlashPpm: budgetSlashPpm
             }),
-            budgetTCR: GoalFactory.BudgetTCRParams({
-                allocationMechanismAdmin: goalOwner,
-                invalidRoundRewardsSink: BURN,
-                submissionDepositStrategy: address(0),
-                submissionBaseDeposit: vm.envOr("TCR_SUBMISSION_BASE_DEPOSIT", uint256(0)),
-                removalBaseDeposit: vm.envOr("TCR_REMOVAL_BASE_DEPOSIT", uint256(0)),
-                submissionChallengeBaseDeposit: vm.envOr("TCR_SUBMISSION_CHALLENGE_DEPOSIT", uint256(0)),
-                removalChallengeBaseDeposit: vm.envOr("TCR_REMOVAL_CHALLENGE_DEPOSIT", uint256(0)),
-                registrationMetaEvidence: vm.envOr("TCR_REG_META", string("ipfs://REG")),
-                clearingMetaEvidence: vm.envOr("TCR_CLEAR_META", string("ipfs://CLEAR")),
-                challengePeriodDuration: challengePeriod,
-                arbitratorExtraData: bytes(""),
-                budgetBounds: budgetBounds,
-                oracleBounds: oracleBounds,
-                budgetSuccessResolver: budgetSuccessResolver,
-                budgetSpendPolicy: budgetSpendPolicy,
-                arbitratorParams: arbParams
-            }),
             goalSpendPolicy: goalSpendPolicy
         });
+        GoalFactory.BudgetRuntimeParams memory budgetRuntime = GoalFactory.BudgetRuntimeParams({
+            budgetSuccessResolver: budgetSuccessResolver,
+            budgetSpendPolicy: budgetSpendPolicy,
+            oracleBounds: oracleBounds
+        });
 
-        GoalFactory.DeployedGoalStack memory out = factory.deployGoal(params);
+        GoalFactory.DeployedGoalStack memory out;
+        if (preset == GoalFactory.GoalPreset.Managed) {
+            GoalFactory.ManagedGoalParams memory params = GoalFactory.ManagedGoalParams({
+                common: common,
+                managedSafe: managedSafe,
+                managedBudgetGatePolicy: managedBudgetGatePolicy,
+                budgetRuntime: budgetRuntime
+            });
+            out = factory.deployManagedGoal(params);
+        } else {
+            GoalFactory.OpenGoalParams memory params = GoalFactory.OpenGoalParams({
+                common: common,
+                budgetRuntime: budgetRuntime,
+                openBudgetTCR: GoalFactory.OpenBudgetTCRParams({
+                    allocationMechanismAdmin: goalOwner,
+                    invalidRoundRewardsSink: BURN,
+                    submissionDepositStrategy: address(0),
+                    submissionBaseDeposit: vm.envOr("TCR_SUBMISSION_BASE_DEPOSIT", uint256(0)),
+                    removalBaseDeposit: vm.envOr("TCR_REMOVAL_BASE_DEPOSIT", uint256(0)),
+                    submissionChallengeBaseDeposit: vm.envOr("TCR_SUBMISSION_CHALLENGE_DEPOSIT", uint256(0)),
+                    removalChallengeBaseDeposit: vm.envOr("TCR_REMOVAL_CHALLENGE_DEPOSIT", uint256(0)),
+                    registrationMetaEvidence: vm.envOr("TCR_REG_META", string("ipfs://REG")),
+                    clearingMetaEvidence: vm.envOr("TCR_CLEAR_META", string("ipfs://CLEAR")),
+                    challengePeriodDuration: challengePeriod,
+                    arbitratorExtraData: bytes(""),
+                    budgetBounds: budgetBounds,
+                    arbitratorParams: arbParams
+                })
+            });
+            out = factory.deployOpenGoal(params);
+        }
 
         goalOwnerOut = goalOwner;
         goalSpendPolicyOut = goalSpendPolicy;

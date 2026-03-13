@@ -13,7 +13,7 @@ import {
 import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
@@ -247,7 +247,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
         });
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -256,7 +256,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
                 address(new ERC20VotesArbitrator())
             )
         );
-        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+        BudgetStackDeployer implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             roundFactory,
             roundFactory,
@@ -264,7 +264,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        return BudgetTCRDeployer(Clones.clone(address(implementation)));
+        return BudgetStackDeployer(Clones.clone(address(implementation)));
     }
 
     function _initializeOpenBudgetTcrDeployer(
@@ -272,7 +272,7 @@ contract BudgetTCRManagerRewardPoolWiringTest is TestUtils, SpendPolicyTestUtils
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
-        BudgetTCRDeployer(deployer).initializeWithConfig(
+        BudgetStackDeployer(deployer).initializeWithConfig(
             budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0)
         );
     }

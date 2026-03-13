@@ -6,7 +6,7 @@ import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrowInitializer } from "src/interfaces/IPremiumEscrow.sol";
 import { BudgetTreasury } from "src/goals/BudgetTreasury.sol";
 
-library BudgetTCRStackDeploymentLib {
+library BudgetStackDeploymentLib {
     error ADDRESS_ZERO();
     error INVALID_TREASURY(address treasury);
     error INVALID_TREASURY_CONFIGURATION(address treasury);

@@ -8,7 +8,7 @@ import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-library BudgetTCRCreditCapActions {
+library StakeCoverageGateActions {
     struct FailureAccumulator {
         IBudgetGatePolicy.CallFailure[2] failures;
         uint256 count;

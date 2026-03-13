@@ -52,7 +52,7 @@ This spec captures stable lifecycle and behavior contracts across Flow, goals/tr
   - recipient gating: over-line disables goal-flow recipient (effective units `0`), under-line re-enables and restores saved virtual units,
   - budget `executionDuration` does not increase insured principal; it only affects budget treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` during `BudgetTCR.syncBudgetTreasuries`,
-  - enforcement is best-effort in batch sync; failures emit `BudgetCreditCapEnforcementFailed` and do not abort other items.
+  - enforcement is best-effort in batch sync; failures emit `BudgetGateEnforcementFailed` and do not abort other items.
 - Budget active flow-rate targeting is policy-only and always delegates to `ISpendPolicy.targetFlowRate(SpendContext)`:
   - the repo-wide default budget deployment is a BudgetTCR-wide `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`,
   - that policy preserves the current trusted incoming component `max(parentFlow.getMemberFlowRate(address(budgetFlow)), 0)` plus balance spenddown `treasuryBalance / timeRemaining`,

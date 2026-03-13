@@ -2,18 +2,17 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { IBudgetStackChildFlowStrategyFactory } from "src/interfaces/IBudgetStackChildFlowStrategyFactory.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
-import { IBudgetTCRChildFlowStrategyFactory } from "./interfaces/IBudgetTCRChildFlowStrategyFactory.sol";
 import { IBudgetFlowRouterStrategy } from "src/interfaces/IBudgetFlowRouterStrategy.sol";
 import { BudgetFlowRouterStrategy } from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
-import { IBudgetTCRFactoryDiscoveryEmitter } from "./interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
+import { IBudgetTCRFactoryDiscoveryEmitter } from "src/tcr/interfaces/IBudgetTCRFactoryDiscoveryEmitter.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { BudgetTCRStackDeploymentLib } from "./library/BudgetTCRStackDeploymentLib.sol";
+import { BudgetStackDeploymentLib } from "src/goals/library/BudgetStackDeploymentLib.sol";
 
-contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
+contract BudgetStackDeployer is IBudgetStackDeployer, Initializable {
     address public override controller;
     address public premiumEscrowImplementation;
     address public discoveryEmitter;
@@ -113,7 +112,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         address budgetTreasury,
         IBudgetTreasury.BudgetConfig calldata budgetConfig
     ) external onlyController returns (address deployedBudgetTreasury) {
-        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasury(
+        deployedBudgetTreasury = BudgetStackDeploymentLib.deployBudgetTreasury(
             controller,
             budgetTreasury,
             budgetConfig
@@ -125,16 +124,12 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
         IBudgetTreasury.BudgetConfig calldata budgetConfig,
         RiskModuleInitConfig calldata riskModuleInitConfig
     ) external onlyController returns (address deployedBudgetTreasury) {
-        deployedBudgetTreasury = BudgetTCRStackDeploymentLib.deployBudgetTreasuryWithRiskModule(
+        deployedBudgetTreasury = BudgetStackDeploymentLib.deployBudgetTreasuryWithRiskModule(
             controller,
             budgetTreasury,
             budgetConfig,
             riskModuleInitConfig
         );
-    }
-
-    function budgetTCR() external view override returns (address budgetTCR_) {
-        budgetTCR_ = controller;
     }
 
     function registerChildFlowRecipient(bytes32 recipientId, address childFlow) external onlyController {
@@ -258,11 +253,7 @@ contract BudgetTCRDeployer is IBudgetTCRDeployer, Initializable {
             return strategy;
         }
 
-        if (strategyMode == ChildFlowStrategyMode.Fixed) {
-            return strategyTarget;
-        }
-
-        strategy = IBudgetTCRChildFlowStrategyFactory(strategyTarget).prepareChildFlowStrategy(
+        strategy = IBudgetStackChildFlowStrategyFactory(strategyTarget).prepareChildFlowStrategy(
             budgetTreasury,
             budgetStakeLedger,
             goalFlow,

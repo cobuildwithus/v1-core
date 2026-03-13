@@ -5,15 +5,16 @@ import { GeneralizedTCR } from "./GeneralizedTCR.sol";
 import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { BudgetTCRStorageV1 } from "./storage/BudgetTCRStorageV1.sol";
 import { BudgetTCRInitValidation } from "./library/BudgetTCRInitValidation.sol";
-import { BudgetTCRGateSync } from "./library/BudgetTCRGateSync.sol";
 import { BudgetTCRValidationLib } from "./library/BudgetTCRValidationLib.sol";
 import { BudgetTCRStackActions } from "./library/BudgetTCRStackActions.sol";
-import { BudgetTCRTerminalActions } from "./library/BudgetTCRTerminalActions.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
 import { IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
+import { BudgetTerminalActions } from "src/goals/library/BudgetTerminalActions.sol";
+import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegistryLib.sol";
+import { BudgetGateSync } from "src/goals/policies/library/BudgetGateSync.sol";
 import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
 
 contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
@@ -82,39 +83,55 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function budgetStackTopology(
         bytes32 itemID
     ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = _budgetStackTopologyFromDeployment(deployment);
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
         active = deployment.active;
     }
 
     function budgetStackTopologyForBudgetTreasury(
         address budgetTreasury
     ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        bytes32 itemID = _validatedItemIdForBudgetTreasury(budgetTreasury);
+        bytes32 itemID = BudgetTopologyRegistryLib.validatedItemIdForBudgetTreasury(
+            _budgetDeployments,
+            _itemIdByBudgetTreasury,
+            budgetTreasury
+        );
         if (itemID == bytes32(0)) return (topology, false);
 
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = _budgetStackTopologyFromDeployment(deployment);
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
         active = deployment.active;
     }
 
     function budgetStackTopologyForChildFlow(
         address childFlow
     ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        bytes32 itemID = _validatedItemIdForChildFlow(childFlow);
+        bytes32 itemID = BudgetTopologyRegistryLib.validatedItemIdForChildFlow(
+            _budgetDeployments,
+            _itemIdByChildFlow,
+            childFlow
+        );
         if (itemID == bytes32(0)) return (topology, false);
 
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = _budgetStackTopologyFromDeployment(deployment);
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
         active = deployment.active;
     }
 
     function itemIdForBudgetTreasury(address budgetTreasury) external view override returns (bytes32 itemID) {
-        itemID = _validatedItemIdForBudgetTreasury(budgetTreasury);
+        itemID = BudgetTopologyRegistryLib.validatedItemIdForBudgetTreasury(
+            _budgetDeployments,
+            _itemIdByBudgetTreasury,
+            budgetTreasury
+        );
     }
 
     function itemIdForChildFlow(address childFlow) external view override returns (bytes32 itemID) {
-        itemID = _validatedItemIdForChildFlow(childFlow);
+        itemID = BudgetTopologyRegistryLib.validatedItemIdForChildFlow(
+            _budgetDeployments,
+            _itemIdByChildFlow,
+            childFlow
+        );
     }
 
     function budgetSpendPolicy() public view override(IBudgetTCR, BudgetTCRStorageV1) returns (address policy) {
@@ -149,7 +166,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function finalizeRemovedBudget(bytes32 itemID) external override nonReentrant returns (bool terminallyResolved) {
         if (!_pendingRemovalFinalizations[itemID]) revert REMOVAL_NOT_PENDING();
 
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address childFlow = deployment.childFlow;
         address budgetTreasury = deployment.budgetTreasury;
         if (!deployment.active) {
@@ -162,7 +179,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         }
 
         IBudgetStakeLedger(_budgetStakeLedger()).removeBudget(itemID);
-        bool removedFromParent = BudgetTCRTerminalActions.removeRecipientFromGoalFlowIfPresent(
+        bool removedFromParent = BudgetTerminalActions.removeRecipientFromGoalFlowIfPresent(
             goalFlow,
             itemID,
             childFlow
@@ -177,7 +194,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
                 terminallyResolved = treasury.resolved();
             } else {
                 treasury.disableSuccessResolution();
-                if (!BudgetTCRTerminalActions.resolveBudgetTerminalStateStrict(treasury)) {
+                if (!BudgetTerminalActions.resolveBudgetTerminalStateStrict(treasury)) {
                     revert TERMINAL_RESOLUTION_FAILED();
                 }
             }
@@ -199,7 +216,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function _onItemRemoved(bytes32 itemID) internal override {
         _pendingRegistrationActivations[itemID] = false;
 
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
         if (!deployment.active) {
             _pendingRemovalFinalizations[itemID] = false;
             return;
@@ -221,7 +238,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
     function retryRemovedBudgetResolution(
         bytes32 itemID
     ) external override nonReentrant returns (bool terminallyResolved) {
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
         address budgetTreasury = deployment.budgetTreasury;
         if (budgetTreasury == address(0)) revert ITEM_NOT_DEPLOYED();
         if (deployment.active) revert STACK_STILL_ACTIVE();
@@ -236,7 +253,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
             }
             terminallyResolved = treasury.resolved();
         } else {
-            terminallyResolved = BudgetTCRTerminalActions.resolveBudgetTerminalStateBestEffort(itemID, treasury);
+            terminallyResolved = BudgetTerminalActions.resolveBudgetTerminalStateBestEffort(itemID, treasury);
         }
         if (terminallyResolved) {
             _pendingRemovalFinalizations[itemID] = false;
@@ -250,7 +267,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         bytes32 itemID = _itemIdByBudgetTreasury[budgetTreasury];
         if (itemID == bytes32(0)) revert ITEM_NOT_DEPLOYED();
 
-        BudgetDeployment storage deployment = _budgetDeployments[itemID];
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
         if (deployment.budgetTreasury != budgetTreasury) revert ITEM_NOT_DEPLOYED();
 
         IBudgetTreasury treasury = IBudgetTreasury(budgetTreasury);
@@ -273,7 +290,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         uint256 count = itemIDs.length;
         for (uint256 i = 0; i < count; i++) {
             bytes32 itemID = itemIDs[i];
-            BudgetDeployment storage deployment = _budgetDeployments[itemID];
+            BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
             address budgetTreasury = deployment.budgetTreasury;
 
             if (budgetTreasury == address(0)) {
@@ -288,7 +305,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
             attempted += 1;
             if (address(gatePolicy) != address(0)) {
-                BudgetTCRGateSync.applyBudgetGate(
+                BudgetGateSync.applyBudgetGate(
                     itemID,
                     budgetTreasury,
                     deployment.childFlow,
@@ -331,7 +348,7 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
 
     function _pruneTerminalBudgetLocal(
         bytes32 itemID,
-        BudgetDeployment storage deployment,
+        BudgetTopologyRegistryLib.BudgetDeployment storage deployment,
         address budgetTreasury
     ) internal returns (bool removedFromParent, bool goalSynced) {
         (removedFromParent, goalSynced) = BudgetControllerSyncLib.pruneTerminalRecipientAndSyncGoal(
@@ -345,30 +362,5 @@ contract BudgetTCR is GeneralizedTCR, IBudgetTCR, BudgetTCRStorageV1 {
         if (!deployment.active && _pendingRemovalFinalizations[itemID]) {
             _pendingRemovalFinalizations[itemID] = false;
         }
-    }
-
-    function _budgetStackTopologyFromDeployment(
-        BudgetDeployment storage deployment
-    ) internal view returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology) {
-        topology = IBudgetStackTopologyReader.BudgetStackTopology({
-            childFlow: deployment.childFlow,
-            budgetTreasury: deployment.budgetTreasury,
-            premiumEscrow: deployment.premiumEscrow,
-            strategy: deployment.strategy,
-            allocationMechanism: deployment.allocationMechanism,
-            allocationMechanismArbitrator: deployment.allocationMechanismArbitrator
-        });
-    }
-
-    function _validatedItemIdForBudgetTreasury(address budgetTreasury) internal view returns (bytes32 itemID) {
-        itemID = _itemIdByBudgetTreasury[budgetTreasury];
-        if (itemID == bytes32(0)) return bytes32(0);
-        if (_budgetDeployments[itemID].budgetTreasury != budgetTreasury) return bytes32(0);
-    }
-
-    function _validatedItemIdForChildFlow(address childFlow) internal view returns (bytes32 itemID) {
-        itemID = _itemIdByChildFlow[childFlow];
-        if (itemID == bytes32(0)) return bytes32(0);
-        if (_budgetDeployments[itemID].childFlow != childFlow) return bytes32(0);
     }
 }

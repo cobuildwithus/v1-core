@@ -57,7 +57,7 @@ The protocol has three coupled subsystems:
 - `GeneralizedTCR.sol`: item request/challenge lifecycle and round fee accounting.
 - `ERC20VotesArbitrator.sol`: dispute rounds, rulings, voter rewards, optional stake-vault juror slashing mode.
 - `BudgetTCR.sol`: maps TCR outcomes to budget stack deployment/activation/removal terminalization.
-- `BudgetTCRDeployer.sol`: deploy helper used by `BudgetTCR`.
+- `BudgetStackDeployer.sol`: shared deploy helper used by `BudgetTCR` and managed budget stacks.
 - `BudgetTCRValidator.sol`: listing constraints (deadlines/durations/oracle requirements).
 
 ## State machines

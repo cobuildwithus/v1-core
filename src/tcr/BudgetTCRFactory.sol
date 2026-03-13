@@ -8,13 +8,13 @@ import { IBudgetTCR } from "./interfaces/IBudgetTCR.sol";
 import { IArbitrator } from "./interfaces/IArbitrator.sol";
 import { IGeneralizedTCRConfig } from "./interfaces/IGeneralizedTCRConfig.sol";
 import { IERC20VotesArbitrator } from "./interfaces/IERC20VotesArbitrator.sol";
-import { IBudgetTCRDeployer } from "./interfaces/IBudgetTCRDeployer.sol";
 import { ISubmissionDepositStrategy } from "./interfaces/ISubmissionDepositStrategy.sol";
 import { ISubmissionDepositStrategyCapabilities } from "./interfaces/ISubmissionDepositStrategyCapabilities.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import { JurorSlasherRouter } from "src/goals/JurorSlasherRouter.sol";
+import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { FlowProtocolConstants } from "src/library/FlowProtocolConstants.sol";
 
 contract BudgetTCRFactory {
@@ -259,7 +259,7 @@ contract BudgetTCRFactory {
         address budgetTCR,
         address premiumEscrowImplementation
     ) internal {
-        IBudgetTCRDeployer(stackDeployer).initializeWithConfig(
+        IBudgetStackDeployer(stackDeployer).initializeWithConfig(
             budgetTCR,
             _stackModuleConfig(premiumEscrowImplementation),
             address(this)
@@ -362,13 +362,7 @@ contract BudgetTCRFactory {
     function _stackModuleConfig(
         address premiumEscrowImplementation
     ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
-        config = IBudgetStackDeployer.StackModuleConfig({
-            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
-            childFlowStrategyTarget: address(0),
-            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
-            childFlowRecipientAdmin: address(0),
-            premiumEscrowImplementation: premiumEscrowImplementation
-        });
+        config = BudgetStackPresetConfigLib.openPreset(premiumEscrowImplementation);
     }
 
     function _resolveUnderwriterSlasherRouter(

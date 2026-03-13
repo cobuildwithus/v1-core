@@ -53,7 +53,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 ### Open preset
 
 1. `BudgetTCR` is the budget controller, topology registry, and open-market budget curation layer.
-2. `BudgetTCRDeployer` prepares the budget stack:
+2. `BudgetStackDeployer` prepares the budget stack:
    - cloned `BudgetTreasury`
    - cloned `PremiumEscrow`
    - shared `BudgetFlowRouterStrategy`
@@ -67,8 +67,8 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 1. `ManagedBudgetController` is the budget controller, topology registry, and goal-level allocator identity.
 2. `GoalFactoryManagedPresetDeploy` wires:
    - immutable `SingleAllocatorStrategy` for the goal flow, allocating as `ManagedBudgetController`
-   - a cloned `BudgetTCRDeployer` configured through `IBudgetStackDeployer` for budget child stacks
-   - no managed gate-policy module by default (`budgetGatePolicy = address(0)`)
+   - a cloned `BudgetStackDeployer` configured through `IBudgetStackDeployer` for budget child stacks
+   - optional managed gate-policy module wired through `GoalFactory.deployManagedGoal(...)`
    - no premium module (`premiumEscrow = address(0)`, `premiumEscrowImplementation = address(0)`)
 3. The managed stack deployer clone only prepares the controller-scoped managed stack pieces:
    - cloned `BudgetTreasury`
@@ -136,7 +136,7 @@ Hard-cutover note (2026-03-01): the legacy goal RewardEscrow / points subsystem 
 - `src/goals/PremiumEscrow.sol`
 - `src/goals/ManagedBudgetController.sol`
 - `src/tcr/BudgetTCR.sol`
-- `src/tcr/BudgetTCRDeployer.sol`
+- `src/goals/BudgetStackDeployer.sol`
 - `src/interfaces/IBudgetStackDeployer.sol`
 - `src/hooks/GoalRevnetSplitHook.sol`
 - `src/juicebox/CobuildExitRouter.sol`

@@ -21,18 +21,18 @@
 - Budget gate policy: `src/goals/policies/StakeCoverageGatePolicy.sol` through `src/interfaces/IBudgetGatePolicy.sol`
 - Budget child strategy: shared `src/allocation-strategies/BudgetFlowRouterStrategy.sol`
 - Premium / risk module: `src/goals/PremiumEscrow.sol`
-- Mechanism layer: `src/tcr/AllocationMechanismTCR.sol` via `src/tcr/BudgetTCRDeployer.sol`
+- Mechanism layer: `src/tcr/AllocationMechanismTCR.sol` via `src/goals/BudgetStackDeployer.sol`
 
 ### Managed preset tuple
 
 - Goal allocator: `src/allocation-strategies/SingleAllocatorStrategy.sol`
 - Goal allocator identity: `src/goals/ManagedBudgetController.sol`
 - Budget controller / topology registry: `src/goals/ManagedBudgetController.sol`
-- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` (current preset wiring uses no managed gate policy / `address(0)`)
+- Budget gate policy: pluggable `src/interfaces/IBudgetGatePolicy.sol` surfaced on the managed deploy path
 - Budget child strategy: `src/allocation-strategies/BudgetSingleAllocatorStrategy.sol`
 - Budget child allocator identity: `src/goals/ManagedBudgetController.sol`
 - Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
-- Stack deployer: configured clone of `src/tcr/BudgetTCRDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
+- Stack deployer: configured clone of `src/goals/BudgetStackDeployer.sol` through `src/interfaces/IBudgetStackDeployer.sol`
 - Mechanism layer: intentionally none in this pass
 - Safe-managed external mechanism runtimes may still be attached as ordinary budget-flow recipients through `src/goals/ManagedBudgetController.sol` generic recipient APIs; that path does not create a managed mechanism registry or managed escrow layer
 - Child-flow `recipientAdmin`: `src/goals/ManagedBudgetController.sol`
@@ -103,7 +103,7 @@
 ### TCR / arbitration / stack deployment domain
 
 - Core: `src/tcr/GeneralizedTCR.sol`, `src/tcr/ERC20VotesArbitrator.sol`, `src/tcr/BudgetTCR.sol`, `src/tcr/CommunityGoalRegistry.sol`
-- Shared budget stack orchestration: `src/tcr/BudgetTCRDeployer.sol`, `src/tcr/BudgetTCRFactory.sol`
+- Shared budget stack orchestration: `src/goals/BudgetStackDeployer.sol`, `src/tcr/BudgetTCRFactory.sol`
 - Mechanism registry / factory boundary: `src/tcr/AllocationMechanismTCR.sol`, `src/tcr/interfaces/IAllocationMechanismFactory.sol`
 - Supporting modules: `src/tcr/interfaces/**`, `src/tcr/storage/**`, `src/tcr/library/**`, `src/tcr/utils/**`, `src/tcr/strategies/**`
 
@@ -115,7 +115,7 @@
    - open preset: `BudgetTCR`
    - managed preset: `ManagedBudgetController`
 4. Child-flow `recipientAdmin` is preset-specific and must not be inferred from the goal-flow controller:
-   - open preset: chosen by `BudgetTCRDeployer` stack-module config,
+   - open preset: chosen by `BudgetStackDeployer` stack-module config,
    - managed preset: `ManagedBudgetController`.
 5. Goal-flow child-sync and budget-ledger registration discover topology through `IBudgetStackTopologyReader` (`budgetTreasury.authority()` / `goalFlow.recipientAdmin()`), not by assuming `BudgetTCR` is the only controller.
 6. Gate policies own enable/disable decisions only; controller modules own routing writes, terminal prune, and best-effort sync retries.

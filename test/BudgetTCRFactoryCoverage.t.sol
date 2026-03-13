@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
 import {JurorSlasherRouter} from "src/goals/JurorSlasherRouter.sol";
@@ -271,13 +271,13 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
     function _realFactory() internal returns (BudgetTCRFactory) {
         BudgetTCR budgetImpl = new BudgetTCR();
         ERC20VotesArbitrator arbImpl = new ERC20VotesArbitrator();
-        BudgetTCRDeployer deployerImpl = _deployBudgetTcrDeployer();
+        BudgetStackDeployer deployerImpl = _deployBudgetTcrDeployer();
         return new BudgetTCRFactory(
             address(budgetImpl), address(arbImpl), address(deployerImpl), address(this), DEFAULT_ESCROW_BOND_BPS
         );
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -286,8 +286,8 @@ contract BudgetTCRFactoryCoverageTest is Test, SpendPolicyTestUtils {
                 address(new ERC20VotesArbitrator())
             )
         );
-        return BudgetTCRDeployer(
-            new BudgetTCRDeployer(
+        return BudgetStackDeployer(
+            new BudgetStackDeployer(
                 address(new BudgetTreasury()),
                 roundFactory,
                 roundFactory,

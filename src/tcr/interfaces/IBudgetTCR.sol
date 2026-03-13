@@ -119,7 +119,7 @@ interface IBudgetTCR is IGeneralizedTCR, IBudgetController {
         bytes4 indexed selector,
         bytes reason
     );
-    event BudgetCreditCapEnforcementFailed(
+    event BudgetGateEnforcementFailed(
         bytes32 indexed itemID,
         address indexed budgetTreasury,
         address callTarget,

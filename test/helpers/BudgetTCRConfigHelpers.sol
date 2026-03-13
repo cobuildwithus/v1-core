@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
+import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 import { IBudgetTCR } from "src/tcr/interfaces/IBudgetTCR.sol";
 
 library BudgetTCRConfigHelpers {
@@ -32,13 +33,7 @@ library BudgetTCRConfigHelpers {
     function openStackModuleConfig(
         address premiumEscrowImplementation
     ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
-        config = IBudgetStackDeployer.StackModuleConfig({
-            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
-            childFlowStrategyTarget: address(0),
-            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
-            childFlowRecipientAdmin: address(0),
-            premiumEscrowImplementation: premiumEscrowImplementation
-        });
+        config = BudgetStackPresetConfigLib.openPreset(premiumEscrowImplementation);
     }
 
     function noPremiumStackModuleConfig()
@@ -46,25 +41,13 @@ library BudgetTCRConfigHelpers {
         pure
         returns (IBudgetStackDeployer.StackModuleConfig memory config)
     {
-        config = IBudgetStackDeployer.StackModuleConfig({
-            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.SharedBudgetFlowRouter,
-            childFlowStrategyTarget: address(0),
-            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.AllocationMechanismTCR,
-            childFlowRecipientAdmin: address(0),
-            premiumEscrowImplementation: address(0)
-        });
+        config = BudgetStackPresetConfigLib.openPreset(address(0));
     }
 
     function fixedNoPremiumStackModuleConfig(
-        address strategy,
+        address strategyFactory,
         address recipientAdmin
     ) internal pure returns (IBudgetStackDeployer.StackModuleConfig memory config) {
-        config = IBudgetStackDeployer.StackModuleConfig({
-            childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Fixed,
-            childFlowStrategyTarget: strategy,
-            mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-            childFlowRecipientAdmin: recipientAdmin,
-            premiumEscrowImplementation: address(0)
-        });
+        config = BudgetStackPresetConfigLib.managedPreset(strategyFactory, recipientAdmin);
     }
 }

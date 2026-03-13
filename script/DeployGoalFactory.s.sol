@@ -43,6 +43,7 @@ contract GoalFactoryPairDeployer {
         address premiumEscrowImpl;
         address jurorSlasherRouterImpl;
         address underwriterSlasherRouterImpl;
+        address budgetStackDeployerImpl;
         address managedBudgetControllerImpl;
         address managedGoalAllocatorStrategyImpl;
         address managedBudgetChildStrategyFactoryImpl;
@@ -111,6 +112,7 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.premiumEscrowImpl,
             goalFactoryConfig.jurorSlasherRouterImpl,
             goalFactoryConfig.underwriterSlasherRouterImpl,
+            goalFactoryConfig.budgetStackDeployerImpl,
             goalFactoryConfig.managedBudgetControllerImpl,
             goalFactoryConfig.managedGoalAllocatorStrategyImpl,
             goalFactoryConfig.managedBudgetChildStrategyFactoryImpl,
@@ -174,7 +176,7 @@ contract DeployGoalFactory is DeployScript {
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
     address internal erc20VotesArbitratorImplOut;
-    address internal budgetTcrDeployerImplOut;
+    address internal budgetStackDeployerImplOut;
 
     uint256 internal escrowBondBpsOut;
     address internal goalFactoryPairDeployerOut;
@@ -266,8 +268,8 @@ contract DeployGoalFactory is DeployScript {
         budgetTcrImplOut = _requireConfigAddress("BUDGET_TCR_IMPL", "$.implementations.budgetTCR");
         erc20VotesArbitratorImplOut =
             _requireConfigAddress("ERC20_VOTES_ARBITRATOR_IMPL", "$.implementations.erc20VotesArbitrator");
-        budgetTcrDeployerImplOut =
-            _requireConfigAddress("BUDGET_TCR_DEPLOYER_IMPL", "$.implementations.budgetTCRDeployer");
+        budgetStackDeployerImplOut =
+            _requireConfigAddress("BUDGET_STACK_DEPLOYER_IMPL", "$.implementations.budgetStackDeployer");
         defaultSubmissionDepositStrategyOut =
             _requireConfigAddress("DEFAULT_SUBMISSION_DEPOSIT_STRATEGY", "$.defaults.submissionDepositStrategy");
         if (defaultSubmissionDepositStrategyOut.code.length == 0) {
@@ -312,7 +314,7 @@ contract DeployGoalFactory is DeployScript {
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
         console2.log("ERC20VotesArbitrator impl:", erc20VotesArbitratorImplOut);
-        console2.log("BudgetTCRDeployer impl:", budgetTcrDeployerImplOut);
+        console2.log("BudgetStackDeployer impl:", budgetStackDeployerImplOut);
         console2.log("--- BudgetTCR stack ---");
         console2.log("FactoryPairDeployer:", goalFactoryPairDeployerOut);
         console2.log("BudgetTCRFactory:", budgetTcrFactoryOut);
@@ -356,7 +358,7 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);
         _writeAddressLine(filePath, "ERC20VotesArbitratorImpl", erc20VotesArbitratorImplOut);
-        _writeAddressLine(filePath, "BudgetTCRDeployerImpl", budgetTcrDeployerImplOut);
+        _writeAddressLine(filePath, "BudgetStackDeployerImpl", budgetStackDeployerImplOut);
 
         _writeAddressLine(filePath, "BudgetTCRFactory", budgetTcrFactoryOut);
         _writeAddressLine(filePath, "GoalFactoryPairDeployer", goalFactoryPairDeployerOut);
@@ -406,7 +408,7 @@ contract DeployGoalFactory is DeployScript {
             GoalFactoryPairDeployer.BudgetTcrFactoryConfig({
                 budgetTcrImplementation: budgetTcrImplOut,
                 arbitratorImplementation: erc20VotesArbitratorImplOut,
-                stackDeployerImplementation: budgetTcrDeployerImplOut,
+                stackDeployerImplementation: budgetStackDeployerImplOut,
                 escrowBondBps: escrowBondBpsOut
             }),
             GoalFactoryPairDeployer.GoalFactoryConfig({
@@ -427,6 +429,7 @@ contract DeployGoalFactory is DeployScript {
                 premiumEscrowImpl: premiumEscrowImplOut,
                 jurorSlasherRouterImpl: jurorSlasherRouterImplOut,
                 underwriterSlasherRouterImpl: underwriterSlasherRouterImplOut,
+                budgetStackDeployerImpl: budgetStackDeployerImplOut,
                 managedBudgetControllerImpl: managedBudgetControllerImplOut,
                 managedGoalAllocatorStrategyImpl: managedGoalAllocatorStrategyImplOut,
                 managedBudgetChildStrategyFactoryImpl: managedBudgetChildStrategyFactoryImplOut,

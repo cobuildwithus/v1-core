@@ -39,7 +39,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Pluggable budget controllers / topology registries: `src/tcr/BudgetTCR.sol`, `src/goals/ManagedBudgetController.sol`
 - Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol`, `src/goals/policies/*.sol`
 - Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, explicit no-premium absence via `premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`, `src/goals/UnderwriterSlasherRouter.sol` for slash-enabled goals
-- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/tcr/BudgetTCRDeployer.sol`
+- Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/goals/BudgetStackDeployer.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
 - Community reserved-token routing: `src/hooks/CobuildSplitHook.sol`, `src/juicebox/CobuildCommunityTerminal.sol`, `src/juicebox/CobuildCommunityTerminalFactory.sol`
@@ -53,7 +53,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
   - Voting power can run in token-votes mode or optional `StakeVault` juror snapshot mode.
 - Budget TCR extension:
   - `src/tcr/BudgetTCR.sol`
-  - `src/tcr/BudgetTCRDeployer.sol`
+  - `src/goals/BudgetStackDeployer.sol`
   - `src/tcr/BudgetTCRFactory.sol`
   - `src/tcr/AllocationMechanismTCR.sol` (active mechanism registry with hard max of 7 active recipients)
   - `src/teamflow/TeamFlow.sol`, `src/teamflow/TeamFlowFactory.sol` (equal-split team mechanism family)
@@ -223,7 +223,7 @@ Community root routing
   - `runwayCap` acts as an additional lower ceiling when configured,
   - budget `executionDuration` does not increase insured principal; it only affects downstream treasury pacing / lock time,
   - per-item enforcement runs before budget treasury `sync()` in `syncBudgetTreasuries`,
-  - best-effort enforcement: failures emit `BudgetCreditCapEnforcementFailed` and do not block the batch.
+  - best-effort enforcement: failures emit `BudgetGateEnforcementFailed` and do not block the batch.
 - Budget treasury active target flow-rate is policy-only.
 - The repo-wide default budget deployment is `LinearSpendPolicy(includeIncomingRate=true, maxTargetFlowRate=0, syncMode=Capped)`.
 - That preserves current budget targeting:
@@ -340,8 +340,8 @@ Community root routing
 
 7. Budget control-plane stack lifecycle
 - The goal flow always uses one recursive-flow substrate; budget control planes differ by preset.
-- Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetTCRDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
-- Managed preset budget creations first call a managed-configured `BudgetTCRDeployer.prepareBudgetStack(...)`, which prepares a cloned `BudgetTreasury`, no premium module, and a per-budget `BudgetSingleAllocatorStrategy`.
+- Open preset budget activations deploy child flow + budget treasury + premium escrow stack through `BudgetStackDeployer` and reuse one shared per-goal `BudgetFlowRouterStrategy`.
+- Managed preset budget creations first call a managed-configured `BudgetStackDeployer.prepareBudgetStack(...)`, which prepares a cloned `BudgetTreasury`, no premium module, and a per-budget `BudgetSingleAllocatorStrategy`.
 - Live `goalFlow` and goal-treasury-derived runtime context are wired later when the controller completes treasury deployment after child-flow creation.
 - Managed preset keeps child-budget allocation ownership and allocator identity on `ManagedBudgetController`, and authority rotates child-budget allocation control by calling controller entrypoints instead of mutating strategy ownership.
 - Budget stack topology is recorded canonically in the active budget controller during deployment / activation:
@@ -356,7 +356,7 @@ Community root routing
   - `BudgetTCR` registers each newly deployed child flow once (`childFlow -> recipientId`) through the stack deployer,
   - strategy resolves effective budget address via `BudgetStakeLedger.budgetForRecipient(recipientId)` and fails closed when missing/resolved.
 - Stack deployers are mechanical:
-  - `BudgetTCRDeployer` is the shared `IBudgetStackDeployer` implementation,
+  - `BudgetStackDeployer` is the shared `IBudgetStackDeployer` implementation,
   - open preset clones are `onlyController` for `BudgetTCR`,
   - managed preset clones are `onlyController` for `ManagedBudgetController`.
 - Stack deployers use clone-first treasury setup and initialize the treasury after child-flow creation.
@@ -377,7 +377,7 @@ Community root routing
   - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each allocation-mechanism arbitrator through the authenticated stack-deployer callback path.
   - `RoundFactory` round arbitrators reuse stake-vault voting power but are intentionally non-slashing and never receive router authorization.
 - For add/remove recipient calls, the goal flow `recipientAdmin` should be set to the per-goal budget controller (`BudgetTCR` or `ManagedBudgetController`).
-- `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetTCRDeployer` implementations.
+- `BudgetTCRFactory` consumes a caller-provided `IVotes` token and clones pre-deployed `BudgetTCR`, `ERC20VotesArbitrator`, and `BudgetStackDeployer` implementations.
 - `BudgetTCRFactory.deployBudgetTCRStackForGoal` is restricted to one configured caller (the deployment `GoalFactory`), removing permissionless external access.
 - Budget stack discovery for indexers is available from fixed emitters:
   - `BudgetTCRFactory.BudgetTCRStackDeployedForGoal` emits first-hop `BudgetTCR` + arbitrator deployment.

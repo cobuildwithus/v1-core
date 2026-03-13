@@ -9,15 +9,14 @@ import { AllocationMechanismTCR } from "src/tcr/AllocationMechanismTCR.sol";
 import { BudgetTCRStorageV1 } from "src/tcr/storage/BudgetTCRStorageV1.sol";
 import { GeneralizedTCRStorageV1 } from "src/tcr/storage/GeneralizedTCRStorageV1.sol";
 import { BudgetTCRItems } from "src/tcr/library/BudgetTCRItems.sol";
-import { IAllocationStrategy } from "src/interfaces/IAllocationStrategy.sol";
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { IBudgetStackTopologyReader } from "src/interfaces/IBudgetStackTopologyReader.sol";
-import { IBudgetTreasury } from "src/interfaces/IBudgetTreasury.sol";
-import { IFlow } from "src/interfaces/IFlow.sol";
+import { ICustomFlow, IFlow } from "src/interfaces/IFlow.sol";
 import { IBudgetStakeLedger } from "src/interfaces/IBudgetStakeLedger.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
-import { IPremiumEscrowManagerRewardPool } from "src/interfaces/IPremiumEscrow.sol";
 import { IUnderwriterSlasherRouter } from "src/interfaces/IUnderwriterSlasherRouter.sol";
+import { BudgetStackInstantiationLib } from "src/goals/library/BudgetStackInstantiationLib.sol";
+import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegistryLib.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -35,12 +34,8 @@ library BudgetTCRStackActions {
         address roundFactory
     );
 
-    error BUDGET_TREASURY_MISMATCH();
-    error PREMIUM_ESCROW_NOT_PREPARED();
-    error PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
-
     function deployBudgetStack(
-        mapping(bytes32 => BudgetTCRStorageV1.BudgetDeployment) storage budgetDeployments,
+        mapping(bytes32 => BudgetTopologyRegistryLib.BudgetDeployment) storage budgetDeployments,
         mapping(address => bytes32) storage itemIdByBudgetTreasury,
         mapping(address => bytes32) storage itemIdByChildFlow,
         bytes32 itemID,
@@ -69,78 +64,56 @@ library BudgetTCRStackActions {
             address(goalFlow)
         );
 
-        address budgetTreasury = prepared.budgetTreasury;
-        address premiumEscrow = prepared.premiumEscrow;
         address allocationMechanism = prepared.allocationMechanism;
-        if (requiresPremiumModule) {
-            if (premiumEscrow == address(0)) revert PREMIUM_ESCROW_NOT_PREPARED();
-        } else if (premiumEscrow != address(0)) {
-            revert PREMIUM_ESCROW_REQUIRES_ZERO_RATES();
-        }
-        bool hasAllocationMechanism = allocationMechanism != address(0);
-        bool hasPremiumEscrow = premiumEscrow != address(0);
+        (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
+        BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = BudgetStackInstantiationLib
+            .instantiatePreparedBudgetStack(
+                BudgetStackInstantiationLib.PreparedBudgetStackContext({
+                    itemID: itemID,
+                    metadata: listing.metadata,
+                    goalFlow: ICustomFlow(address(goalFlow)),
+                    deployer: deployer,
+                    prepared: prepared,
+                    lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
+                        fundingDeadline: listing.fundingDeadline,
+                        executionDuration: listing.executionDuration,
+                        activationThreshold: listing.activationThreshold,
+                        runwayCap: listing.runwayCap,
+                        successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
+                        successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash
+                    }),
+                    runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
+                        successResolver: budgetStore.budgetSuccessResolver(),
+                        successAssertionLiveness: oracleLiveness,
+                        successAssertionBond: oracleBondAmount,
+                        spendPolicy: budgetStore.budgetSpendPolicy()
+                    }),
+                    premiumPpm: budgetPremiumPpm,
+                    useRiskModule: requiresPremiumModule,
+                    riskModuleInitConfig: IBudgetStackDeployer.RiskModuleInitConfig({
+                        budgetStakeLedger: budgetStakeLedger,
+                        goalFlow: address(goalFlow),
+                        underwriterSlasherRouter: underwriterSlasherRouter,
+                        budgetSlashPpm: budgetSlashPpm
+                    })
+                })
+            );
 
-        (, address childFlow) = goalFlow.addFlowRecipient(
+        emit BudgetStackDeployed(itemID, deployed.childFlow, deployed.budgetTreasury, deployed.strategy);
+        deployer.emitBudgetStackDeployed(
             itemID,
-            listing.metadata,
-            prepared.childFlowRecipientAdmin,
-            budgetTreasury,
-            budgetTreasury,
-            premiumEscrow,
-            hasPremiumEscrow ? budgetPremiumPpm : 0,
-            IAllocationStrategy(prepared.strategy)
+            deployed.childFlow,
+            deployed.budgetTreasury,
+            deployed.premiumEscrow,
+            deployed.strategy
         );
 
-        deployer.registerChildFlowRecipient(itemID, childFlow);
-
-        emit BudgetStackDeployed(itemID, childFlow, budgetTreasury, prepared.strategy);
-        deployer.emitBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, prepared.strategy);
-
-        (uint64 oracleLiveness, uint256 oracleBondAmount) = budgetStore.oracleValidationBounds();
-        IBudgetTreasury.BudgetConfig memory budgetConfig = IBudgetTreasury.BudgetConfig({
-            flow: childFlow,
-            premiumEscrow: premiumEscrow,
-            fundingDeadline: listing.fundingDeadline,
-            executionDuration: listing.executionDuration,
-            activationThreshold: listing.activationThreshold,
-            runwayCap: listing.runwayCap,
-            successResolver: budgetStore.budgetSuccessResolver(),
-            successAssertionLiveness: oracleLiveness,
-            successAssertionBond: oracleBondAmount,
-            successOracleSpecHash: listing.oracleConfig.oracleSpecHash,
-            successAssertionPolicyHash: listing.oracleConfig.assertionPolicyHash,
-            spendPolicy: budgetStore.budgetSpendPolicy()
-        });
-        address deployedBudgetTreasury = hasPremiumEscrow
-            ? deployer.deployBudgetTreasuryWithRiskModule(
-                budgetTreasury,
-                budgetConfig,
-                IBudgetStackDeployer.RiskModuleInitConfig({
-                    budgetStakeLedger: budgetStakeLedger,
-                    goalFlow: address(goalFlow),
-                    underwriterSlasherRouter: underwriterSlasherRouter,
-                    budgetSlashPpm: budgetSlashPpm
-                })
-            )
-            : deployer.deployBudgetTreasury(budgetTreasury, budgetConfig);
-
-        if (hasPremiumEscrow) {
-            address managerRewardDistributionPool = address(IFlow(childFlow).managerRewardDistributionPool());
-            if (managerRewardDistributionPool == address(0)) {
-                revert IBudgetTCR.MANAGER_REWARD_DISTRIBUTION_POOL_NOT_CONFIGURED();
-            }
-            IPremiumEscrowManagerRewardPool(premiumEscrow).connectManagerRewardPool(managerRewardDistributionPool);
-        }
-        if (deployedBudgetTreasury != budgetTreasury) {
-            revert BUDGET_TREASURY_MISMATCH();
-        }
-
         address allocationMechanismArbitrator;
-        if (hasAllocationMechanism) {
+        if (allocationMechanism != address(0)) {
             allocationMechanismArbitrator = _initializeBudgetAllocationMechanism(
                 deployer,
                 allocationMechanism,
-                budgetTreasury,
+                deployed.budgetTreasury,
                 goalTreasury,
                 budgetStore,
                 tcrStore
@@ -153,20 +126,24 @@ library BudgetTCRStackActions {
             itemIdByChildFlow,
             itemID,
             IBudgetStackTopologyReader.BudgetStackTopology({
-                childFlow: childFlow,
-                budgetTreasury: budgetTreasury,
-                premiumEscrow: premiumEscrow,
-                strategy: prepared.strategy,
+                childFlow: deployed.childFlow,
+                budgetTreasury: deployed.budgetTreasury,
+                premiumEscrow: deployed.premiumEscrow,
+                strategy: deployed.strategy,
                 allocationMechanism: allocationMechanism,
                 allocationMechanismArbitrator: allocationMechanismArbitrator
             })
         );
 
-        IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, budgetTreasury);
+        budgetDeployments[itemID].active = true;
+        IBudgetStakeLedger(budgetStakeLedger).registerBudget(itemID, deployed.budgetTreasury);
         if (underwriterSlasherRouter != address(0)) {
-            IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(premiumEscrow, true);
+            IUnderwriterSlasherRouter(underwriterSlasherRouter).setAuthorizedPremiumEscrow(
+                deployed.premiumEscrow,
+                true
+            );
         }
-        if (hasAllocationMechanism) {
+        if (allocationMechanism != address(0)) {
             emit BudgetAllocationMechanismDeployed(
                 itemID,
                 allocationMechanism,
@@ -244,33 +221,18 @@ library BudgetTCRStackActions {
     }
 
     function _recordBudgetStackTopology(
-        mapping(bytes32 => BudgetTCRStorageV1.BudgetDeployment) storage budgetDeployments,
+        mapping(bytes32 => BudgetTopologyRegistryLib.BudgetDeployment) storage budgetDeployments,
         mapping(address => bytes32) storage itemIdByBudgetTreasury,
         mapping(address => bytes32) storage itemIdByChildFlow,
         bytes32 itemID,
         IBudgetStackTopologyReader.BudgetStackTopology memory topology
     ) private {
-        BudgetTCRStorageV1.BudgetDeployment storage deployment = budgetDeployments[itemID];
-
-        address previousBudgetTreasury = deployment.budgetTreasury;
-        if (previousBudgetTreasury != address(0) && itemIdByBudgetTreasury[previousBudgetTreasury] == itemID) {
-            delete itemIdByBudgetTreasury[previousBudgetTreasury];
-        }
-
-        address previousChildFlow = deployment.childFlow;
-        if (previousChildFlow != address(0) && itemIdByChildFlow[previousChildFlow] == itemID) {
-            delete itemIdByChildFlow[previousChildFlow];
-        }
-
-        deployment.childFlow = topology.childFlow;
-        deployment.budgetTreasury = topology.budgetTreasury;
-        deployment.premiumEscrow = topology.premiumEscrow;
-        deployment.strategy = topology.strategy;
-        deployment.allocationMechanism = topology.allocationMechanism;
-        deployment.allocationMechanismArbitrator = topology.allocationMechanismArbitrator;
-        deployment.active = true;
-
-        itemIdByBudgetTreasury[topology.budgetTreasury] = itemID;
-        itemIdByChildFlow[topology.childFlow] = itemID;
+        BudgetTopologyRegistryLib.recordBudgetStackTopology(
+            budgetDeployments,
+            itemIdByBudgetTreasury,
+            itemIdByChildFlow,
+            itemID,
+            topology
+        );
     }
 }

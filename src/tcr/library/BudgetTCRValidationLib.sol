@@ -8,7 +8,7 @@ library BudgetTCRValidationLib {
         bytes calldata item,
         IBudgetTCR.BudgetValidationBounds memory budgetBounds,
         uint64 goalDeadline
-    ) internal view returns (bool) {
+    ) external view returns (bool) {
         IBudgetTCR.BudgetListing memory listing = abi.decode(item, (IBudgetTCR.BudgetListing));
 
         if (bytes(listing.metadata.title).length == 0) return false;

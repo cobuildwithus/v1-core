@@ -19,7 +19,7 @@ import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSin
 import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
@@ -43,7 +43,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
 
     GoalFactory internal factory;
     MockBudgetTcrFactory internal budgetTcrFactory;
-    BudgetTCRDeployer internal budgetTcrStackDeployerImplementation;
+    BudgetStackDeployer internal budgetTcrStackDeployerImplementation;
     MockDirectory internal revnetDirectory;
     MockTokens internal revnetTokens;
     MockController internal revnetController;
@@ -241,7 +241,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 PAYMENT_REVNET_ID
             )
         );
-        factory.deployGoal(_baseDeployParams());
+        factory.deployOpenGoal(_baseOpenGoalParams());
     }
 
     function test_deployGoal_revertsWhenFundingNativeTerminalMissing() public {
@@ -250,7 +250,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(GoalFactory.INVALID_PAYMENT_NATIVE_TERMINAL.selector, address(0), PAYMENT_REVNET_ID)
         );
-        factory.deployGoal(_baseDeployParams());
+        factory.deployOpenGoal(_baseOpenGoalParams());
     }
 
     function test_deployGoal_revertsWhenFundingNativeTerminalIsGoalPaymentTerminal() public {
@@ -263,112 +263,104 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 GoalFactory.INVALID_PAYMENT_NATIVE_TERMINAL.selector, configuredGoalPaymentTerminal, PAYMENT_REVNET_ID
             )
         );
-        factory.deployGoal(_baseDeployParams());
+        factory.deployOpenGoal(_baseOpenGoalParams());
     }
 
     function test_deployGoal_revertsWhenSlashEnabledAndBudgetPremiumPpmIsZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.underwriting.budgetPremiumPpm = 0;
-        p.underwriting.budgetSlashPpm = 50_000;
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.common.underwriting.budgetPremiumPpm = 0;
+        p.common.underwriting.budgetSlashPpm = 50_000;
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 GoalFactory.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
             )
         );
-        factory.deployGoal(p);
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_managedPreset_revertsWhenManagedSafeIsZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.preset = GoalFactory.GoalPreset.Managed;
-        p.managedSafe = address(0);
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(0));
 
         vm.expectRevert(GoalFactory.MANAGED_SAFE_REQUIRED.selector);
-        factory.deployGoal(p);
+        factory.deployManagedGoal(p);
     }
 
     function test_deployGoal_managedPreset_revertsWhenManagedSafeHasNoCode() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.preset = GoalFactory.GoalPreset.Managed;
-        p.managedSafe = address(0xBEEF);
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(0xBEEF));
 
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.MANAGED_SAFE_NOT_CONTRACT.selector, p.managedSafe));
-        factory.deployGoal(p);
+        factory.deployManagedGoal(p);
     }
 
     function test_deployGoal_managedPreset_revertsWhenPremiumOrSlashAreNonZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.preset = GoalFactory.GoalPreset.Managed;
-        p.managedSafe = address(new DummyContract());
-        p.underwriting.budgetPremiumPpm = 1;
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(new DummyContract()));
+        p.common.underwriting.budgetPremiumPpm = 1;
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 GoalFactory.MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH.selector,
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
             )
         );
-        factory.deployGoal(p);
+        factory.deployManagedGoal(p);
     }
 
     function test_deployGoal_managedPreset_revertsWhenSlashIsNonZeroAndPremiumIsZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.preset = GoalFactory.GoalPreset.Managed;
-        p.managedSafe = address(new DummyContract());
-        p.underwriting.budgetPremiumPpm = 0;
-        p.underwriting.budgetSlashPpm = 1;
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(new DummyContract()));
+        p.common.underwriting.budgetPremiumPpm = 0;
+        p.common.underwriting.budgetSlashPpm = 1;
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 GoalFactory.INVALID_UNDERWRITING_SLASH_CONFIG.selector,
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
             )
         );
-        factory.deployGoal(p);
+        factory.deployManagedGoal(p);
     }
 
     function test_deployGoal_managedPreset_revertsWhenBudgetAssertionLivenessIsZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.preset = GoalFactory.GoalPreset.Managed;
-        p.managedSafe = address(new DummyContract());
-        p.budgetTCR.oracleBounds.liveness = 0;
+        GoalFactory.ManagedGoalParams memory p = _baseManagedGoalParams(address(new DummyContract()));
+        p.budgetRuntime.oracleBounds.liveness = 0;
 
         vm.expectRevert(GoalFactory.INVALID_ASSERTION_CONFIG.selector);
-        factory.deployGoal(p);
+        factory.deployManagedGoal(p);
     }
 
     function test_deployGoal_revertsWhenBudgetSuccessResolverIsZero() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.budgetTCR.budgetSuccessResolver = address(0);
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.budgetRuntime.budgetSuccessResolver = address(0);
 
         vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
-        factory.deployGoal(p);
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_revertsWhenBudgetSuccessResolverHasNoCode() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.budgetTCR.budgetSuccessResolver = address(0xBEEF);
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.budgetRuntime.budgetSuccessResolver = address(0xBEEF);
 
-        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetTCR.budgetSuccessResolver));
-        factory.deployGoal(p);
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetRuntime.budgetSuccessResolver)
+        );
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_revertsWhenBudgetSpendPolicyHasNoCode() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.budgetTCR.budgetSpendPolicy = address(0xBEEF);
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.budgetRuntime.budgetSpendPolicy = address(0xBEEF);
 
-        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetTCR.budgetSpendPolicy));
-        factory.deployGoal(p);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.budgetRuntime.budgetSpendPolicy));
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_usesDefaultGoalSpendPolicyWhenOmitted() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.goalSpendPolicy = address(0);
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.common.goalSpendPolicy = address(0);
         _expectObservedRevnetDeploy();
 
         vm.expectRevert(
@@ -383,19 +375,19 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 true
             )
         );
-        factory.deployGoal(p);
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_revertsWhenGoalSpendPolicyHasNoCode() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
-        p.goalSpendPolicy = address(0xBEEF);
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
+        p.common.goalSpendPolicy = address(0xBEEF);
 
-        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.goalSpendPolicy));
-        factory.deployGoal(p);
+        vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, p.common.goalSpendPolicy));
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_forwardsBuybackDefaultsAndConfiguredTerminalsToRevDeployer() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
         _expectObservedRevnetDeploy();
 
         vm.expectRevert(
@@ -410,13 +402,13 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 true
             )
         );
-        factory.deployGoal(p);
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoal_usesConfiguredJbMultiTerminalWithoutPaymentTokenTerminalLookup() public {
-        GoalFactory.DeployParams memory p = _baseDeployParams();
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
         _expectObservedRevnetDeploy();
-        revnetDirectory.setPrimaryTerminal(PAYMENT_REVNET_ID, p.funding.paymentToken, IJBTerminal(address(0)));
+        revnetDirectory.setPrimaryTerminal(PAYMENT_REVNET_ID, p.common.funding.paymentToken, IJBTerminal(address(0)));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -430,7 +422,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 true
             )
         );
-        factory.deployGoal(p);
+        factory.deployOpenGoal(p);
     }
 
     function test_deployGoalForCommunity_revertsWhenRegistryDirectoryMismatch() public {
@@ -449,7 +441,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 address(registry.directory())
             )
         );
-        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
+        factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseOpenGoalParams());
     }
 
     function test_deployGoalForCommunity_revertsWhenRegistryDeploymentRegistryMismatch() public {
@@ -469,7 +461,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 address(wrongRegistry)
             )
         );
-        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseDeployParams());
+        factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), _baseOpenGoalParams());
     }
 
     function test_deployGoalForCommunity_allowsPermissionlessCallers() public {
@@ -481,7 +473,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             PAYMENT_REVNET_ID,
             address(paymentToken)
         );
-        GoalFactory.DeployParams memory p = _baseDeployParams();
+        GoalFactory.OpenGoalParams memory p = _baseOpenGoalParams();
         _expectObservedRevnetDeploy();
         address caller = makeAddr("permissionless-caller");
 
@@ -498,7 +490,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 true
             )
         );
-        factory.deployGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
+        factory.deployOpenGoalForCommunity(ICommunityGoalRegistry(address(registry)), p);
     }
 
     function _expectObservedRevnetDeploy() internal {
@@ -511,7 +503,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         revDeployer.setRevertWithObserved(true);
     }
 
-    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetTCRDeployer implementation) {
+    function _deployBudgetTcrDeployerImplementation() internal returns (BudgetStackDeployer implementation) {
         address roundFactory = address(
             new RoundFactory(
                 address(new RoundSubmissionTCR()),
@@ -520,7 +512,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
                 address(new ERC20VotesArbitrator())
             )
         );
-        implementation = new BudgetTCRDeployer(
+        implementation = new BudgetStackDeployer(
             address(new DummyContract()),
             roundFactory,
             roundFactory,
@@ -530,39 +522,49 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         );
     }
 
-    function _baseDeployParams() internal view returns (GoalFactory.DeployParams memory p) {
-        p.preset = GoalFactory.GoalPreset.Open;
-        p.managedSafe = address(0);
-        p.funding =
-            GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID});
-        p.revnet = GoalFactory.RevnetParams({
-            name: "Goal",
-            ticker: "GOAL",
-            uri: "ipfs://goal",
-            initialIssuance: 1,
-            cashOutTaxRate: 0,
-            reservedPercent: 0,
-            durationSeconds: 7 days
+    function _baseOpenGoalParams() internal view returns (GoalFactory.OpenGoalParams memory p) {
+        p.common = GoalFactory.CommonGoalParams({
+            funding: GoalFactory.FundingContext({paymentToken: address(paymentToken), paymentRevnetId: PAYMENT_REVNET_ID}),
+            revnet: GoalFactory.RevnetParams({
+                name: "Goal",
+                ticker: "GOAL",
+                uri: "ipfs://goal",
+                initialIssuance: 1,
+                cashOutTaxRate: 0,
+                reservedPercent: 0,
+                durationSeconds: 7 days
+            }),
+            timing: GoalFactory.GoalTimingParams({minRaise: 0, minRaiseDurationSeconds: 0}),
+            success: GoalFactory.SuccessParams({
+                successResolver: configuredSuccessResolver,
+                successAssertionLiveness: 1 days,
+                successAssertionBond: 0,
+                successOracleSpecHash: keccak256("spec"),
+                successAssertionPolicyHash: keccak256("policy")
+            }),
+            flowMetadata: GoalFactory.FlowMetadataParams({
+                title: "title",
+                description: "description",
+                image: "ipfs://image",
+                tagline: "tagline",
+                url: "https://example.com"
+            }),
+            underwriting: GoalFactory.UnderwritingParams({budgetPremiumPpm: 0, budgetSlashPpm: 0}),
+            goalSpendPolicy: configuredGoalSpendPolicy
         });
-        p.timing = GoalFactory.GoalTimingParams({minRaise: 0, minRaiseDurationSeconds: 0});
-        p.success = GoalFactory.SuccessParams({
-            successResolver: configuredSuccessResolver,
-            successAssertionLiveness: 1 days,
-            successAssertionBond: 0,
-            successOracleSpecHash: keccak256("spec"),
-            successAssertionPolicyHash: keccak256("policy")
+        p.budgetRuntime = GoalFactory.BudgetRuntimeParams({
+            budgetSuccessResolver: configuredSuccessResolver,
+            budgetSpendPolicy: configuredGoalSpendPolicy,
+            oracleBounds: IBudgetTCR.OracleValidationBounds({liveness: 1 days, bondAmount: 0})
         });
-        p.flowMetadata = GoalFactory.FlowMetadataParams({
-            title: "title",
-            description: "description",
-            image: "ipfs://image",
-            tagline: "tagline",
-            url: "https://example.com"
-        });
-        p.budgetTCR.budgetSuccessResolver = configuredSuccessResolver;
-        p.budgetTCR.budgetSpendPolicy = configuredGoalSpendPolicy;
-        p.budgetTCR.oracleBounds.liveness = 1 days;
-        p.goalSpendPolicy = configuredGoalSpendPolicy;
+    }
+
+    function _baseManagedGoalParams(address managedSafe) internal view returns (GoalFactory.ManagedGoalParams memory p) {
+        GoalFactory.OpenGoalParams memory openParams = _baseOpenGoalParams();
+        p.common = openParams.common;
+        p.budgetRuntime = openParams.budgetRuntime;
+        p.managedSafe = managedSafe;
+        p.managedBudgetGatePolicy = address(0);
     }
 
     function _deployFactory(address goalPaymentTerminal) internal returns (GoalFactory goalFactory) {
@@ -584,6 +586,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredPremiumEscrowImpl,
             configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
+            address(budgetTcrStackDeployerImplementation),
             configuredManagedBudgetControllerImpl,
             configuredManagedGoalAllocatorStrategyImpl,
             configuredManagedBudgetChildStrategyFactoryImpl,

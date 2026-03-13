@@ -64,6 +64,7 @@ contract GoalFactory {
     address public immutable PREMIUM_ESCROW_IMPL;
     address public immutable JUROR_SLASHER_ROUTER_IMPL;
     address public immutable UNDERWRITER_SLASHER_ROUTER_IMPL;
+    address public immutable BUDGET_STACK_DEPLOYER_IMPL;
     address public immutable MANAGED_BUDGET_CONTROLLER_IMPL;
     address public immutable MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL;
     address public immutable MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL;
@@ -121,7 +122,23 @@ contract GoalFactory {
         uint32 budgetSlashPpm;
     }
 
-    struct BudgetTCRParams {
+    struct CommonGoalParams {
+        FundingContext funding;
+        RevnetParams revnet;
+        GoalTimingParams timing;
+        SuccessParams success;
+        FlowMetadataParams flowMetadata;
+        UnderwritingParams underwriting;
+        address goalSpendPolicy;
+    }
+
+    struct BudgetRuntimeParams {
+        address budgetSuccessResolver;
+        address budgetSpendPolicy;
+        IBudgetTCR.OracleValidationBounds oracleBounds;
+    }
+
+    struct OpenBudgetTCRParams {
         address allocationMechanismAdmin;
         address invalidRoundRewardsSink;
         address submissionDepositStrategy;
@@ -134,23 +151,29 @@ contract GoalFactory {
         uint256 challengePeriodDuration;
         bytes arbitratorExtraData;
         IBudgetTCR.BudgetValidationBounds budgetBounds;
-        IBudgetTCR.OracleValidationBounds oracleBounds;
-        address budgetSuccessResolver;
-        address budgetSpendPolicy;
         IArbitrator.ArbitratorParams arbitratorParams;
     }
 
-    struct DeployParams {
-        GoalPreset preset;
+    struct OpenGoalParams {
+        CommonGoalParams common;
+        BudgetRuntimeParams budgetRuntime;
+        OpenBudgetTCRParams openBudgetTCR;
+    }
+
+    struct ManagedGoalParams {
+        CommonGoalParams common;
         address managedSafe;
-        FundingContext funding;
-        RevnetParams revnet;
-        GoalTimingParams timing;
-        SuccessParams success;
-        FlowMetadataParams flowMetadata;
-        UnderwritingParams underwriting;
-        BudgetTCRParams budgetTCR;
-        address goalSpendPolicy;
+        address managedBudgetGatePolicy;
+        BudgetRuntimeParams budgetRuntime;
+    }
+
+    struct InternalDeployParams {
+        GoalPreset preset;
+        CommonGoalParams common;
+        BudgetRuntimeParams budgetRuntime;
+        OpenBudgetTCRParams openBudgetTCR;
+        address managedSafe;
+        address managedBudgetGatePolicy;
     }
 
     struct DeployedGoalStack {
@@ -218,6 +241,7 @@ contract GoalFactory {
         address premiumEscrowImpl,
         address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
+        address budgetStackDeployerImplementation,
         address managedBudgetControllerImplementation,
         address managedGoalAllocatorStrategyImplementation,
         address managedBudgetChildStrategyFactoryImplementation,
@@ -245,6 +269,7 @@ contract GoalFactory {
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
+        if (budgetStackDeployerImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedBudgetControllerImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedGoalAllocatorStrategyImplementation == address(0)) revert ADDRESS_ZERO();
         if (managedBudgetChildStrategyFactoryImplementation == address(0)) revert ADDRESS_ZERO();
@@ -266,6 +291,9 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
+        if (budgetStackDeployerImplementation.code.length == 0) {
+            revert NOT_A_CONTRACT(budgetStackDeployerImplementation);
+        }
         if (managedBudgetControllerImplementation.code.length == 0) {
             revert NOT_A_CONTRACT(managedBudgetControllerImplementation);
         }
@@ -311,6 +339,7 @@ contract GoalFactory {
         PREMIUM_ESCROW_IMPL = premiumEscrowImpl;
         JUROR_SLASHER_ROUTER_IMPL = jurorSlasherRouterImpl;
         UNDERWRITER_SLASHER_ROUTER_IMPL = underwriterSlasherRouterImpl;
+        BUDGET_STACK_DEPLOYER_IMPL = budgetStackDeployerImplementation;
         MANAGED_BUDGET_CONTROLLER_IMPL = managedBudgetControllerImplementation;
         MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL = managedGoalAllocatorStrategyImplementation;
         MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL = managedBudgetChildStrategyFactoryImplementation;
@@ -323,10 +352,37 @@ contract GoalFactory {
         DEFAULT_INVALID_ROUND_REWARDS_SINK = defaultInvalidRoundRewardsSink;
     }
 
-    function deployGoalForCommunity(
+    function deployOpenGoalForCommunity(
         ICommunityGoalRegistry registry,
-        DeployParams calldata p
+        OpenGoalParams calldata p
     ) external returns (DeployedGoalStack memory out) {
+        OpenGoalParams memory params = p;
+        params.common.funding = _communityFundingContext(registry);
+        out = _deployGoal(_openDeployParams(params));
+    }
+
+    function deployManagedGoalForCommunity(
+        ICommunityGoalRegistry registry,
+        ManagedGoalParams calldata p
+    ) external returns (DeployedGoalStack memory out) {
+        ManagedGoalParams memory params = p;
+        params.common.funding = _communityFundingContext(registry);
+        out = _deployGoal(_managedDeployParams(params));
+    }
+
+    function deployOpenGoal(OpenGoalParams calldata p) external returns (DeployedGoalStack memory out) {
+        OpenGoalParams memory params = p;
+        out = _deployGoal(_openDeployParams(params));
+    }
+
+    function deployManagedGoal(ManagedGoalParams calldata p) external returns (DeployedGoalStack memory out) {
+        ManagedGoalParams memory params = p;
+        out = _deployGoal(_managedDeployParams(params));
+    }
+
+    function _communityFundingContext(
+        ICommunityGoalRegistry registry
+    ) private view returns (FundingContext memory funding) {
         if (address(registry) == address(0)) revert ADDRESS_ZERO();
         if (address(registry).code.length == 0) revert NOT_A_CONTRACT(address(registry));
 
@@ -343,17 +399,31 @@ contract GoalFactory {
             );
         }
 
-        DeployParams memory params = p;
-        params.funding = FundingContext({
+        funding = FundingContext({
             paymentToken: registry.communityToken(),
             paymentRevnetId: registry.communityRevnetId()
         });
-        out = _deployGoal(params);
     }
 
-    function deployGoal(DeployParams calldata p) external returns (DeployedGoalStack memory out) {
-        DeployParams memory params = p;
-        out = _deployGoal(params);
+    function _openDeployParams(OpenGoalParams memory params) private pure returns (InternalDeployParams memory out) {
+        out = InternalDeployParams({
+            preset: GoalPreset.Open,
+            common: params.common,
+            budgetRuntime: params.budgetRuntime,
+            openBudgetTCR: params.openBudgetTCR,
+            managedSafe: address(0),
+            managedBudgetGatePolicy: address(0)
+        });
+    }
+
+    function _managedDeployParams(
+        ManagedGoalParams memory params
+    ) private pure returns (InternalDeployParams memory out) {
+        out.preset = GoalPreset.Managed;
+        out.common = params.common;
+        out.budgetRuntime = params.budgetRuntime;
+        out.managedSafe = params.managedSafe;
+        out.managedBudgetGatePolicy = params.managedBudgetGatePolicy;
     }
 
     function _validateGoalTerminalConfig(
@@ -407,61 +477,66 @@ contract GoalFactory {
         paymentTokenDecimals = IERC20Metadata(paymentToken).decimals();
     }
 
-    function _deployGoal(DeployParams memory p) private returns (DeployedGoalStack memory out) {
-        if (p.revnet.durationSeconds == 0) revert INVALID_DURATION();
-        if (p.revnet.reservedPercent > FlowProtocolConstants.BPS_SCALE) revert INVALID_RESERVED_PERCENT();
-        if (p.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
+    function _deployGoal(InternalDeployParams memory p) private returns (DeployedGoalStack memory out) {
+        if (p.common.revnet.durationSeconds == 0) revert INVALID_DURATION();
+        if (p.common.revnet.reservedPercent > FlowProtocolConstants.BPS_SCALE) revert INVALID_RESERVED_PERCENT();
+        if (p.common.revnet.cashOutTaxRate > FlowProtocolConstants.BPS_SCALE) revert INVALID_TAX_RATE();
 
-        if (p.success.successResolver == address(0)) revert ADDRESS_ZERO();
+        if (p.common.success.successResolver == address(0)) revert ADDRESS_ZERO();
         if (
-            p.success.successAssertionLiveness == 0 ||
-            p.success.successOracleSpecHash == bytes32(0) ||
-            p.success.successAssertionPolicyHash == bytes32(0)
+            p.common.success.successAssertionLiveness == 0 ||
+            p.common.success.successOracleSpecHash == bytes32(0) ||
+            p.common.success.successAssertionPolicyHash == bytes32(0)
         ) {
             revert INVALID_ASSERTION_CONFIG();
         }
-        p.goalSpendPolicy = _resolveSpendPolicyOrDefault(p.goalSpendPolicy, DEFAULT_GOAL_SPEND_POLICY);
+        p.common.goalSpendPolicy = _resolveSpendPolicyOrDefault(p.common.goalSpendPolicy, DEFAULT_GOAL_SPEND_POLICY);
         if (p.preset == GoalPreset.Managed) {
             if (p.managedSafe == address(0)) revert MANAGED_SAFE_REQUIRED();
             if (p.managedSafe.code.length == 0) revert MANAGED_SAFE_NOT_CONTRACT(p.managedSafe);
-            if (p.budgetTCR.oracleBounds.liveness == 0) revert INVALID_ASSERTION_CONFIG();
+            if (p.budgetRuntime.oracleBounds.liveness == 0) revert INVALID_ASSERTION_CONFIG();
         }
-        if (p.budgetTCR.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
-        if (p.budgetTCR.budgetSuccessResolver.code.length == 0) {
-            revert NOT_A_CONTRACT(p.budgetTCR.budgetSuccessResolver);
+        if (p.budgetRuntime.budgetSuccessResolver == address(0)) revert ADDRESS_ZERO();
+        if (p.budgetRuntime.budgetSuccessResolver.code.length == 0) {
+            revert NOT_A_CONTRACT(p.budgetRuntime.budgetSuccessResolver);
         }
-        p.budgetTCR.budgetSpendPolicy = _resolveSpendPolicyOrDefault(
-            p.budgetTCR.budgetSpendPolicy,
+        p.budgetRuntime.budgetSpendPolicy = _resolveSpendPolicyOrDefault(
+            p.budgetRuntime.budgetSpendPolicy,
             DEFAULT_BUDGET_SPEND_POLICY
         );
 
         if (
-            p.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
-            p.underwriting.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE
+            p.common.underwriting.budgetPremiumPpm > FlowProtocolConstants.PPM_SCALE ||
+            p.common.underwriting.budgetSlashPpm > FlowProtocolConstants.PPM_SCALE
         ) {
             revert INVALID_SCALE();
         }
-        if (p.underwriting.budgetSlashPpm != 0 && p.underwriting.budgetPremiumPpm == 0) {
-            revert INVALID_UNDERWRITING_SLASH_CONFIG(p.underwriting.budgetPremiumPpm, p.underwriting.budgetSlashPpm);
+        if (p.common.underwriting.budgetSlashPpm != 0 && p.common.underwriting.budgetPremiumPpm == 0) {
+            revert INVALID_UNDERWRITING_SLASH_CONFIG(
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
+            );
         }
         if (
             p.preset == GoalPreset.Managed &&
-            (p.underwriting.budgetPremiumPpm != 0 || p.underwriting.budgetSlashPpm != 0)
+            (p.common.underwriting.budgetPremiumPpm != 0 || p.common.underwriting.budgetSlashPpm != 0)
         ) {
             revert MANAGED_PRESET_REQUIRES_ZERO_PREMIUM_AND_SLASH(
-                p.underwriting.budgetPremiumPpm,
-                p.underwriting.budgetSlashPpm
+                p.common.underwriting.budgetPremiumPpm,
+                p.common.underwriting.budgetSlashPpm
             );
         }
 
-        (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) = _resolveFundingContext(p.funding);
+        (address paymentToken, uint8 paymentTokenDecimals, uint256 paymentRevnetId) = _resolveFundingContext(
+            p.common.funding
+        );
 
         GoalTreasury goalTreasury = GoalTreasury(Clones.clone(GOAL_TREASURY_IMPL));
         GoalRevnetSplitHook splitHook = GoalRevnetSplitHook(payable(Clones.clone(SPLIT_HOOK_IMPL)));
         CustomFlow goalFlow = CustomFlow(payable(Clones.clone(FLOW_IMPL)));
 
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet = _deployRevnet(
-            p,
+            p.common,
             splitHook,
             paymentToken,
             paymentTokenDecimals
@@ -489,7 +564,10 @@ contract GoalFactory {
             jurorSlasherAuthority = address(BUDGET_TCR_FACTORY);
         }
 
-        uint32 minRaiseWindow = _resolveMinRaiseWindow(p.revnet.durationSeconds, p.timing.minRaiseDurationSeconds);
+        uint32 minRaiseWindow = _resolveMinRaiseWindow(
+            p.common.revnet.durationSeconds,
+            p.common.timing.minRaiseDurationSeconds
+        );
         uint64 minRaiseDeadline = uint64(block.timestamp + minRaiseWindow);
 
         GoalFactoryCoreStackDeploy.CoreStackResult memory core = _deployCoreBase(
@@ -497,7 +575,7 @@ contract GoalFactory {
             splitHook,
             goalFlow,
             revnet,
-            p,
+            p.common,
             paymentToken,
             paymentTokenDecimals
         );
@@ -525,11 +603,11 @@ contract GoalFactory {
                     goalTreasury: address(core.goalTreasury),
                     goalFlow: address(core.goalFlow),
                     stackDeployer: managedPreset.stackDeployer,
-                    budgetGatePolicy: address(0),
-                    budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
-                    budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
-                    successAssertionLiveness: p.budgetTCR.oracleBounds.liveness,
-                    successAssertionBond: p.budgetTCR.oracleBounds.bondAmount
+                    budgetGatePolicy: p.managedBudgetGatePolicy,
+                    budgetSuccessResolver: p.budgetRuntime.budgetSuccessResolver,
+                    budgetSpendPolicy: p.budgetRuntime.budgetSpendPolicy,
+                    successAssertionLiveness: p.budgetRuntime.oracleBounds.liveness,
+                    successAssertionBond: p.budgetRuntime.oracleBounds.bondAmount
                 })
             );
         } else {
@@ -573,7 +651,7 @@ contract GoalFactory {
             splitHook: address(core.splitHook),
             jurorSlasherRouter: core.jurorSlasherRouter,
             underwriterSlasherRouter: core.underwriterSlasherRouter,
-            successResolver: p.success.successResolver,
+            successResolver: p.common.success.successResolver,
             budgetController: budgetController,
             arbitrator: arbitrator
         });
@@ -582,7 +660,7 @@ contract GoalFactory {
     }
 
     function _deployRevnet(
-        DeployParams memory p,
+        CommonGoalParams memory common,
         GoalRevnetSplitHook splitHook,
         address paymentToken,
         uint8 paymentTokenDecimals
@@ -596,13 +674,13 @@ contract GoalFactory {
                     goalPaymentTerminal: GOAL_PAYMENT_TERMINAL,
                     jbMultiTerminal: JB_MULTI_TERMINAL,
                     splitHook: address(splitHook),
-                    name: p.revnet.name,
-                    ticker: p.revnet.ticker,
-                    uri: p.revnet.uri,
-                    initialIssuance: p.revnet.initialIssuance,
-                    cashOutTaxRate: p.revnet.cashOutTaxRate,
-                    reservedPercent: p.revnet.reservedPercent,
-                    durationSeconds: p.revnet.durationSeconds,
+                    name: common.revnet.name,
+                    ticker: common.revnet.ticker,
+                    uri: common.revnet.uri,
+                    initialIssuance: common.revnet.initialIssuance,
+                    cashOutTaxRate: common.revnet.cashOutTaxRate,
+                    reservedPercent: common.revnet.reservedPercent,
+                    durationSeconds: common.revnet.durationSeconds,
                     buybackHookDataHook: BUYBACK_HOOK_DATA_HOOK,
                     buybackHook: BUYBACK_HOOK,
                     buybackPoolFee: BUYBACK_POOL_FEE,
@@ -617,7 +695,7 @@ contract GoalFactory {
         GoalRevnetSplitHook splitHook,
         CustomFlow goalFlow,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
-        DeployParams memory p,
+        CommonGoalParams memory common,
         address paymentToken,
         uint8 paymentTokenDecimals
     ) private returns (GoalFactoryCoreStackDeploy.CoreStackResult memory) {
@@ -636,14 +714,14 @@ contract GoalFactory {
                     goalRevnetId: revnet.goalRevnetId,
                     goalToken: revnet.goalToken,
                     rulesets: revnet.rulesets,
-                    revnetName: p.revnet.name,
-                    revnetTicker: p.revnet.ticker
+                    revnetName: common.revnet.name,
+                    revnetTicker: common.revnet.ticker
                 })
             );
     }
 
     function _finalizeCoreStack(
-        DeployParams memory p,
+        InternalDeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address budgetController,
@@ -667,21 +745,21 @@ contract GoalFactory {
                     goalRevnetId: revnet.goalRevnetId,
                     rulesets: revnet.rulesets,
                     directory: revnet.directory,
-                    flowTitle: p.flowMetadata.title,
-                    flowDescription: p.flowMetadata.description,
-                    flowImage: p.flowMetadata.image,
-                    flowTagline: p.flowMetadata.tagline,
-                    flowUrl: p.flowMetadata.url,
+                    flowTitle: p.common.flowMetadata.title,
+                    flowDescription: p.common.flowMetadata.description,
+                    flowImage: p.common.flowMetadata.image,
+                    flowTagline: p.common.flowMetadata.tagline,
+                    flowUrl: p.common.flowMetadata.url,
                     minRaiseDeadline: minRaiseDeadline,
-                    minRaise: p.timing.minRaise,
-                    budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
-                    budgetSlashPpm: p.underwriting.budgetSlashPpm,
-                    successResolver: p.success.successResolver,
-                    successAssertionLiveness: p.success.successAssertionLiveness,
-                    successAssertionBond: p.success.successAssertionBond,
-                    successOracleSpecHash: p.success.successOracleSpecHash,
-                    successAssertionPolicyHash: p.success.successAssertionPolicyHash,
-                    goalSpendPolicy: p.goalSpendPolicy,
+                    minRaise: p.common.timing.minRaise,
+                    budgetPremiumPpm: p.common.underwriting.budgetPremiumPpm,
+                    budgetSlashPpm: p.common.underwriting.budgetSlashPpm,
+                    successResolver: p.common.success.successResolver,
+                    successAssertionLiveness: p.common.success.successAssertionLiveness,
+                    successAssertionBond: p.common.success.successAssertionBond,
+                    successOracleSpecHash: p.common.success.successOracleSpecHash,
+                    successAssertionPolicyHash: p.common.success.successAssertionPolicyHash,
+                    goalSpendPolicy: p.common.goalSpendPolicy,
                     terminalRolloverCooldown: p.preset == GoalPreset.Managed ? MANAGED_TERMINAL_ROLLOVER_COOLDOWN : 0
                 })
             );
@@ -696,22 +774,22 @@ contract GoalFactory {
                 GoalFactoryManagedPresetDeploy.ManagedPresetBootstrapConfig({
                     budgetControllerImplementation: MANAGED_BUDGET_CONTROLLER_IMPL,
                     goalAllocatorStrategyImplementation: MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL,
-                    stackDeployerImplementation: BUDGET_TCR_FACTORY.stackDeployerImplementation(),
+                    stackDeployerImplementation: BUDGET_STACK_DEPLOYER_IMPL,
                     budgetChildStrategyFactoryImplementation: MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL
                 })
             );
     }
 
     function _deployBudgetTcr(
-        DeployParams memory p,
+        InternalDeployParams memory p,
         GoalFactoryCoreStackDeploy.CoreStackResult memory core,
         GoalFactoryRevnetDeploy.RevnetDeploymentResult memory revnet,
         address paymentToken,
         uint8 paymentTokenDecimals
     ) private returns (BudgetTCRFactory.DeployedBudgetTCRStack memory) {
         IBudgetTCR.RiskModuleRouting memory routing = GoalFactoryBudgetTcrRouting.resolveOpenPresetRouting(
-            p.underwriting.budgetPremiumPpm,
-            p.underwriting.budgetSlashPpm,
+            p.common.underwriting.budgetPremiumPpm,
+            p.common.underwriting.budgetSlashPpm,
             OPEN_BUDGET_GATE_POLICY,
             PREMIUM_ESCROW_IMPL,
             core.underwriterSlasherRouter
@@ -721,18 +799,18 @@ contract GoalFactory {
             GoalFactoryBudgetTcrDeploy.deployBudgetTcrStack(
                 GoalFactoryBudgetTcrDeploy.BudgetTcrDeployRequest({
                     budgetTcrFactory: BUDGET_TCR_FACTORY,
-                    allocationMechanismAdmin: p.budgetTCR.allocationMechanismAdmin,
-                    invalidRoundRewardsSink: p.budgetTCR.invalidRoundRewardsSink,
-                    submissionDepositStrategy: p.budgetTCR.submissionDepositStrategy,
+                    allocationMechanismAdmin: p.openBudgetTCR.allocationMechanismAdmin,
+                    invalidRoundRewardsSink: p.openBudgetTCR.invalidRoundRewardsSink,
+                    submissionDepositStrategy: p.openBudgetTCR.submissionDepositStrategy,
                     registryPolicy: IGeneralizedTCRConfig.RegistryPolicy({
-                        arbitratorExtraData: p.budgetTCR.arbitratorExtraData,
-                        registrationMetaEvidence: p.budgetTCR.registrationMetaEvidence,
-                        clearingMetaEvidence: p.budgetTCR.clearingMetaEvidence,
-                        submissionBaseDeposit: p.budgetTCR.submissionBaseDeposit,
-                        removalBaseDeposit: p.budgetTCR.removalBaseDeposit,
-                        submissionChallengeBaseDeposit: p.budgetTCR.submissionChallengeBaseDeposit,
-                        removalChallengeBaseDeposit: p.budgetTCR.removalChallengeBaseDeposit,
-                        challengePeriodDuration: p.budgetTCR.challengePeriodDuration
+                        arbitratorExtraData: p.openBudgetTCR.arbitratorExtraData,
+                        registrationMetaEvidence: p.openBudgetTCR.registrationMetaEvidence,
+                        clearingMetaEvidence: p.openBudgetTCR.clearingMetaEvidence,
+                        submissionBaseDeposit: p.openBudgetTCR.submissionBaseDeposit,
+                        removalBaseDeposit: p.openBudgetTCR.removalBaseDeposit,
+                        submissionChallengeBaseDeposit: p.openBudgetTCR.submissionChallengeBaseDeposit,
+                        removalChallengeBaseDeposit: p.openBudgetTCR.removalChallengeBaseDeposit,
+                        challengePeriodDuration: p.openBudgetTCR.challengePeriodDuration
                     }),
                     defaultAllocationMechanismAdmin: DEFAULT_ALLOCATION_MECHANISM_ADMIN,
                     defaultInvalidRoundRewardsSink: DEFAULT_INVALID_ROUND_REWARDS_SINK,
@@ -740,18 +818,18 @@ contract GoalFactory {
                     riskModuleRouting: routing,
                     cobuildToken: paymentToken,
                     cobuildDecimals: paymentTokenDecimals,
-                    budgetSuccessResolver: p.budgetTCR.budgetSuccessResolver,
-                    budgetBounds: p.budgetTCR.budgetBounds,
-                    oracleBounds: p.budgetTCR.oracleBounds,
-                    arbitratorParams: p.budgetTCR.arbitratorParams,
-                    budgetSpendPolicy: p.budgetTCR.budgetSpendPolicy,
+                    budgetSuccessResolver: p.budgetRuntime.budgetSuccessResolver,
+                    budgetBounds: p.openBudgetTCR.budgetBounds,
+                    oracleBounds: p.budgetRuntime.oracleBounds,
+                    arbitratorParams: p.openBudgetTCR.arbitratorParams,
+                    budgetSpendPolicy: p.budgetRuntime.budgetSpendPolicy,
                     goalFlow: core.goalFlow,
                     goalTreasury: core.goalTreasury,
                     goalToken: revnet.goalToken,
                     goalRulesets: revnet.rulesets,
                     goalRevnetId: revnet.goalRevnetId,
-                    budgetPremiumPpm: p.underwriting.budgetPremiumPpm,
-                    budgetSlashPpm: p.underwriting.budgetSlashPpm
+                    budgetPremiumPpm: p.common.underwriting.budgetPremiumPpm,
+                    budgetSlashPpm: p.common.underwriting.budgetSlashPpm
                 })
             );
     }

@@ -31,7 +31,7 @@
 
 1. Budget listing add/remove lifecycle still runs through `GeneralizedTCR` request/challenge/dispute flow.
 2. On accepted registration, `BudgetTCR` queues pending activation (`BudgetStackActivationQueued`) so TCR request resolution is not coupled to deployment/flow side effects.
-3. Any caller can run `activateRegisteredBudget(...)` to execute `BudgetTCRDeployer.prepareBudgetStack(...)` and prepare:
+3. Any caller can run `activateRegisteredBudget(...)` to execute `BudgetStackDeployer.prepareBudgetStack(...)` and prepare:
    - `StakeVault`,
    - shared `BudgetFlowRouterStrategy` wiring against `BudgetStakeLedger`,
    - per-budget `PremiumEscrow` clone.
@@ -76,7 +76,7 @@
 - Request/challenge economics are snapshotted and should remain deterministic.
 - Arbitrator and arbitrator extra data are deployment-configured and immutable after initialization.
 - Dispute mappings and round accounting should remain internally consistent.
-- Budget stack helper deployment side effects are only callable through `BudgetTCRDeployer.onlyBudgetTCR`.
+- Budget stack helper deployment side effects are only callable through `BudgetStackDeployer.onlyController`.
 - Goal flow `recipientAdmin` must be configured to the per-goal `BudgetTCR` for budget recipient add/remove operations.
 - Budget child flow `recipientAdmin` must be configured to the per-budget `AllocationMechanismTCR` for round recipient add/remove operations.
 - TeamFlow payout lanes are direct:
@@ -91,7 +91,7 @@
 - `src/tcr/GeneralizedTCR.sol`
 - `src/tcr/ERC20VotesArbitrator.sol`
 - `src/tcr/BudgetTCR.sol`
-- `src/tcr/BudgetTCRDeployer.sol`
+- `src/goals/BudgetStackDeployer.sol`
 - `src/tcr/BudgetTCRFactory.sol`
 - `src/tcr/AllocationMechanismTCR.sol`
 - `src/tcr/RoundSubmissionTCR.sol`

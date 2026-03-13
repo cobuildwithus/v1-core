@@ -18,7 +18,8 @@ import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 import {NoopZeroCoverageBudgetGatePolicy} from "test/helpers/ZeroCoverageBudgetGatePolicies.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
+import {BudgetTopologyRegistryLib} from "src/goals/library/BudgetTopologyRegistryLib.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
@@ -95,8 +96,8 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         keccak256("BudgetTreasuryBatchSyncSkipped(bytes32,address,bytes32)");
     bytes32 internal constant BUDGET_TREASURY_CALL_FAILED_SIG =
         keccak256("BudgetTreasuryCallFailed(bytes32,address,bytes4,bytes)");
-    bytes32 internal constant BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG =
-        keccak256("BudgetCreditCapEnforcementFailed(bytes32,address,address,bytes4,bytes)");
+    bytes32 internal constant BUDGET_GATE_ENFORCEMENT_FAILED_SIG =
+        keccak256("BudgetGateEnforcementFailed(bytes32,address,address,bytes4,bytes)");
     bytes32 internal constant SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 internal constant SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
 
@@ -162,7 +163,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         address tcrInstance = _deployProxy(address(tcrImpl), "");
         stackDeployer = address(_deployBudgetTcrDeployer());
-        _initializeOpenBudgetTcrDeployer(BudgetTCRDeployer(stackDeployer), tcrInstance, premiumEscrowImplementation);
+        _initializeOpenBudgetTcrDeployer(BudgetStackDeployer(stackDeployer), tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -518,7 +519,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer)
+        BudgetStackDeployer(freshStackDeployer)
             .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
@@ -538,7 +539,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer)
+        BudgetStackDeployer(freshStackDeployer)
             .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
@@ -558,7 +559,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer)
+        BudgetStackDeployer(freshStackDeployer)
             .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
         deploymentConfig.stackDeployer = freshStackDeployer;
         deploymentConfig.riskModuleRouting.budgetGatePolicy = address(0);
@@ -802,7 +803,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         (bool configuredFound, uint256 configuredIndex) = _findBudgetConfiguredLogIndex(activationLogs, budgetTreasury);
         assertTrue(deployedFound);
         assertTrue(configuredFound);
-        assertLt(deployedIndex, configuredIndex);
+        assertLt(configuredIndex, deployedIndex);
 
         uint256 requesterBefore = depositToken.balanceOf(requester);
         budgetTcr.withdrawFeesAndRewards(requester, itemID, 0, 0);
@@ -838,7 +839,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfig();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer)
+        BudgetStackDeployer(freshStackDeployer)
             .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
 
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
@@ -893,7 +894,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         ) = _freshInitializeConfigWithFreshArbitrator();
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
-        BudgetTCRDeployer(freshStackDeployer)
+        BudgetStackDeployer(freshStackDeployer)
             .initializeWithConfig(address(freshTcr), _noPremiumStackModuleConfig(), address(0));
 
         deploymentConfig.stackDeployer = freshStackDeployer;
@@ -927,7 +928,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         assertEq(attempted, 1);
         assertEq(succeeded, 1);
-        assertFalse(_hasBudgetCreditCapEnforcementFailed(logs, address(freshTcr)));
+        assertFalse(_hasBudgetGateEnforcementFailed(logs, address(freshTcr)));
     }
 
     function test_activateRegisteredBudget_setsConfiguredBudgetSpendPolicyOnBudgetTreasury() public {
@@ -944,7 +945,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         (address childFlow,) = goalFlow.recipients(itemID);
         AllocationMechanismTCR allocationMechanism =
             AllocationMechanismTCR(MockBudgetChildFlow(childFlow).recipientAdmin());
-        BudgetTCRDeployer deployer = BudgetTCRDeployer(stackDeployer);
+        BudgetStackDeployer deployer = BudgetStackDeployer(stackDeployer);
         address[] memory initialFactories = allocationMechanism.initialMechanismFactories();
 
         assertTrue(address(allocationMechanism.arbitrator()) != address(0));
@@ -1194,7 +1195,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         address freshStackDeployer = address(_deployBudgetTcrDeployer());
         _initializeOpenBudgetTcrDeployer(
-            BudgetTCRDeployer(freshStackDeployer), address(freshTcr), premiumEscrowImplementation
+            BudgetStackDeployer(freshStackDeployer), address(freshTcr), premiumEscrowImplementation
         );
         ERC20VotesArbitrator freshArbImpl = new ERC20VotesArbitrator();
         bytes memory freshArbInit = _defaultArbitratorInitData(
@@ -1324,7 +1325,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         IAllocationStrategy strategyA = IFlow(childFlowA).strategy();
         IAllocationStrategy strategyB = IFlow(childFlowB).strategy();
         assertEq(address(strategyA), address(strategyB));
-        assertEq(address(strategyA), BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy());
+        assertEq(address(strategyA), BudgetStackDeployer(stackDeployer).sharedBudgetFlowStrategy());
     }
 
     function test_activateRegisteredBudget_deploysDistinctMechanismAndArbitratorPerBudget() public {
@@ -1354,7 +1355,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         (address childFlowB,) = goalFlow.recipients(itemB);
         address budgetTreasuryA = budgetStakeLedger.budgetForRecipient(itemA);
         address budgetTreasuryB = budgetStakeLedger.budgetForRecipient(itemB);
-        address roundFactory = BudgetTCRDeployer(stackDeployer).roundFactory();
+        address roundFactory = BudgetStackDeployer(stackDeployer).roundFactory();
 
         (bool foundA, address mechanismA, address mechanismArbitratorA, address roundFactoryA) =
             _getBudgetAllocationMechanismDeployed(logsA, itemA);
@@ -1435,7 +1436,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         (address childFlowA,) = goalFlow.recipients(itemA);
         (address childFlowB,) = goalFlow.recipients(itemB);
 
-        address sharedStrategy = BudgetTCRDeployer(stackDeployer).sharedBudgetFlowStrategy();
+        address sharedStrategy = BudgetStackDeployer(stackDeployer).sharedBudgetFlowStrategy();
         IBudgetFlowRouterStrategy strategy = IBudgetFlowRouterStrategy(sharedStrategy);
         (bytes32 recipientA, bool registeredA) = strategy.recipientIdForFlow(childFlowA);
         (bytes32 recipientB, bool registeredB) = strategy.recipientIdForFlow(childFlowB);
@@ -1447,7 +1448,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
 
         vm.expectRevert(abi.encodeWithSelector(IBudgetFlowRouterStrategy.FLOW_ALREADY_REGISTERED.selector, childFlowA));
         vm.prank(address(budgetTcr));
-        BudgetTCRDeployer(stackDeployer).registerChildFlowRecipient(itemA, childFlowA);
+        BudgetStackDeployer(stackDeployer).registerChildFlowRecipient(itemA, childFlowA);
     }
 
     function test_finalizeRemovedBudget_reverts_when_not_pending() public {
@@ -2808,11 +2809,11 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
         return false;
     }
 
-    function _hasBudgetCreditCapEnforcementFailed(Vm.Log[] memory logs, address emitter) internal pure returns (bool) {
+    function _hasBudgetGateEnforcementFailed(Vm.Log[] memory logs, address emitter) internal pure returns (bool) {
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].emitter != emitter) continue;
             if (logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] == BUDGET_CREDIT_CAP_ENFORCEMENT_FAILED_SIG) return true;
+            if (logs[i].topics[0] == BUDGET_GATE_ENFORCEMENT_FAILED_SIG) return true;
         }
         return false;
     }
@@ -3001,14 +3002,14 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
     }
 
     function _initializeOpenBudgetTcrDeployer(
-        BudgetTCRDeployer deployer_,
+        BudgetStackDeployer deployer_,
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
         deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0));
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         RoundFactory roundFactory = new RoundFactory(
             address(new RoundSubmissionTCR()),
             address(new RoundPrizeVault()),
@@ -3016,7 +3017,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator())
         );
         TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
-        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+        BudgetStackDeployer implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             address(roundFactory),
             address(teamFlowFactory),
@@ -3024,7 +3025,7 @@ contract BudgetTCRTest is TestUtils, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        return BudgetTCRDeployer(Clones.clone(address(implementation)));
+        return BudgetStackDeployer(Clones.clone(address(implementation)));
     }
 
     function _approveRemoveCost(address who) internal returns (uint256 removeCost) {
@@ -3152,7 +3153,7 @@ contract BudgetTCRTopologyHarness is BudgetTCR {
         IBudgetStackTopologyReader.BudgetStackTopology calldata topology,
         bool active
     ) external {
-        _budgetDeployments[itemID] = BudgetDeployment({
+        _budgetDeployments[itemID] = BudgetTopologyRegistryLib.BudgetDeployment({
             childFlow: topology.childFlow,
             budgetTreasury: topology.budgetTreasury,
             premiumEscrow: topology.premiumEscrow,
@@ -3278,7 +3279,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
         goalTreasury.setStakeVault(address(new MockStakeVaultForBudgetTCR(address(goalTreasury))));
 
         underwriterSlasherRouter = address(new MockUnderwriterSlasherRouter(address(this), goalTreasury.stakeVault()));
-        _initializeOpenBudgetTcrDeployer(BudgetTCRDeployer(stackDeployer), tcrInstance, premiumEscrowImplementation);
+        _initializeOpenBudgetTcrDeployer(BudgetStackDeployer(stackDeployer), tcrInstance, premiumEscrowImplementation);
 
         bytes memory arbInit = _defaultArbitratorInitData(
             owner, address(depositToken), tcrInstance, votingPeriod, votingDelay, revealPeriod, arbitrationCost
@@ -3553,14 +3554,14 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
     }
 
     function _initializeOpenBudgetTcrDeployer(
-        BudgetTCRDeployer deployer_,
+        BudgetStackDeployer deployer_,
         address budgetTcr_,
         address premiumEscrowImplementation_
     ) internal {
         deployer_.initializeWithConfig(budgetTcr_, _openStackModuleConfig(premiumEscrowImplementation_), address(0));
     }
 
-    function _deployBudgetTcrDeployer() internal returns (BudgetTCRDeployer) {
+    function _deployBudgetTcrDeployer() internal returns (BudgetStackDeployer) {
         RoundFactory roundFactory = new RoundFactory(
             address(new RoundSubmissionTCR()),
             address(new RoundPrizeVault()),
@@ -3568,7 +3569,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator())
         );
         TeamFlowFactory teamFlowFactory = new TeamFlowFactory(address(new TeamFlow()));
-        BudgetTCRDeployer implementation = new BudgetTCRDeployer(
+        BudgetStackDeployer implementation = new BudgetStackDeployer(
             address(new BudgetTreasury()),
             address(roundFactory),
             address(teamFlowFactory),
@@ -3576,7 +3577,7 @@ contract BudgetTCRRealFlowIntegrationTest is TestUtils, SpendPolicyTestUtils {
             address(new ERC20VotesArbitrator()),
             address(new BudgetFlowRouterStrategy())
         );
-        return BudgetTCRDeployer(Clones.clone(address(implementation)));
+        return BudgetStackDeployer(Clones.clone(address(implementation)));
     }
 
     function _defaultListing() internal view returns (IBudgetTCR.BudgetListing memory listing) {

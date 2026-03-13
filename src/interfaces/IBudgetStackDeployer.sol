@@ -6,7 +6,6 @@ import { IBudgetTreasury } from "./IBudgetTreasury.sol";
 interface IBudgetStackDeployer {
     enum ChildFlowStrategyMode {
         SharedBudgetFlowRouter,
-        Fixed,
         Factory
     }
 

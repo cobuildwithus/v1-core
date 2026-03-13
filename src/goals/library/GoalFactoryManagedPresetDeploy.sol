@@ -6,6 +6,7 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { IBudgetStackDeployer } from "src/interfaces/IBudgetStackDeployer.sol";
 import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
+import { BudgetStackPresetConfigLib } from "src/goals/library/BudgetStackPresetConfigLib.sol";
 
 library GoalFactoryManagedPresetDeploy {
     struct ManagedPresetBundle {
@@ -31,13 +32,10 @@ library GoalFactoryManagedPresetDeploy {
         SingleAllocatorStrategy(out.goalAllocatorStrategy).initialize(goalTreasury, address(out.budgetController));
         IBudgetStackDeployer(out.stackDeployer).initializeWithConfig(
             address(out.budgetController),
-            IBudgetStackDeployer.StackModuleConfig({
-                childFlowStrategyMode: IBudgetStackDeployer.ChildFlowStrategyMode.Factory,
-                childFlowStrategyTarget: config.budgetChildStrategyFactoryImplementation,
-                mechanismLayerMode: IBudgetStackDeployer.MechanismLayerMode.None,
-                childFlowRecipientAdmin: address(out.budgetController),
-                premiumEscrowImplementation: address(0)
-            }),
+            BudgetStackPresetConfigLib.managedPreset(
+                config.budgetChildStrategyFactoryImplementation,
+                address(out.budgetController)
+            ),
             address(0)
         );
     }

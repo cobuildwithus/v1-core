@@ -14,7 +14,7 @@ import {
 import {BudgetTCRConfigHelpers} from "test/helpers/BudgetTCRConfigHelpers.sol";
 
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
-import {BudgetTCRStackActions} from "src/tcr/library/BudgetTCRStackActions.sol";
+import {BudgetStackInstantiationLib} from "src/goals/library/BudgetStackInstantiationLib.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
@@ -23,7 +23,7 @@ import {RoundSubmissionTCR} from "src/tcr/RoundSubmissionTCR.sol";
 import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
-import {IBudgetTCRStackDeployer} from "src/tcr/interfaces/IBudgetTCRStackDeployer.sol";
+import {IBudgetStackDeployer} from "src/interfaces/IBudgetStackDeployer.sol";
 import {IArbitrator} from "src/tcr/interfaces/IArbitrator.sol";
 import {IGeneralizedTCRConfig} from "src/tcr/interfaces/IGeneralizedTCRConfig.sol";
 import {IFlow} from "src/interfaces/IFlow.sol";
@@ -48,7 +48,7 @@ contract BudgetTCRInvariantPremiumEscrowConnectMock {
     function connectManagerRewardPool(address) external {}
 }
 
-contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
+contract MismatchingBudgetTCRStackDeployer is IBudgetStackDeployer {
     address internal immutable preparedBudgetTreasury;
     address internal immutable deployedBudgetTreasury;
     address internal immutable strategy;
@@ -120,8 +120,8 @@ contract MismatchingBudgetTCRStackDeployer is IBudgetTCRStackDeployer {
 
     function stackModuleConfig() external view returns (StackModuleConfig memory config) {
         config = StackModuleConfig({
-            childFlowStrategyMode: ChildFlowStrategyMode.Fixed,
-            childFlowStrategyTarget: address(0x2222222222222222222222222222222222222222),
+            childFlowStrategyMode: ChildFlowStrategyMode.Factory,
+            childFlowStrategyTarget: address(this),
             mechanismLayerMode: MechanismLayerMode.None,
             childFlowRecipientAdmin: address(0x3333333333333333333333333333333333333333),
             premiumEscrowImplementation: configuredPremiumEscrowImplementation
@@ -245,7 +245,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
         budgetTcr.executeRequest(itemID);
         assertTrue(budgetTcr.isRegistrationPending(itemID));
 
-        vm.expectRevert(BudgetTCRStackActions.BUDGET_TREASURY_MISMATCH.selector);
+        vm.expectRevert(BudgetStackInstantiationLib.BUDGET_TREASURY_MISMATCH.selector);
         budgetTcr.activateRegisteredBudget(itemID);
     }
 
@@ -269,7 +269,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
 
         bytes32 itemID = _queueBudgetRegistration(freshTcr);
 
-        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_NOT_PREPARED.selector);
+        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_NOT_PREPARED.selector);
         freshTcr.activateRegisteredBudget(itemID);
     }
 
@@ -286,7 +286,7 @@ contract BudgetTCRBudgetTreasuryInvariantTest is TestUtils, SpendPolicyTestUtils
 
         bytes32 itemID = _queueBudgetRegistration(freshTcr);
 
-        vm.expectRevert(BudgetTCRStackActions.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
+        vm.expectRevert(BudgetStackInstantiationLib.PREMIUM_ESCROW_REQUIRES_ZERO_RATES.selector);
         freshTcr.activateRegisteredBudget(itemID);
     }
 

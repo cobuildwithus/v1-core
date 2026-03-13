@@ -30,7 +30,7 @@ import {TeamFlow} from "src/teamflow/TeamFlow.sol";
 import {TeamFlowFactory} from "src/teamflow/TeamFlowFactory.sol";
 import {BudgetTCR} from "src/tcr/BudgetTCR.sol";
 import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
-import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
+import {BudgetStackDeployer} from "src/goals/BudgetStackDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
@@ -73,7 +73,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
     address internal erc20VotesArbitratorImplOut;
-    address internal budgetTcrDeployerImplOut;
+    address internal budgetStackDeployerImplOut;
     address internal budgetTreasuryImplOut;
     address internal roundSubmissionTcrImplOut;
     address internal roundPrizeVaultImplOut;
@@ -162,7 +162,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         GoalRevnetSplitHook splitHookImpl = new GoalRevnetSplitHook();
         LinearSpendPolicy linearSpendPolicyImpl = new LinearSpendPolicy();
 
-        BudgetTCRDeployer stackDeployerImpl = new BudgetTCRDeployer(
+        BudgetStackDeployer stackDeployerImpl = new BudgetStackDeployer(
             address(budgetTreasuryImpl),
             address(roundFactoryImpl),
             address(teamFlowFactoryImpl),
@@ -197,7 +197,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         splitHookImplOut = address(splitHookImpl);
         budgetTcrImplOut = address(budgetTcrImpl);
         erc20VotesArbitratorImplOut = address(arbitratorImpl);
-        budgetTcrDeployerImplOut = address(stackDeployerImpl);
+        budgetStackDeployerImplOut = address(stackDeployerImpl);
         budgetTreasuryImplOut = address(budgetTreasuryImpl);
         roundSubmissionTcrImplOut = address(roundSubmissionTcrImpl);
         roundPrizeVaultImplOut = address(roundPrizeVaultImpl);
@@ -240,7 +240,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
         console2.log("ERC20VotesArbitrator impl:", erc20VotesArbitratorImplOut);
-        console2.log("BudgetTCRDeployer impl:", budgetTcrDeployerImplOut);
+        console2.log("BudgetStackDeployer impl:", budgetStackDeployerImplOut);
         console2.log("--- Shared runtime deps ---");
         console2.log("RoundSubmissionTCR impl:", roundSubmissionTcrImplOut);
         console2.log("RoundPrizeVault impl:", roundPrizeVaultImplOut);
@@ -305,7 +305,7 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);
         _writeAddressLine(filePath, "ERC20VotesArbitratorImpl", erc20VotesArbitratorImplOut);
-        _writeAddressLine(filePath, "BudgetTCRDeployerImpl", budgetTcrDeployerImplOut);
+        _writeAddressLine(filePath, "BudgetStackDeployerImpl", budgetStackDeployerImplOut);
         _writeAddressLine(filePath, "BudgetTreasuryImpl", budgetTreasuryImplOut);
         _writeAddressLine(filePath, "RoundSubmissionTCRImpl", roundSubmissionTcrImplOut);
         _writeAddressLine(filePath, "RoundPrizeVaultImpl", roundPrizeVaultImplOut);
@@ -492,8 +492,8 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "erc20VotesArbitrator = \"",
             vm.toString(erc20VotesArbitratorImplOut),
             "\"\n",
-            "budgetTCRDeployer = \"",
-            vm.toString(budgetTcrDeployerImplOut),
+            "budgetStackDeployer = \"",
+            vm.toString(budgetStackDeployerImplOut),
             "\"\n",
             "budgetTreasury = \"",
             vm.toString(budgetTreasuryImplOut),
