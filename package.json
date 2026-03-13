@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@cobuild/repo-tools": "^0.1.13",
-    "@cobuild/review-gpt": "^0.2.15",
+    "@cobuild/review-gpt": "^0.2.16",
     "husky": "^8.0.0",
     "prettier": "^3.0.3",
     "prettier-plugin-solidity": "^1.3.1"
