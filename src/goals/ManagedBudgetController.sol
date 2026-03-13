@@ -16,12 +16,13 @@ import { BudgetTopologyRegistryLib } from "src/goals/library/BudgetTopologyRegis
 import { BudgetGatePolicyHook } from "src/goals/policies/library/BudgetGatePolicyHook.sol";
 import { BudgetGateSync } from "src/goals/policies/library/BudgetGateSync.sol";
 import { BudgetControllerSyncLib } from "src/library/BudgetControllerSyncLib.sol";
+import { BudgetTopologyReaderBase } from "src/library/BudgetTopologyReaderBase.sol";
 import { SpendPolicyValidationLib } from "src/library/SpendPolicyValidationLib.sol";
 import { SuccessResolverValidationLib } from "src/library/SuccessResolverValidationLib.sol";
 import { FlowTypes } from "src/storage/FlowStorage.sol";
 import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpgradeable {
+contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpgradeable, BudgetTopologyReaderBase {
     bytes32 private constant _SYNC_SKIP_NO_BUDGET_TREASURY = "NO_BUDGET_TREASURY";
     bytes32 private constant _SYNC_SKIP_STACK_INACTIVE = "STACK_INACTIVE";
 
@@ -109,60 +110,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         itemID = _activeBudgetIds[index];
     }
 
-    function budgetStackTopology(
-        bytes32 itemID
-    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
-        active = deployment.active;
-    }
-
-    function budgetStackTopologyForBudgetTreasury(
-        address budgetTreasury_
-    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        bytes32 itemID = BudgetTopologyRegistryLib.validatedItemIdForBudgetTreasury(
-            _budgetDeployments,
-            _itemIdByBudgetTreasury,
-            budgetTreasury_
-        );
-        if (itemID == bytes32(0)) return (topology, false);
-
-        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
-        active = deployment.active;
-    }
-
-    function budgetStackTopologyForChildFlow(
-        address childFlow_
-    ) external view override returns (IBudgetStackTopologyReader.BudgetStackTopology memory topology, bool active) {
-        bytes32 itemID = BudgetTopologyRegistryLib.validatedItemIdForChildFlow(
-            _budgetDeployments,
-            _itemIdByChildFlow,
-            childFlow_
-        );
-        if (itemID == bytes32(0)) return (topology, false);
-
-        BudgetTopologyRegistryLib.BudgetDeployment storage deployment = _budgetDeployments[itemID];
-        topology = BudgetTopologyRegistryLib.topologyFromDeployment(deployment);
-        active = deployment.active;
-    }
-
-    function itemIdForBudgetTreasury(address budgetTreasury_) external view override returns (bytes32 itemID) {
-        itemID = BudgetTopologyRegistryLib.validatedItemIdForBudgetTreasury(
-            _budgetDeployments,
-            _itemIdByBudgetTreasury,
-            budgetTreasury_
-        );
-    }
-
-    function itemIdForChildFlow(address childFlow_) external view override returns (bytes32 itemID) {
-        itemID = BudgetTopologyRegistryLib.validatedItemIdForChildFlow(
-            _budgetDeployments,
-            _itemIdByChildFlow,
-            childFlow_
-        );
-    }
-
     function createBudget(
         bytes32 itemID,
         BudgetConfig calldata config
@@ -180,28 +127,26 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
 
         BudgetStackInstantiationLib.InstantiatedBudgetStack memory deployed = BudgetStackInstantiationLib
             .instantiatePreparedBudgetStackWithoutRiskModule(
-                BudgetStackInstantiationLib.PreparedBudgetStackContext({
-                    itemID: itemID,
-                    metadata: config.metadata,
-                    goalFlow: ICustomFlow(goalFlow),
-                    deployer: deployer,
-                    prepared: prepared,
-                    lifecycleConfig: BudgetStackInstantiationLib.BudgetLifecycleConfig({
+                BudgetStackInstantiationLib.buildPreparedBudgetStackContext(
+                    BudgetStackInstantiationLib.PreparedBudgetStackContextInput({
+                        itemID: itemID,
+                        metadata: config.metadata,
+                        goalFlow: ICustomFlow(goalFlow),
+                        deployer: deployer,
+                        prepared: prepared,
                         fundingDeadline: config.fundingDeadline,
                         executionDuration: config.executionDuration,
                         activationThreshold: config.activationThreshold,
                         runwayCap: config.runwayCap,
                         successOracleSpecHash: config.successOracleSpecHash,
-                        successAssertionPolicyHash: config.successAssertionPolicyHash
-                    }),
-                    runtimeConfig: BudgetStackInstantiationLib.BudgetRuntimeConfig({
+                        successAssertionPolicyHash: config.successAssertionPolicyHash,
                         successResolver: budgetSuccessResolver,
                         successAssertionLiveness: successAssertionLiveness,
                         successAssertionBond: successAssertionBond,
-                        spendPolicy: budgetSpendPolicy
-                    }),
-                    premiumPpm: 0
-                })
+                        spendPolicy: budgetSpendPolicy,
+                        premiumPpm: 0
+                    })
+                )
             );
 
         childFlow_ = deployed.childFlow;
@@ -457,7 +402,6 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     }
 
     function _setItemActive(bytes32 itemID, bool active) private {
-        _budgetDeployments[itemID].active = active;
         uint256 indexPlusOne = _activeBudgetIndexPlusOne[itemID];
         if (active) {
             if (indexPlusOne != 0) return;
@@ -481,7 +425,38 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
     }
 
     function _isItemActive(bytes32 itemID) private view returns (bool) {
-        return _budgetDeployments[itemID].active;
+        return _activeBudgetIndexPlusOne[itemID] != 0;
+    }
+
+    function _budgetTopologyDeployment(
+        bytes32 itemID
+    ) internal view override returns (BudgetTopologyRegistryLib.BudgetDeployment storage deployment) {
+        deployment = _budgetDeployments[itemID];
+    }
+
+    function _budgetTopologyItemIdForBudgetTreasury(
+        address budgetTreasury_
+    ) internal view override returns (bytes32 itemID) {
+        itemID = BudgetTopologyRegistryLib.validatedItemIdForBudgetTreasury(
+            _budgetDeployments,
+            _itemIdByBudgetTreasury,
+            budgetTreasury_
+        );
+    }
+
+    function _budgetTopologyItemIdForChildFlow(address childFlow_) internal view override returns (bytes32 itemID) {
+        itemID = BudgetTopologyRegistryLib.validatedItemIdForChildFlow(
+            _budgetDeployments,
+            _itemIdByChildFlow,
+            childFlow_
+        );
+    }
+
+    function _budgetTopologyIsActive(
+        bytes32 itemID,
+        BudgetTopologyRegistryLib.BudgetDeployment storage
+    ) internal view override returns (bool active) {
+        active = _isItemActive(itemID);
     }
 
     function _requirePreparedStack(BudgetStackTypes.PreparationResult memory prepared) private view {
@@ -498,16 +473,14 @@ contract ManagedBudgetController is IManagedBudgetController, ReentrancyGuardUpg
         }
     }
 
-    function _matchesManagedPresetTraits(
-        BudgetStackTypes.StackModuleConfig memory actual
-    ) private view returns (bool) {
+    function _matchesManagedPresetTraits(BudgetStackTypes.StackModuleConfig memory actual) private view returns (bool) {
         return
-            actual.childFlowStrategyMode == BudgetStackTypes.ChildFlowStrategyMode.Factory
-            && actual.childFlowStrategyTarget != address(0)
-            && actual.childFlowStrategyTarget.code.length != 0
-            && actual.mechanismLayerMode == BudgetStackTypes.MechanismLayerMode.None
-            && actual.childFlowRecipientAdmin == address(this)
-            && actual.premiumEscrowImplementation == address(0);
+            actual.childFlowStrategyMode == BudgetStackTypes.ChildFlowStrategyMode.Factory &&
+            actual.childFlowStrategyTarget != address(0) &&
+            actual.childFlowStrategyTarget.code.length != 0 &&
+            actual.mechanismLayerMode == BudgetStackTypes.MechanismLayerMode.None &&
+            actual.childFlowRecipientAdmin == address(this) &&
+            actual.premiumEscrowImplementation == address(0);
     }
 
     function _requireContract(address account) private view {
