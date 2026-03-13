@@ -13,6 +13,10 @@ import {IREVDeployer} from "src/interfaces/external/revnet/IREVDeployer.sol";
 import {ICommunityGoalRegistry} from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 import {IBudgetTCR} from "src/tcr/interfaces/IBudgetTCR.sol";
 import {StakeCoverageGatePolicy} from "src/goals/policies/StakeCoverageGatePolicy.sol";
+import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
+import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import {ISuperfluid} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
@@ -60,6 +64,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
     address internal configuredPremiumEscrowImpl;
     address internal configuredJurorSlasherRouterImpl;
     address internal configuredUnderwriterSlasherRouterImpl;
+    address internal configuredManagedBudgetControllerImpl;
+    address internal configuredManagedGoalAllocatorStrategyImpl;
+    address internal configuredManagedBudgetChildStrategyFactoryImpl;
     address internal configuredBuybackHookDataHook;
     address internal configuredBuybackHook;
     address internal configuredOpenBudgetGatePolicy;
@@ -89,6 +96,11 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         configuredPremiumEscrowImpl = address(new DummyContract());
         configuredJurorSlasherRouterImpl = address(new DummyContract());
         configuredUnderwriterSlasherRouterImpl = address(new DummyContract());
+        configuredManagedBudgetControllerImpl = address(new ManagedBudgetController());
+        configuredManagedGoalAllocatorStrategyImpl = address(new SingleAllocatorStrategy(address(0), address(0)));
+        address managedBudgetChildStrategyImpl = address(new BudgetSingleAllocatorStrategy(address(0), address(0)));
+        configuredManagedBudgetChildStrategyFactoryImpl =
+            address(new BudgetSingleAllocatorStrategyFactory(managedBudgetChildStrategyImpl));
         configuredBuybackHookDataHook = address(new DummyContract());
         configuredBuybackHook = address(new DummyContract());
         configuredOpenBudgetGatePolicy = address(new StakeCoverageGatePolicy());
@@ -105,7 +117,7 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             )
         );
 
-        factory = _newFactory(configuredGoalPaymentTerminal);
+        factory = _deployFactory(configuredGoalPaymentTerminal);
         goalDeploymentRegistry.setRegistrar(address(factory), true);
     }
 
@@ -118,6 +130,56 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         address noCodeGoalPaymentTerminal = address(0xC0B1D);
         vm.expectRevert(abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, noCodeGoalPaymentTerminal));
         _deployFactory(noCodeGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedBudgetControllerImplIsZero() public {
+        configuredManagedBudgetControllerImpl = address(0);
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        _deployFactory(configuredGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedBudgetControllerImplHasNoCode() public {
+        configuredManagedBudgetControllerImpl = address(0xBEEF);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, configuredManagedBudgetControllerImpl)
+        );
+        _deployFactory(configuredGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedGoalAllocatorStrategyImplIsZero() public {
+        configuredManagedGoalAllocatorStrategyImpl = address(0);
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        _deployFactory(configuredGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedGoalAllocatorStrategyImplHasNoCode() public {
+        configuredManagedGoalAllocatorStrategyImpl = address(0xCAFE);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, configuredManagedGoalAllocatorStrategyImpl)
+        );
+        _deployFactory(configuredGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedBudgetChildStrategyFactoryImplIsZero() public {
+        configuredManagedBudgetChildStrategyFactoryImpl = address(0);
+
+        vm.expectRevert(GoalFactory.ADDRESS_ZERO.selector);
+        _deployFactory(configuredGoalPaymentTerminal);
+    }
+
+    function test_constructor_revertsWhenManagedBudgetChildStrategyFactoryImplHasNoCode() public {
+        configuredManagedBudgetChildStrategyFactoryImpl = address(0xD00D);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.NOT_A_CONTRACT.selector, configuredManagedBudgetChildStrategyFactoryImpl
+            )
+        );
+        _deployFactory(configuredGoalPaymentTerminal);
     }
 
     function test_constructor_revertsWhenOpenBudgetGatePolicyIsNotABudgetGatePolicy() public {
@@ -503,10 +565,6 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
         p.goalSpendPolicy = configuredGoalSpendPolicy;
     }
 
-    function _newFactory(address goalPaymentTerminal) internal returns (GoalFactory goalFactory) {
-        goalFactory = _deployFactory(goalPaymentTerminal);
-    }
-
     function _deployFactory(address goalPaymentTerminal) internal returns (GoalFactory goalFactory) {
         goalFactory = new GoalFactory(
             IREVDeployer(address(revDeployer)),
@@ -526,6 +584,9 @@ contract GoalFactoryUnderwritingSlashConfigGuardTest is Test {
             configuredPremiumEscrowImpl,
             configuredJurorSlasherRouterImpl,
             configuredUnderwriterSlasherRouterImpl,
+            configuredManagedBudgetControllerImpl,
+            configuredManagedGoalAllocatorStrategyImpl,
+            configuredManagedBudgetChildStrategyFactoryImpl,
             configuredOpenBudgetGatePolicy,
             configuredDefaultGoalSpendPolicy,
             configuredDefaultBudgetSpendPolicy,

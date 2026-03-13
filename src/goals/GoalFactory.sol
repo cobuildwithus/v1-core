@@ -13,13 +13,9 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 import { IREVDeployer } from "src/interfaces/external/revnet/IREVDeployer.sol";
 
-import { BudgetSingleAllocatorStrategyFactory } from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
-import { BudgetSingleAllocatorStrategy } from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
-import { SingleAllocatorStrategy } from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import { GoalTreasury } from "src/goals/GoalTreasury.sol";
 import { CustomFlow } from "src/flows/CustomFlow.sol";
 import { GoalRevnetSplitHook } from "src/hooks/GoalRevnetSplitHook.sol";
-import { ManagedBudgetController } from "src/goals/ManagedBudgetController.sol";
 
 import { IManagedBudgetController } from "src/interfaces/IManagedBudgetController.sol";
 import { IBudgetGatePolicy } from "src/interfaces/IBudgetGatePolicy.sol";
@@ -222,6 +218,9 @@ contract GoalFactory {
         address premiumEscrowImpl,
         address jurorSlasherRouterImpl,
         address underwriterSlasherRouterImpl,
+        address managedBudgetControllerImplementation,
+        address managedGoalAllocatorStrategyImplementation,
+        address managedBudgetChildStrategyFactoryImplementation,
         address openBudgetGatePolicy,
         address defaultGoalSpendPolicy,
         address defaultBudgetSpendPolicy,
@@ -246,6 +245,9 @@ contract GoalFactory {
         if (premiumEscrowImpl == address(0)) revert ADDRESS_ZERO();
         if (jurorSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
         if (underwriterSlasherRouterImpl == address(0)) revert ADDRESS_ZERO();
+        if (managedBudgetControllerImplementation == address(0)) revert ADDRESS_ZERO();
+        if (managedGoalAllocatorStrategyImplementation == address(0)) revert ADDRESS_ZERO();
+        if (managedBudgetChildStrategyFactoryImplementation == address(0)) revert ADDRESS_ZERO();
         if (openBudgetGatePolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultGoalSpendPolicy == address(0)) revert ADDRESS_ZERO();
         if (defaultBudgetSpendPolicy == address(0)) revert ADDRESS_ZERO();
@@ -264,6 +266,15 @@ contract GoalFactory {
         if (premiumEscrowImpl.code.length == 0) revert NOT_A_CONTRACT(premiumEscrowImpl);
         if (jurorSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(jurorSlasherRouterImpl);
         if (underwriterSlasherRouterImpl.code.length == 0) revert NOT_A_CONTRACT(underwriterSlasherRouterImpl);
+        if (managedBudgetControllerImplementation.code.length == 0) {
+            revert NOT_A_CONTRACT(managedBudgetControllerImplementation);
+        }
+        if (managedGoalAllocatorStrategyImplementation.code.length == 0) {
+            revert NOT_A_CONTRACT(managedGoalAllocatorStrategyImplementation);
+        }
+        if (managedBudgetChildStrategyFactoryImplementation.code.length == 0) {
+            revert NOT_A_CONTRACT(managedBudgetChildStrategyFactoryImplementation);
+        }
         if (openBudgetGatePolicy.code.length == 0) revert NOT_A_CONTRACT(openBudgetGatePolicy);
         if (!BudgetGatePolicyHook.supportsBudgetGatePolicy(IBudgetGatePolicy(openBudgetGatePolicy))) {
             revert IBudgetTCR.INVALID_BUDGET_GATE_POLICY(openBudgetGatePolicy);
@@ -280,17 +291,6 @@ contract GoalFactory {
         _requireValidDefaultSpendPolicy(defaultGoalSpendPolicy);
         _requireValidDefaultSpendPolicy(defaultBudgetSpendPolicy);
         _validateGoalTerminalConfig(revDeployer, goalDeploymentRegistry, goalPaymentTerminal);
-
-        address managedBudgetControllerImplementation = address(new ManagedBudgetController());
-        address managedGoalAllocatorStrategyImplementation = address(
-            new SingleAllocatorStrategy(address(0), address(0))
-        );
-        address managedBudgetChildStrategyImplementation = address(
-            new BudgetSingleAllocatorStrategy(address(0), address(0))
-        );
-        address managedBudgetChildStrategyFactoryImplementation = address(
-            new BudgetSingleAllocatorStrategyFactory(managedBudgetChildStrategyImplementation)
-        );
 
         REV_DEPLOYER = revDeployer;
         SUPERFLUID_HOST = superfluidHost;

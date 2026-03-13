@@ -30,8 +30,6 @@ contract GoalFactoryPairDeployer {
         address superfluidHost;
         address goalDeploymentRegistry;
         address goalDeploymentRegistryRegistrarAdmin;
-        address cobuildToken;
-        uint256 cobuildRevnetId;
         address goalPaymentTerminal;
         address jbMultiTerminal;
         address buybackHookDataHook;
@@ -45,6 +43,9 @@ contract GoalFactoryPairDeployer {
         address premiumEscrowImpl;
         address jurorSlasherRouterImpl;
         address underwriterSlasherRouterImpl;
+        address managedBudgetControllerImpl;
+        address managedGoalAllocatorStrategyImpl;
+        address managedBudgetChildStrategyFactoryImpl;
         address openBudgetGatePolicy;
         address defaultGoalSpendPolicy;
         address defaultBudgetSpendPolicy;
@@ -110,6 +111,9 @@ contract GoalFactoryPairDeployer {
             goalFactoryConfig.premiumEscrowImpl,
             goalFactoryConfig.jurorSlasherRouterImpl,
             goalFactoryConfig.underwriterSlasherRouterImpl,
+            goalFactoryConfig.managedBudgetControllerImpl,
+            goalFactoryConfig.managedGoalAllocatorStrategyImpl,
+            goalFactoryConfig.managedBudgetChildStrategyFactoryImpl,
             goalFactoryConfig.openBudgetGatePolicy,
             goalFactoryConfig.defaultGoalSpendPolicy,
             goalFactoryConfig.defaultBudgetSpendPolicy,
@@ -163,6 +167,9 @@ contract DeployGoalFactory is DeployScript {
     address internal premiumEscrowImplOut;
     address internal jurorSlasherRouterImplOut;
     address internal underwriterSlasherRouterImplOut;
+    address internal managedBudgetControllerImplOut;
+    address internal managedGoalAllocatorStrategyImplOut;
+    address internal managedBudgetChildStrategyFactoryImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
@@ -246,6 +253,14 @@ contract DeployGoalFactory is DeployScript {
             _requireConfigAddress("JUROR_SLASHER_ROUTER_IMPL", "$.implementations.jurorSlasherRouter");
         underwriterSlasherRouterImplOut =
             _requireConfigAddress("UNDERWRITER_SLASHER_ROUTER_IMPL", "$.implementations.underwriterSlasherRouter");
+        managedBudgetControllerImplOut =
+            _requireConfigAddress("MANAGED_BUDGET_CONTROLLER_IMPL", "$.implementations.managedBudgetController");
+        managedGoalAllocatorStrategyImplOut = _requireConfigAddress(
+            "MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL", "$.implementations.managedGoalAllocatorStrategy"
+        );
+        managedBudgetChildStrategyFactoryImplOut = _requireConfigAddress(
+            "MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL", "$.implementations.managedBudgetChildStrategyFactory"
+        );
         customFlowImplOut = _requireConfigAddress("CUSTOM_FLOW_IMPL", "$.implementations.customFlow");
         splitHookImplOut = _requireConfigAddress("GOAL_REVNET_SPLIT_HOOK_IMPL", "$.implementations.goalRevnetSplitHook");
         budgetTcrImplOut = _requireConfigAddress("BUDGET_TCR_IMPL", "$.implementations.budgetTCR");
@@ -290,6 +305,9 @@ contract DeployGoalFactory is DeployScript {
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
         console2.log("JurorSlasherRouter impl:", jurorSlasherRouterImplOut);
         console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
+        console2.log("ManagedBudgetController impl:", managedBudgetControllerImplOut);
+        console2.log("ManagedGoalAllocatorStrategy impl:", managedGoalAllocatorStrategyImplOut);
+        console2.log("ManagedBudgetChildStrategyFactory impl:", managedBudgetChildStrategyFactoryImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
@@ -331,6 +349,9 @@ contract DeployGoalFactory is DeployScript {
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
         _writeAddressLine(filePath, "JurorSlasherRouterImpl", jurorSlasherRouterImplOut);
         _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
+        _writeAddressLine(filePath, "ManagedBudgetControllerImpl", managedBudgetControllerImplOut);
+        _writeAddressLine(filePath, "ManagedGoalAllocatorStrategyImpl", managedGoalAllocatorStrategyImplOut);
+        _writeAddressLine(filePath, "ManagedBudgetChildStrategyFactoryImpl", managedBudgetChildStrategyFactoryImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);
@@ -393,8 +414,6 @@ contract DeployGoalFactory is DeployScript {
                 superfluidHost: superfluidHostAddressOut,
                 goalDeploymentRegistry: goalDeploymentRegistryOut,
                 goalDeploymentRegistryRegistrarAdmin: goalDeploymentRegistryRegistrarAdminOut,
-                cobuildToken: cobuildTokenAddressOut,
-                cobuildRevnetId: cobuildRevnetIdOut,
                 goalPaymentTerminal: goalPaymentTerminalOut,
                 jbMultiTerminal: jbMultiTerminalOut,
                 buybackHookDataHook: buybackHookDataHookOut,
@@ -408,6 +427,9 @@ contract DeployGoalFactory is DeployScript {
                 premiumEscrowImpl: premiumEscrowImplOut,
                 jurorSlasherRouterImpl: jurorSlasherRouterImplOut,
                 underwriterSlasherRouterImpl: underwriterSlasherRouterImplOut,
+                managedBudgetControllerImpl: managedBudgetControllerImplOut,
+                managedGoalAllocatorStrategyImpl: managedGoalAllocatorStrategyImplOut,
+                managedBudgetChildStrategyFactoryImpl: managedBudgetChildStrategyFactoryImplOut,
                 openBudgetGatePolicy: defaultOpenBudgetGatePolicyOut,
                 defaultGoalSpendPolicy: defaultGoalSpendPolicyOut,
                 defaultBudgetSpendPolicy: defaultBudgetSpendPolicyOut,

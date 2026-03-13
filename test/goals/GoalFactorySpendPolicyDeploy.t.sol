@@ -31,6 +31,7 @@ import {GoalDeploymentRegistry} from "src/goals/GoalDeploymentRegistry.sol";
 import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
 import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
 import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
@@ -94,6 +95,9 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
     FactoryDeployDummyContract internal defaultSubmissionDepositStrategy;
     FactoryDeployMockJurorSlasherRouter internal jurorSlasherRouterImpl;
     FactoryDeployMockUnderwriterSlasherRouter internal underwriterSlasherRouterImpl;
+    ManagedBudgetController internal managedBudgetControllerImpl;
+    SingleAllocatorStrategy internal managedGoalAllocatorStrategyImpl;
+    BudgetSingleAllocatorStrategyFactory internal managedBudgetChildStrategyFactoryImpl;
     GoalDeploymentRegistry internal goalDeploymentRegistry;
     LinearSpendPolicy internal defaultGoalSpendPolicy;
     LinearSpendPolicy internal defaultBudgetSpendPolicy;
@@ -126,6 +130,12 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         defaultSubmissionDepositStrategy = new FactoryDeployDummyContract();
         jurorSlasherRouterImpl = new FactoryDeployMockJurorSlasherRouter();
         underwriterSlasherRouterImpl = new FactoryDeployMockUnderwriterSlasherRouter();
+        managedBudgetControllerImpl = new ManagedBudgetController();
+        managedGoalAllocatorStrategyImpl = new SingleAllocatorStrategy(address(0), address(0));
+        BudgetSingleAllocatorStrategy managedBudgetChildStrategyImpl =
+            new BudgetSingleAllocatorStrategy(address(0), address(0));
+        managedBudgetChildStrategyFactoryImpl =
+            new BudgetSingleAllocatorStrategyFactory(address(managedBudgetChildStrategyImpl));
         goalDeploymentRegistry = new GoalDeploymentRegistry(address(this), address(0));
         goalTerminal = new FactoryDeployMockGoalTerminal(
             IJBDirectory(address(directory)), IGoalDeploymentRegistry(address(goalDeploymentRegistry))
@@ -158,10 +168,39 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(factory.DEFAULT_BUDGET_SPEND_POLICY(), address(defaultBudgetSpendPolicy));
     }
 
-    function test_constructor_deploysSharedManagedPresetInfra() public view {
-        assertTrue(factory.MANAGED_BUDGET_CONTROLLER_IMPL().code.length > 0);
-        assertTrue(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL().code.length > 0);
-        assertTrue(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL().code.length > 0);
+    function test_constructor_setsSharedManagedPresetInfraImmutables() public view {
+        assertEq(factory.MANAGED_BUDGET_CONTROLLER_IMPL(), address(managedBudgetControllerImpl));
+        assertEq(factory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL(), address(managedGoalAllocatorStrategyImpl));
+        assertEq(factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL(), address(managedBudgetChildStrategyFactoryImpl));
+    }
+
+    function test_constructor_revertsWhenManagedBudgetControllerImplHasNoCode() public {
+        managedBudgetControllerImpl = ManagedBudgetController(address(0xBEEF));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, address(managedBudgetControllerImpl))
+        );
+        _deployFactoryWithDefaultPolicies(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
+    }
+
+    function test_constructor_revertsWhenManagedGoalAllocatorStrategyImplHasNoCode() public {
+        managedGoalAllocatorStrategyImpl = SingleAllocatorStrategy(address(0xCAFE));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(GoalFactory.NOT_A_CONTRACT.selector, address(managedGoalAllocatorStrategyImpl))
+        );
+        _deployFactoryWithDefaultPolicies(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
+    }
+
+    function test_constructor_revertsWhenManagedBudgetChildStrategyFactoryImplHasNoCode() public {
+        managedBudgetChildStrategyFactoryImpl = BudgetSingleAllocatorStrategyFactory(address(0xD00D));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GoalFactory.NOT_A_CONTRACT.selector, address(managedBudgetChildStrategyFactoryImpl)
+            )
+        );
+        _deployFactoryWithDefaultPolicies(address(defaultGoalSpendPolicy), address(defaultBudgetSpendPolicy));
     }
 
     function test_constructor_revertsWhenDefaultGoalSpendPolicyIsInvalid() public {
@@ -233,7 +272,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(FactoryDeployMockStakeVault(deployed.stakeVault).underwriterSlasher(), address(0));
     }
 
-    function test_deployGoal_openPreset_usesNoGateAndPreservesRiskWiringWhenSlashIsZero() public {
+    function test_deployGoal_openPreset_usesNoGateAndDropsRouterWhenSlashIsZero() public {
         GoalFactory.DeployParams memory params = _baseDeployParams(address(defaultGoalSpendPolicy));
         params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
 
@@ -241,7 +280,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
 
         assertEq(budgetTcrFactory.lastBudgetGatePolicy(), address(0));
         assertEq(budgetTcrFactory.lastPremiumEscrowImplementation(), address(premiumEscrowImpl));
-        assertEq(budgetTcrFactory.lastUnderwriterSlasherRouter(), deployed.underwriterSlasherRouter);
+        assertEq(budgetTcrFactory.lastUnderwriterSlasherRouter(), address(0));
+        assertEq(deployed.underwriterSlasherRouter, address(0));
     }
 
     function test_deployGoal_openPreset_passesSharedOpenBudgetGatePolicyWhenSlashEnabled() public {
@@ -268,7 +308,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(goalDeploymentRegistry.goalTreasuryOf(deployed.goalRevnetId), deployed.goalTreasury);
     }
 
-    function test_deployGoal_openPreset_preservesStakeVaultAllocatorAndBudgetTcrController() public {
+    function test_deployGoal_openPreset_preservesStakeVaultAllocatorAndBudgetTcrController_whenSlashIsZero() public {
         LinearSpendPolicy spendPolicy = _deployLinearSpendPolicy();
         GoalFactory.DeployParams memory params = _baseDeployParams(address(spendPolicy));
         params.underwriting = GoalFactory.UnderwritingParams({budgetPremiumPpm: 100_000, budgetSlashPpm: 0});
@@ -281,17 +321,8 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(
             FactoryDeployMockJurorSlasherRouter(deployed.jurorSlasherRouter).authority(), address(budgetTcrFactory)
         );
-        assertEq(
-            FactoryDeployMockStakeVault(deployed.stakeVault).underwriterSlasher(), deployed.underwriterSlasherRouter
-        );
-        assertEq(
-            FactoryDeployMockUnderwriterSlasherRouter(deployed.underwriterSlasherRouter).budgetController(),
-            deployed.budgetController
-        );
-        assertEq(
-            FactoryDeployMockUnderwriterSlasherRouter(deployed.underwriterSlasherRouter).goalFundingTarget(),
-            deployed.goalFlow
-        );
+        assertEq(FactoryDeployMockStakeVault(deployed.stakeVault).underwriterSlasher(), address(0));
+        assertEq(deployed.underwriterSlasherRouter, address(0));
     }
 
     function test_deployGoal_revertsWhenFactoryIsNotAuthorizedRegistrar() public {
@@ -374,7 +405,7 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
         assertEq(stackConfig.childFlowStrategyTarget, factory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL());
         assertEq(uint8(stackConfig.mechanismLayerMode), uint8(IBudgetStackDeployer.MechanismLayerMode.None));
         assertEq(stackConfig.childFlowRecipientAdmin, deployed.budgetController);
-        assertEq(uint8(stackConfig.premiumEscrowMode), uint8(IBudgetStackDeployer.PremiumEscrowMode.None));
+        assertEq(stackConfig.premiumEscrowImplementation, address(0));
         assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
         assertEq(deployed.arbitrator, address(0));
         assertEq(
@@ -709,6 +740,9 @@ contract GoalFactorySpendPolicyDeployTest is Test, SpendPolicyTestUtils {
             address(premiumEscrowImpl),
             address(jurorSlasherRouterImpl),
             address(underwriterSlasherRouterImpl),
+            address(managedBudgetControllerImpl),
+            address(managedGoalAllocatorStrategyImpl),
+            address(managedBudgetChildStrategyFactoryImpl),
             address(openBudgetGatePolicy),
             goalDefaultSpendPolicy,
             budgetDefaultSpendPolicy,

@@ -19,6 +19,7 @@ import {GoalTreasury} from "src/goals/GoalTreasury.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {BudgetTreasury} from "src/goals/BudgetTreasury.sol";
+import {ManagedBudgetController} from "src/goals/ManagedBudgetController.sol";
 import {JurorSlasherRouter} from "src/goals/JurorSlasherRouter.sol";
 import {PremiumEscrow} from "src/goals/PremiumEscrow.sol";
 import {UnderwriterSlasherRouter} from "src/goals/UnderwriterSlasherRouter.sol";
@@ -32,6 +33,9 @@ import {ERC20VotesArbitrator} from "src/tcr/ERC20VotesArbitrator.sol";
 import {BudgetTCRDeployer} from "src/tcr/BudgetTCRDeployer.sol";
 import {AllocationMechanismTCR} from "src/tcr/AllocationMechanismTCR.sol";
 import {BudgetFlowRouterStrategy} from "src/allocation-strategies/BudgetFlowRouterStrategy.sol";
+import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategy} from "src/allocation-strategies/BudgetSingleAllocatorStrategy.sol";
+import {BudgetSingleAllocatorStrategyFactory} from "src/allocation-strategies/BudgetSingleAllocatorStrategyFactory.sol";
 import {MechanismFundingEscrow} from "src/escrow/MechanismFundingEscrow.sol";
 import {RoundFactory} from "src/rounds/RoundFactory.sol";
 import {RoundPrizeVault} from "src/rounds/RoundPrizeVault.sol";
@@ -61,6 +65,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
     address internal premiumEscrowImplOut;
     address internal jurorSlasherRouterImplOut;
     address internal underwriterSlasherRouterImplOut;
+    address internal managedBudgetControllerImplOut;
+    address internal managedGoalAllocatorStrategyImplOut;
+    address internal managedBudgetChildStrategyImplOut;
+    address internal managedBudgetChildStrategyFactoryImplOut;
     address internal customFlowImplOut;
     address internal splitHookImplOut;
     address internal budgetTcrImplOut;
@@ -142,6 +150,12 @@ contract DeployGoalFactoryImplementations is DeployScript {
         PremiumEscrow premiumEscrowImpl = new PremiumEscrow();
         JurorSlasherRouter jurorSlasherRouterImpl = _deployJurorSlasherRouterImplementation();
         UnderwriterSlasherRouter underwriterSlasherRouterImpl = _deployUnderwriterSlasherRouterImplementation();
+        ManagedBudgetController managedBudgetControllerImpl = new ManagedBudgetController();
+        SingleAllocatorStrategy managedGoalAllocatorStrategyImpl = new SingleAllocatorStrategy(address(0), address(0));
+        BudgetSingleAllocatorStrategy managedBudgetChildStrategyImpl =
+            new BudgetSingleAllocatorStrategy(address(0), address(0));
+        BudgetSingleAllocatorStrategyFactory managedBudgetChildStrategyFactoryImpl =
+            new BudgetSingleAllocatorStrategyFactory(address(managedBudgetChildStrategyImpl));
         CustomFlow flowImpl = new CustomFlow();
         TeamFlow teamFlowImpl = new TeamFlow();
         TeamFlowFactory teamFlowFactoryImpl = new TeamFlowFactory(address(teamFlowImpl));
@@ -175,6 +189,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         premiumEscrowImplOut = address(premiumEscrowImpl);
         jurorSlasherRouterImplOut = address(jurorSlasherRouterImpl);
         underwriterSlasherRouterImplOut = address(underwriterSlasherRouterImpl);
+        managedBudgetControllerImplOut = address(managedBudgetControllerImpl);
+        managedGoalAllocatorStrategyImplOut = address(managedGoalAllocatorStrategyImpl);
+        managedBudgetChildStrategyImplOut = address(managedBudgetChildStrategyImpl);
+        managedBudgetChildStrategyFactoryImplOut = address(managedBudgetChildStrategyFactoryImpl);
         customFlowImplOut = address(flowImpl);
         splitHookImplOut = address(splitHookImpl);
         budgetTcrImplOut = address(budgetTcrImpl);
@@ -214,6 +232,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         console2.log("PremiumEscrow impl:", premiumEscrowImplOut);
         console2.log("JurorSlasherRouter impl:", jurorSlasherRouterImplOut);
         console2.log("UnderwriterSlasherRouter impl:", underwriterSlasherRouterImplOut);
+        console2.log("ManagedBudgetController impl:", managedBudgetControllerImplOut);
+        console2.log("ManagedGoalAllocatorStrategy impl:", managedGoalAllocatorStrategyImplOut);
+        console2.log("ManagedBudgetChildStrategy impl:", managedBudgetChildStrategyImplOut);
+        console2.log("ManagedBudgetChildStrategyFactory impl:", managedBudgetChildStrategyFactoryImplOut);
         console2.log("CustomFlow impl:", customFlowImplOut);
         console2.log("GoalRevnetSplitHook impl:", splitHookImplOut);
         console2.log("BudgetTCR impl:", budgetTcrImplOut);
@@ -275,6 +297,10 @@ contract DeployGoalFactoryImplementations is DeployScript {
         _writeAddressLine(filePath, "PremiumEscrowImpl", premiumEscrowImplOut);
         _writeAddressLine(filePath, "JurorSlasherRouterImpl", jurorSlasherRouterImplOut);
         _writeAddressLine(filePath, "UnderwriterSlasherRouterImpl", underwriterSlasherRouterImplOut);
+        _writeAddressLine(filePath, "ManagedBudgetControllerImpl", managedBudgetControllerImplOut);
+        _writeAddressLine(filePath, "ManagedGoalAllocatorStrategyImpl", managedGoalAllocatorStrategyImplOut);
+        _writeAddressLine(filePath, "ManagedBudgetChildStrategyImpl", managedBudgetChildStrategyImplOut);
+        _writeAddressLine(filePath, "ManagedBudgetChildStrategyFactoryImpl", managedBudgetChildStrategyFactoryImplOut);
         _writeAddressLine(filePath, "CustomFlowImpl", customFlowImplOut);
         _writeAddressLine(filePath, "GoalRevnetSplitHookImpl", splitHookImplOut);
         _writeAddressLine(filePath, "BudgetTCRImpl", budgetTcrImplOut);
@@ -437,6 +463,18 @@ contract DeployGoalFactoryImplementations is DeployScript {
             "\"\n",
             "underwriterSlasherRouter = \"",
             vm.toString(underwriterSlasherRouterImplOut),
+            "\"\n",
+            "managedBudgetController = \"",
+            vm.toString(managedBudgetControllerImplOut),
+            "\"\n",
+            "managedGoalAllocatorStrategy = \"",
+            vm.toString(managedGoalAllocatorStrategyImplOut),
+            "\"\n",
+            "managedBudgetChildStrategy = \"",
+            vm.toString(managedBudgetChildStrategyImplOut),
+            "\"\n",
+            "managedBudgetChildStrategyFactory = \"",
+            vm.toString(managedBudgetChildStrategyFactoryImplOut),
             "\"\n",
             "customFlow = \"",
             vm.toString(customFlowImplOut),

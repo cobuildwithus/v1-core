@@ -1,6 +1,6 @@
 # Deployment Notes
 
-Last updated: 2026-03-03
+Last updated: 2026-03-13
 
 ## Initializer Takeover Guardrail
 
@@ -23,6 +23,7 @@ If `initialize(...)` is publicly callable and a runtime instance is left uniniti
 1. Proxy deployments must pass initializer calldata in proxy construction.
 2. Clone deployments must call `initialize(...)` immediately in the factory before returning control.
 3. Any future async or multi-transaction init refactor must include an explicit initializer-caller gate or equivalent hardening.
+4. Factory-stage deployer contracts must consume predeployed reusable implementation addresses instead of constructor-deploying shared subcontracts inline; nested creation code compounds initcode size and can exceed Base/EIP-3860 limits even when individual runtime contracts are within EIP-170.
 
 ## Initializer Primitive Policy
 

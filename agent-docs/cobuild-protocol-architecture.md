@@ -1,6 +1,6 @@
 # Cobuild Protocol Detailed Architecture
 
-Last updated: 2026-03-11
+Last updated: 2026-03-13
 
 ## Purpose
 
@@ -38,7 +38,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Stake and weight accounting: `src/goals/StakeVault.sol`
 - Pluggable budget controllers / topology registries: `src/tcr/BudgetTCR.sol`, `src/goals/ManagedBudgetController.sol`
 - Budget gating boundary: `src/interfaces/IBudgetGatePolicy.sol`, `src/goals/policies/*.sol`
-- Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, explicit no-premium absence via `PremiumEscrowMode.None`, `src/goals/UnderwriterSlasherRouter.sol`
+- Underwriting premium / risk modules: `src/goals/PremiumEscrow.sol`, explicit no-premium absence via `premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`, `src/goals/UnderwriterSlasherRouter.sol` for slash-enabled goals
 - Shared budget stack deployer surface: `src/interfaces/IBudgetStackDeployer.sol` with `src/tcr/BudgetTCRDeployer.sol`
 - Goal-domain helper libraries: `src/goals/library/*.sol` (treasury sync/donations plus extracted stake/slash math modules)
 - Revnet split ingress: `src/hooks/GoalRevnetSplitHook.sol`
@@ -71,6 +71,9 @@ Durable architecture reference for module boundaries, integration paths, and pro
 
 - The recursive-flow substrate is universal. `Flow`, `CustomFlow`, `GoalFlowAllocationLedgerPipeline`, `GoalTreasury`, `BudgetTreasury`, and `StakeVault` remain shared runtime substrate for both presets.
 - Control-plane modules are selected by `GoalFactory` at deployment time. Neutral runtime paths must not branch on a managed/open flag.
+- Factory-stage deployment must provide predeployed managed preset implementations to `GoalFactory`; the canonical
+  deploy path does not constructor-deploy shared managed infra inside onchain deployer contracts because nested
+  creation code compounds initcode size and can exceed Base/EIP-3860 limits.
 - `StakeVault` remains the funding vault for both presets, but it is not always the goal allocator.
 
 ### Open preset
@@ -90,7 +93,7 @@ Durable architecture reference for module boundaries, integration paths, and pro
 - Budget gate policy: optional `IBudgetGatePolicy` (current preset wiring uses no gate policy / `address(0)`)
 - Budget child strategy: `BudgetSingleAllocatorStrategy`
 - Budget child allocator identity: `ManagedBudgetController`
-- Premium / risk module: none by default (`PremiumEscrowMode.None`)
+- Premium / risk module: none by default (`premiumEscrow = address(0)` / `premiumEscrowImplementation = address(0)`)
 - Budget child `recipientAdmin`: `ManagedBudgetController`
 - No advisory TCR and no managed mechanism controller in this pass
 
@@ -231,6 +234,7 @@ Community root routing
 - Finalization path still triggers flow stop + residual settlement + stake-vault resolution.
 - Open-preset underwriting premium/slash routing is hard-cutover:
   - each budget child flow manager-reward stream is routed to that budget `PremiumEscrow` at `budgetPremiumPpm`,
+  - per-goal `UnderwriterSlasherRouter` wiring is required only when `budgetSlashPpm != 0`; premium-only/no-slash budgets still use `PremiumEscrow` but omit that router,
   - `PremiumEscrow` indexes premium against live budget coverage from `BudgetStakeLedger`,
   - `PremiumEscrow` goal-flow receipt baseline/checkpoint reads are accounting-critical and fail closed on read failure rather than resetting/skipping receipt accounting,
   - premium claims are gated on goal success (`GoalTreasury.state() == Succeeded`),
@@ -247,7 +251,7 @@ Community root routing
   - a clean `supportsEscrowBonding() == false` response preserves manual registry deposits,
   - missing/reverting capability probes now fail deployment fast instead of silently falling back.
 - Underwriter slash recycling path:
-  - `UnderwriterSlasherRouter` is configured as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
+  - when configured (`budgetSlashPpm != 0`), `UnderwriterSlasherRouter` is set as `StakeVault` underwriter slasher and receives slashed goal/cobuild tokens,
   - router best-effort converts cobuild -> goal token via goal revnet terminal (failures are observable and retained),
   - router upgrades goal token to goal SuperToken and forwards to goal funding target.
 - Residual settlement behavior:
@@ -325,8 +329,8 @@ Community root routing
   - the resulting amount is queued on the canonical community `CobuildSplitHook`,
   - once the cooldown elapses, anyone may release queued rollover amounts into hook-managed historical backlog for normal decayed-weight routing.
 - Underwriter withdrawals are caller-prepared post-resolution:
-  - `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
-  - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing.
+  - when the goal configured an underwriter slasher, `StakeVault.prepareUnderwriterWithdrawal(maxBudgets)` iterates append-only registered budgets and executes required slash settlement for the caller.
+  - `withdrawGoal`/`withdrawCobuild` are no longer globally blocked by unrelated unresolved budgets; only caller-specific unresolved exposure prevents that caller from withdrawing, and zero-slash goals skip the no-op preparation gate entirely.
 
 6. TCR request/challenge/dispute lifecycle
 - Item add/remove -> challenge window -> dispute creation in arbitrator.
@@ -367,7 +371,7 @@ Community root routing
   - `pruneTerminalBudget(...)` remains permissionless through shared `IBudgetController`.
 - `BudgetTreasury` is controller-gated (initializer-set one-time controller, no ownership transfer/renounce surface).
 - Goal slasher wiring is initialization-bound:
-  - `GoalFactoryCoreStackDeploy` predeploys juror/underwriter slasher routers and passes them through `GoalTreasury.GoalConfig`,
+  - `GoalFactoryCoreStackDeploy` always deploys the juror slasher router and deploys the goal-level underwriter slasher router only when `budgetSlashPpm != 0`,
   - `GoalTreasury.initialize` configures StakeVault slashers immediately and exactly once,
   - `StakeVault` slasher setters are `goalTreasury`-only (no `goalTreasury.authority()` callback path).
   - `BudgetTCRFactory` remains the sole `JurorSlasherRouter` authority and authorizes each allocation-mechanism arbitrator through the authenticated stack-deployer callback path.

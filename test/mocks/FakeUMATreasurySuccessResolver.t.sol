@@ -16,6 +16,7 @@ import {DeployGoalFromFactory} from "script/DeployGoalFromFactory.s.sol";
 import {GoalFactory} from "src/goals/GoalFactory.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {BudgetTCRFactory} from "src/tcr/BudgetTCRFactory.sol";
+import {SingleAllocatorStrategy} from "src/allocation-strategies/SingleAllocatorStrategy.sol";
 import {StakeVault} from "src/goals/StakeVault.sol";
 import {BudgetStakeLedger} from "src/goals/BudgetStakeLedger.sol";
 import {GoalFlowAllocationLedgerPipeline} from "src/hooks/GoalFlowAllocationLedgerPipeline.sol";
@@ -242,6 +243,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         address internal constant FAKE_UMA_OWNER = address(0xF00D);
         string internal constant LATEST_IMPLEMENTATIONS_FILE = "deploys/LATEST_IMPLEMENTATIONS.txt";
         string internal constant HISTORY_DIR = "deploys/history";
+        uint256 internal constant BASE_INITCODE_SIZE_LIMIT = 49_152;
         error ARTIFACT_KEY_NOT_FOUND(string key);
 
         FakeResolverMockERC20 internal token;
@@ -286,6 +288,12 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
                 vm.parseTomlAddress(latestToml, "$.defaults.openBudgetGatePolicy");
             address expectedDefaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
             address expectedDefaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
+            address expectedManagedBudgetController =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedBudgetController");
+            address expectedManagedGoalAllocatorStrategy =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedGoalAllocatorStrategy");
+            address expectedManagedBudgetChildStrategyFactory =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedBudgetChildStrategyFactory");
             assertEq(expectedBuybackHookDataHook, buybackHookDataHookAddress);
             assertEq(expectedBuybackHook, buybackHookAddress);
 
@@ -311,6 +319,29 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(artifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
             assertTrue(_stringContains(artifact, "PremiumEscrowImpl: 0x"));
             assertTrue(_stringContains(artifact, "UnderwriterSlasherRouterImpl: 0x"));
+            assertTrue(
+                _stringContains(
+                    artifact,
+                    string.concat("ManagedBudgetControllerImpl: ", vm.toString(expectedManagedBudgetController))
+                )
+            );
+            assertTrue(
+                _stringContains(
+                    artifact,
+                    string.concat(
+                        "ManagedGoalAllocatorStrategyImpl: ", vm.toString(expectedManagedGoalAllocatorStrategy)
+                    )
+                )
+            );
+            assertTrue(
+                _stringContains(
+                    artifact,
+                    string.concat(
+                        "ManagedBudgetChildStrategyFactoryImpl: ",
+                        vm.toString(expectedManagedBudgetChildStrategyFactory)
+                    )
+                )
+            );
             assertTrue(_stringContains(artifact, "CustomFlowImpl: 0x"));
             assertTrue(_stringContains(artifact, "GoalRevnetSplitHookImpl: 0x"));
             assertTrue(_stringContains(artifact, "BudgetTCRImpl: 0x"));
@@ -346,6 +377,9 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertTrue(_stringContains(latestArtifact, "GoalFlowAllocationLedgerPipelineImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "PremiumEscrowImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "UnderwriterSlasherRouterImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "ManagedBudgetControllerImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "ManagedGoalAllocatorStrategyImpl: 0x"));
+            assertTrue(_stringContains(latestArtifact, "ManagedBudgetChildStrategyFactoryImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "BudgetTCRDeployerImpl: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultOpenBudgetGatePolicy: 0x"));
             assertTrue(_stringContains(latestArtifact, "DefaultGoalSpendPolicy: 0x"));
@@ -402,9 +436,20 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(deployedFactory.BUYBACK_HOOK(), buybackHookAddress);
             string memory latestToml = vm.readFile(_latestImplementationsTomlPath());
             address linearSpendPolicyImpl = vm.parseTomlAddress(latestToml, "$.implementations.linearSpendPolicy");
+            address managedBudgetControllerImpl =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedBudgetController");
+            address managedGoalAllocatorStrategyImpl =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedGoalAllocatorStrategy");
+            address managedBudgetChildStrategyFactoryImpl =
+                vm.parseTomlAddress(latestToml, "$.implementations.managedBudgetChildStrategyFactory");
             address openBudgetGatePolicy = vm.parseTomlAddress(latestToml, "$.defaults.openBudgetGatePolicy");
             address defaultGoalSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.goalSpendPolicy");
             address defaultBudgetSpendPolicy = vm.parseTomlAddress(latestToml, "$.defaults.budgetSpendPolicy");
+            assertEq(deployedFactory.MANAGED_BUDGET_CONTROLLER_IMPL(), managedBudgetControllerImpl);
+            assertEq(deployedFactory.MANAGED_GOAL_ALLOCATOR_STRATEGY_IMPL(), managedGoalAllocatorStrategyImpl);
+            assertEq(
+                deployedFactory.MANAGED_BUDGET_CHILD_STRATEGY_FACTORY_IMPL(), managedBudgetChildStrategyFactoryImpl
+            );
             assertEq(deployedFactory.OPEN_BUDGET_GATE_POLICY(), openBudgetGatePolicy);
             assertEq(deployedFactory.DEFAULT_GOAL_SPEND_POLICY(), defaultGoalSpendPolicy);
             assertEq(deployedFactory.DEFAULT_BUDGET_SPEND_POLICY(), defaultBudgetSpendPolicy);
@@ -424,6 +469,11 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             LinearSpendPolicy spendPolicyImplementation = LinearSpendPolicy(linearSpendPolicyImpl);
             vm.expectRevert(Initializable.InvalidInitialization.selector);
             spendPolicyImplementation.initialize(false, 0, ISpendPolicy.SyncMode.LinearSpendDownFallback);
+
+            SingleAllocatorStrategy managedGoalAllocatorStrategyImplementation =
+                SingleAllocatorStrategy(managedGoalAllocatorStrategyImpl);
+            vm.expectRevert(Initializable.InvalidInitialization.selector);
+            managedGoalAllocatorStrategyImplementation.initialize(address(0xBEEF), address(0xCAFE));
 
             address stakeVaultImpl = deployedFactory.STAKE_VAULT_IMPL();
             address budgetStakeLedgerImpl = deployedFactory.BUDGET_STAKE_LEDGER_IMPL();
@@ -446,6 +496,13 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             assertEq(allocationPipeline.allocationLedger(), address(0));
             vm.expectRevert(Initializable.InvalidInitialization.selector);
             allocationPipeline.initialize(address(0xBEEF));
+        }
+
+        function test_goalFactoryPairDeployer_initcodeStaysUnderBaseLimit() public view {
+            bytes memory creationCode = vm.getCode("script/DeployGoalFactory.s.sol:GoalFactoryPairDeployer");
+            uint256 initcodeSize = creationCode.length;
+
+            assertLt(initcodeSize, BASE_INITCODE_SIZE_LIMIT + 1);
         }
 
         function _latestHistoryPathFor(string memory deploymentName, string memory suffix)
