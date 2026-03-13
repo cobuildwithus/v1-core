@@ -8,7 +8,6 @@ Use dependency notes to mark a lane as exclusive when overlap is unsafe, such as
 
 | Agent/Session | Task | Files in Scope | Symbols (add/rename/delete) | Dependency Notes | Updated (YYYY-MM-DD) |
 | --- | --- | --- | --- | --- | --- |
-| codex-deploy-goal-script-cleanup | One-shot deploy-goal smoke script defaults | `script/DeployGoalFromFactory.s.sol`, targeted `test/mocks/FakeUMATreasurySuccessResolver.t.sol` | add artifact-backed fake resolver lookup helpers/errors; no production contract symbol renames | Avoid touching active managed budget stack files; keep change scoped to deploy-script/test wiring only | 2026-03-13 |
 ## Rules
 
 1. Add a row before your first code edit for every coding task (single-agent and multi-agent).

@@ -605,6 +605,7 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             vm.setEnv("SUPERFLUID_HOST", vm.toString(SUPERFLUID_HOST));
             vm.setEnv("COBUILD_TOKEN", vm.toString(address(token)));
             vm.setEnv("COBUILD_REVNET_ID", "138");
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", _latestImplementationsTomlPath());
             vm.setEnv("JB_MULTI_TERMINAL", vm.toString(jbMultiTerminalAddress));
             vm.setEnv("BUYBACK_HOOK_DATA_HOOK", vm.toString(buybackHookDataHookAddress));
             vm.setEnv("BUYBACK_HOOK", vm.toString(buybackHookAddress));
@@ -649,10 +650,407 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
             budgetSuccessResolver = new FakeResolverNoop();
         }
 
+        function test_run_usesFactoryDefaultsWhenSpendPolicyOptionEnvMissing() public {
+            _setBaseDeployEnvWithoutSpendPolicyOptions();
+
+            deployScript.run();
+
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(defaultGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
+            assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastBudgetSuccessResolver(), address(budgetSuccessResolver));
+        }
+
+        function test_run_autoloadsGoalFactoryAndFakeResolverFromArtifacts() public {
+            _setArtifactAutoloadEnv();
+
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/test-goal-factory-artifact.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/test-implementations.", vm.toString(block.chainid), ".toml");
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(block.chainid),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(block.chainid),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n",
+                    "cobuildRevnetId = 138\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            vm.setEnv("GOAL_FACTORY_ARTIFACT_FILE", goalFactoryArtifactPath);
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", implementationsTomlPath);
+
+            deployScript.run();
+
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(defaultGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
+            assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastBudgetSuccessResolver(), address(successResolver));
+
+            string memory artifactPath =
+                string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
+            string memory artifact = vm.readFile(artifactPath);
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("GOAL_FACTORY_ARTIFACT_FILE: ", goalFactoryArtifactPath)
+                )
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("IMPLEMENTATIONS_TOML_FILE: ", implementationsTomlPath)
+                )
+            );
+            assertTrue(_stringContains(artifact, string.concat("GOAL_FACTORY: ", vm.toString(address(mockFactory)))));
+            assertTrue(
+                _stringContains(artifact, string.concat("SUCCESS_RESOLVER: ", vm.toString(address(successResolver))))
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("BUDGET_SUCCESS_RESOLVER: ", vm.toString(address(successResolver)))
+                )
+            );
+
+            vm.removeFile(goalFactoryArtifactPath);
+            vm.removeFile(implementationsTomlPath);
+        }
+
+        function test_run_autoloadsChainScopedDefaultsWhenOptionalEnvVarsAreEmpty() public {
+            uint256 originalChainId = block.chainid;
+            uint256 autoloadChainId = originalChainId + 1_000_000;
+            vm.chainId(autoloadChainId);
+
+            _setArtifactAutoloadEnv();
+
+            address paymentToken = address(new FakeResolverNoop());
+            uint256 paymentRevnetId = 777;
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(block.chainid), ".toml");
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(block.chainid),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(block.chainid),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(paymentToken),
+                    "\"\n",
+                    "cobuildRevnetId = ",
+                    vm.toString(paymentRevnetId),
+                    "\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            deployScript.run();
+
+            string memory artifactPath =
+                string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
+            vm.chainId(originalChainId);
+
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(defaultGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
+            assertEq(mockFactory.lastSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastBudgetSuccessResolver(), address(successResolver));
+            assertEq(mockFactory.lastPaymentToken(), paymentToken);
+            assertEq(mockFactory.lastPaymentRevnetId(), paymentRevnetId);
+
+            string memory artifact = vm.readFile(artifactPath);
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("GOAL_FACTORY_ARTIFACT_FILE: ", goalFactoryArtifactPath)
+                )
+            );
+            assertTrue(
+                _stringContains(
+                    artifact, string.concat("IMPLEMENTATIONS_TOML_FILE: ", implementationsTomlPath)
+                )
+            );
+            assertTrue(_stringContains(artifact, string.concat("GOAL_FACTORY: ", vm.toString(address(mockFactory)))));
+
+            vm.removeFile(goalFactoryArtifactPath);
+            vm.removeFile(implementationsTomlPath);
+            vm.removeFile(artifactPath);
+        }
+
+        function test_run_doesNotReuseAutoloadedArtifactStateAcrossRuns() public {
+            uint256 originalChainId = block.chainid;
+            uint256 autoloadChainId = originalChainId + 2_000_000;
+            vm.chainId(autoloadChainId);
+
+            _setArtifactAutoloadEnv();
+
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(block.chainid), ".toml");
+            string memory deployArtifactPath =
+                string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(block.chainid),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(block.chainid),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n",
+                    "cobuildRevnetId = 138\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            deployScript.run();
+
+            vm.removeFile(goalFactoryArtifactPath);
+            _setArtifactAutoloadEnv();
+
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    DeployGoalFromFactory.GOAL_FACTORY_ARTIFACT_NOT_FOUND.selector, goalFactoryArtifactPath
+                )
+            );
+            deployScript.run();
+
+            vm.removeFile(implementationsTomlPath);
+            vm.removeFile(deployArtifactPath);
+            vm.chainId(originalChainId);
+        }
+
+        function test_run_revertsWhenImplementationsTomlChainIdMismatch() public {
+            uint256 originalChainId = block.chainid;
+            uint256 testChainId = originalChainId + 3_000_000;
+            vm.chainId(testChainId);
+
+            _setArtifactAutoloadEnv();
+
+            uint256 mismatchedChainId = testChainId + 1;
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/test-goal-factory-chain-ok.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/test-implementations-chain-bad.", vm.toString(block.chainid), ".toml");
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(block.chainid),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(mismatchedChainId),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n",
+                    "cobuildRevnetId = 138\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            vm.setEnv("GOAL_FACTORY_ARTIFACT_FILE", goalFactoryArtifactPath);
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", implementationsTomlPath);
+
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    DeployGoalFromFactory.IMPLEMENTATIONS_CHAIN_ID_MISMATCH.selector,
+                    testChainId,
+                    mismatchedChainId,
+                    implementationsTomlPath
+                )
+            );
+            deployScript.run();
+
+            vm.removeFile(goalFactoryArtifactPath);
+            vm.removeFile(implementationsTomlPath);
+            vm.chainId(originalChainId);
+        }
+
+        function test_run_revertsWhenGoalFactoryArtifactChainIdMismatch() public {
+            uint256 originalChainId = block.chainid;
+            uint256 testChainId = originalChainId + 4_000_000;
+            vm.chainId(testChainId);
+
+            _setArtifactAutoloadEnv();
+
+            uint256 mismatchedChainId = testChainId + 1;
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/test-goal-factory-chain-bad.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/test-implementations-chain-ok.", vm.toString(block.chainid), ".toml");
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(mismatchedChainId),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(block.chainid),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n",
+                    "cobuildRevnetId = 138\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            vm.setEnv("GOAL_FACTORY_ARTIFACT_FILE", goalFactoryArtifactPath);
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", implementationsTomlPath);
+
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    DeployGoalFromFactory.GOAL_FACTORY_ARTIFACT_CHAIN_ID_MISMATCH.selector,
+                    testChainId,
+                    mismatchedChainId,
+                    goalFactoryArtifactPath
+                )
+            );
+            deployScript.run();
+
+            vm.removeFile(goalFactoryArtifactPath);
+            vm.removeFile(implementationsTomlPath);
+            vm.chainId(originalChainId);
+        }
+
+        function test_run_ignoresAmbientAutoloadFilesWhenExplicitEnvOverridesProvided() public {
+            uint256 originalChainId = block.chainid;
+            uint256 testChainId = originalChainId + 5_000_000;
+            vm.chainId(testChainId);
+
+            _setBaseDeployEnv();
+
+            address explicitPaymentToken = address(new FakeResolverNoop());
+            uint256 explicitPaymentRevnetId = 999;
+            uint256 mismatchedChainId = testChainId + 1;
+            string memory goalFactoryArtifactPath =
+                string.concat("deploys/DeployGoalFactory.", vm.toString(block.chainid), ".txt");
+            string memory implementationsTomlPath =
+                string.concat("deploys/LATEST_IMPLEMENTATIONS.", vm.toString(block.chainid), ".toml");
+            string memory deployArtifactPath =
+                string.concat("deploys/DeployGoalFromFactory.", vm.toString(block.chainid), ".txt");
+
+            vm.setEnv("GOAL_PAYMENT_TOKEN", vm.toString(explicitPaymentToken));
+            vm.setEnv("GOAL_PAYMENT_REVNET_ID", vm.toString(explicitPaymentRevnetId));
+
+            vm.writeFile(
+                goalFactoryArtifactPath,
+                string.concat(
+                    "ChainID: ",
+                    vm.toString(mismatchedChainId),
+                    "\nGoalFactory: ",
+                    vm.toString(address(mockFactory)),
+                    "\n"
+                )
+            );
+            vm.writeFile(
+                implementationsTomlPath,
+                string.concat(
+                    "[core]\n",
+                    "chainId = ",
+                    vm.toString(mismatchedChainId),
+                    "\n",
+                    "cobuildToken = \"",
+                    vm.toString(explicitPaymentToken),
+                    "\"\n",
+                    "cobuildRevnetId = 138\n\n",
+                    "[fakeUma]\n",
+                    "resolver = \"",
+                    vm.toString(address(successResolver)),
+                    "\"\n"
+                )
+            );
+
+            deployScript.run();
+
+            assertEq(mockFactory.lastPaymentToken(), explicitPaymentToken);
+            assertEq(mockFactory.lastPaymentRevnetId(), explicitPaymentRevnetId);
+
+            string memory artifact = vm.readFile(deployArtifactPath);
+            assertFalse(_stringContains(artifact, "GOAL_FACTORY_ARTIFACT_FILE:"));
+            assertFalse(_stringContains(artifact, "IMPLEMENTATIONS_TOML_FILE:"));
+
+            vm.removeFile(goalFactoryArtifactPath);
+            vm.removeFile(implementationsTomlPath);
+            vm.removeFile(deployArtifactPath);
+            vm.chainId(originalChainId);
+        }
+
         function test_run_wiresGoalSpendPolicyAndRejectsInvalidEnvVariants() public {
             _setBaseDeployEnv();
-            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "default");
-            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "default");
 
             deployScript.run();
 
@@ -679,17 +1077,10 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
 
             _setBaseDeployEnv();
             vm.setEnv("GOAL_SPEND_POLICY_OPTION", "");
-
-            vm.expectRevert(DeployGoalFromFactory.GOAL_SPEND_POLICY_REQUIRED.selector);
-            deployScript.run();
-            vm.stopBroadcast();
-
-            _setBaseDeployEnv();
             vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "");
-
-            vm.expectRevert(DeployGoalFromFactory.BUDGET_SPEND_POLICY_REQUIRED.selector);
             deployScript.run();
-            vm.stopBroadcast();
+            assertEq(mockFactory.lastGoalSpendPolicy(), address(defaultGoalSpendPolicy));
+            assertEq(mockFactory.lastBudgetSpendPolicy(), address(defaultBudgetSpendPolicy));
 
             _setBaseDeployEnv();
             vm.setEnv("GOAL_SPEND_POLICY", vm.toString(address(explicitGoalSpendPolicy)));
@@ -779,12 +1170,55 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         }
 
         function _setBaseDeployEnv() internal {
+            _setBaseDeployEnvWithSpendPolicyOptions("default", "default");
+        }
+
+        function _setBaseDeployEnvWithoutSpendPolicyOptions() internal {
+            _setBaseDeployEnvWithSpendPolicyOptions("", "");
+        }
+
+        function _setBaseDeployEnvWithSpendPolicyOptions(string memory goalSpendPolicyOption, string memory budgetSpendPolicyOption)
+            internal
+        {
             vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
             vm.setEnv("GOAL_FACTORY", vm.toString(address(mockFactory)));
-            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "default");
-            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "default");
+            vm.setEnv("GOAL_FACTORY_ARTIFACT_FILE", "");
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", "");
+            vm.setEnv("GOAL_PAYMENT_TOKEN", "");
+            vm.setEnv("GOAL_PAYMENT_REVNET_ID", "");
+            vm.setEnv("COBUILD_TOKEN", "");
+            vm.setEnv("COBUILD_REVNET_ID", "");
+            vm.setEnv("GOAL_SPEND_POLICY", "");
+            vm.setEnv("BUDGET_SPEND_POLICY", "");
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", goalSpendPolicyOption);
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", budgetSpendPolicyOption);
+            vm.setEnv("FAKE_SUCCESS_RESOLVER", "");
             vm.setEnv("SUCCESS_RESOLVER", vm.toString(address(successResolver)));
             vm.setEnv("BUDGET_SUCCESS_RESOLVER", vm.toString(address(budgetSuccessResolver)));
+            vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
+            vm.setEnv("SUCCESS_BOND", vm.toString(SUCCESS_BOND));
+            vm.setEnv("SUCCESS_SPEC", SUCCESS_SPEC);
+            vm.setEnv("SUCCESS_POLICY", SUCCESS_POLICY);
+            vm.setEnv("FLOW_TAGLINE", FLOW_TAGLINE);
+            vm.setEnv("FLOW_URL", FLOW_URL);
+        }
+
+        function _setArtifactAutoloadEnv() internal {
+            vm.setEnv("PRIVATE_KEY", vm.toString(PRIVATE_KEY));
+            vm.setEnv("GOAL_FACTORY", "");
+            vm.setEnv("GOAL_FACTORY_ARTIFACT_FILE", "");
+            vm.setEnv("IMPLEMENTATIONS_TOML_FILE", "");
+            vm.setEnv("GOAL_PAYMENT_TOKEN", "");
+            vm.setEnv("GOAL_PAYMENT_REVNET_ID", "");
+            vm.setEnv("COBUILD_TOKEN", "");
+            vm.setEnv("COBUILD_REVNET_ID", "");
+            vm.setEnv("GOAL_SPEND_POLICY", "");
+            vm.setEnv("BUDGET_SPEND_POLICY", "");
+            vm.setEnv("GOAL_SPEND_POLICY_OPTION", "");
+            vm.setEnv("BUDGET_SPEND_POLICY_OPTION", "");
+            vm.setEnv("SUCCESS_RESOLVER", "");
+            vm.setEnv("BUDGET_SUCCESS_RESOLVER", "");
+            vm.setEnv("FAKE_SUCCESS_RESOLVER", "");
             vm.setEnv("SUCCESS_LIVENESS", vm.toString(uint256(SUCCESS_LIVENESS)));
             vm.setEnv("SUCCESS_BOND", vm.toString(SUCCESS_BOND));
             vm.setEnv("SUCCESS_SPEC", SUCCESS_SPEC);
@@ -824,6 +1258,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         address public immutable DEFAULT_BUDGET_SPEND_POLICY;
         address public lastGoalSpendPolicy;
         address public lastBudgetSpendPolicy;
+        address public lastPaymentToken;
+        uint256 public lastPaymentRevnetId;
         address public lastSuccessResolver;
         address public lastBudgetSuccessResolver;
         uint64 public lastSuccessLiveness;
@@ -860,6 +1296,8 @@ contract FakeResolverMockTreasury is ISuccessAssertionTreasury {
         ) internal {
             lastGoalSpendPolicy = common.goalSpendPolicy;
             lastBudgetSpendPolicy = budgetRuntime.budgetSpendPolicy;
+            lastPaymentToken = common.funding.paymentToken;
+            lastPaymentRevnetId = common.funding.paymentRevnetId;
             lastSuccessResolver = common.success.successResolver;
             lastBudgetSuccessResolver = budgetRuntime.budgetSuccessResolver;
             lastSuccessLiveness = common.success.successAssertionLiveness;
