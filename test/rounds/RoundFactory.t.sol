@@ -34,6 +34,22 @@ contract RoundTestZeroUnderlyingSuperToken {
     }
 }
 
+contract RoundTestParentOnlyFlow {
+    address public parent;
+
+    constructor(address parent_) {
+        parent = parent_;
+    }
+}
+
+contract RoundTestFlowOnlyGoalTreasury {
+    address public flow;
+
+    constructor(address flow_) {
+        flow = flow_;
+    }
+}
+
 contract RoundFactoryTest is Test {
     struct LegacyArbitratorConfig {
         uint256 votingPeriod;
@@ -223,6 +239,35 @@ contract RoundFactoryTest is Test {
         );
     }
 
+    function test_createRoundForBudget_revertsWhenBudgetFlowHasNoCode() public {
+        address missingBudgetFlow = makeAddr("missing-budget-flow");
+        budgetTreasury.setFlow(missingBudgetFlow);
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.BudgetFlow, missingBudgetFlow);
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenGoalFlowReadFails() public {
+        budgetTreasury.setFlow(address(stakeVault));
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalFlowRead, address(stakeVault));
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
     function test_createRoundForBudget_revertsWhenGoalTreasuryHasNoCode() public {
         address missingGoalTreasury = makeAddr("missing-goal-treasury");
         goalFlow.setFlowOperator(missingGoalTreasury);
@@ -238,10 +283,56 @@ contract RoundFactoryTest is Test {
         );
     }
 
+    function test_createRoundForBudget_revertsWhenGoalTreasuryReadFails() public {
+        budgetFlow.setParent(address(stakeVault));
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalTreasuryRead, address(stakeVault));
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
     function test_createRoundForBudget_revertsWhenGoalTreasuryFlowReadFails() public {
         goalFlow.setFlowOperator(address(stakeVault));
 
         _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.GoalTreasuryFlowRead, address(stakeVault));
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenStakeVaultReadFails() public {
+        RoundTestFlowOnlyGoalTreasury flowOnlyGoalTreasury = new RoundTestFlowOnlyGoalTreasury(address(goalFlow));
+        goalFlow.setFlowOperator(address(flowOnlyGoalTreasury));
+
+        _expectBudgetContextRevert(
+            RoundFactory.BudgetContextProbe.StakeVaultRead, address(flowOnlyGoalTreasury)
+        );
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenStakeVaultHasNoCode() public {
+        address missingStakeVault = makeAddr("missing-stake-vault");
+        goalTreasury.setStakeVault(missingStakeVault);
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.StakeVault, missingStakeVault);
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
@@ -283,6 +374,38 @@ contract RoundFactoryTest is Test {
                 RoundFactory.SUPER_TOKEN_UNDERLYING_MISMATCH.selector, address(underlying), address(otherUnderlying)
             )
         );
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(budgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenSuperTokenReadFails() public {
+        RoundTestParentOnlyFlow parentOnlyBudgetFlow = new RoundTestParentOnlyFlow(address(goalFlow));
+        RoundTestBudgetTreasury badBudgetTreasury = new RoundTestBudgetTreasury(address(parentOnlyBudgetFlow));
+
+        _expectBudgetContextRevert(
+            RoundFactory.BudgetContextProbe.SuperTokenRead, address(parentOnlyBudgetFlow)
+        );
+        factory.createRoundForBudget(
+            bytes32("r"),
+            address(badBudgetTreasury),
+            RoundFactory.RoundTiming({startAt: 0, endAt: 0}),
+            roundOperator,
+            _dummyTcrConfig(),
+            _dummyArbConfig()
+        );
+    }
+
+    function test_createRoundForBudget_revertsWhenSuperTokenHasNoCode() public {
+        address missingSuperToken = makeAddr("missing-super-token");
+        budgetFlow.setSuperToken(missingSuperToken);
+
+        _expectBudgetContextRevert(RoundFactory.BudgetContextProbe.SuperToken, missingSuperToken);
         factory.createRoundForBudget(
             bytes32("r"),
             address(budgetTreasury),
