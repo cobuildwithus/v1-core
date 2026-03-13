@@ -119,6 +119,7 @@ contract ManagedBudgetStackActionsHarness is BudgetTCRStorageV1, GeneralizedTCRS
         address goalFlow_,
         address goalTreasury_,
         address stackDeployer_,
+        address discoveryEmitter_,
         address underwriterSlasherRouter_,
         uint32 budgetPremiumPpm_,
         uint32 budgetSlashPpm_,
@@ -129,6 +130,7 @@ contract ManagedBudgetStackActionsHarness is BudgetTCRStorageV1, GeneralizedTCRS
         goalFlow = IFlow(goalFlow_);
         goalTreasury = IGoalTreasury(goalTreasury_);
         stackDeployer = stackDeployer_;
+        discoveryEmitter = discoveryEmitter_;
         underwriterSlasherRouter = underwriterSlasherRouter_;
         budgetPremiumPpm = budgetPremiumPpm_;
         budgetSlashPpm = budgetSlashPpm_;
@@ -172,6 +174,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
     BudgetTCRGoalFlowHarness internal goalFlow;
     BudgetTCRGoalTreasuryHarness internal goalTreasury;
     BudgetTCRStakeLedgerHarness internal budgetStakeLedger;
+    ManagedBudgetStackDiscoveryEmitterMock internal defaultDiscoveryEmitter;
     MockUnderwriterSlasherRouter internal underwriterSlasherRouter;
     address internal budgetSpendPolicy;
 
@@ -189,6 +192,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         );
         goalTreasury = new BudgetTCRGoalTreasuryHarness(uint64(block.timestamp + 120 days));
         budgetStakeLedger = new BudgetTCRStakeLedgerHarness();
+        defaultDiscoveryEmitter = new ManagedBudgetStackDiscoveryEmitterMock();
         underwriterSlasherRouter = new MockUnderwriterSlasherRouter(address(this), address(0));
         budgetSpendPolicy = address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped));
 
@@ -197,15 +201,14 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
 
         deployer = _deployBudgetTcrDeployer();
         deployer.initializeWithConfig(
-            address(harness),
-            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe),
-            address(0)
+            address(harness), BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe)
         );
 
         harness.configure(
             address(goalFlow),
             address(goalTreasury),
             address(deployer),
+            address(defaultDiscoveryEmitter),
             address(underwriterSlasherRouter),
             MANAGED_BUDGET_PREMIUM_PPM,
             MANAGED_BUDGET_SLASH_PPM,
@@ -241,15 +244,14 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
         ManagedBudgetStackDiscoveryEmitterMock discoveryEmitter = new ManagedBudgetStackDiscoveryEmitterMock();
         BudgetStackDeployer deployerWithEmitter = _deployBudgetTcrDeployer();
         deployerWithEmitter.initializeWithConfig(
-            address(harness),
-            BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe),
-            address(discoveryEmitter)
+            address(harness), BudgetTCRConfigHelpers.fixedNoPremiumStackModuleConfig(address(fixedStrategyFactory), safe)
         );
 
         harness.configure(
             address(goalFlow),
             address(goalTreasury),
             address(deployerWithEmitter),
+            address(discoveryEmitter),
             address(underwriterSlasherRouter),
             MANAGED_BUDGET_PREMIUM_PPM,
             MANAGED_BUDGET_SLASH_PPM,
@@ -288,6 +290,7 @@ contract BudgetTCRManagedStackDeploymentsTest is Test, SpendPolicyTestUtils {
             address(goalFlow),
             address(goalTreasury),
             address(deployer),
+            address(defaultDiscoveryEmitter),
             address(underwriterSlasherRouter),
             50_000,
             40_000,

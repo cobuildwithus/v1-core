@@ -298,7 +298,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             new BudgetTCRFactory(budgetImpl, arbImpl, deployerImpl, authorizedCaller, DEFAULT_ESCROW_BOND_BPS);
 
         BudgetTCRFactory.RegistryConfigInput memory registryConfig;
-        IBudgetTCR.DeploymentConfig memory deploymentConfig;
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig;
         IArbitrator.ArbitratorParams memory arbitratorParams;
 
         vm.prank(unauthorizedCaller);
@@ -333,7 +333,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -374,7 +374,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -415,7 +415,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -459,7 +459,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -513,7 +513,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -565,7 +565,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -625,7 +625,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -681,7 +681,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -724,7 +724,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             authorizedCaller,
             IVotes(address(votingToken)),
@@ -776,7 +776,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -829,7 +829,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -846,7 +846,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
 
         assertTrue(deployed.budgetTCR != address(0));
         assertTrue(deployed.arbitrator != address(0));
-        assertEq(deployed.token, address(votingToken));
         address configuredSlasher = goalTreasury.configuredSlasher();
         assertEq(stakeVault.jurorSlasher(), configuredSlasher);
         assertTrue(configuredSlasher != deployed.arbitrator);
@@ -862,7 +861,8 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(deployedArbitrator.slashCallerBountyBps(), arbitratorParams.slashCallerBountyBps);
         assertEq(BudgetTCR(deployed.budgetTCR).underwriterSlasherRouter(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         assertEq(
-            BudgetTCR(deployed.budgetTCR).premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+            BudgetStackDeployer(BudgetTCR(deployed.budgetTCR).stackDeployer()).stackModuleConfig().premiumEscrowImplementation,
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
         );
         assertEq(BudgetTCR(deployed.budgetTCR).budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
 
@@ -885,8 +885,26 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             })
         });
 
+        IBudgetTCR.DeploymentConfig memory duplicateInitializationConfig = IBudgetTCR.DeploymentConfig({
+            stackDeployer: BudgetTCR(deployed.budgetTCR).stackDeployer(),
+            discoveryEmitter: BudgetTCR(deployed.budgetTCR).discoveryEmitter(),
+            budgetSuccessResolver: deploymentConfig.budgetSuccessResolver,
+            budgetSpendPolicy: deploymentConfig.budgetSpendPolicy,
+            riskModuleRouting: deploymentConfig.riskModuleRouting,
+            goalFlow: deploymentConfig.goalFlow,
+            goalTreasury: deploymentConfig.goalTreasury,
+            goalToken: deploymentConfig.goalToken,
+            cobuildToken: deploymentConfig.cobuildToken,
+            goalRulesets: deploymentConfig.goalRulesets,
+            goalRevnetId: deploymentConfig.goalRevnetId,
+            budgetPremiumPpm: deploymentConfig.budgetPremiumPpm,
+            budgetSlashPpm: deploymentConfig.budgetSlashPpm,
+            budgetValidationBounds: deploymentConfig.budgetValidationBounds,
+            oracleValidationBounds: deploymentConfig.oracleValidationBounds
+        });
+
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        IBudgetTCR(deployed.budgetTCR).initialize(fullRegistryConfig, deploymentConfig);
+        IBudgetTCR(deployed.budgetTCR).initialize(fullRegistryConfig, duplicateInitializationConfig);
     }
 
     function test_deployBudgetTCRStackForGoal_reusesExistingAuthorizedRouter() public {
@@ -919,7 +937,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -966,7 +984,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1011,7 +1029,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1061,7 +1079,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1105,7 +1123,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1146,7 +1164,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1198,7 +1216,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1215,14 +1233,13 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
         BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
-        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
         assertEq(
             _MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(),
             deploymentConfig.riskModuleRouting.underwriterSlasherRouter
         );
-        assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
-        assertEq(stackDeployer.discoveryEmitter(), address(factory));
+        assertEq(stackDeployer.stackModuleConfig().premiumEscrowImplementation, address(0));
+        assertEq(deployedBudgetTCR.discoveryEmitter(), address(factory));
     }
 
     function test_deployBudgetTCRStackForGoal_canonicalizesPremiumOnlyConfig_toZeroUnderwriterRouter() public {
@@ -1252,7 +1269,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1269,14 +1286,10 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
         assertEq(
-            deployedBudgetTCR.premiumEscrowImplementation(),
+            stackDeployer.stackModuleConfig().premiumEscrowImplementation,
             deploymentConfig.riskModuleRouting.premiumEscrowImplementation
         );
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
-        assertEq(
-            stackDeployer.premiumEscrowImplementation(),
-            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
-        );
     }
 
     function test_deployBudgetTCRStackForGoal_canonicalizesZeroRatePremiumConfig_withoutValidPremiumWiring()
@@ -1308,7 +1321,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1328,22 +1341,13 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         BudgetTCR deployedBudgetTCR = BudgetTCR(deployed.budgetTCR);
         BudgetStackDeployer stackDeployer = BudgetStackDeployer(deployedBudgetTCR.stackDeployer());
 
-        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), address(0));
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), address(0));
         assertEq(_MockStakeVaultForFactory(address(stakeVault)).underwriterSlasher(), address(0));
-        assertEq(stackDeployer.premiumEscrowImplementation(), address(0));
+        assertEq(stackDeployer.stackModuleConfig().premiumEscrowImplementation, address(0));
     }
 
-    function test_deployBudgetTCRStackForGoal_registersStackDeployerForFactoryDiscoveryCallbacks() public {
-        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed, address stackDeployer) =
-            _deployDefaultStackForDiscovery();
-
-        assertEq(factory.budgetTCRByStackDeployer(stackDeployer), deployed.budgetTCR);
-        assertEq(factory.stackDeployerByBudgetTCR(deployed.budgetTCR), stackDeployer);
-    }
-
-    function test_onBudgetStackDeployed_emitsFactoryDiscoveryEvent_forRegisteredStackDeployer() public {
-        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed, address stackDeployer) =
+    function test_onBudgetStackDeployed_emitsFactoryDiscoveryEvent_forRegisteredBudgetTCR() public {
+        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,) =
             _deployDefaultStackForDiscovery();
         bytes32 itemID = keccak256("budget-item");
         address childFlow = makeAddr("child-flow");
@@ -1354,14 +1358,14 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         vm.expectEmit(true, true, true, true, address(factory));
         emit BudgetStackDeployed(deployed.budgetTCR, itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
 
-        vm.prank(stackDeployer);
+        vm.prank(deployed.budgetTCR);
         factory.onBudgetStackDeployed(itemID, childFlow, budgetTreasury, premiumEscrow, strategy);
     }
 
-    function test_onBudgetAllocationMechanismDeployed_authorizesMechanismArbitrator_andEmitsFactoryDiscoveryEvent_forRegisteredStackDeployer()
+    function test_onBudgetAllocationMechanismDeployed_authorizesMechanismArbitrator_andEmitsFactoryDiscoveryEvent_forRegisteredBudgetTCR()
         public
     {
-        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed, address stackDeployer) =
+        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,) =
             _deployDefaultStackForDiscovery();
         bytes32 itemID = keccak256("budget-item");
         address mechanism = makeAddr("allocation-mechanism");
@@ -1374,16 +1378,16 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         vm.expectEmit(true, true, true, true, address(factory));
         emit BudgetAllocationMechanismDeployed(deployed.budgetTCR, itemID, mechanism, mechanismArbitrator, roundFactory);
 
-        vm.prank(stackDeployer);
+        vm.prank(deployed.budgetTCR);
         factory.onBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
 
         assertTrue(router.isAuthorizedSlasher(mechanismArbitrator));
     }
 
-    function test_onBudgetAllocationMechanismDeployed_reverts_whenCachedRouterMissing_forRegisteredStackDeployer()
+    function test_onBudgetAllocationMechanismDeployed_reverts_whenBudgetTcrRegistrationMissing()
         public
     {
-        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed, address stackDeployer) =
+        (BudgetTCRFactory factory, BudgetTCRFactory.DeployedBudgetTCRStack memory deployed,) =
             _deployDefaultStackForDiscovery();
         bytes32 itemID = keccak256("budget-item");
         address mechanism = makeAddr("allocation-mechanism");
@@ -1398,17 +1402,17 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
 
         assertEq(factory.jurorSlasherRouterByBudgetTCR(deployed.budgetTCR), address(0));
 
-        vm.expectRevert(BudgetTCRFactory.JUROR_SLASHER_NOT_CONFIGURED.selector);
-        vm.prank(stackDeployer);
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_BUDGET_TCR.selector, deployed.budgetTCR));
+        vm.prank(deployed.budgetTCR);
         factory.onBudgetAllocationMechanismDeployed(itemID, mechanism, mechanismArbitrator, roundFactory);
 
         assertFalse(router.isAuthorizedSlasher(mechanismArbitrator));
     }
 
-    function test_onBudgetAllocationMechanismDeployed_reverts_whenCallerNotRegistered() public {
+    function test_onBudgetAllocationMechanismDeployed_reverts_whenBudgetTcrCallerNotRegistered() public {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
-        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_STACK_DEPLOYER.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_BUDGET_TCR.selector, address(this)));
         factory.onBudgetAllocationMechanismDeployed(
             keccak256("budget-item"),
             makeAddr("allocation-mechanism"),
@@ -1417,10 +1421,10 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         );
     }
 
-    function test_onBudgetStackDeployed_reverts_whenCallerNotRegistered() public {
+    function test_onBudgetStackDeployed_reverts_whenBudgetTcrCallerNotRegistered() public {
         BudgetTCRFactory factory = _newRealFactory(address(this), DEFAULT_ESCROW_BOND_BPS);
 
-        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_STACK_DEPLOYER.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(BudgetTCRFactory.UNAUTHORIZED_BUDGET_TCR.selector, address(this)));
         factory.onBudgetStackDeployed(
             keccak256("budget-item"),
             makeAddr("child-flow"),
@@ -1460,7 +1464,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             })
         });
 
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1471,7 +1475,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         deploymentConfig.goalFlow = IFlow(address(new _MockImplementation()));
         deploymentConfig.goalRulesets = IJBRulesets(address(new _MockImplementation()));
         deploymentConfig.goalRevnetId = 42;
-        deploymentConfig.paymentTokenDecimals = 18;
         deploymentConfig.budgetValidationBounds = IBudgetTCR.BudgetValidationBounds({
             minFundingLeadTime: 2 days,
             maxFundingHorizon: 90 days,
@@ -1524,9 +1527,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         assertEq(address(deployedBudgetTCR.cobuildToken()), address(cobuildToken));
         assertEq(address(deployedBudgetTCR.goalRulesets()), address(deploymentConfig.goalRulesets));
         assertEq(deployedBudgetTCR.goalRevnetId(), deploymentConfig.goalRevnetId);
-        assertEq(deployedBudgetTCR.paymentTokenDecimals(), deploymentConfig.paymentTokenDecimals);
         assertEq(deployedBudgetTCR.budgetSuccessResolver(), deploymentConfig.budgetSuccessResolver);
-        assertEq(deployedBudgetTCR.premiumEscrowImplementation(), deploymentConfig.riskModuleRouting.premiumEscrowImplementation);
         assertEq(deployedBudgetTCR.underwriterSlasherRouter(), deploymentConfig.riskModuleRouting.underwriterSlasherRouter);
         assertEq(deployedBudgetTCR.budgetPremiumPpm(), deploymentConfig.budgetPremiumPpm);
         assertEq(deployedBudgetTCR.budgetSlashPpm(), deploymentConfig.budgetSlashPpm);
@@ -1534,7 +1535,10 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         address stackDeployer = deployedBudgetTCR.stackDeployer();
         assertTrue(stackDeployer != address(0));
         assertGt(stackDeployer.code.length, 0);
-        assertNotEq(stackDeployer, deploymentConfig.stackDeployer);
+        assertEq(
+            BudgetStackDeployer(stackDeployer).stackModuleConfig().premiumEscrowImplementation,
+            deploymentConfig.riskModuleRouting.premiumEscrowImplementation
+        );
 
         (
             uint64 minFundingLeadTime,
@@ -1585,7 +1589,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1637,7 +1641,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1689,7 +1693,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1742,7 +1746,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1797,7 +1801,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
@@ -1882,11 +1886,10 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
         IGoalTreasury goalTreasury,
         IERC20 goalToken,
         IERC20 cobuildToken
-    ) internal returns (IBudgetTCR.DeploymentConfig memory deploymentConfig) {
+    ) internal returns (BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig) {
         IStakeVault stakeVault = IStakeVault(goalTreasury.stakeVault());
 
-        deploymentConfig = IBudgetTCR.DeploymentConfig({
-            stackDeployer: makeAddr("placeholder-stack-deployer"),
+        deploymentConfig = BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig({
             budgetSuccessResolver: makeAddr("budget-success-resolver"),
             budgetSpendPolicy: address(_deployLinearSpendPolicy(true, 0, ISpendPolicy.SyncMode.Capped)),
             riskModuleRouting: BudgetTCRConfigHelpers.openRiskModuleRouting(
@@ -1898,7 +1901,6 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
             cobuildToken: cobuildToken,
             goalRulesets: IJBRulesets(address(new _MockImplementation())),
             goalRevnetId: 1,
-            paymentTokenDecimals: 18,
             budgetPremiumPpm: 100_000,
             budgetSlashPpm: 50_000,
             budgetValidationBounds: IBudgetTCR.BudgetValidationBounds({
@@ -1964,7 +1966,7 @@ contract BudgetTCRFactoryTest is Test, SpendPolicyTestUtils {
                 challengePeriodDuration: 3 days
             })
         });
-        IBudgetTCR.DeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
+        BudgetTCRFactory.RequestedBudgetTCRDeploymentConfig memory deploymentConfig = _defaultDeploymentConfig(
             factory,
             address(this),
             IVotes(address(votingToken)),
