@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { CustomFlowPreviousState } from "./CustomFlowPreviousState.sol";
 import { FlowAllocations } from "./FlowAllocations.sol";
+import { CustomFlowRuntimeHelpers } from "./CustomFlowRuntimeHelpers.sol";
 import { FlowTypes } from "../storage/FlowStorage.sol";
 import { IAllocationPipeline } from "../interfaces/IAllocationPipeline.sol";
 import { IAllocationStrategy } from "../interfaces/IAllocationStrategy.sol";
@@ -20,7 +21,7 @@ library CustomFlowAllocationEngine {
         address caller,
         FlowAllocations.AllocationVector memory newAllocation
     ) external {
-        uint256 allocationKey = strategy.allocationKey(caller, bytes(""));
+        uint256 allocationKey = CustomFlowRuntimeHelpers.allocationKeyWithEmptyAux(strategy, caller);
         if (!strategy.canAllocate(flow, allocationKey, caller)) revert IFlow.NOT_ABLE_TO_ALLOCATE();
 
         address strategyAddress = address(strategy);

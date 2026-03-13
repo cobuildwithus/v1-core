@@ -66,13 +66,15 @@ contract CustomFlow is ICustomFlow, Flow {
     }
 
     function syncAllocationForAccount(address account) external nonReentrant {
-        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
-        uint256 allocationKey = _allocationKeyOf(configuredStrategy, account);
+        (
+            IAllocationStrategy configuredStrategy,
+            uint256 allocationKey
+        ) = _defaultStrategyAndAllocationKeyWithEmptyAuxForAccount(account);
         _loadAndSyncStoredAllocation(address(configuredStrategy), allocationKey, false);
     }
 
     function allocationKeyOf(address account) external view returns (uint256 allocationKey) {
-        allocationKey = _allocationKeyOf(_defaultStrategyOrRevert(), account);
+        (, allocationKey) = _defaultStrategyAndAllocationKeyWithEmptyAuxForAccount(account);
     }
 
     function currentWeight(uint256 allocationKey) external view returns (uint256 weight) {
@@ -86,14 +88,18 @@ contract CustomFlow is ICustomFlow, Flow {
     }
 
     function canAccountAllocate(address account) external view returns (bool allowed) {
-        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
-        uint256 allocationKey = _allocationKeyOf(configuredStrategy, account);
+        (
+            IAllocationStrategy configuredStrategy,
+            uint256 allocationKey
+        ) = _defaultStrategyAndAllocationKeyWithEmptyAuxForAccount(account);
         allowed = configuredStrategy.canAllocate(address(this), allocationKey, account);
     }
 
     function accountAllocationWeight(address account) external view returns (uint256 weight) {
-        IAllocationStrategy configuredStrategy = _defaultStrategyOrRevert();
-        uint256 allocationKey = _allocationKeyOf(configuredStrategy, account);
+        (
+            IAllocationStrategy configuredStrategy,
+            uint256 allocationKey
+        ) = _defaultStrategyAndAllocationKeyWithEmptyAuxForAccount(account);
         weight = configuredStrategy.currentWeight(address(this), allocationKey);
     }
 
@@ -102,8 +108,9 @@ contract CustomFlow is ICustomFlow, Flow {
         uint256 allocationKey,
         bool requireZeroWeight
     ) internal {
-        if (_allocStorage().allocCommit[strategyAddress][allocationKey] == bytes32(0))
+        if (_allocStorage().allocCommit[strategyAddress][allocationKey] == bytes32(0)) {
             revert STALE_CLEAR_NO_COMMITMENT();
+        }
         (
             bytes32[] memory prevRecipientIds,
             uint32[] memory prevAllocationPpm,
@@ -214,11 +221,10 @@ contract CustomFlow is ICustomFlow, Flow {
         configuredStrategy = CustomFlowRuntimeHelpers.defaultStrategyOrRevert(_allocStorage());
     }
 
-    function _allocationKeyOf(
-        IAllocationStrategy configuredStrategy,
+    function _defaultStrategyAndAllocationKeyWithEmptyAuxForAccount(
         address account
-    ) private view returns (uint256 allocationKey) {
-        allocationKey = configuredStrategy.allocationKey(account, bytes(""));
+    ) private view returns (IAllocationStrategy configuredStrategy, uint256 allocationKey) {
+        return CustomFlowRuntimeHelpers.defaultStrategyAllocationContextForAccount(_allocStorage(), account);
     }
 
     /**

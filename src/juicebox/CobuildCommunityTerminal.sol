@@ -26,6 +26,7 @@ import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 import { ICobuildCommunityTerminal } from "src/interfaces/ICobuildCommunityTerminal.sol";
 import { ICobuildSplitHook } from "src/interfaces/ICobuildSplitHook.sol";
+import { TokenTransfers } from "src/library/TokenTransfers.sol";
 import { ICommunityGoalRegistry } from "src/tcr/interfaces/ICommunityGoalRegistry.sol";
 
 /// @notice Canonical shared community terminal that mints community tokens and routes reserved-token splits into child goals.
@@ -82,7 +83,6 @@ contract CobuildCommunityTerminal is ICobuildCommunityTerminal, IJBCashOutTermin
     error UNAUTHORIZED_FACTORY(address expectedFactory, address actualFactory);
     error UNDER_MIN_TOKENS_RECLAIMED(uint256 reclaimAmount, uint256 minTokensReclaimed);
     error INSUFFICIENT_RECLAIM_LIQUIDITY(address token, uint256 needed, uint256 have);
-    error NATIVE_TRANSFER_FAILED(address to, uint256 amount);
     error INVALID_DIRECT_NATIVE_PAYMENT_SOURCE(
         uint256 expectedPaymentSourceRevnetId,
         uint256 actualPaymentSourceRevnetId
@@ -339,9 +339,7 @@ contract CobuildCommunityTerminal is ICobuildCommunityTerminal, IJBCashOutTermin
             revert UNDER_MIN_TOKENS_RECLAIMED(recordedReclaimAmount, minTokensReclaimed);
         }
 
-        if (recordedReclaimAmount != 0) {
-            _transferAccountingToken(tokenToReclaim, beneficiary, recordedReclaimAmount);
-        }
+        TokenTransfers.safeTransfer(tokenToReclaim, beneficiary, recordedReclaimAmount);
 
         if (hookSpecifications.length != 0) {
             _fulfillCashOutHookSpecificationsFor(
@@ -1009,25 +1007,8 @@ contract CobuildCommunityTerminal is ICobuildCommunityTerminal, IJBCashOutTermin
     function _requireAvailableBalance(address token, uint256 needed) internal view {
         if (needed == 0) return;
 
-        uint256 have = _balanceOf(token);
+        uint256 have = TokenTransfers.balanceOf(token, address(this));
         if (have < needed) revert INSUFFICIENT_RECLAIM_LIQUIDITY(token, needed, have);
-    }
-
-    function _balanceOf(address token) internal view returns (uint256) {
-        if (token == JBConstants.NATIVE_TOKEN) return address(this).balance;
-        return IERC20(token).balanceOf(address(this));
-    }
-
-    function _transferAccountingToken(address token, address payable beneficiary, uint256 amount) internal {
-        if (amount == 0) return;
-
-        if (token == JBConstants.NATIVE_TOKEN) {
-            (bool success, ) = beneficiary.call{ value: amount }("");
-            if (!success) revert NATIVE_TRANSFER_FAILED(beneficiary, amount);
-            return;
-        }
-
-        IERC20(token).safeTransfer(beneficiary, amount);
     }
 
     function _beforeTransferTo(address to, address token, uint256 amount) internal returns (uint256 payValue) {

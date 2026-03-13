@@ -17,6 +17,7 @@ import { ICobuildCommunityTerminal } from "src/interfaces/ICobuildCommunityTermi
 import { IGoalDeploymentRegistry } from "src/interfaces/IGoalDeploymentRegistry.sol";
 import { IGoalTreasury } from "src/interfaces/IGoalTreasury.sol";
 import { IStakeVault } from "src/interfaces/IStakeVault.sol";
+import { TokenTransfers } from "src/library/TokenTransfers.sol";
 
 /// @notice Atomically exits goal tokens into the goal's upstream community token, COBUILD token, or native ETH.
 /// @dev The router infers the lineage from goal-treasury and community-terminal config rather than taking arbitrary hops.
@@ -61,7 +62,6 @@ contract CobuildExitRouter is ReentrancyGuard {
     error COBUILD_ROUTE_UNAVAILABLE(uint256 projectId, address token);
     error ETH_ROUTE_UNAVAILABLE(uint256 projectId, address token);
     error MAX_COMMUNITY_HOPS_EXCEEDED(uint256 maxHops);
-    error NATIVE_TRANSFER_FAILED(address to, uint256 amount);
 
     event GoalExited(
         address indexed holder,
@@ -126,7 +126,7 @@ contract CobuildExitRouter is ReentrancyGuard {
             revert UNDER_MIN_OUTPUT(communityTokensOut, minCommunityTokensOut);
         }
 
-        _transferOut(node.token, payable(beneficiary), communityTokensOut);
+        TokenTransfers.safeTransfer(node.token, beneficiary, communityTokensOut);
 
         emit GoalExited(
             msg.sender,
@@ -155,7 +155,7 @@ contract CobuildExitRouter is ReentrancyGuard {
         cobuildOut = node.amount;
         if (cobuildOut < minCobuildOut) revert UNDER_MIN_OUTPUT(cobuildOut, minCobuildOut);
 
-        _transferOut(address(COBUILD_TOKEN), payable(beneficiary), cobuildOut);
+        TokenTransfers.safeTransfer(address(COBUILD_TOKEN), beneficiary, cobuildOut);
 
         emit GoalExited(
             msg.sender,
@@ -184,7 +184,7 @@ contract CobuildExitRouter is ReentrancyGuard {
         ethOut = node.amount;
         if (ethOut < minEthOut) revert UNDER_MIN_OUTPUT(ethOut, minEthOut);
 
-        _transferOut(JBConstants.NATIVE_TOKEN, beneficiary, ethOut);
+        TokenTransfers.safeTransfer(JBConstants.NATIVE_TOKEN, beneficiary, ethOut);
 
         emit GoalExited(
             msg.sender,
@@ -350,7 +350,7 @@ contract CobuildExitRouter is ReentrancyGuard {
     ) internal returns (uint256 amountOut) {
         _requireCashOutTerminal(address(terminal));
 
-        uint256 balanceBefore = _balanceOfThis(tokenToReclaim);
+        uint256 balanceBefore = TokenTransfers.balanceOf(tokenToReclaim, address(this));
         IJBCashOutTerminal(address(terminal)).cashOutTokensOf(
             address(this),
             projectId,
@@ -360,7 +360,7 @@ contract CobuildExitRouter is ReentrancyGuard {
             payable(address(this)),
             metadata
         );
-        amountOut = _balanceOfThis(tokenToReclaim) - balanceBefore;
+        amountOut = TokenTransfers.balanceOf(tokenToReclaim, address(this)) - balanceBefore;
     }
 
     function _requireCashOutTerminal(address terminal) internal view {
@@ -372,23 +372,6 @@ contract CobuildExitRouter is ReentrancyGuard {
         }
 
         if (!supported) revert TERMINAL_NOT_CASH_OUT(terminal);
-    }
-
-    function _balanceOfThis(address token) internal view returns (uint256) {
-        if (token == JBConstants.NATIVE_TOKEN) return address(this).balance;
-        return IERC20(token).balanceOf(address(this));
-    }
-
-    function _transferOut(address token, address payable beneficiary, uint256 amount) internal {
-        if (amount == 0) return;
-
-        if (token == JBConstants.NATIVE_TOKEN) {
-            (bool success, ) = beneficiary.call{ value: amount }("");
-            if (!success) revert NATIVE_TRANSFER_FAILED(beneficiary, amount);
-            return;
-        }
-
-        IERC20(token).safeTransfer(beneficiary, amount);
     }
 
     function _requireBeneficiary(address beneficiary) internal view {

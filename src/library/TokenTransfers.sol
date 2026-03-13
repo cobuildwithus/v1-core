@@ -3,12 +3,31 @@ pragma solidity ^0.8.34;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { JBConstants } from "@bananapus/core-v5/libraries/JBConstants.sol";
 
 library TokenTransfers {
     using SafeERC20 for IERC20;
 
+    error NATIVE_TRANSFER_FAILED(address to, uint256 amount);
     error BALANCE_DECREASED_UNEXPECTEDLY(address token, address account, uint256 beforeBalance, uint256 afterBalance);
     error BALANCE_INCREASED_UNEXPECTEDLY(address token, address account, uint256 beforeBalance, uint256 afterBalance);
+
+    function balanceOf(address token, address account) internal view returns (uint256 balance) {
+        if (token == JBConstants.NATIVE_TOKEN) return account.balance;
+        return IERC20(token).balanceOf(account);
+    }
+
+    function safeTransfer(address token, address to, uint256 amount) internal {
+        if (amount == 0) return;
+
+        if (token == JBConstants.NATIVE_TOKEN) {
+            (bool success, ) = payable(to).call{ value: amount }("");
+            if (!success) revert NATIVE_TRANSFER_FAILED(to, amount);
+            return;
+        }
+
+        IERC20(token).safeTransfer(to, amount);
+    }
 
     function safeTransferFromReceived(
         IERC20 token,
