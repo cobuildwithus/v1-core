@@ -8,6 +8,7 @@ import {StakeVault} from "src/goals/StakeVault.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
+import {ITreasuryRuntimeViews} from "src/interfaces/ITreasuryRuntimeViews.sol";
 import {ICustomFlow} from "src/interfaces/IFlow.sol";
 
 import {IJBDirectory} from "@bananapus/core-v5/interfaces/IJBDirectory.sol";
@@ -43,10 +44,9 @@ contract StakeVaultTest is Test {
     using StakeVaultGoalOnlyJuryCompat for StakeVault;
 
     uint256 internal constant GOAL_PROJECT_ID = 111;
-    bytes4 internal constant FLOW_LOOKUP_SELECTOR = IGoalTreasury.flow.selector;
+    bytes4 internal constant FLOW_LOOKUP_SELECTOR = ITreasuryRuntimeViews.flow.selector;
     bytes4 internal constant SYNC_ALLOCATION_SELECTOR = ICustomFlow.syncAllocationForAccount.selector;
-    bytes32 internal constant JUROR_OPTED_IN_EVENT_TOPIC =
-        keccak256("JurorOptedIn(address,uint256,uint256,address)");
+    bytes32 internal constant JUROR_OPTED_IN_EVENT_TOPIC = keccak256("JurorOptedIn(address,uint256,uint256,address)");
     bytes32 internal constant JUROR_DELEGATE_SET_EVENT_TOPIC = keccak256("JurorDelegateSet(address,address)");
     bytes32 internal constant JUROR_SLASHED_EVENT_TOPIC =
         keccak256("JurorSlashed(address,uint256,uint256,uint256,address)");
@@ -402,9 +402,8 @@ contract StakeVaultTest is Test {
     }
 
     function test_clone_initialize_setsStateAndGuardsReinitialize() public {
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
         StakeVault clone = StakeVault(Clones.clone(address(implementation)));
 
         clone.initialize(
@@ -438,9 +437,8 @@ contract StakeVaultTest is Test {
     }
 
     function test_implementationSentinelConfig_disablesInitializers() public {
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         implementation.initialize(
@@ -454,9 +452,8 @@ contract StakeVaultTest is Test {
     }
 
     function test_clone_initialize_supportsNonReentrantDepositFlow() public {
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
         StakeVault clone = StakeVault(Clones.clone(address(implementation)));
 
         clone.initialize(
@@ -480,9 +477,8 @@ contract StakeVaultTest is Test {
     function test_clone_initialize_revertsWhenReservedPercentIsFull() public {
         goalRulesets.setReservedPercent(GOAL_PROJECT_ID, 10_000);
 
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
         StakeVault clone = StakeVault(Clones.clone(address(implementation)));
 
         vm.expectRevert(abi.encodeWithSelector(IStakeVault.INVALID_RESERVED_PERCENT.selector, 10_000));
@@ -497,9 +493,8 @@ contract StakeVaultTest is Test {
     }
 
     function test_clone_initialize_revertsOnDecimalsMismatch() public {
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
         StakeVault clone = StakeVault(Clones.clone(address(implementation)));
         VaultMockDecimalsToken token6 = new VaultMockDecimalsToken("USDC", "USDC", 6);
         VaultMockDecimalsToken token18 = new VaultMockDecimalsToken("Token", "TKN", 18);
@@ -517,9 +512,8 @@ contract StakeVaultTest is Test {
     }
 
     function test_clone_initialize_revertsOnPaymentTokenDecimalsMismatch() public {
-        StakeVault implementation = new StakeVault(
-            address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0
-        );
+        StakeVault implementation =
+            new StakeVault(address(0), IERC20(address(0)), IERC20(address(0)), IJBRulesets(address(0)), 0, 0);
         StakeVault clone = StakeVault(Clones.clone(address(implementation)));
 
         vm.expectRevert(abi.encodeWithSelector(IStakeVault.PAYMENT_TOKEN_DECIMALS_MISMATCH.selector, 18, 6));
@@ -1286,7 +1280,9 @@ contract StakeVaultTest is Test {
         assertEq(budgetAwareVault.underwriterWithdrawalPrepareCursor(alice), 0);
     }
 
-    function test_prepareUnderwriterWithdrawal_unresolvedPreActivationCurrentCoverage_allowsPrepareAndWithdraw() public {
+    function test_prepareUnderwriterWithdrawal_unresolvedPreActivationCurrentCoverage_allowsPrepareAndWithdraw()
+        public
+    {
         (
             StakeVault budgetAwareVault,
             VaultPrepareGoalTreasury budgetAwareGoalTreasury,
@@ -1378,7 +1374,9 @@ contract StakeVaultTest is Test {
         assertEq(budgetAwareVault.stakedGoalOf(alice), 9e18);
     }
 
-    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithEscrowExposure_revertsAndKeepsWithdrawLocked() public {
+    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithEscrowExposure_revertsAndKeepsWithdrawLocked()
+        public
+    {
         (
             StakeVault budgetAwareVault,
             VaultPrepareGoalTreasury budgetAwareGoalTreasury,
@@ -1473,9 +1471,7 @@ contract StakeVaultTest is Test {
         budgetAwareVault.withdrawGoal(1e18, alice);
     }
 
-    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithCreditDrawn_revertsAndKeepsWithdrawLocked()
-        public
-    {
+    function test_prepareUnderwriterWithdrawal_unresolvedBudgetWithCreditDrawn_revertsAndKeepsWithdrawLocked() public {
         (
             StakeVault budgetAwareVault,
             VaultPrepareGoalTreasury budgetAwareGoalTreasury,
@@ -3147,10 +3143,10 @@ contract StakeVaultTest is Test {
         }
     }
 
-    function _decodeSlashEventAmounts(
-        Vm.Log[] memory logs,
-        bytes32 topic0
-    ) internal pure returns (uint256 requestedWeight, uint256 appliedWeight, uint256 goalAmount, uint256 cobuildAmount)
+    function _decodeSlashEventAmounts(Vm.Log[] memory logs, bytes32 topic0)
+        internal
+        pure
+        returns (uint256 requestedWeight, uint256 appliedWeight, uint256 goalAmount, uint256 cobuildAmount)
     {
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].topics.length > 0 && logs[i].topics[0] == topic0) {

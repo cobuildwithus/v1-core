@@ -13,16 +13,15 @@ import { JBRuleset } from "@bananapus/core-v5/structs/JBRuleset.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
 import { GoalTreasuryTerminalRollover } from "./library/GoalTreasuryTerminalRollover.sol";
 import { GoalTreasuryRevnetLib } from "./library/GoalTreasuryRevnetLib.sol";
-import { TreasurySuccessAssertionMixin } from "./TreasurySuccessAssertionMixin.sol";
+import { TreasuryFlowRateAssertionBase } from "./TreasuryFlowRateAssertionBase.sol";
 import { FlowProtocolConstants } from "../library/FlowProtocolConstants.sol";
 
-contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
+contract GoalTreasury is TreasuryFlowRateAssertionBase, IGoalTreasury {
     using SafeERC20 for IERC20;
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
@@ -78,11 +77,6 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         TerminalSettlement,
         DeferredIngress
     }
-
-    event SuccessAssertionResolutionFailClosed(
-        bytes32 indexed assertionId,
-        TreasurySuccessAssertions.FailClosedReason indexed reason
-    );
 
     constructor() {
         _disableInitializers();
@@ -208,7 +202,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function pendingSuccessAssertionId()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bytes32)
     {
         return super.pendingSuccessAssertionId();
@@ -217,7 +211,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function pendingSuccessAssertionAt()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (uint64)
     {
         return super.pendingSuccessAssertionAt();
@@ -226,7 +220,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function reassertGraceDeadline()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (uint64)
     {
         return super.reassertGraceDeadline();
@@ -235,7 +229,7 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function reassertGraceUsed()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bool)
     {
         return super.reassertGraceUsed();
@@ -244,21 +238,21 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
     function isReassertGraceActive()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bool)
     {
         return super.isReassertGraceActive();
     }
 
-    function resolved() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (bool) {
+    function resolved() public view override(IGoalTreasury, TreasuryFlowRateAssertionBase) returns (bool) {
         return super.resolved();
     }
 
-    function flow() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (address) {
+    function flow() public view override(IGoalTreasury, TreasuryFlowRateAssertionBase) returns (address) {
         return super.flow();
     }
 
-    function treasuryBalance() public view override(IGoalTreasury, TreasurySuccessAssertionMixin) returns (uint256) {
+    function treasuryBalance() public view override(IGoalTreasury, TreasuryFlowRateAssertionBase) returns (uint256) {
         return super.treasuryBalance();
     }
 
@@ -392,17 +386,13 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         return _hook;
     }
 
-    function timeRemaining() public view override returns (uint256) {
+    function timeRemaining() public view override(IGoalTreasury, TreasuryFlowRateAssertionBase) returns (uint256) {
         if (block.timestamp >= deadline) return 0;
         return deadline - block.timestamp;
     }
 
-    function targetFlowRate() public view override returns (int96) {
-        if (_state != GoalState.Active) return 0;
-
-        uint256 balance = treasuryBalance();
-        uint256 remaining = timeRemaining();
-        return _computeConfiguredTargetFlowRate(balance, remaining);
+    function targetFlowRate() public view override(IGoalTreasury, TreasuryFlowRateAssertionBase) returns (int96) {
+        return super.targetFlowRate();
     }
 
     function lifecycleStatus() external view override returns (GoalLifecycleStatus memory status) {
@@ -439,21 +429,8 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
         _syncFlowRate();
     }
 
-    function _syncFlowRate() internal {
-        uint256 balance = treasuryBalance();
-        uint256 remaining = timeRemaining();
-        int96 targetRate = _computeConfiguredTargetFlowRate(balance, remaining);
-        int96 appliedRate;
-        if (_syncMode() == ISpendPolicy.SyncMode.LinearSpendDownFallback) {
-            appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(_flow, targetRate, balance, remaining);
-        } else {
-            appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow, targetRate);
-        }
-
-        emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
-    }
-
-    function _computeConfiguredTargetFlowRate(uint256 balance, uint256 remaining) internal view returns (int96) {
+    function _computeTargetFlowRate(uint256 balance, uint256 remaining) internal view override returns (int96) {
+        if (_state != GoalState.Active) return 0;
         if (remaining == 0) return 0;
 
         uint128 totalUnits = _flow.distributionPool().getTotalUnits();
@@ -798,26 +775,6 @@ contract GoalTreasury is IGoalTreasury, TreasurySuccessAssertionMixin {
 
     function _isResolvedState() internal view override returns (bool) {
         return _isTerminalState(_state);
-    }
-
-    function _emitSuccessAssertionCleared(bytes32 assertionId) internal override {
-        if (assertionId == bytes32(0)) return;
-        emit SuccessAssertionCleared(assertionId);
-    }
-
-    function _emitSuccessAssertionResolutionFailClosed(
-        bytes32 assertionId,
-        TreasurySuccessAssertions.FailClosedReason reason
-    ) internal override {
-        emit SuccessAssertionResolutionFailClosed(assertionId, reason);
-    }
-
-    function _emitSuccessAssertionFinalizeFailed(bytes32 assertionId, bytes memory revertData) internal override {
-        emit SuccessAssertionFinalizeFailed(assertionId, revertData);
-    }
-
-    function _emitReassertGraceActivated(bytes32 clearedAssertionId, uint64 graceDeadline) internal override {
-        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
     }
 
     function _mintingStatus() internal view returns (bool known, bool open) {

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 interface ITreasuryFlowRateSyncEvents {
+    event FlowRateSynced(int96 targetRate, int96 appliedRate, uint256 treasuryBalance, uint256 timeRemaining);
     event FlowRateSyncManualInterventionRequired(
         address indexed flow,
         int96 targetRate,

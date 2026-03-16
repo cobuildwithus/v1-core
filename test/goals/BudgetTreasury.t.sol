@@ -9,6 +9,7 @@ import {TreasuryBase} from "src/goals/TreasuryBase.sol";
 import {LinearSpendPolicy} from "src/goals/policies/LinearSpendPolicy.sol";
 import {IBudgetTreasury} from "src/interfaces/IBudgetTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
+import {ITreasurySuccessAssertionEvents} from "src/interfaces/ITreasurySuccessAssertionEvents.sol";
 import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
 import {TreasurySuccessAssertions} from "src/goals/library/TreasurySuccessAssertions.sol";
@@ -1025,7 +1026,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
 
         vm.warp(finalizeCleanupTreasury.deadline());
         vm.expectEmit(true, false, false, true, address(finalizeCleanupTreasury));
-        emit IBudgetTreasury.SuccessAssertionFinalizeFailed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionFinalizeFailed(
             assertionId, abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
         );
         finalizeCleanupTreasury.sync();
@@ -1047,9 +1048,9 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         vm.warp(treasury.deadline());
 
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(treasury));
-        emit IBudgetTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         treasury.sync();
 
@@ -1082,13 +1083,13 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         vm.warp(unresolvedConfigTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
-        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.ResolverConfigOracleReadFailed
         );
         vm.expectEmit(true, false, false, false, address(unresolvedConfigTreasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
-        emit IBudgetTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         unresolvedConfigTreasury.sync();
 
@@ -1123,13 +1124,13 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         vm.warp(zeroOracleTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
-        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAddressZero
         );
         vm.expectEmit(true, false, false, false, address(zeroOracleTreasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
-        emit IBudgetTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         zeroOracleTreasury.sync();
 
@@ -1167,13 +1168,13 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         vm.warp(unresolvedAssertionReadTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
-        emit IBudgetTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAssertionReadFailed
         );
         vm.expectEmit(true, false, false, false, address(unresolvedAssertionReadTreasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
-        emit IBudgetTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         unresolvedAssertionReadTreasury.sync();
 
@@ -1197,9 +1198,9 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         vm.warp(treasury.deadline());
 
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(treasury));
-        emit IBudgetTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         vm.prank(owner);
         treasury.clearSuccessAssertion(assertionId);
@@ -1574,7 +1575,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         bytes32 assertionId = keccak256("budget-register-clear");
 
         vm.expectEmit(true, true, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionRegistered(assertionId, uint64(block.timestamp));
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionRegistered(assertionId, uint64(block.timestamp));
         vm.prank(owner);
         treasury.registerSuccessAssertion(assertionId);
 
@@ -1582,7 +1583,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         assertEq(treasury.pendingSuccessAssertionAt(), uint64(block.timestamp));
 
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.prank(owner);
         treasury.clearSuccessAssertion(assertionId);
 
@@ -2030,7 +2031,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(false, false, false, false, address(treasury));
         emit IBudgetTreasury.SuccessResolutionDisabled();
         vm.prank(owner);
@@ -2081,7 +2082,7 @@ contract BudgetTreasuryTest is Test, SpendPolicyTestUtils {
         bytes32 assertionId = treasury.pendingSuccessAssertionId();
 
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IBudgetTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(false, false, false, false, address(treasury));
         emit IBudgetTreasury.SuccessResolutionDisabled();
         vm.prank(owner);

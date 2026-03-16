@@ -2,12 +2,20 @@
 pragma solidity ^0.8.34;
 
 import { ITreasuryDonations } from "./ITreasuryDonations.sol";
+import { ITreasuryRuntimeViews } from "./ITreasuryRuntimeViews.sol";
 import { ISuccessAssertionTreasury } from "./ISuccessAssertionTreasury.sol";
 import { ITreasuryFlowRateSyncEvents } from "./ITreasuryFlowRateSyncEvents.sol";
+import { ITreasurySuccessAssertionEvents } from "./ITreasurySuccessAssertionEvents.sol";
 import { IJBRulesets } from "@bananapus/core-v5/interfaces/IJBRulesets.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
-interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreasuryFlowRateSyncEvents {
+interface IGoalTreasury is
+    ITreasuryDonations,
+    ITreasuryRuntimeViews,
+    ISuccessAssertionTreasury,
+    ITreasurySuccessAssertionEvents,
+    ITreasuryFlowRateSyncEvents
+{
     enum GoalState {
         Funding,
         Active,
@@ -114,7 +122,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
         address cobuildToken
     );
     event HookFundingRecorded(uint256 amount, uint256 totalRaised);
-    event FlowRateSynced(int96 targetRate, int96 appliedRate, uint256 treasuryBalance, uint256 timeRemaining);
     event DonationRecorded(
         address indexed donor,
         address indexed sourceToken,
@@ -129,10 +136,6 @@ interface IGoalTreasury is ITreasuryDonations, ISuccessAssertionTreasury, ITreas
     event TerminalDeferredHookFundingSettlementFailed(bytes revertData);
     event TerminalStakeVaultResolutionFailed(bytes revertData);
     event StateTransition(GoalState previousState, GoalState newState);
-    event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
-    event SuccessAssertionCleared(bytes32 indexed assertionId);
-    event SuccessAssertionFinalizeFailed(bytes32 indexed assertionId, bytes revertData);
-    event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
     event HookFundingDeferred(
         address indexed sourceToken,
         uint256 sourceAmount,

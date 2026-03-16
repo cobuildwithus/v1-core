@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import { IStakeVault } from "../interfaces/IStakeVault.sol";
 import { IGoalTreasury } from "../interfaces/IGoalTreasury.sol";
+import { ITreasuryRuntimeViews } from "../interfaces/ITreasuryRuntimeViews.sol";
 import { IBudgetStakeLedger } from "../interfaces/IBudgetStakeLedger.sol";
 import { IBudgetTreasury } from "../interfaces/IBudgetTreasury.sol";
 import { IPremiumEscrowSlashAccounting } from "../interfaces/IPremiumEscrow.sol";
@@ -591,7 +592,7 @@ contract StakeVault is IStakeVault, Initializable, ReentrancyGuard {
                 emit AllocationSyncFailed(account, flow, ICustomFlow.syncAllocationForAccount.selector, reason);
             }
         } catch (bytes memory reason) {
-            emit AllocationSyncFailed(account, goalTreasury, IGoalTreasury.flow.selector, reason);
+            emit AllocationSyncFailed(account, goalTreasury, ITreasuryRuntimeViews.flow.selector, reason);
         }
     }
 

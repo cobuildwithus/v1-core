@@ -3,15 +3,18 @@ pragma solidity ^0.8.34;
 
 import { ITreasuryAuthority } from "./ITreasuryAuthority.sol";
 import { ITreasuryDonations } from "./ITreasuryDonations.sol";
+import { ITreasuryRuntimeViews } from "./ITreasuryRuntimeViews.sol";
 import { ISuccessAssertionTreasury } from "./ISuccessAssertionTreasury.sol";
 import { ITreasuryFlowRateSyncEvents } from "./ITreasuryFlowRateSyncEvents.sol";
-import { TreasurySuccessAssertions } from "src/goals/library/TreasurySuccessAssertions.sol";
+import { ITreasurySuccessAssertionEvents } from "./ITreasurySuccessAssertionEvents.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 interface IBudgetTreasury is
     ITreasuryAuthority,
     ITreasuryDonations,
+    ITreasuryRuntimeViews,
     ISuccessAssertionTreasury,
+    ITreasurySuccessAssertionEvents,
     ITreasuryFlowRateSyncEvents
 {
     enum BudgetState {
@@ -89,7 +92,6 @@ interface IBudgetTreasury is
         uint256 activationThreshold,
         uint256 runwayCap
     );
-    event FlowRateSynced(int96 targetRate, int96 appliedRate, uint256 treasuryBalance, uint256 timeRemaining);
     event DonationRecorded(
         address indexed donor,
         address indexed sourceToken,
@@ -104,15 +106,7 @@ interface IBudgetTreasury is
     event TerminalParentGoalSyncNotApplied(bool removedFromParent);
     event ResidualSettled(address indexed destination, uint256 amount);
     event StateTransition(BudgetState previousState, BudgetState newState);
-    event SuccessAssertionRegistered(bytes32 indexed assertionId, uint64 indexed assertedAt);
-    event SuccessAssertionCleared(bytes32 indexed assertionId);
-    event SuccessAssertionResolutionFailClosed(
-        bytes32 indexed assertionId,
-        TreasurySuccessAssertions.FailClosedReason indexed reason
-    );
-    event SuccessAssertionFinalizeFailed(bytes32 indexed assertionId, bytes revertData);
     event SuccessResolutionDisabled();
-    event ReassertGraceActivated(bytes32 indexed clearedAssertionId, uint64 indexed graceDeadline);
 
     function fundingDeadline() external view returns (uint64);
     function executionDuration() external view returns (uint64);

@@ -18,6 +18,7 @@ import {IAllocationStrategy} from "src/interfaces/IAllocationStrategy.sol";
 import {IGoalTreasury} from "src/interfaces/IGoalTreasury.sol";
 import {ISpendPolicy} from "src/interfaces/ISpendPolicy.sol";
 import {IStakeVault} from "src/interfaces/IStakeVault.sol";
+import {ITreasurySuccessAssertionEvents} from "src/interfaces/ITreasurySuccessAssertionEvents.sol";
 import {IUnderwriterSlasherRouter} from "src/interfaces/IUnderwriterSlasherRouter.sol";
 import {IUMATreasurySuccessResolverConfig} from "src/interfaces/IUMATreasurySuccessResolverConfig.sol";
 import {OptimisticOracleV3Interface} from "src/interfaces/uma/OptimisticOracleV3Interface.sol";
@@ -2501,7 +2502,7 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(true, false, false, true, address(treasury));
-        emit IGoalTreasury.SuccessAssertionFinalizeFailed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionFinalizeFailed(
             assertionId, abi.encodeWithSelector(TreasuryMockUmaResolverConfigWithFinalize.FINALIZE_REVERT.selector)
         );
         treasury.sync();
@@ -2589,9 +2590,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(treasury));
-        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         treasury.sync();
 
@@ -2608,9 +2609,9 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
 
         vm.warp(treasury.deadline());
         vm.expectEmit(true, false, false, false, address(treasury));
-        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(treasury));
-        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         vm.prank(address(successResolverConfig));
         treasury.clearSuccessAssertion(assertionId);
@@ -2635,13 +2636,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         vm.warp(unresolvedConfigTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
-        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.ResolverConfigOracleReadFailed
         );
         vm.expectEmit(true, false, false, false, address(unresolvedConfigTreasury));
-        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedConfigTreasury));
-        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         unresolvedConfigTreasury.sync();
 
@@ -2695,13 +2696,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         vm.warp(zeroOracleTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
-        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAddressZero
         );
         vm.expectEmit(true, false, false, false, address(zeroOracleTreasury));
-        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(zeroOracleTreasury));
-        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         zeroOracleTreasury.sync();
 
@@ -2728,13 +2729,13 @@ contract UnderwritingCoverageCapIntegrationTest is Test {
         vm.warp(unresolvedAssertionReadTreasury.deadline());
 
         vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
-        emit GoalTreasury.SuccessAssertionResolutionFailClosed(
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionResolutionFailClosed(
             assertionId, TreasurySuccessAssertions.FailClosedReason.OracleAssertionReadFailed
         );
         vm.expectEmit(true, false, false, false, address(unresolvedAssertionReadTreasury));
-        emit IGoalTreasury.SuccessAssertionCleared(assertionId);
+        emit ITreasurySuccessAssertionEvents.SuccessAssertionCleared(assertionId);
         vm.expectEmit(true, true, false, false, address(unresolvedAssertionReadTreasury));
-        emit IGoalTreasury.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
+        emit ITreasurySuccessAssertionEvents.ReassertGraceActivated(assertionId, uint64(block.timestamp + 1 days));
 
         unresolvedAssertionReadTreasury.sync();
 

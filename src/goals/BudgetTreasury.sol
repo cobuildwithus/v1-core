@@ -9,13 +9,12 @@ import { ISpendPolicy } from "../interfaces/ISpendPolicy.sol";
 import { ISuccessAssertionTreasury } from "../interfaces/ISuccessAssertionTreasury.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import { TreasuryFlowRateSync } from "./library/TreasuryFlowRateSync.sol";
 import { TreasurySuccessAssertions } from "./library/TreasurySuccessAssertions.sol";
 import { TreasuryReassertGrace } from "./library/TreasuryReassertGrace.sol";
 import { TreasurySuccessAssertionLifecycle } from "./library/TreasurySuccessAssertionLifecycle.sol";
-import { TreasurySuccessAssertionMixin } from "./TreasurySuccessAssertionMixin.sol";
+import { TreasuryFlowRateAssertionBase } from "./TreasuryFlowRateAssertionBase.sol";
 
-contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
+contract BudgetTreasury is TreasuryFlowRateAssertionBase, IBudgetTreasury {
     using TreasurySuccessAssertions for TreasurySuccessAssertions.State;
     using TreasuryReassertGrace for TreasuryReassertGrace.State;
 
@@ -130,7 +129,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     function pendingSuccessAssertionId()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bytes32)
     {
         return super.pendingSuccessAssertionId();
@@ -139,7 +138,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     function pendingSuccessAssertionAt()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (uint64)
     {
         return super.pendingSuccessAssertionAt();
@@ -148,7 +147,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     function reassertGraceDeadline()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (uint64)
     {
         return super.reassertGraceDeadline();
@@ -157,7 +156,7 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     function reassertGraceUsed()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bool)
     {
         return super.reassertGraceUsed();
@@ -166,21 +165,21 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
     function isReassertGraceActive()
         public
         view
-        override(ISuccessAssertionTreasury, TreasurySuccessAssertionMixin)
+        override(ISuccessAssertionTreasury, TreasuryFlowRateAssertionBase)
         returns (bool)
     {
         return super.isReassertGraceActive();
     }
 
-    function resolved() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (bool) {
+    function resolved() public view override(IBudgetTreasury, TreasuryFlowRateAssertionBase) returns (bool) {
         return super.resolved();
     }
 
-    function flow() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (address) {
+    function flow() public view override(IBudgetTreasury, TreasuryFlowRateAssertionBase) returns (address) {
         return super.flow();
     }
 
-    function treasuryBalance() public view override(IBudgetTreasury, TreasurySuccessAssertionMixin) returns (uint256) {
+    function treasuryBalance() public view override(IBudgetTreasury, TreasuryFlowRateAssertionBase) returns (uint256) {
         return super.treasuryBalance();
     }
 
@@ -324,22 +323,15 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
         return _derivedDeadline();
     }
 
-    function timeRemaining() public view override returns (uint256) {
+    function timeRemaining() public view override(IBudgetTreasury, TreasuryFlowRateAssertionBase) returns (uint256) {
         uint64 deadline_ = deadline();
         // slither-disable-next-line incorrect-equality
         if (deadline_ == 0 || block.timestamp >= deadline_) return 0;
         return deadline_ - block.timestamp;
     }
 
-    function targetFlowRate() public view override returns (int96) {
-        if (_state != BudgetState.Active) return 0;
-
-        uint256 balance = treasuryBalance();
-        uint256 remaining = timeRemaining();
-        // slither-disable-next-line incorrect-equality
-        if (remaining == 0) return 0;
-
-        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining));
+    function targetFlowRate() public view override(IBudgetTreasury, TreasuryFlowRateAssertionBase) returns (int96) {
+        return super.targetFlowRate();
     }
 
     function lifecycleStatus() external view override returns (BudgetLifecycleStatus memory status) {
@@ -405,20 +397,6 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
 
         _setState(BudgetState.Active);
         _syncFlowRate();
-    }
-
-    function _syncFlowRate() internal {
-        uint256 balance = treasuryBalance();
-        uint256 remaining = timeRemaining();
-        int96 targetRate = targetFlowRate();
-        int96 appliedRate;
-        if (_syncMode() == ISpendPolicy.SyncMode.LinearSpendDownFallback) {
-            appliedRate = TreasuryFlowRateSync.applyLinearSpendDownWithFallback(_flow, targetRate, balance, remaining);
-        } else {
-            appliedRate = TreasuryFlowRateSync.applyCappedFlowRate(_flow, targetRate);
-        }
-
-        emit FlowRateSynced(targetRate, appliedRate, balance, remaining);
     }
 
     function _finalize(BudgetState finalState, bool attemptParentPrune) internal {
@@ -611,24 +589,11 @@ contract BudgetTreasury is IBudgetTreasury, TreasurySuccessAssertionMixin {
         return _isTerminalState(_state);
     }
 
-    function _emitSuccessAssertionCleared(bytes32 assertionId) internal override {
-        if (assertionId == bytes32(0)) return;
-        emit SuccessAssertionCleared(assertionId);
-    }
-
-    function _emitSuccessAssertionResolutionFailClosed(
-        bytes32 assertionId,
-        TreasurySuccessAssertions.FailClosedReason reason
-    ) internal override {
-        emit SuccessAssertionResolutionFailClosed(assertionId, reason);
-    }
-
-    function _emitSuccessAssertionFinalizeFailed(bytes32 assertionId, bytes memory revertData) internal override {
-        emit SuccessAssertionFinalizeFailed(assertionId, revertData);
-    }
-
-    function _emitReassertGraceActivated(bytes32 clearedAssertionId, uint64 graceDeadline) internal override {
-        emit ReassertGraceActivated(clearedAssertionId, graceDeadline);
+    function _computeTargetFlowRate(uint256 balance, uint256 remaining) internal view override returns (int96) {
+        if (_state != BudgetState.Active) return 0;
+        // slither-disable-next-line incorrect-equality
+        if (remaining == 0) return 0;
+        return ISpendPolicy(spendPolicy).targetFlowRate(_buildSpendContext(balance, remaining));
     }
 
     modifier onlyController() {
