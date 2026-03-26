@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.14
         version: 0.1.14
       '@cobuild/review-gpt':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.4.4
+        version: 0.4.4
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -30,8 +30,8 @@ packages:
     resolution: {integrity: sha512-/DKNFA3n1Y1pMKnbSiIctY57pZNdnVCNcB9ukKqAwQQRjt7sc9NoYuWBmb9H407Of9GvBNGg2BCMmQemKLtN6w==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.4.2':
-    resolution: {integrity: sha512-6DJvyurd5lupXAVMv5mtjrPjp/G20gDnVuxTPUXHzjaxPLXiJtdzH82/I8ZfnFq6knWxDoPBqZ+y9gODeGqo4Q==}
+  '@cobuild/review-gpt@0.4.4':
+    resolution: {integrity: sha512-h9LY1mXpGX3LttVb1U6rEwMJwZWlJtssVmVn1xAwE3TDos6T5PfULQsnYTvmPhHLGUA6IIwU9nBLxZOPwR7m2g==}
     hasBin: true
 
   '@solidity-parser/parser@0.20.2':
@@ -62,7 +62,7 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.14': {}
 
-  '@cobuild/review-gpt@0.4.2': {}
+  '@cobuild/review-gpt@0.4.4': {}
 
   '@solidity-parser/parser@0.20.2': {}
 
