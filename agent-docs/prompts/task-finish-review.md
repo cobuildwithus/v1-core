@@ -5,6 +5,12 @@ action: thorough review
 
 You are performing a final audit of completed changes. Use full diff/context and inspect all modified files plus directly affected call paths.
 
+Runtime expectation:
+
+- This audit may take 5 to 10 minutes on a non-trivial diff.
+- Work methodically instead of rushing to a shallow answer.
+- Parent agent: allow the run to continue and do not cancel it early unless there is clear evidence the audit is stuck or off scope.
+
 Preflight (required):
 - Read `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` before review.
 - Honor any explicit exclusive/refactor notes from the ledger; otherwise work carefully on top of active rows without reverting adjacent edits.

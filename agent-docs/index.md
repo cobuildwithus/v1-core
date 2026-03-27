@@ -1,6 +1,6 @@
 # Cobuild Protocol Agent Docs Index
 
-Last verified: 2026-03-13 (coordination-ledger semantics softened to allow overlap by default)
+Last verified: 2026-03-28 (coordination-ledger semantics softened to allow overlap by default, and completion-workflow audit prompts now include explicit 5-to-10-minute wait guidance so review subagents are not canceled early)
 
 ## Purpose
 
@@ -22,11 +22,11 @@ This index is the table of contents for durable protocol context that agents sho
 | `agent-docs/references/known-design-intent-edge-cases.md` | Consolidated high-sensitivity design-intent edge cases and accepted-risk semantics for audit-facing context. | `src/goals/**`, `src/Flow.sol`, `src/tcr/**` | Protocol Maintainers | Per security-risk PR | High | 2026-03-12 |
 | `agent-docs/PLANS.md` | Execution plan workflow and quality bar. | `agent-docs/exec-plans/**` | Protocol Maintainers | Per process change | Medium | 2026-02-18 |
 | `agent-docs/operations/verification-and-runtime.md` | Verification lanes, required-check matrix, queue behavior, and runtime guardrails. | `package.json`, `scripts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process/CI change | High | 2026-02-26 |
-| `agent-docs/operations/completion-workflow.md` | Post-implementation simplify, coverage-audit, completion-audit, Solidity size-check sequence, and unrelated required-check failure commit handling. | `agent-docs/prompts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-03-12 |
+| `agent-docs/operations/completion-workflow.md` | Post-implementation simplify, coverage-audit, completion-audit, Solidity size-check sequence, and unrelated required-check failure commit handling. | `agent-docs/prompts/**`, completion policy in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-03-28 |
 | `agent-docs/operations/deployment-notes.md` | Deployment-time security guardrails for initializer-based clone/proxy flows. | `src/goals/**`, `src/hooks/**`, `src/tcr/**`, deployment procedures | Protocol Maintainers | Per deployment-model PR | High | 2026-02-26 |
-| `agent-docs/prompts/simplify.md` | Prompt for behavior-preserving simplification pass after implementation. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | Medium | 2026-02-23 |
-| `agent-docs/prompts/test-coverage-audit.md` | Prompt for post-simplify subagent pass that audits coverage and implements highest-impact tests. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-02-23 |
-| `agent-docs/prompts/task-finish-review.md` | Prompt for final completion audit pass before handoff. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-02-23 |
+| `agent-docs/prompts/simplify.md` | Prompt for behavior-preserving simplification pass after implementation. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | Medium | 2026-03-28 |
+| `agent-docs/prompts/test-coverage-audit.md` | Prompt for post-simplify subagent pass that audits coverage and implements highest-impact tests. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-03-28 |
+| `agent-docs/prompts/task-finish-review.md` | Prompt for final completion audit pass before handoff. | Completion workflow in `AGENTS.md` | Protocol Maintainers | Per process change | High | 2026-03-28 |
 | `agent-docs/PRODUCT_SENSE.md` | Product-level protocol intent and stability expectations. | Protocol behavior across Flow/TCR/goals modules | Protocol + Product Maintainers | Monthly | Medium | 2026-02-18 |
 | `agent-docs/QUALITY_SCORE.md` | Quality posture tracker by subsystem. | Architecture docs + tests + CI outputs | Protocol Maintainers | Bi-weekly | Medium | 2026-03-01 |
 | `agent-docs/RELIABILITY.md` | Reliability invariants, failure modes, and verification posture. | `src/**`, `test/**`, CI checks | Protocol Maintainers | Per reliability-affecting PR | High | 2026-03-11 |
