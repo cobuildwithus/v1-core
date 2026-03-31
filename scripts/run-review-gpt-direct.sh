@@ -5,7 +5,6 @@ set -euo pipefail
 scope="all"
 target_bytes="248000"
 preset="security"
-preset_set="false"
 review_gpt_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -28,22 +27,20 @@ while [[ $# -gt 0 ]]; do
         shift
       else
         echo "Unknown argument: $1"
-        echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [incentives|security|compliance|...|--preset <name>]"
+        echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [--preset <name>] [top-level cobuild-review-gpt flags]"
         exit 1
       fi
       ;;
     --preset)
       preset="${2:?Missing value for --preset}"
-      preset_set="true"
       shift 2
       ;;
     --preset=*)
       preset="${1#--preset=}"
-      preset_set="true"
       shift
       ;;
     --help|-h)
-      echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [incentives|security|compliance|...|--preset <name>] [top-level cobuild-review-gpt flags]"
+      echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [--preset <name>] [top-level cobuild-review-gpt flags]"
       exit 0
       ;;
     --)
@@ -65,15 +62,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      if [[ "$preset_set" == "false" ]]; then
-        preset="$1"
-        preset_set="true"
-        shift
-      else
-        echo "Unknown argument: $1"
-        echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [incentives|security|compliance|...|--preset <name>]"
-        exit 1
-      fi
+      echo "Unknown argument: $1"
+      echo "Usage: scripts/run-review-gpt-direct.sh [goals|flows|all] [target-bytes] [--preset <name>] [top-level cobuild-review-gpt flags]"
+      exit 1
       ;;
   esac
 done

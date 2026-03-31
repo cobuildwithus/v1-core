@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
       review_gpt_args+=("$@")
       break
       ;;
-    --no-send|--dry-run|--send|--submit|--no-zip|--model|--thinking|--chat|--chat-url|--chat-id|--prompt|--prompt-file)
+    --no-send|--dry-run|--send|--submit|--prompt-only|--model|--thinking|--chat|--chat-url|--chat-id|--prompt|--prompt-file)
       review_gpt_args+=("$1")
       if [[ "$1" =~ ^--(model|thinking|chat|chat-url|chat-id|prompt|prompt-file)$ ]]; then
         review_gpt_args+=("${2:?Missing value for $1}")
@@ -89,7 +89,7 @@ scripts/build-nozip-review-prompt.sh --profile "$PROFILE" --target-bytes "$TARGE
 cmd=(
   pnpm exec cobuild-review-gpt
   --config scripts/review-gpt.config.sh
-  --no-zip
+  --prompt-only
   --prompt-file "$ROOT/$OUT_FILE"
   --preset "$PRESET"
 )

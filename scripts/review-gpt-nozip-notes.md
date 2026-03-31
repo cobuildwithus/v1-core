@@ -63,8 +63,8 @@ Forward supported top-level `cobuild-review-gpt` flags directly through the wrap
 
 Browser-open prompt-only staging (`review:gpt`) with package-native flags:
 
-- `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md --preset security`
-- `pnpm -s review:gpt -- --no-zip --prompt-file audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-logic-final.md --preset security`
+- `pnpm -s review:gpt --prompt-only --prompt-file audit-packages/review-gpt-nozip-comprehensive-a-goals-logic-final.md --preset security`
+- `pnpm -s review:gpt --prompt-only --prompt-file audit-packages/review-gpt-nozip-comprehensive-b-flow-tcr-logic-final.md --preset security`
 
 Notes:
 

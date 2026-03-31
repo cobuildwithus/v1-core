@@ -91,8 +91,8 @@ Useful variants:
 # only run the security preset
 pnpm -s review:gpt --preset security
 
-# shorthand positional preset (same as --preset incentives)
-pnpm review:gpt incentives
+# only run the incentives preset
+pnpm -s review:gpt --preset incentives
 
 # run multiple presets
 pnpm -s review:gpt --preset security,grief-vectors,incentives
@@ -102,8 +102,8 @@ pnpm -s review:gpt --dry-run
 ```
 
 Preset templates live under `scripts/chatgpt-review-presets/`.
-Need advanced Oracle flags anyway? pass them through after `--`, for example:
+Use explicit package-native flags directly; positional preset shorthands are not supported. For example:
 
 ```shell
-pnpm -s review:gpt incentives -- --debug
+pnpm -s review:gpt --preset incentives --chat https://chatgpt.com/c/<id>
 ```
