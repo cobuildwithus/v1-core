@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.15
         version: 0.1.15
       '@cobuild/review-gpt':
-        specifier: ^0.5.21
-        version: 0.5.21(openapi-types@12.1.3)
+        specifier: ^0.5.24
+        version: 0.5.24(openapi-types@12.1.3)
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -54,8 +54,8 @@ packages:
     resolution: {integrity: sha512-CjzP5OHu6RhOOjmPl/1djZNVEbjttt62rBSzvuPK7u9NrZ37F2lkHT+QmZ4Lb+ZDmMhPTqlwdyqnzwD0Gkhm1Q==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.5.21':
-    resolution: {integrity: sha512-o5ou9y9a9PCRO/JzhhlbQbxF2d3jfdmg/Lfw4bgQ/vCjfB3LHOIePEYF+dK91IAyuWNEVyZVn0zZGBcFxzzHVg==}
+  '@cobuild/review-gpt@0.5.24':
+    resolution: {integrity: sha512-TVlS/Z6nx1s96BW5EqmdQWh/3H9VLR6lDDaBlUalLnUUdwhLzKKUxlr6ruwjb8IpKjNyblUi8IkzxY/ulAur1w==}
     hasBin: true
 
   '@hono/node-server@1.19.12':
@@ -100,8 +100,8 @@ packages:
     peerDependencies:
       ajv: 4.11.8 - 8
 
-  '@readme/openapi-parser@6.0.0':
-    resolution: {integrity: sha512-PaTnrKlKgEJZzjJ77AAhGe28NiyLBdiKMx95rJ9xlLZ8QLqYitMpPBQAKhsuEGOWQQbsIMfBZEPavbXghACQHA==}
+  '@readme/openapi-parser@6.0.1':
+    resolution: {integrity: sha512-uMtwMPVv86Xr5Y6A+QFrxLwWW1irJp3TIz7R3Zs2WaX383MPYX5kaQemPBsaHCu58ZULd+bosNIGUoFW8KM5Ew==}
     engines: {node: '>=20'}
     peerDependencies:
       openapi-types: '>=7'
@@ -117,19 +117,19 @@ packages:
   '@repomix/tree-sitter-wasms@0.1.16':
     resolution: {integrity: sha512-CIINozBWFwjhH4DQALN/b4n1S08fHhXQOdjX2G7s4w+Urew37aLU0AHVyCjHM5Pbnh63tDYt4YyUkS6vRUV38A==}
 
-  '@secretlint/core@11.4.1':
-    resolution: {integrity: sha512-pGFyG0tF1Yp51NnbJrCACqYZSYZ0CZniGn0UYT/s9BNjXQ2wkd6qi9dlPeg6tedaICTQD1IByhyM02emvolO0Q==}
+  '@secretlint/core@11.5.0':
+    resolution: {integrity: sha512-fVbYXsWz5kHuEsXpfbannAm8gC8nH741NRlOXb8wgwxumwiPqKVlyreu7JKTfQFFNrwHGSoY2Wx4NKD25s8WTQ==}
     engines: {node: '>=20.0.0'}
 
-  '@secretlint/profiler@11.4.1':
-    resolution: {integrity: sha512-mMzPUnZ2+arX8PYCwKU1ouCHzVUIZiNWPtzyyguL0Oc7dokyk8u7QA4IwAl8DMm04GN3jntL2E+1CBVN7z3crg==}
+  '@secretlint/profiler@11.5.0':
+    resolution: {integrity: sha512-o7lZEA4NTJWzNoO3evTZ0luanV0EQlEbjzREIijM1/O1Bfpuy4P+mgAY3+S7CXlrC4I8RApCV2sP2qPiHQtNMA==}
 
   '@secretlint/secretlint-rule-preset-recommend@11.4.1':
     resolution: {integrity: sha512-htejVuXSTVOlhZhJ9XqdKXBtWTuL+EbG2LdQQk0pfQFJfZLpeNUTjI8fE9ZCuFejuUJiGv1jUi1/rqT64M0Dvg==}
     engines: {node: '>=20.0.0'}
 
-  '@secretlint/types@11.4.1':
-    resolution: {integrity: sha512-30jPadVKENeyZKNT7MCO0jTKAYQcWV6TIIccqHx874rBlzU/mBiTnGZdLSflFGECttscgqtozPKawM0fjBwDEg==}
+  '@secretlint/types@11.5.0':
+    resolution: {integrity: sha512-Y2fq597Z2iHa8ZP2XwpGCJd70OA8opgytMfqESNVb7lDvRac2++wIp72vW7Azk3xKycFvBkpxnQppjThgMauTA==}
     engines: {node: '>=20.0.0'}
 
   '@sindresorhus/merge-streams@4.0.0':
@@ -401,8 +401,8 @@ packages:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
-  hono@4.12.9:
-    resolution: {integrity: sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA==}
+  hono@4.12.10:
+    resolution: {integrity: sha512-mx/p18PLy5og9ufies2GOSUqep98Td9q4i/EF6X7yJgAiIopxqdfIO3jbqsi3jRgTgw88jMDEzVKi+V2EF+27w==}
     engines: {node: '>=16.9.0'}
 
   http-errors@2.0.1:
@@ -873,7 +873,7 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.15': {}
 
-  '@cobuild/review-gpt@0.5.21(openapi-types@12.1.3)':
+  '@cobuild/review-gpt@0.5.24(openapi-types@12.1.3)':
     dependencies:
       '@cobuild/repo-tools': 0.1.15
       incur: 0.3.13(openapi-types@12.1.3)
@@ -883,9 +883,9 @@ snapshots:
       - openapi-types
       - supports-color
 
-  '@hono/node-server@1.19.12(hono@4.12.9)':
+  '@hono/node-server@1.19.12(hono@4.12.10)':
     dependencies:
-      hono: 4.12.9
+      hono: 4.12.10
 
   '@humanwhocodes/momoa@2.0.4': {}
 
@@ -895,7 +895,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.12(hono@4.12.9)
+      '@hono/node-server': 1.19.12(hono@4.12.10)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -905,7 +905,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
-      hono: 4.12.9
+      hono: 4.12.10
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -937,7 +937,7 @@ snapshots:
       leven: 3.1.0
       picocolors: 1.1.1
 
-  '@readme/openapi-parser@6.0.0(openapi-types@12.1.3)':
+  '@readme/openapi-parser@6.0.1(openapi-types@12.1.3)':
     dependencies:
       '@apidevtools/json-schema-ref-parser': 14.2.1(@types/json-schema@7.0.15)
       '@readme/better-ajv-errors': 2.4.0(ajv@8.18.0)
@@ -953,20 +953,20 @@ snapshots:
 
   '@repomix/tree-sitter-wasms@0.1.16': {}
 
-  '@secretlint/core@11.4.1':
+  '@secretlint/core@11.5.0':
     dependencies:
-      '@secretlint/profiler': 11.4.1
-      '@secretlint/types': 11.4.1
+      '@secretlint/profiler': 11.5.0
+      '@secretlint/types': 11.5.0
       debug: 4.4.3
       structured-source: 4.0.0
     transitivePeerDependencies:
       - supports-color
 
-  '@secretlint/profiler@11.4.1': {}
+  '@secretlint/profiler@11.5.0': {}
 
   '@secretlint/secretlint-rule-preset-recommend@11.4.1': {}
 
-  '@secretlint/types@11.4.1': {}
+  '@secretlint/types@11.5.0': {}
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
@@ -1251,7 +1251,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.12.9: {}
+  hono@4.12.10: {}
 
   http-errors@2.0.1:
     dependencies:
@@ -1272,7 +1272,7 @@ snapshots:
   incur@0.3.13(openapi-types@12.1.3):
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
-      '@readme/openapi-parser': 6.0.0(openapi-types@12.1.3)
+      '@readme/openapi-parser': 6.0.1(openapi-types@12.1.3)
       '@toon-format/toon': 2.1.0
       tokenx: 1.3.0
       yaml: 2.8.3
@@ -1462,7 +1462,7 @@ snapshots:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
       '@repomix/strip-comments': 2.4.2
       '@repomix/tree-sitter-wasms': 0.1.16
-      '@secretlint/core': 11.4.1
+      '@secretlint/core': 11.5.0
       '@secretlint/secretlint-rule-preset-recommend': 11.4.1
       commander: 14.0.3
       fast-xml-builder: 1.1.4
