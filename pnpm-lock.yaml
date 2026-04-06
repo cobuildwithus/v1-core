@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.15
         version: 0.1.15
       '@cobuild/review-gpt':
-        specifier: ^0.5.41
-        version: 0.5.41(openapi-types@12.1.3)
+        specifier: ^0.5.43
+        version: 0.5.43(openapi-types@12.1.3)
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -54,8 +54,8 @@ packages:
     resolution: {integrity: sha512-CjzP5OHu6RhOOjmPl/1djZNVEbjttt62rBSzvuPK7u9NrZ37F2lkHT+QmZ4Lb+ZDmMhPTqlwdyqnzwD0Gkhm1Q==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.5.41':
-    resolution: {integrity: sha512-vTNVTFUsquKGwEj2pGmuDcdP8G/3Z5JF7ZHR++JscgenR+A4mRmrg9RtCr4IuToThlOaBcQwjruyTXN+FH+NFA==}
+  '@cobuild/review-gpt@0.5.43':
+    resolution: {integrity: sha512-MgeWw9ViQn53G0Bk+/3ZhHk8DyKM8VrrhM/tPND/yxZ34cvK8/bbZhR4ABSZPAu3RWU+048zVSSLkC6BBwNzLg==}
     hasBin: true
 
   '@hono/node-server@1.19.12':
@@ -401,8 +401,8 @@ packages:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
-  hono@4.12.10:
-    resolution: {integrity: sha512-mx/p18PLy5og9ufies2GOSUqep98Td9q4i/EF6X7yJgAiIopxqdfIO3jbqsi3jRgTgw88jMDEzVKi+V2EF+27w==}
+  hono@4.12.11:
+    resolution: {integrity: sha512-r4xbIa3mGGGoH9nN4A14DOg2wx7y2oQyJEb5O57C/xzETG/qx4c7CVDQ5WMeKHZ7ORk2W0hZ/sQKXTav3cmYBA==}
     engines: {node: '>=16.9.0'}
 
   http-errors@2.0.1:
@@ -873,7 +873,7 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.15': {}
 
-  '@cobuild/review-gpt@0.5.41(openapi-types@12.1.3)':
+  '@cobuild/review-gpt@0.5.43(openapi-types@12.1.3)':
     dependencies:
       '@cobuild/repo-tools': 0.1.15
       incur: 0.3.13(openapi-types@12.1.3)
@@ -883,9 +883,9 @@ snapshots:
       - openapi-types
       - supports-color
 
-  '@hono/node-server@1.19.12(hono@4.12.10)':
+  '@hono/node-server@1.19.12(hono@4.12.11)':
     dependencies:
-      hono: 4.12.10
+      hono: 4.12.11
 
   '@humanwhocodes/momoa@2.0.4': {}
 
@@ -895,7 +895,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.12(hono@4.12.10)
+      '@hono/node-server': 1.19.12(hono@4.12.11)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -905,7 +905,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
-      hono: 4.12.10
+      hono: 4.12.11
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -1251,7 +1251,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.12.10: {}
+  hono@4.12.11: {}
 
   http-errors@2.0.1:
     dependencies:
