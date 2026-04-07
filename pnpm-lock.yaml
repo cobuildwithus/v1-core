@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.15
         version: 0.1.15
       '@cobuild/review-gpt':
-        specifier: ^0.5.45
-        version: 0.5.45(openapi-types@12.1.3)
+        specifier: ^0.5.48
+        version: 0.5.48(openapi-types@12.1.3)
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -54,8 +54,8 @@ packages:
     resolution: {integrity: sha512-CjzP5OHu6RhOOjmPl/1djZNVEbjttt62rBSzvuPK7u9NrZ37F2lkHT+QmZ4Lb+ZDmMhPTqlwdyqnzwD0Gkhm1Q==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.5.45':
-    resolution: {integrity: sha512-0dyhbHC7D/V7T9Aoqk5bOh42IMejQqgRDlRj3fx/kCkY05zZyiJWwNu24Hb99U4HXnR9wOSkrvU54f4ob2S8pQ==}
+  '@cobuild/review-gpt@0.5.48':
+    resolution: {integrity: sha512-UtzA161iaK7Hw9FAw2Slz3500YKpoLZiTMGFuHnaVM2LtVxyKPcFpTfUmWSDs4mxP672IaD/AyqCtI7CGKu0Zg==}
     hasBin: true
 
   '@hono/node-server@1.19.12':
@@ -117,19 +117,19 @@ packages:
   '@repomix/tree-sitter-wasms@0.1.16':
     resolution: {integrity: sha512-CIINozBWFwjhH4DQALN/b4n1S08fHhXQOdjX2G7s4w+Urew37aLU0AHVyCjHM5Pbnh63tDYt4YyUkS6vRUV38A==}
 
-  '@secretlint/core@11.5.0':
-    resolution: {integrity: sha512-fVbYXsWz5kHuEsXpfbannAm8gC8nH741NRlOXb8wgwxumwiPqKVlyreu7JKTfQFFNrwHGSoY2Wx4NKD25s8WTQ==}
+  '@secretlint/core@11.6.0':
+    resolution: {integrity: sha512-CGrXYXP4efvAv6VdSqu+mW2MxLL3ATrHgqQyVCFdA1tw34aafoaMHKSPQthiEj9RbPiYsGbiE2JmmauDHs0rEw==}
     engines: {node: '>=20.0.0'}
 
-  '@secretlint/profiler@11.5.0':
-    resolution: {integrity: sha512-o7lZEA4NTJWzNoO3evTZ0luanV0EQlEbjzREIijM1/O1Bfpuy4P+mgAY3+S7CXlrC4I8RApCV2sP2qPiHQtNMA==}
+  '@secretlint/profiler@11.6.0':
+    resolution: {integrity: sha512-ZwgjAIgrYv60LkCfBUTsdfMtROy+iiiwX7DvIcEoPlKFfKC7TEteE1liTgT4mdRg/+9IG5NA9aaOBLWG01byxw==}
 
-  '@secretlint/secretlint-rule-preset-recommend@11.4.1':
-    resolution: {integrity: sha512-htejVuXSTVOlhZhJ9XqdKXBtWTuL+EbG2LdQQk0pfQFJfZLpeNUTjI8fE9ZCuFejuUJiGv1jUi1/rqT64M0Dvg==}
+  '@secretlint/secretlint-rule-preset-recommend@11.6.0':
+    resolution: {integrity: sha512-yEC93K7WWOYN3WBOs7/LwwtsX3LijNKVsR92+Aar3grqM/QfqBZBQQm06sU+gpg/HC9ndn0sd3ljrZe6jcPzcg==}
     engines: {node: '>=20.0.0'}
 
-  '@secretlint/types@11.5.0':
-    resolution: {integrity: sha512-Y2fq597Z2iHa8ZP2XwpGCJd70OA8opgytMfqESNVb7lDvRac2++wIp72vW7Azk3xKycFvBkpxnQppjThgMauTA==}
+  '@secretlint/types@11.6.0':
+    resolution: {integrity: sha512-ooPksY3/ad1qmHhIlnernIZI3yKO55PWsX+RCcj44l9VYSlQCZyfz5DnC/e0U5KxecI9P56iQxxNPkMU6nkUWg==}
     engines: {node: '>=20.0.0'}
 
   '@sindresorhus/merge-streams@4.0.0':
@@ -422,8 +422,9 @@ packages:
     resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
     engines: {node: '>= 4'}
 
-  incur@0.3.13:
-    resolution: {integrity: sha512-ypjWHtDSS8h6TPz+elg9cmQMe7gZu6YpUSAcv4HGIppdQ47VYHXZdho7P4I08CPSzz9VV4tVsWej2pfzXl8jgg==}
+  incur@0.3.18:
+    resolution: {integrity: sha512-TOQTqElFQtk6Kx+ooW343HWvT7t0VRPVBJytCzuDGFL2of1YF9Xs7uBeJJOzK5ppgVdmXf0Ohj5i6Qb0BHGIcg==}
+    engines: {node: '>=22'}
     hasBin: true
 
   inherits@2.0.4:
@@ -873,10 +874,10 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.15': {}
 
-  '@cobuild/review-gpt@0.5.45(openapi-types@12.1.3)':
+  '@cobuild/review-gpt@0.5.48(openapi-types@12.1.3)':
     dependencies:
       '@cobuild/repo-tools': 0.1.15
-      incur: 0.3.13(openapi-types@12.1.3)
+      incur: 0.3.18(openapi-types@12.1.3)
       repomix: 1.13.1
     transitivePeerDependencies:
       - '@cfworker/json-schema'
@@ -953,20 +954,20 @@ snapshots:
 
   '@repomix/tree-sitter-wasms@0.1.16': {}
 
-  '@secretlint/core@11.5.0':
+  '@secretlint/core@11.6.0':
     dependencies:
-      '@secretlint/profiler': 11.5.0
-      '@secretlint/types': 11.5.0
+      '@secretlint/profiler': 11.6.0
+      '@secretlint/types': 11.6.0
       debug: 4.4.3
       structured-source: 4.0.0
     transitivePeerDependencies:
       - supports-color
 
-  '@secretlint/profiler@11.5.0': {}
+  '@secretlint/profiler@11.6.0': {}
 
-  '@secretlint/secretlint-rule-preset-recommend@11.4.1': {}
+  '@secretlint/secretlint-rule-preset-recommend@11.6.0': {}
 
-  '@secretlint/types@11.5.0': {}
+  '@secretlint/types@11.6.0': {}
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
@@ -1269,7 +1270,7 @@ snapshots:
 
   ignore@7.0.5: {}
 
-  incur@0.3.13(openapi-types@12.1.3):
+  incur@0.3.18(openapi-types@12.1.3):
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
       '@readme/openapi-parser': 6.0.1(openapi-types@12.1.3)
@@ -1462,8 +1463,8 @@ snapshots:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
       '@repomix/strip-comments': 2.4.2
       '@repomix/tree-sitter-wasms': 0.1.16
-      '@secretlint/core': 11.5.0
-      '@secretlint/secretlint-rule-preset-recommend': 11.4.1
+      '@secretlint/core': 11.6.0
+      '@secretlint/secretlint-rule-preset-recommend': 11.6.0
       commander: 14.0.3
       fast-xml-builder: 1.1.4
       git-url-parse: 16.1.0
