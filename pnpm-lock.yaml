@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.15
         version: 0.1.15
       '@cobuild/review-gpt':
-        specifier: ^0.5.71
-        version: 0.5.71(@cfworker/json-schema@4.1.1)
+        specifier: ^0.5.72
+        version: 0.5.72(@cfworker/json-schema@4.1.1)
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -39,8 +39,8 @@ packages:
     resolution: {integrity: sha512-CjzP5OHu6RhOOjmPl/1djZNVEbjttt62rBSzvuPK7u9NrZ37F2lkHT+QmZ4Lb+ZDmMhPTqlwdyqnzwD0Gkhm1Q==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.5.71':
-    resolution: {integrity: sha512-t7iHA5Vrv0DjID8duHygBQEaiKyPuyK+nRGxPlzQOaJIrVJDK/rLkEOpl/rEHCUjBSr9vDPzutUea5ba6PCAew==}
+  '@cobuild/review-gpt@0.5.72':
+    resolution: {integrity: sha512-Mm9CxMcDxndGh1xhoRYiiSTb6Xyza0VMqrW38jOzGrw2Cro8+fWysUH7PTeGGkmOL0AWzc6W33/exWnbI1LlZA==}
     hasBin: true
 
   '@hono/node-server@1.19.14':
@@ -803,7 +803,7 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.15': {}
 
-  '@cobuild/review-gpt@0.5.71(@cfworker/json-schema@4.1.1)':
+  '@cobuild/review-gpt@0.5.72(@cfworker/json-schema@4.1.1)':
     dependencies:
       '@cobuild/repo-tools': 0.1.15
       incur: 0.3.25
