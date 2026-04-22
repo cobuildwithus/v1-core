@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.15
         version: 0.1.15
       '@cobuild/review-gpt':
-        specifier: ^0.5.72
-        version: 0.5.72(@cfworker/json-schema@4.1.1)
+        specifier: ^0.5.73
+        version: 0.5.73(@cfworker/json-schema@4.1.1)
       husky:
         specifier: ^8.0.0
         version: 8.0.3
@@ -39,8 +39,8 @@ packages:
     resolution: {integrity: sha512-CjzP5OHu6RhOOjmPl/1djZNVEbjttt62rBSzvuPK7u9NrZ37F2lkHT+QmZ4Lb+ZDmMhPTqlwdyqnzwD0Gkhm1Q==}
     hasBin: true
 
-  '@cobuild/review-gpt@0.5.72':
-    resolution: {integrity: sha512-Mm9CxMcDxndGh1xhoRYiiSTb6Xyza0VMqrW38jOzGrw2Cro8+fWysUH7PTeGGkmOL0AWzc6W33/exWnbI1LlZA==}
+  '@cobuild/review-gpt@0.5.73':
+    resolution: {integrity: sha512-Ge/EXWcOgHusTF1Xzo5oEI+3aBK0MXwfQ7YGiqdoqKeDVefGAlmoL0QMXz9As6+CHg5vrooEJg5Cf7pP1Xcyfg==}
     hasBin: true
 
   '@hono/node-server@1.19.14':
@@ -88,8 +88,8 @@ packages:
     resolution: {integrity: sha512-7a18ODb043eszMBr6mpVWz802xIRMzdmptarVxTtnMIW7ZQzba/v8jLp3kcHUHb76uRkyJRPpGSwdm7+8GmsEA==}
     engines: {node: '>=10'}
 
-  '@repomix/tree-sitter-wasms@0.1.16':
-    resolution: {integrity: sha512-CIINozBWFwjhH4DQALN/b4n1S08fHhXQOdjX2G7s4w+Urew37aLU0AHVyCjHM5Pbnh63tDYt4YyUkS6vRUV38A==}
+  '@repomix/tree-sitter-wasms@0.1.17':
+    resolution: {integrity: sha512-tc3HnFqdMF1pXhIMzG3aTaBDpIiHK2tPfn3fwqA6P3WTbHa+1EuuTubbKshvmN7xCHP5Ojz0/VW4R+XvR88KOw==}
 
   '@secretlint/core@11.7.1':
     resolution: {integrity: sha512-D1a/6U3JT2hhs+OpocAf1j+2t79ExrFqNm8j7pilhCQqpJ9QIEexGs1ty3v9wDACm48v0PFhCNCyn4hyctGYig==}
@@ -803,7 +803,7 @@ snapshots:
 
   '@cobuild/repo-tools@0.1.15': {}
 
-  '@cobuild/review-gpt@0.5.72(@cfworker/json-schema@4.1.1)':
+  '@cobuild/review-gpt@0.5.73(@cfworker/json-schema@4.1.1)':
     dependencies:
       '@cobuild/repo-tools': 0.1.15
       incur: 0.3.25
@@ -864,7 +864,7 @@ snapshots:
 
   '@repomix/strip-comments@2.4.2': {}
 
-  '@repomix/tree-sitter-wasms@0.1.16': {}
+  '@repomix/tree-sitter-wasms@0.1.17': {}
 
   '@secretlint/core@11.7.1':
     dependencies:
@@ -1350,7 +1350,7 @@ snapshots:
       '@clack/prompts': 0.11.0
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@repomix/strip-comments': 2.4.2
-      '@repomix/tree-sitter-wasms': 0.1.16
+      '@repomix/tree-sitter-wasms': 0.1.17
       '@secretlint/core': 11.7.1
       '@secretlint/secretlint-rule-preset-recommend': 11.7.1
       commander: 14.0.3
